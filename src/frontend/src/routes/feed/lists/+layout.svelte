@@ -6,92 +6,92 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
-  import ListFormModal from '$lib/components/ListFormModal.svelte';
+  import UserListFormModal from '$lib/components/UserListFormModal.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-  import { listsRepository } from '$lib/repositories/lists';
-  import type { ListType } from '$lib/types/list';
+  import { userListsRepository } from '$lib/repositories/userLists';
+  import type { UserListType } from '$lib/types/userList';
 
   /** @type {import('./$types').LayoutData} */
   export let data;
 
-  const listsStore = writable(data.lists);
-  $: listsStore.set(data.lists);
-  $: lists = $listsStore;
+  const userListsStore = writable(data.userLists);
+  $: userListsStore.set(data.userLists);
+  $: userLists = $userListsStore;
 
-  $: selectedListId = $page.params.listId ?? null;
+  $: selectedUserListId = $page.params.listId ?? null;
 
   let formOpen = false;
-  let editingList: ListType | null = null;
-  let deleteTarget: ListType | null = null;
+  let editingUserList: UserListType | null = null;
+  let deleteTarget: UserListType | null = null;
 
   function openCreate() {
-    editingList = null;
+    editingUserList = null;
     formOpen = true;
   }
 
-  function openEdit(list: ListType) {
-    editingList = list;
+  function openEdit(userList: UserListType) {
+    editingUserList = userList;
     formOpen = true;
   }
 
   async function refresh() {
-    listsStore.set(await listsRepository.getAll());
+    userListsStore.set(await userListsRepository.getAll());
   }
 
   async function onSaved() {
     formOpen = false;
-    editingList = null;
+    editingUserList = null;
     await refresh();
   }
 
-  function requestDelete(list: ListType) {
-    deleteTarget = list;
+  function requestDelete(userList: UserListType) {
+    deleteTarget = userList;
   }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
-    const wasSelected = deleteTarget.id === selectedListId;
-    await listsRepository.delete(deleteTarget.id);
+    const wasSelected = deleteTarget.id === selectedUserListId;
+    await userListsRepository.delete(deleteTarget.id);
     deleteTarget = null;
     await refresh();
     if (wasSelected) await goto('/feed/lists', { noScroll: true, keepFocus: true });
   }
 
-  function selectList(listId: string) {
-    goto(`/feed/lists/${listId}`, { noScroll: true, keepFocus: true });
+  function selectUserList(userListId: string) {
+    goto(`/feed/lists/${userListId}`, { noScroll: true, keepFocus: true });
   }
 
-  setContext('lists-panel', { lists: listsStore, openCreate, openEdit, requestDelete });
+  setContext('user-lists-panel', { userLists: userListsStore, openCreate, openEdit, requestDelete });
 </script>
 
 <Auth>
   <SideNav currentPage="lists" />
   <div class="feed-container">
-    <div class="lists-layout">
-      <div class="list-master">
-        <div class="list-master-head">
+    <div class="user-lists-layout">
+      <div class="user-list-master">
+        <div class="user-list-master-head">
           <h4>Lists</h4>
-          <button class="list-master-add" on:click={openCreate} aria-label="New list">+</button>
+          <button class="user-list-master-add" on:click={openCreate} aria-label="New list">+</button>
         </div>
 
-        {#if lists.length === 0}
-          <p class="list-master-empty">No lists yet.</p>
+        {#if userLists.length === 0}
+          <p class="user-list-master-empty">No lists yet.</p>
         {:else}
-          {#each lists as list (list.id)}
+          {#each userLists as userList (userList.id)}
             <div
-              class="list-row"
-              class:selected={list.id === selectedListId}
+              class="user-list-row"
+              class:selected={userList.id === selectedUserListId}
               role="button"
               tabindex="0"
-              on:click={() => selectList(list.id)}
-              on:keydown={(e) => e.key === 'Enter' && selectList(list.id)}
+              on:click={() => selectUserList(userList.id)}
+              on:keydown={(e) => e.key === 'Enter' && selectUserList(userList.id)}
             >
-              <span class="list-row-name">{list.name}</span>
-              <div class="list-row-actions">
-                <button aria-label="Edit list" on:click|stopPropagation={() => openEdit(list)}>
+              <span class="user-list-row-name">{userList.name}</span>
+              <div class="user-list-row-actions">
+                <button aria-label="Edit list" on:click|stopPropagation={() => openEdit(userList)}>
                   <span class="action-icon edit-icon"></span>
                 </button>
-                <button class="delete-btn" aria-label="Delete list" on:click|stopPropagation={() => requestDelete(list)}>
+                <button class="delete-btn" aria-label="Delete list" on:click|stopPropagation={() => requestDelete(userList)}>
                   <span class="action-icon delete-icon"></span>
                 </button>
               </div>
@@ -100,7 +100,7 @@
         {/if}
       </div>
 
-      <div class="list-detail">
+      <div class="user-list-detail">
         <slot />
       </div>
     </div>
@@ -110,7 +110,7 @@
 </Auth>
 
 {#if formOpen}
-  <ListFormModal list={editingList} on:saved={onSaved} on:cancel={() => (formOpen = false)} />
+  <UserListFormModal userList={editingUserList} on:saved={onSaved} on:cancel={() => (formOpen = false)} />
 {/if}
 
 {#if deleteTarget}
@@ -142,18 +142,18 @@
     }
   }
 
-  .lists-layout {
+  .user-lists-layout {
     flex: 1;
     display: flex;
     min-height: 0;
   }
 
-  .list-master {
+  .user-list-master {
     display: none;
   }
 
   @media (min-width: 900px) {
-    .list-master {
+    .user-list-master {
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
@@ -165,14 +165,14 @@
     }
   }
 
-  .list-master-head {
+  .user-list-master-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 0.2rem;
   }
 
-  .list-master-head h4 {
+  .user-list-master-head h4 {
     margin: 0;
     font-size: 0.85rem;
     text-transform: uppercase;
@@ -180,7 +180,7 @@
     color: var(--muted);
   }
 
-  .list-master-add {
+  .user-list-master-add {
     width: auto;
     flex-shrink: 0;
     margin-right: 1.25rem;
@@ -193,12 +193,12 @@
     padding: 0.1rem 0.3rem;
   }
 
-  .list-master-empty {
+  .user-list-master-empty {
     color: var(--muted);
     font-size: 0.85rem;
   }
 
-  .list-row {
+  .user-list-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -210,16 +210,16 @@
     transition: border-color 0.2s ease;
   }
 
-  .list-row:hover {
+  .user-list-row:hover {
     border-color: var(--primary);
   }
 
-  .list-row.selected {
+  .user-list-row.selected {
     border-color: var(--primary);
     background: rgba(88, 166, 255, 0.1);
   }
 
-  .list-row-name {
+  .user-list-row-name {
     font-weight: 600;
     font-size: 0.88rem;
     color: var(--fg);
@@ -228,13 +228,13 @@
     white-space: nowrap;
   }
 
-  .list-row-actions {
+  .user-list-row-actions {
     display: flex;
     gap: 0.25rem;
     flex-shrink: 0;
   }
 
-  .list-row-actions button {
+  .user-list-row-actions button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -246,16 +246,16 @@
     color: var(--muted);
   }
 
-  .list-row-actions button:hover {
+  .user-list-row-actions button:hover {
     background: var(--input-bg);
     color: var(--fg);
   }
 
-  .list-row-actions button.delete-btn {
+  .user-list-row-actions button.delete-btn {
     color: var(--error);
   }
 
-  .list-row-actions button.delete-btn:hover {
+  .user-list-row-actions button.delete-btn:hover {
     background: var(--input-bg);
     color: var(--error);
   }
@@ -283,7 +283,7 @@
     mask-image: url('/icons/trash-16.png');
   }
 
-  .list-detail {
+  .user-list-detail {
     flex: 1;
     min-width: 0;
   }

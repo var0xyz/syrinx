@@ -4,17 +4,17 @@
   import { userRepository } from '$lib/repositories/user';
   import { userInfoRepository } from '$lib/repositories/userInfo';
   import { mergeUserView } from '$lib/utils/userView';
-  import { listsRepository, LIST_NAME_MAX, LIST_DESCRIPTION_MAX } from '$lib/repositories/lists';
+  import { userListsRepository, USER_LIST_NAME_MAX, USER_LIST_DESCRIPTION_MAX } from '$lib/repositories/userLists';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
-  import type { ListType } from '$lib/types/list';
+  import type { UserListType } from '$lib/types/userList';
 
-  export let list: ListType | null = null;
+  export let userList: UserListType | null = null;
 
   const dispatch = createEventDispatcher();
 
-  let name = list?.name ?? '';
-  let description = list?.description ?? '';
-  let selectedMemberIds = new Set(list?.memberIds ?? []);
+  let name = userList?.name ?? '';
+  let description = userList?.description ?? '';
+  let selectedMemberIds = new Set(userList?.memberIds ?? []);
   let followingUsers: Array<{ userId: string; username: string }> = [];
   let loadingFollowing = true;
   let saveError = '';
@@ -59,10 +59,10 @@
     saveError = '';
     try {
       const input = { name, description, memberIds: [...selectedMemberIds] };
-      if (list) {
-        await listsRepository.update(list.id, input);
+      if (userList) {
+        await userListsRepository.update(userList.id, input);
       } else {
-        await listsRepository.create(input);
+        await userListsRepository.create(input);
       }
       dispatch('saved');
     } catch (e) {
@@ -79,19 +79,19 @@
 </script>
 
 <div class="overlay" on:click={cancel} role="presentation"></div>
-<div class="modal" role="dialog" aria-modal="true" aria-labelledby="list-form-title">
-  <h3 id="list-form-title">{list ? 'Edit list' : 'New list'}</h3>
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="user-list-form-title">
+  <h3 id="user-list-form-title">{userList ? 'Edit list' : 'New list'}</h3>
 
   <div class="field">
-    <label for="list-name">Name</label>
-    <input id="list-name" type="text" bind:value={name} maxlength={LIST_NAME_MAX} placeholder="List name" />
-    <div class="char-count" class:over-limit={nameCount > LIST_NAME_MAX}>{nameCount}/{LIST_NAME_MAX}</div>
+    <label for="user-list-name">Name</label>
+    <input id="user-list-name" type="text" bind:value={name} maxlength={USER_LIST_NAME_MAX} placeholder="List name" />
+    <div class="char-count" class:over-limit={nameCount > USER_LIST_NAME_MAX}>{nameCount}/{USER_LIST_NAME_MAX}</div>
   </div>
 
   <div class="field">
-    <label for="list-description">Description</label>
-    <textarea id="list-description" bind:value={description} maxlength={LIST_DESCRIPTION_MAX} rows="2" placeholder="Optional description"></textarea>
-    <div class="char-count" class:over-limit={descriptionCount > LIST_DESCRIPTION_MAX}>{descriptionCount}/{LIST_DESCRIPTION_MAX}</div>
+    <label for="user-list-description">Description</label>
+    <textarea id="user-list-description" bind:value={description} maxlength={USER_LIST_DESCRIPTION_MAX} rows="2" placeholder="Optional description"></textarea>
+    <div class="char-count" class:over-limit={descriptionCount > USER_LIST_DESCRIPTION_MAX}>{descriptionCount}/{USER_LIST_DESCRIPTION_MAX}</div>
   </div>
 
   <div class="field">

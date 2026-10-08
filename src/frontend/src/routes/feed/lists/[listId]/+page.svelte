@@ -8,16 +8,16 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import { followReedQueue } from '$lib/repositories/reeds';
-  import { getListReeds } from '$lib/repositories/reeds';
+  import { getUserListReeds } from '$lib/repositories/reeds';
   import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
 
   /** @type {import('./$types').PageData} */
   export let data;
 
-  let list = data.list;
+  let userList = data.userList;
   let reeds = data.reeds;
   let authors = data.authors;
-  $: list = data.list;
+  $: userList = data.userList;
   $: reeds = data.reeds;
   $: authors = data.authors;
 
@@ -29,11 +29,11 @@
   $: followArrived = $followReedQueue?.reed;
   $: if (followArrived && followArrived.id !== lastHandledFollowReedId) {
     lastHandledFollowReedId = followArrived.id;
-    void loadListReeds();
+    void loadUserListReeds();
   }
 
-  async function loadListReeds() {
-    const result = await getListReeds(list.id);
+  async function loadUserListReeds() {
+    const result = await getUserListReeds(userList.id);
     reeds = result.reeds;
     authors = result.authors;
   }
@@ -59,10 +59,10 @@
 </script>
 
 <div class="feed-content-wrap">
-  <div class="list-header">
-    <h2>{list.name}</h2>
-    {#if list.description}
-      <p class="list-description">{list.description}</p>
+  <div class="user-list-header">
+    <h2>{userList.name}</h2>
+    {#if userList.description}
+      <p class="user-list-description">{userList.description}</p>
     {/if}
   </div>
 
@@ -70,7 +70,7 @@
     {#if reeds.length === 0}
       <div class="empty-state">
         <div class="empty-icon">📋</div>
-        {#if list.memberIds.length === 0}
+        {#if userList.memberIds.length === 0}
           <h3>This list has no members</h3>
           <p>Edit the list to add people you follow.</p>
         {:else}
@@ -139,17 +139,17 @@
     padding: 1rem;
   }
 
-  .list-header {
+  .user-list-header {
     margin: 0 0.75rem 1rem;
   }
 
-  .list-header h2 {
+  .user-list-header h2 {
     margin: 0 0 0.25rem;
     color: var(--fg);
     font-size: 1.4rem;
   }
 
-  .list-description {
+  .user-list-description {
     margin: 0;
     color: var(--muted);
     font-size: 0.9rem;

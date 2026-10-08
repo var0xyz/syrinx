@@ -2,7 +2,7 @@ import { dbService } from './db';
 import { serverConnection } from './serverConnection';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { userRepository } from '$lib/repositories/user';
-import { listsRepository } from '$lib/repositories/lists';
+import { userListsRepository } from '$lib/repositories/userLists';
 import {
   pendingEvictionsRepository,
   type PendingEvictionRecord,
@@ -25,7 +25,7 @@ async function protectedUserIDs(): Promise<Set<string>> {
   return buildProtectedUserIDs({
     viewerID: localStorage.getItem('userId'),
     following: await dbService.getAll<{ userId: string }>('following'),
-    lists: await listsRepository.getAll(),
+    userLists: await userListsRepository.getAll(),
     vouches: await dbService.getAll<api.Vouch>('vouches'),
   });
 }

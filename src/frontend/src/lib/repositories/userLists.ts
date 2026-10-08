@@ -1,13 +1,13 @@
 import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
-import { generateListId } from '$lib/utils/id';
-import type { ListType } from '$lib/types/list';
+import { generateUserListId } from '$lib/utils/id';
+import type { UserListType } from '$lib/types/userList';
 
-export const LIST_NAME_MAX = 32;
-export const LIST_DESCRIPTION_MAX = 140;
-const LISTS_STORE = 'lists';
+export const USER_LIST_NAME_MAX = 32;
+export const USER_LIST_DESCRIPTION_MAX = 140;
+const USER_LISTS_STORE = 'userLists';
 
-export interface ListInput {
+export interface UserListInput {
   name: string;
   description: string;
   memberIds: string[];
@@ -15,33 +15,33 @@ export interface ListInput {
 
 function validate(name: string, description: string): void {
   if (!name) throw new Error('List name is required');
-  if (name.length > LIST_NAME_MAX) {
-    throw new Error(`List name cannot exceed ${LIST_NAME_MAX} characters`);
+  if (name.length > USER_LIST_NAME_MAX) {
+    throw new Error(`List name cannot exceed ${USER_LIST_NAME_MAX} characters`);
   }
-  if (description.length > LIST_DESCRIPTION_MAX) {
-    throw new Error(`Description cannot exceed ${LIST_DESCRIPTION_MAX} characters`);
+  if (description.length > USER_LIST_DESCRIPTION_MAX) {
+    throw new Error(`Description cannot exceed ${USER_LIST_DESCRIPTION_MAX} characters`);
   }
 }
 
-export const listsRepository = {
-  async getAll(): Promise<ListType[]> {
-    const all = await dbService.getAll<ListType>(LISTS_STORE);
+export const userListsRepository = {
+  async getAll(): Promise<UserListType[]> {
+    const all = await dbService.getAll<UserListType>(USER_LISTS_STORE);
     return all.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   },
 
-  async get(id: string): Promise<ListType | null> {
-    return dbService.get<ListType>(LISTS_STORE, id);
+  async get(id: string): Promise<UserListType | null> {
+    return dbService.get<UserListType>(USER_LISTS_STORE, id);
   },
 
   /** Case-insensitive uniqueness check; pass excludeId when editing so a
    * list doesn't collide with its own unchanged name. */
   async isNameTaken(name: string, excludeId?: string): Promise<boolean> {
-    const all = await dbService.getAll<ListType>(LISTS_STORE);
+    const all = await dbService.getAll<UserListType>(USER_LISTS_STORE);
     const normalized = name.trim().toLowerCase();
     return all.some((l) => l.id !== excludeId && l.name.trim().toLowerCase() === normalized);
   },
 
-  async create(input: ListInput): Promise<ListType> {
+  async create(input: UserListInput): Promise<UserListType> {
     const name = input.name.trim();
     const description = input.description.trim();
     validate(name, description);
@@ -49,18 +49,18 @@ export const listsRepository = {
       throw new Error('A list with this name already exists');
     }
 
-    const list: ListType = {
-      id: generateListId(),
+    const userList: UserListType = {
+      id: generateUserListId(),
       name,
       description,
       memberIds: [...new Set(input.memberIds)],
       createdAt: Date.now(),
     };
-    await dbService.put<ListType>(LISTS_STORE, list, allowUnsigned);
-    return list;
+    await dbService.put<UserListType>(USER_LISTS_STORE, userList, allowUnsigned);
+    return userList;
   },
 
-  async update(id: string, input: ListInput): Promise<ListType> {
+  async update(id: string, input: UserListInput): Promise<UserListType> {
     const existing = await this.get(id);
     if (!existing) throw new Error('List not found');
 
@@ -71,17 +71,17 @@ export const listsRepository = {
       throw new Error('A list with this name already exists');
     }
 
-    const updated: ListType = {
+    const updated: UserListType = {
       ...existing,
       name,
       description,
       memberIds: [...new Set(input.memberIds)],
     };
-    await dbService.put<ListType>(LISTS_STORE, updated, allowUnsigned);
+    await dbService.put<UserListType>(USER_LISTS_STORE, updated, allowUnsigned);
     return updated;
   },
 
   async delete(id: string): Promise<void> {
-    await dbService.delete(LISTS_STORE, id);
+    await dbService.delete(USER_LISTS_STORE, id);
   },
 };

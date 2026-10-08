@@ -21,11 +21,11 @@ import {
 import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
-import { listsRepository } from './lists';
+import { userListsRepository } from './userLists';
 import { tagsRepository } from './tags';
 import { isOverThreshold } from '$lib/services/quota';
 import { freeSpace } from '$lib/services/eviction';
-import type { ListType } from '$lib/types/list';
+import type { UserListType } from '$lib/types/userList';
 
 // Incremented each time processUnsignedReeds completes successfully
 export const unsignedReedsProcessed = writable(0);
@@ -468,22 +468,22 @@ export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Re
   return { reeds, authors };
 }
 
-const LIST_FEED_LIMIT = 50;
+const USER_LIST_FEED_LIMIT = 50;
 
 /** Same "latest reeds where userID is in this set" query as the follow
  * feed, scoped to one list's members. No type filtering, mirroring the
  * follow feed. Queried fresh each call — no session caching, since lists
  * are visited far less often than the main feed. */
-export async function getListReeds(
-  listId: string
-): Promise<{ reeds: ReedType[]; authors: Record<string, User>; list: ListType | null }> {
-  const list = await listsRepository.get(listId);
-  if (!list || list.memberIds.length === 0) {
-    return { reeds: [], authors: {}, list };
+export async function getUserListReeds(
+  userListId: string
+): Promise<{ reeds: ReedType[]; authors: Record<string, User>; userList: UserListType | null }> {
+  const userList = await userListsRepository.get(userListId);
+  if (!userList || userList.memberIds.length === 0) {
+    return { reeds: [], authors: {}, userList };
   }
-  const memberSet = new Set(list.memberIds);
+  const memberSet = new Set(userList.memberIds);
   const reeds = await dbService.getLatestFromIndex<ReedType>(
-    'reeds', 'serverSignature.timestamp', LIST_FEED_LIMIT,
+    'reeds', 'serverSignature.timestamp', USER_LIST_FEED_LIMIT,
     reed => memberSet.has(reed.userID)
   );
   const authors: Record<string, User> = {};
@@ -494,5 +494,5 @@ export async function getListReeds(
       if (user) authors[authorId] = user;
     }
   }
-  return { reeds, authors, list };
+  return { reeds, authors, userList };
 }

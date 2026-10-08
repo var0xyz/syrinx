@@ -2,36 +2,36 @@
   import { getContext } from 'svelte';
   import { goto } from '$app/navigation';
 
-  const { lists, openCreate, openEdit, requestDelete } = getContext('lists-panel');
+  const { userLists, openCreate, openEdit, requestDelete } = getContext('user-lists-panel');
 </script>
 
-<div class="mobile-lists">
+<div class="mobile-user-lists">
   <button class="floating-create-btn" on:click={openCreate} aria-label="New list">
     <span class="icon"></span>
   </button>
 
-  {#if $lists.length === 0}
+  {#if $userLists.length === 0}
     <div class="empty-state">
       <div class="empty-icon">📋</div>
       <h3>No lists yet</h3>
       <p>Create a list to organize the people you follow.</p>
     </div>
   {:else}
-    <div class="lists">
-      {#each $lists as list (list.id)}
+    <div class="user-lists">
+      {#each $userLists as userList (userList.id)}
         <div
-          class="list-row"
+          class="user-list-row"
           role="button"
           tabindex="0"
-          on:click={() => goto(`/feed/lists/${list.id}`)}
-          on:keydown={(e) => e.key === 'Enter' && goto(`/feed/lists/${list.id}`)}
+          on:click={() => goto(`/feed/lists/${userList.id}`)}
+          on:keydown={(e) => e.key === 'Enter' && goto(`/feed/lists/${userList.id}`)}
         >
-          <span class="list-name">{list.name}</span>
-          <div class="list-actions">
-            <button aria-label="Edit list" on:click|stopPropagation={() => openEdit(list)}>
+          <span class="user-list-name">{userList.name}</span>
+          <div class="user-list-actions">
+            <button aria-label="Edit list" on:click|stopPropagation={() => openEdit(userList)}>
               <span class="action-icon edit-icon"></span>
             </button>
-            <button class="delete-btn" aria-label="Delete list" on:click|stopPropagation={() => requestDelete(list)}>
+            <button class="delete-btn" aria-label="Delete list" on:click|stopPropagation={() => requestDelete(userList)}>
               <span class="action-icon delete-icon"></span>
             </button>
           </div>
@@ -47,7 +47,7 @@
 </div>
 
 <style>
-  .mobile-lists {
+  .mobile-user-lists {
     max-width: 680px;
     margin: 0 auto;
     width: 100%;
@@ -55,7 +55,7 @@
   }
 
   @media (min-width: 900px) {
-    .mobile-lists {
+    .mobile-user-lists {
       display: none;
     }
   }
@@ -116,13 +116,13 @@
     mask-repeat: no-repeat;
   }
 
-  .lists {
+  .user-lists {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
   }
 
-  .list-row {
+  .user-list-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -134,11 +134,11 @@
     transition: all 0.2s ease;
   }
 
-  .list-row:hover {
+  .user-list-row:hover {
     border-color: var(--primary);
   }
 
-  .list-name {
+  .user-list-name {
     font-weight: 600;
     color: var(--fg);
     overflow: hidden;
@@ -146,13 +146,13 @@
     white-space: nowrap;
   }
 
-  .list-actions {
+  .user-list-actions {
     display: flex;
     gap: 0.25rem;
     flex-shrink: 0;
   }
 
-  .list-actions button {
+  .user-list-actions button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -164,16 +164,16 @@
     color: var(--muted);
   }
 
-  .list-actions button:hover {
+  .user-list-actions button:hover {
     background: var(--input-bg);
     color: var(--fg);
   }
 
-  .list-actions button.delete-btn {
+  .user-list-actions button.delete-btn {
     color: var(--error);
   }
 
-  .list-actions button.delete-btn:hover {
+  .user-list-actions button.delete-btn:hover {
     background: var(--input-bg);
     color: var(--error);
   }
@@ -224,7 +224,7 @@
   }
 
   @media (max-width: 768px) {
-    .mobile-lists {
+    .mobile-user-lists {
       padding: 0.5rem;
     }
   }
