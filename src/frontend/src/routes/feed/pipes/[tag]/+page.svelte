@@ -4,8 +4,9 @@
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import LocalPagination from '$lib/components/LocalPagination.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
-  import { pipeReedQueue } from '$lib/repositories/reeds';
+  import { pipeReedQueue, reedsService } from '$lib/repositories/reeds';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
   import { pipesRepository } from '$lib/repositories/pipes';
@@ -15,18 +16,27 @@
   /** @type {import('./$types').PageData} */
   export let data;
 
+  const PAGE_SIZE = 30;
+
   let tag = data.tag;
   let displayName = data.displayName;
-  let reeds = data.reeds;
-  let authors = data.authors;
+  /** @type {Record<string, any>} */
+  let authors = {};
+  /** @type {LocalPagination<any> | undefined} */
+  let pagination;
   let lastHandledPipeReedId = '';
   let subscribedTag = '';
   let pinned = false;
 
   $: tag = data.tag;
   $: displayName = data.displayName;
-  $: reeds = data.reeds;
-  $: authors = data.authors;
+
+  /** @param {string | undefined} after */
+  async function fetchPage(after) {
+    const page = await reedsService.getReedsByTag(tag, PAGE_SIZE, after);
+    authors = { ...authors, ...page.authors };
+    return { items: page.items, hasMore: page.hasMore, nextCursor: page.nextCursor };
+  }
 
   $: if (tag && tag !== subscribedTag) {
     void switchPipeSubscription(tag);
@@ -52,25 +62,24 @@
     void onLiveReed(pipeArrived, $pipeReedQueue?.username);
   }
 
+  // A pipe reed is stored before it's announced, so re-reading the pages
+  // shown picks it up in publication order.
   async function onLiveReed(reed, username) {
     if (!reed?.tags?.some((t) => t.toLowerCase() === tag)) return;
-    if (reeds.some((r) => r.id === reed.id)) return;
 
-    let nextAuthors = authors;
     if (username || !authors[reed.userID]) {
       const existing = authors[reed.userID];
       const fromRepo = existing ?? (await userRepository.getByUserId(reed.userID).catch(() => null));
-      nextAuthors = {
+      authors = {
         ...authors,
         [reed.userID]: fromRepo ?? {
           id: reed.userID,
           username: username ?? reed.userID,
         },
       };
-      authors = nextAuthors;
     }
 
-    reeds = [reed, ...reeds];
+    await pagination?.reload();
   }
 
   async function switchPipeSubscription(nextTag) {
@@ -105,43 +114,46 @@
 
 <div class="pipe-content">
   <div class="pipe-list">
-    {#if reeds.length === 0}
-      <div class="waiting-state">
-        <div class="waiting-pulse"></div>
-        <p>No local reeds for #{displayName} yet. Listening…</p>
-      </div>
-    {:else}
-      {#each reeds as reed (reed.id)}
-        <div
-          class="feed-item"
-          role="button"
-          tabindex="0"
-          on:click={() => goto(`/reed/${reed.id}`)}
-          on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}
-        >
-          <div class="feed-header">
-            <ReedAuthorHeader
-              userID={reed.userID}
-              username={authors[reed.userID]?.username ?? reed.userID}
-              subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
-              stopPropagation
-              linked={false}
-            />
-            <ReedActionsMenu
-              reedRef={reed.id}
-              userID={reed.userID}
-              username={authors[reed.userID]?.username ?? reed.userID}
-              content={reed.content}
-            />
-          </div>
-          {#if (reed.content || '').trim()}
-            <div class="feed-content">
-              <MarkdownParser text={reed.content} preview={true} />
+    {#key tag}
+      <LocalPagination bind:this={pagination} {fetchPage}>
+        {#snippet item(reed)}
+          <div
+            class="feed-item"
+            role="button"
+            tabindex="0"
+            on:click={() => goto(`/reed/${reed.id}`)}
+            on:keydown={(e) => e.key === 'Enter' && goto(`/reed/${reed.id}`)}
+          >
+            <div class="feed-header">
+              <ReedAuthorHeader
+                userID={reed.userID}
+                username={authors[reed.userID]?.username ?? reed.userID}
+                subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
+                stopPropagation
+                linked={false}
+              />
+              <ReedActionsMenu
+                reedRef={reed.id}
+                userID={reed.userID}
+                username={authors[reed.userID]?.username ?? reed.userID}
+                content={reed.content}
+              />
             </div>
-          {/if}
-        </div>
-      {/each}
-    {/if}
+            {#if (reed.content || '').trim()}
+              <div class="feed-content">
+                <MarkdownParser text={reed.content} preview={true} />
+              </div>
+            {/if}
+          </div>
+        {/snippet}
+        {#snippet empty()}
+          <div class="waiting-state">
+            <div class="waiting-pulse"></div>
+            <p>No local reeds for #{displayName} yet. Listening…</p>
+          </div>
+        {/snippet}
+      </LocalPagination>
+    {/key}
   </div>
 </div>
 
