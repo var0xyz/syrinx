@@ -84,4 +84,13 @@ export const userListsRepository = {
   async delete(id: string): Promise<void> {
     await dbService.delete(USER_LISTS_STORE, id);
   },
+
+  /** Lists only hold people you follow, so an unfollow takes them off all. */
+  async removeMember(userID: string): Promise<void> {
+    for (const userList of await dbService.getAll<UserListType>(USER_LISTS_STORE)) {
+      if (!userList.memberIds.includes(userID)) continue;
+      const memberIds = userList.memberIds.filter((id) => id !== userID);
+      await dbService.put<UserListType>(USER_LISTS_STORE, { ...userList, memberIds }, allowUnsigned);
+    }
+  },
 };
