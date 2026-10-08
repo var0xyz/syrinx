@@ -4,6 +4,7 @@
  */
 
 import { authService } from './auth';
+import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { dbService } from './db';
 import { clearImportRun, isImportComplete, isImportInProgress } from './importRun';
 import {
@@ -84,18 +85,21 @@ export async function redirectForRestoreState(): Promise<boolean> {
     return false;
   }
 
+  // <Auth> sends a session it can't sign with back to /, so only a user
+  // record together with its active private key may go on to /reeds.
   const user = await authService.getCurrentUser();
-  if (user) {
+  const keyId = authService.getActiveKeyId();
+  const keyHeld = !!keyId && (await privateKeyRepository.hasPrivateKey(keyId));
+  if (user && keyHeld) {
     navigate('/reeds');
     return true;
   }
 
-  // userId survived (localStorage) but IndexedDB has no matching record —
-  // an IndexedDB wipe (schema bump) or a stale importRun marker left the
-  // session unusable. Clear the stale local state and send the user to
-  // re-establish identity instead of stranding them on / with no signal.
+  // userId survived (localStorage) but IndexedDB has no matching record or
+  // key — an IndexedDB wipe (schema bump) or a stale importRun marker left
+  // the session unusable. Clear it and send the user to re-establish identity.
   console.warn(
-    'restoreFlow: local session markers present but no user in IndexedDB; clearing and sending to /import'
+    `restoreFlow: session markers present but ${user ? 'no private key for ' + keyId : 'no user'} in IndexedDB; clearing and sending to /import`
   );
   localStorage.removeItem('userId');
   clearImportRun();
