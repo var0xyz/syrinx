@@ -30,7 +30,7 @@ const STORE_DEFAULTS: Record<string, () => Record<string, unknown>> = {
   removedAccounts: () => ({ note: '' }),
   ripples: () => ({ content: '' }),
   mailbox: () => ({ message: '' }),
-  lists: () => ({ description: '', memberIds: [] }),
+  userLists: () => ({ description: '', memberIds: [] }),
 };
 
 /** Strips `__meta__` and restores the defaults `put` compacted away. */
@@ -59,6 +59,7 @@ export interface DbService {
   getMeta(storeName: string, key: DbKey): Promise<DbMetadata | null>;
   delete(storeName: string, key: DbKey): Promise<void>;
   getAll<T extends api.Base>(storeName: string): Promise<T[]>;
+  getAllWithMeta<T>(storeName: string): Promise<{ record: T; meta: DbMetadata }[]>;
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean, after?: IDBValidKey): Promise<T[]>;
   getAllByIndex<T>(storeName: string, indexName: string, key: IDBValidKey | IDBKeyRange): Promise<T[]>;
@@ -76,7 +77,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 27;
+  private readonly version = 29;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -107,13 +108,15 @@ export class IndexedDbService implements DbService {
     ['likedReeds',         'compositeKey', 'likedAt'],
     ['mentions',           'reedID', 'createdAt'],
     ['pendingEvictions',   'reedID'     ],
+    ['pendingKeyEvictions', 'keyID'     ],
     ['vouches',            'id', 'subjectUserID', 'voucherUserID'],
     ['pendingVouches',     'compositeKey'],
     ['declinedVouches',    'id', 'voucherUserID'],
 
     // Local-only (not signed, not synced to the server)
-    ['lists',              'id'],
+    ['userLists',          'id'],
     ['pipes',              'tagName'],
+    ['profileVisits',      'userID'],
 
     // Trust roots: people you verified in person. Never uploaded.
     ['trustRoots',         'userID'],
@@ -304,6 +307,23 @@ export class IndexedDbService implements DbService {
       request.onsuccess = () => {
         const results = request.result as DbWrapper<T>[];
         resolve(results.map((item) => unwrap(storeName, item)));
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /** `getAll` that keeps each record's `__meta__`, for size accounting. */
+  async getAllWithMeta<T>(storeName: string): Promise<{ record: T; meta: DbMetadata }[]> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const request = transaction.objectStore(storeName).getAll();
+
+      request.onsuccess = () => {
+        const results = request.result as DbWrapper<T>[];
+        resolve(results.map((item) => ({ record: unwrap(storeName, item), meta: item.__meta__ })));
       };
       request.onerror = () => reject(request.error);
     });

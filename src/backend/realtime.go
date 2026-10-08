@@ -2519,6 +2519,9 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_EVICTION:
 		rs.handleEviction(client, msg.GetEviction().GetReedId())
 
+	case pb.MessageType_KEY_EVICTION:
+		rs.handleKeyEviction(client, msg.GetKeyEviction().GetKeyId())
+
 	case pb.MessageType_SUBSCRIBE_REED:
 		rs.handleSubscribeReed(client, msg.GetSubscribeReed().GetReedId())
 
@@ -4335,6 +4338,28 @@ func (rs *realtimeService) handleEviction(client *realtimeClient, reedID string)
 		Type: pb.MessageType_EVICTION_ACK,
 		Payload: &pb.WSMessage_EvictionAck{
 			EvictionAck: &pb.EvictionAckMessage{ReedId: reedID},
+		},
+	}
+	rs.sendProtobufMessage(client, ack)
+}
+
+// handleKeyEviction drops this client's allocation for a public key it is
+// about to delete locally, so its revocation is no longer owed. Acks
+// unconditionally, like handleEviction.
+func (rs *realtimeService) handleKeyEviction(client *realtimeClient, keyID string) {
+	if keyID == "" {
+		return
+	}
+
+	if err := rs.db.DeletePublicKeyAllocation(context.Background(), client.userID, keyID); err != nil {
+		log.Error().Err(err).Str("keyID", keyID).Str("userID", client.userID).Msg("Failed to clear key allocation on eviction")
+		return
+	}
+
+	ack := &pb.WSMessage{
+		Type: pb.MessageType_KEY_EVICTION_ACK,
+		Payload: &pb.WSMessage_KeyEvictionAck{
+			KeyEvictionAck: &pb.KeyEvictionAckMessage{KeyId: keyID},
 		},
 	}
 	rs.sendProtobufMessage(client, ack)

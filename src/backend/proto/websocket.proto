@@ -70,6 +70,8 @@ message WSMessage {
     RequestThreadMessage request_thread = 51;
     RelayThreadMessage relay_thread = 52;
     ThreadRemovedMessage thread_removed = 53;
+    KeyEvictionMessage key_eviction = 54;
+    KeyEvictionAckMessage key_eviction_ack = 55;
   }
 }
 
@@ -144,6 +146,8 @@ enum MessageType {
   REQUEST_THREAD = 62;
   RELAY_THREAD = 63;
   THREAD_REMOVED = 64;
+  KEY_EVICTION = 65;
+  KEY_EVICTION_ACK = 66;
 }
 
 // Ping message
@@ -338,6 +342,17 @@ message EvictionMessage {
 // existed, so a client that retries never blocks on a lost ack.
 message EvictionAckMessage {
   string reed_id = 1;
+}
+
+// Client notice that it no longer holds this public key, so the server
+// stops owing it the key's revocation.
+message KeyEvictionMessage {
+  string key_id = 1;
+}
+
+// Acks a KEY_EVICTION. Idempotent, like EvictionAckMessage.
+message KeyEvictionAckMessage {
+  string key_id = 1;
 }
 
 message ReedNotFoundMessage {

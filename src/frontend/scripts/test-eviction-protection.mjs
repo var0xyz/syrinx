@@ -23,13 +23,13 @@ const vouched = buildProtectedUserIDs({
 });
 assert.ok(vouched.has('bob@peer'), 'a user you vouched for is protected');
 
-// The voucher is protected too: a green check needs their identity resolvable.
+// Someone who vouched for you is not: their key re-fetches safely.
 const inbound = buildProtectedUserIDs({
   ...empty,
   viewerID: 'me@home',
   vouches: [{ subjectUserID: 'me@home', voucherUserID: 'carol@x' }],
 });
-assert.ok(inbound.has('carol@x'), 'someone who vouched for you is protected');
+assert.ok(!inbound.has('carol@x'), 'someone who vouched for you is evictable');
 
 // An unrelated user stays evictable, or quota pressure has nothing to free.
 const mixed = buildProtectedUserIDs({

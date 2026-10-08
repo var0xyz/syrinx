@@ -5,6 +5,7 @@ import { userInfoRepository } from '$lib/repositories/userInfo';
 import { followingRepository } from '$lib/repositories/following';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { mergeUserView } from '$lib/utils/userView';
+import { profileVisitsRepository } from '$lib/repositories/profileVisits';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {
@@ -16,6 +17,9 @@ export async function load({ params, parent }) {
   const userId = params.userId;
   const isOwner = currentUser.id === userId;
   const isFollowing = !isOwner && (await followingRepository.isFollowing(userId));
+  if (!isOwner) {
+    void profileVisitsRepository.record(userId).catch(() => {});
+  }
 
   const removedCert = await removedAccountsRepository.get(userId);
   if (removedCert) {

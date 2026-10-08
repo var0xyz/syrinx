@@ -7,6 +7,11 @@ import {
   pendingEvictionsRepository,
   type PendingEvictionRecord,
 } from '$lib/repositories/pendingEvictions';
+import {
+  pendingKeyEvictionsRepository,
+  type PendingKeyEvictionRecord,
+} from '$lib/repositories/pendingKeyEvictions';
+import { profileVisitsRepository } from '$lib/repositories/profileVisits';
 import type * as api from '$lib/types/api';
 import type { ReedType } from '$lib/types/reed';
 import { buildProtectedUserIDs } from '$lib/utils/evictionProtection';
@@ -20,8 +25,8 @@ type EvictionCandidate = {
 };
 
 /** Users the viewer has shown interest in, plus the viewer: never
- * evicted even when over quota. */
-async function protectedUserIDs(): Promise<Set<string>> {
+ * evicted even when over quota, and their keys are never evicted at all. */
+export async function protectedUserIDs(): Promise<Set<string>> {
   return buildProtectedUserIDs({
     viewerID: localStorage.getItem('userId'),
     following: await dbService.getAll<{ userId: string }>('following'),
@@ -39,6 +44,9 @@ async function listCandidates(): Promise<EvictionCandidate[]> {
   // Already queued: their reeds are on their way out, so offering them
   // again would evict a second user for space that's already coming.
   for (const record of await pendingEvictionsRepository.getAll()) {
+    protectedIDs.add(record.userID);
+  }
+  for (const record of await pendingKeyEvictionsRepository.getAll()) {
     protectedIDs.add(record.userID);
   }
 
@@ -68,18 +76,46 @@ function pickRandom<T>(items: T[]): T | null {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-/** Drop the victim's profile, info and key. Called only once none of
- * their reeds are queued — the profile and key are what a retry needs to
- * verify whatever content is still held. */
+/** Queue the victim's keys; their profile goes once the last key is
+ * acked. Called only once none of their reeds are queued — the profile
+ * and key are what a retry needs to verify what is still held. */
 async function dropUserRecords(userID: string): Promise<void> {
+  // Content from a protected user keeps arriving and needs both.
+  if ((await protectedUserIDs()).has(userID)) return;
+
+  const keyIDs = new Set<string>();
   const profile = await userRepository.get(userID);
+  if (profile?.userSignature?.id) keyIDs.add(profile.userSignature.id);
+  for (const key of await publicKeyRepository.listPublicKeys()) {
+    if (key.userID === userID) keyIDs.add(key.id);
+  }
+
+  if (keyIDs.size === 0) {
+    await dropProfile(userID);
+    return;
+  }
+  for (const keyID of keyIDs) {
+    await pendingKeyEvictionsRepository.put({ keyID, userID });
+  }
+}
+
+async function dropProfile(userID: string): Promise<void> {
   await userRepository.delete(userID);
   await dbService.delete('usersInfo', userID);
+  await profileVisitsRepository.delete(userID);
+}
 
-  const keyID = profile?.userSignature?.id;
-  if (keyID) {
-    await publicKeyRepository.deletePublicKey(keyID);
+/** Announce one queued key and, once the server acks, delete it. */
+async function flushKey(record: PendingKeyEvictionRecord): Promise<boolean> {
+  if (!(await serverConnection.evictKey(record.keyID))) return false;
+
+  await publicKeyRepository.deletePublicKey(record.keyID);
+  await pendingKeyEvictionsRepository.delete(record.keyID);
+
+  if ((await pendingKeyEvictionsRepository.getByUser(record.userID)).length === 0) {
+    await dropProfile(record.userID);
   }
+  return true;
 }
 
 /** Announce one queued reed and, once the server acks, delete it. The
@@ -106,6 +142,31 @@ export async function syncPendingEvictions(): Promise<void> {
       console.error('Eviction: failed to flush queued eviction:', record.reedID, error);
     }
   }
+  for (const record of await pendingKeyEvictionsRepository.getAll()) {
+    try {
+      await flushKey(record);
+    } catch (error) {
+      console.error('Eviction: failed to flush queued key eviction:', record.keyID, error);
+    }
+  }
+}
+
+/** Queue everything held for each user; the caller drains the queue.
+ * Their reeds go even if protected; a protected user's profile and keys stay. */
+export async function evictUsers(userIDs: string[]): Promise<void> {
+  const viewerID = localStorage.getItem('userId');
+  for (const userID of userIDs) {
+    if (userID === viewerID) continue;
+
+    const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', userID);
+    if (reeds.length === 0) {
+      await dropUserRecords(userID);
+      continue;
+    }
+    for (const reed of reeds) {
+      await pendingEvictionsRepository.put({ reedID: reed.id, userID });
+    }
+  }
 }
 
 /**
@@ -122,6 +183,7 @@ export async function freeSpace(): Promise<void> {
 
   if (candidate.reedIDs.length === 0) {
     await dropUserRecords(candidate.userID);
+    void syncPendingEvictions();
     return;
   }
 

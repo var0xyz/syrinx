@@ -29,6 +29,10 @@ when schema changes.
 | Eviction component | `src/frontend/src/lib/services/eviction.ts` |
 | Offline-first queue | `src/frontend/src/lib/repositories/pendingEvictions.ts` (`pendingEvictions` store) |
 | Store-time gate | `ReedsService.storeReed` (`lib/repositories/reeds.ts`) |
+| `KEY_EVICTION` / `KEY_EVICTION_ACK` + `handleKeyEviction` | `websocket.proto`, `realtime.go` |
+| Key queue | `lib/repositories/pendingKeyEvictions.ts` (`pendingKeyEvictions` store) |
+| Manual eviction (`evictUsers`) | `lib/services/eviction.ts` |
+| Stored-users view | `routes/account/storage`, `lib/services/storedUsers.ts` |
 
 ## Locked decisions
 
@@ -38,7 +42,7 @@ when schema changes.
 | No estimate available | Treated as **under** threshold — never block a store we can't measure |
 | Victim choice | A **random** evictable local user |
 | Candidates | Any local user not protected below — **including** cached profiles with no held reeds |
-| Protected | The viewer, everyone they follow, and every member of a list |
+| Protected | The viewer, everyone they follow, every member of a list, and everyone they verified. **Not** those who verified them: their key re-fetches as safely as it was first fetched |
 | Tombstones | Evictable: the signed cert lives in `removedAccounts`, and the profile page re-fetches it |
 | Delete order | Every reed first; **profile and key only after the last reed is gone** |
 | Per-reed order | `EVICTION` → server `EVICTION_ACK` → local delete. Never the reverse |
@@ -49,6 +53,11 @@ when schema changes.
 | Queue | `pendingEvictions`, keyed by reed id, carrying the victim's userID. Drained in the background and retried on reconnect/startup |
 | Queued victims | Excluded from candidate selection, so pressure doesn't queue a second user for space already on its way |
 | Coverage | A dropped allocation fires the usual `REED_COVERAGE` notify |
+| Keys | Each evicted key is announced with `KEY_EVICTION` and deleted on ack, so the server stops owing its revocation (`public_key_allocations`) |
+| Delete order (keys) | Reeds, then keys, then **profile and info only after the last key is acked** |
+| Protected profile and keys | A protected user's profile and keys are **never** evicted: their content keeps arriving and needs both |
+| Manual eviction | Any user but the viewer, protected ones included: their reeds always go; a protected user's profile and keys stay |
+| Sizes | Computed on demand from `__meta__.bytes` of the user's authored reeds, profile and keys; no running total |
 
 ## Flow
 
