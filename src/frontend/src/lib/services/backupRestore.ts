@@ -7,7 +7,6 @@ import { authService } from './auth';
 import { ensureDeviceId } from './deviceId';
 import { localStorageService } from './localstorage';
 import { serverInfo } from './serverInfo';
-import { markChecked } from '$lib/utils/keyCheckThrottle';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { revocationRepository } from '$lib/repositories/revocation';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
@@ -419,9 +418,6 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
       } else {
         await publicKeyRepository.put(key);
       }
-      // Otherwise later verifiers treat this fresh-from-backup key as due
-      // for a recheck and re-fetch it over the network regardless.
-      markChecked(key.id);
       return;
     }
     case 'revocations':

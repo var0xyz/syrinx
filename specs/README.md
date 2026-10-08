@@ -26,7 +26,7 @@ Each table below has a **Status** column per step. Values:
 | Track                 | Status      | Remaining                                              |
 | --------------------- | ----------- | ------------------------------------------------------ |
 | Server key rotation   | Implemented | —                                                      |
-| Key revocation events | In progress | 04 (01–03 implemented; supersedes prerequisite 09)     |
+| Key revocation events | Implemented | — (supersedes prerequisite 09)                         |
 | Ripples               | Proposed    | 00–04                                                  |
 | Notifications         | Proposed    | 00–05                                                  |
 | Load testing          | Proposed    | 00–03                                                  |
@@ -412,13 +412,15 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 
 ## Parallelism
 
-- **Prerequisites 01–10 are all Implemented; 11 is Superseded** by
+- **Prerequisites 01–08 and 10 are Implemented; 09 is Superseded** by
+  [`key_revocation_events/`](key_revocation_events/README.md) **and 11** by
   [`notifications/`](notifications/README.md) — nothing remains open in the
   prerequisites track itself.
 - **After 01 lands**: 03, 04, 05, 06, 07 unblocked on `BytesToSign`
   (most of these are already shipped).
-- **09** (revocation: on-demand check, not fanout) is implemented; landed
-  after 06+10 as an SPA verify-path + throttle change, not a WS fanout.
+- **09** (revocation: on-demand check, not fanout) is superseded by
+  [`key_revocation_events/`](key_revocation_events/README.md), which pushes
+  revocations and removed the re-check throttle.
 - **Signatures 09** (verify-before-store) is implemented; attested
   possession cancelled.
 - **Recovery feature steps** land only after the prerequisites they need;

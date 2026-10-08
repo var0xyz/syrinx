@@ -11,7 +11,7 @@ import { cryptoService } from '$lib/services/crypto';
 import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
 import { reedContentWithinLimits } from '$lib/utils/reedContent';
-import { shouldRecheck, markChecked } from '$lib/utils/keyCheckThrottle';
+import { signedBeforeRevocation } from '$lib/utils/keyRevocation';
 import { parseKeyId, parseCanonicalId } from '$lib/utils/identityRef';
 import { canonicalKeyId } from '$lib/services/api';
 import {
@@ -66,7 +66,6 @@ async function fetchAndStorePublicKey(
     const key = await apiService.getPublicKey(canonicalKeyId(userID, fingerprint));
     if (!key) return null;
     await dbService.put('publicKeys', key, verifyPublicKey);
-    markChecked(fingerprint);
     return key;
   } catch (err) {
     const status = (err as { status?: number })?.status;
@@ -84,21 +83,19 @@ export async function resolvePublicKeyArmor(
   fingerprint: string
 ): Promise<string | null> {
   const cached = await dbService.get<api.PublicKey>('publicKeys', fingerprint);
-  if (cached?.armor && !shouldRecheck(fingerprint)) return cached.armor;
+  if (cached?.armor) return cached.armor;
   const key = await fetchAndStorePublicKey(userID, fingerprint);
   return key?.armor ?? null;
 }
 
-/** Cached public key, re-fetching + attesting + storing on miss or once the
- * sessionStorage throttle window has elapsed since the last check. A failed
- * re-check (transient network error, not 404) fails closed rather than
- * falling back to the stale cached copy — freshness could not be confirmed. */
+/** Cached public key, fetched + attested + stored only on a miss. A cached
+ * key is never re-checked: revocations are pushed (KEY_REVOKED). */
 async function resolvePublicKey(
   userID: string,
   fingerprint: string
 ): Promise<api.PublicKey | null> {
   const cached = await dbService.get<api.PublicKey>('publicKeys', fingerprint);
-  if (cached && !shouldRecheck(fingerprint)) return cached;
+  if (cached) return cached;
   return await fetchAndStorePublicKey(userID, fingerprint);
 }
 
@@ -218,11 +215,26 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
   return true;
 }
 
+/** A revoked key's revocation, from the local store or fetched, verified
+ * and stored once. Null when it can't be fetched or doesn't verify. */
+async function resolveKeyRevocation(
+  userID: string,
+  fingerprint: string
+): Promise<api.KeyRevocation | null> {
+  const cached = await dbService.get<api.KeyRevocation>('revocations', fingerprint);
+  if (cached) return cached;
+  try {
+    const revocation = await apiService.getKeyRevocation(userID, fingerprint);
+    await dbService.put('revocations', revocation, verifyKeyRevocation);
+    return revocation;
+  } catch {
+    return null;
+  }
+}
+
 /** True if a key was valid at the given (server-attested) instant: not
- * revoked, or revoked strictly after that instant — a key remains valid for
- * content it signed before its own revocation. Fails closed (false) if the
- * revocation record can't be fetched, and reports REVOKED_KEY_USED when
- * content was genuinely signed at/after revocation. */
+ * revoked, or revoked strictly after that instant. Fails closed without a
+ * verified revocation, and reports REVOKED_KEY_USED on content signed after. */
 async function isKeyValidAt(
   userID: string,
   fingerprint: string,
@@ -230,14 +242,9 @@ async function isKeyValidAt(
   atISO: string
 ): Promise<boolean> {
   if (!revoked) return true;
-  let revocation: api.KeyRevocation;
-  try {
-    revocation = await apiService.getKeyRevocation(userID, fingerprint);
-  } catch {
-    return false;
-  }
+  const revocation = await resolveKeyRevocation(userID, fingerprint);
   if (!revocation?.serverSignature?.timestamp) return false;
-  const valid = Date.parse(atISO) < Date.parse(revocation.serverSignature.timestamp);
+  const valid = signedBeforeRevocation(atISO, revocation.serverSignature.timestamp);
   if (!valid) {
     serverConnection.sendRevokedKeyUsed(userID, fingerprint);
   }
