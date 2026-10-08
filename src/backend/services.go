@@ -3291,6 +3291,98 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 	}, nil
 }
 
+// ============ //
+//   Blocks     //
+// ============ //
+
+// ErrBlockConflict: a block already exists for the pair under different
+// signatures.
+var ErrBlockConflict = errors.New("block conflict")
+
+const blockCertSelect = `
+	SELECT b.user_id, b.blocked_user_id,
+		us.public_key_id, us.signature,
+		ss.private_key_id, ss.signature, ss.signed_at
+	FROM user_blocks b
+	JOIN user_signatures us ON us.id = b.user_signature_id
+	JOIN server_signatures ss ON ss.id = b.server_signature_id`
+
+type blockRowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanBlockCert(row blockRowScanner) (*BlockCert, error) {
+	cert := BlockCert{Type: identityTypeBlock}
+	err := row.Scan(
+		&cert.UserID, &cert.BlockedUserID,
+		&cert.UserSignature.ID, &cert.UserSignature.Armor,
+		&cert.ServerSignature.ID, &cert.ServerSignature.Armor, &cert.ServerSignature.SignedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	cert.ServerSignature.SignedAt = cert.ServerSignature.SignedAt.UTC()
+	return &cert, nil
+}
+
+// GetBlock returns userID's block of blockedUserID, or nil.
+func (s *DataService) GetBlock(ctx context.Context, userID, blockedUserID string) (*BlockCert, error) {
+	cert, err := scanBlockCert(s.db.QueryRowContext(ctx,
+		blockCertSelect+` WHERE b.user_id = $1 AND b.blocked_user_id = $2`,
+		userID, blockedUserID))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return cert, err
+}
+
+// InsertBlock stores a block once. created is false on an identical
+// replay; different signatures for a stored pair → ErrBlockConflict.
+func (s *DataService) InsertBlock(ctx context.Context, cert BlockCert) (created bool, err error) {
+	cert.ServerSignature.SignedAt = cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	existing, err := scanBlockCert(tx.QueryRowContext(ctx,
+		blockCertSelect+` WHERE b.user_id = $1 AND b.blocked_user_id = $2 FOR UPDATE OF b`,
+		cert.UserID, cert.BlockedUserID))
+	switch {
+	case err == sql.ErrNoRows:
+	case err != nil:
+		return false, err
+	default:
+		if existing.UserSignature != cert.UserSignature ||
+			existing.ServerSignature.ID != cert.ServerSignature.ID ||
+			existing.ServerSignature.Armor != cert.ServerSignature.Armor ||
+			!existing.ServerSignature.SignedAt.Equal(cert.ServerSignature.SignedAt) {
+			return false, ErrBlockConflict
+		}
+		return false, nil
+	}
+
+	userSigID, err := insertUserSignature(ctx, tx, cert.UserSignature.ID, cert.UserSignature.Armor)
+	if err != nil {
+		return false, err
+	}
+	serverSigID, err := insertServerSignature(ctx, tx, cert.ServerSignature.ID, cert.ServerSignature.Armor, cert.ServerSignature.SignedAt)
+	if err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_blocks (
+			user_id, blocked_user_id, public_key_id,
+			user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5)
+	`, cert.UserID, cert.BlockedUserID, cert.UserSignature.ID, userSigID, serverSigID); err != nil {
+		return false, fmt.Errorf("insert block: %w", err)
+	}
+	return true, tx.Commit()
+}
+
 // ==================== //
 //   Account recovery   //
 // ==================== //

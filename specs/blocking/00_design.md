@@ -138,9 +138,9 @@ that too.
   countersignature verifies against the blocking user's server key selected by
   fingerprint. A server cannot make a client believe it was blocked without
   the blocking user's signature.
-- **The countersignature binds identity**: `userID`, `blockedUserID`,
-  `serverID`, the blocking user's key ID, the server key fingerprint and the
-  server timestamp ([shared conventions](../README.md)).
+- **The countersignature binds identity**: `userID`, `blockedUserID`, the
+  blocking user's key ID (inside the signed user payload), the server key
+  fingerprint and the server timestamp ([shared conventions](../README.md)).
 - **Enforcement is a server matter.** The certificate tells the blocked
   client why it is refused; it is not what refuses it. A server that ignores
   a block can show the blocked user the blocking user anyway — content lives on

@@ -256,6 +256,22 @@ export function buildReedLikeServerPayload(
   return canonicalJSON({ type: 'reed_like', reedID, signedAt, serverKeyFingerprint, userSignature });
 }
 
+/** Mirror of buildBlockUserPayload in identity.go. */
+export function buildBlockUserPayload(userID: string, blockedUserID: string, keyID: string): string {
+  return canonicalJSON({ type: 'block', userID, blockedUserID, keyID });
+}
+
+/** Mirror of buildBlockServerPayload in identity.go. */
+export function buildBlockServerPayload(
+  userID: string,
+  blockedUserID: string,
+  serverKeyFingerprint: string,
+  userSignature: string,
+  signedAt: string
+): string {
+  return canonicalJSON({ type: 'block', userID, blockedUserID, signedAt, serverKeyFingerprint, userSignature });
+}
+
 /** Mirror of buildVouchUserPayload in identity.go. Key ids are
  * owner-prefixed, so both users are named; no client timestamp. */
 export function buildVouchUserPayload(voucherKeyID: string, subjectKeyID: string, note: string): string {

@@ -157,6 +157,16 @@ type LikeCert struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
+// BlockCert is the stored and wire shape of a block: the blocking user's
+// signature plus their home server's countersignature.
+type BlockCert struct {
+	Type            string          `json:"type"`
+	UserID          string          `json:"userID"`
+	BlockedUserID   string          `json:"blockedUserID"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
 // VouchCert is the stored and wire shape of a signed vouch: one user
 // attesting they compared fingerprints and the subject holds that key.
 // The server serves the attestation and nothing else: whether it still
@@ -538,6 +548,24 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_user_mailbox_user_created
 		ON user_mailbox(user_id, created_at);
 	`
+
+	// Signed blocks. One table for blocks made here and blocks received
+	// from peers against this server's users.
+	createUserBlocksTable := `
+	CREATE TABLE IF NOT EXISTS user_blocks (
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+
+		PRIMARY KEY (user_id, blocked_user_id),
+		CONSTRAINT user_blocks_not_self CHECK (user_id <> blocked_user_id)
+	);`
+
+	createUserBlocksIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked_user
+		ON user_blocks (blocked_user_id);`
 
 	// Signed like certificates, one row per currently-liked (liker, reed)
 	// pair; unliking hard-deletes the row. reed_id FKs to reed_identities,
@@ -1419,6 +1447,9 @@ func InitDB(db *sql.DB) error {
 
 		createReedsLikedTable,
 		createReedsLikedIndexes,
+
+		createUserBlocksTable,
+		createUserBlocksIndexes,
 
 		createUserVouchesTable,
 		createUserVouchesActiveTable,

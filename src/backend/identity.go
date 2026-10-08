@@ -266,6 +266,39 @@ func buildReedLikeServerPayload(
 	})
 }
 
+// identityTypeBlock is the `type` of a block certificate.
+const identityTypeBlock = "block"
+
+// buildBlockUserPayload returns the bytes a blocking user signs. keyID names the
+// blocking user's signing key, as for likes.
+func buildBlockUserPayload(userID, blockedUserID, keyID string) []byte {
+	return canonicalJSON(signedFields{
+		"type":          identityTypeBlock,
+		"userID":        userID,
+		"blockedUserID": blockedUserID,
+		"keyID":         keyID,
+	})
+}
+
+// buildBlockServerPayload returns the bytes the blocking user's server
+// countersigns. signedAt becomes server.timestamp on the wire.
+func buildBlockServerPayload(
+	userID,
+	blockedUserID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeBlock,
+		"userID":               userID,
+		"blockedUserID":        blockedUserID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
+}
+
 // MaxVouchNoteChars caps a vouch's optional public memo.
 const MaxVouchNoteChars = 140
 
