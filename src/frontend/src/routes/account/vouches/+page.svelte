@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
+  import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Username from '$lib/components/Username.svelte';
   import ServerName from '$lib/components/ServerName.svelte';
   import { notificationStore } from '$lib/stores/notifications';
@@ -30,15 +30,6 @@
   let reviewing = new Set<string>();
 
   onMount(load);
-
-  /** Prefer history.back so the account page can restore scroll. */
-  function goBack() {
-    if (typeof history !== 'undefined' && history.length > 1) {
-      history.back();
-      return;
-    }
-    goto('/account');
-  }
 
   /** Local only: a server response cannot be shown to be complete, and
    * this list's whole question is whether anything is missing. */
@@ -140,7 +131,8 @@
 </script>
 
 <Auth>
-<SideNav currentPage="" />
+<SideNav currentPage="account" />
+<div class="page">
 <div class="audit">
   <h1>Keys you verified</h1>
 
@@ -178,9 +170,6 @@
 
     {#if vouches.length === 0}
       <p class="muted">You have not verified anyone yet.</p>
-      <div class="actions">
-        <button class="btn" on:click={goBack}>Back</button>
-      </div>
     {/if}
 
     {#each groups as [keyID, group] (keyID)}
@@ -231,6 +220,8 @@
     {/if}
   {/if}
 </div>
+<BottomToolbar currentPage="account" />
+</div>
 </Auth>
 
 {#snippet detail(vouch: api.Vouch)}
@@ -245,7 +236,26 @@
 {/snippet}
 
 <style>
+  .page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (min-width: 768px) {
+    .page {
+      padding-left: var(--sidenav-width);
+    }
+  }
+
+  @media (min-width: 1400px) {
+    .page {
+      padding-right: var(--activity-sidebar-width);
+    }
+  }
+
   .audit {
+    flex: 1;
     width: 100%;
     max-width: 44rem;
     margin: 0 auto;
