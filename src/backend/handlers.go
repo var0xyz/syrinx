@@ -429,7 +429,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exists, err := h.services.db.UsernameExists(r.Context(), username)
+	exists, err := h.services.db.UsernameExists(r.Context(), username, "")
 	if err != nil {
 		log.Error().
 			Str("username", username).
@@ -631,7 +631,7 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondUsernameAvailability(w, r, log, username)
+	h.respondUsernameAvailability(w, r, log, username, "")
 }
 
 // CheckUsernameForRename handles POST /api/users/me/check-username — the
@@ -644,14 +644,15 @@ func (h *Handlers) CheckUsernameForRename(w http.ResponseWriter, r *http.Request
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CheckUsernameForRename request received")
 
-	h.getUserID(r) // require an authenticated caller; panics via middleware contract otherwise
+	userID := h.getUserID(r) // panics via middleware contract if unauthenticated
 
 	_, username, ok := h.parseCheckUsernameForm(w, r, log)
 	if !ok {
 		return
 	}
 
-	h.respondUsernameAvailability(w, r, log, username)
+	// The caller's own name, in any capitalization, is available to them.
+	h.respondUsernameAvailability(w, r, log, username, userID)
 }
 
 // parseCheckUsernameForm parses and validates the `username` form field
@@ -682,8 +683,8 @@ func (h *Handlers) parseCheckUsernameForm(w http.ResponseWriter, r *http.Request
 // respondUsernameAvailability checks username availability and writes the
 // shared 200/409/500 response, used by both CheckUsername and
 // CheckUsernameForRename after their distinct gating logic.
-func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Request, log *zerolog.Logger, username string) {
-	exists, err := h.services.db.UsernameExists(r.Context(), username)
+func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Request, log *zerolog.Logger, username, exceptUserID string) {
+	exists, err := h.services.db.UsernameExists(r.Context(), username, exceptUserID)
 	if err != nil {
 		log.Error().
 			Str("username", username).
@@ -1363,7 +1364,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if currentUser.Username != username {
-		exists, err := h.services.db.UsernameExists(r.Context(), username)
+		exists, err := h.services.db.UsernameExists(r.Context(), username, userID)
 		if err != nil {
 			log.Error().
 				Str("userID", userID).
