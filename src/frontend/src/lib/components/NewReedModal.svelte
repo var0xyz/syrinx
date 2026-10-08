@@ -47,6 +47,7 @@
       pinnedReply = replyingTo;
       pinnedEcho = echoOf;
       if (!pinnedReply && !pinnedEcho) loadDraft();
+      void focusPart(parts.length - 1);
     } else if (!open) {
       pinnedReply = null;
       pinnedEcho = null;
@@ -120,7 +121,10 @@
 
   async function focusPart(i) {
     await tick();
-    textareas[i]?.focus();
+    const textarea = textareas[i];
+    if (!textarea) return;
+    textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
   }
 
   function addPart(after = parts.length - 1, text = '') {
