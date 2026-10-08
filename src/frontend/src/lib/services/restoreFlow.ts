@@ -60,29 +60,21 @@ export function enforceImportGate(pathname: string): boolean {
   return true;
 }
 
-/**
- * Send the user to the correct restore step, if any. Returns true when redirected.
- * Prefer this on entry surfaces (home, import). Layout uses enforceImportGate
- * for ongoing navigation.
- *
- * Requires a resolvable user record before sending to /reeds — userId alone in
- * localStorage (or a broken/stale SW shell) must not ping-pong / ↔ /reeds.
- */
-export async function redirectForRestoreState(): Promise<boolean> {
+/** Where the user belongs now: a restore step, their profile (/reeds), or
+ * null to stay. Never navigates; clears a session it can't sign with, so
+ * / and /reeds can't bounce off each other. */
+export async function resolveRestoreTarget(): Promise<string | null> {
   if (typeof window !== 'undefined') {
-    if (enforceImportGate(window.location.pathname)) {
-      return true;
-    }
+    const dest = importGateRedirect(window.location.pathname);
+    if (dest) return dest;
   } else if (isImportInProgress()) {
-    navigate('/import');
-    return true;
+    return '/import';
   } else if (isImportGated()) {
-    navigate('/recovery');
-    return true;
+    return '/recovery';
   }
 
   if (!authService.isLoggedIn()) {
-    return false;
+    return null;
   }
 
   // <Auth> sends a session it can't sign with back to /, so only a user
@@ -91,8 +83,7 @@ export async function redirectForRestoreState(): Promise<boolean> {
   const keyId = authService.getActiveKeyId();
   const keyHeld = !!keyId && (await privateKeyRepository.hasPrivateKey(keyId));
   if (user && keyHeld) {
-    navigate('/reeds');
-    return true;
+    return '/reeds';
   }
 
   // userId survived (localStorage) but IndexedDB has no matching record or
@@ -103,7 +94,18 @@ export async function redirectForRestoreState(): Promise<boolean> {
   );
   localStorage.removeItem('userId');
   clearImportRun();
-  navigate('/import');
+  return '/import';
+}
+
+/**
+ * Send the user to the correct restore step, if any. Returns true when redirected.
+ * Prefer this on entry surfaces (welcome, import). Layout uses enforceImportGate
+ * for ongoing navigation.
+ */
+export async function redirectForRestoreState(): Promise<boolean> {
+  const target = await resolveRestoreTarget();
+  if (!target) return false;
+  navigate(target);
   return true;
 }
 

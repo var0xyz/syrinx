@@ -178,7 +178,9 @@ same-named root file instead:
 
 - `routes/` — SvelteKit pages: `signup`, `import`, `recover`/`recovery`,
   `profile`, `reed/[userID]/[reedID]`, `reeds`, `feeds`, `invites`, `delete`,
-  `goodbye`, `welcome`, `preamble`, `+layout.svelte` (ref prefetch), etc.
+  `goodbye`, `welcome` (sign up / import), `backup` (mandatory key backup),
+  `thread`, `preamble`, `+page.svelte` (splash that redirects),
+  `+layout.svelte` (ref prefetch), etc.
 - `lib/services/` — API/client services (has its own `README.md`).
 - `lib/repositories/` — IndexedDB persistence (reeds, profiles, etc.).
 - `lib/verifiers/` — client-side signature verification (verify-before-store).

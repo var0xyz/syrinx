@@ -62,7 +62,7 @@
   let backingUpKeys: boolean = false;
   let showBackupKeysModal: boolean = false;
   // Always set by the time this page is reachable — <Auth> redirects to
-  // /welcome for mandatory backup before any authenticated route
+  // /backup for mandatory backup before any authenticated route
   // (including this one) will render otherwise.
   let lastKeyBackupAt: number | null = data.lastKeyBackupAt;
   let activeKeyMintedAt: number | null = data.activeKeyMintedAt;
