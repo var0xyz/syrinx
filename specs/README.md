@@ -32,7 +32,7 @@ Each table below has a **Status** column per step. Values:
 | Notifications         | Proposed    | 00–05                                                  |
 | Load testing          | Proposed    | 00–03                                                  |
 | Federation            | In progress | 00, 02–05 (depends on roles)                           |
-| Protobuf wire         | Proposed    | 00–07 (HTTP, WS, federation, shared protos, SPA types) |
+| Protobuf wire         | In progress | 01, 03, 04, 06, 07 (HTTP, federation, SPA types)       |
 | Depackaging           | Proposed    | 00–10 (fold 11 packages into root)                     |
 | Publish ready         | Implemented | —                                                      |
 | Pipes                 | Implemented | —                                                      |
@@ -308,28 +308,23 @@ relay the user’s own reed bodies back.
 
 See [`protobuf/`](protobuf/README.md). Blank-slate cutover of all
 client↔server bodies, WS frames, and federation server-to-server bodies
-to Protocol Buffers; `BytesToSign` unchanged.
+to Protocol Buffers; `canonicalJSON` signing input unchanged.
 
 | #   | Title                             | Status   |
 | --- | --------------------------------- | -------- |
-| 00  | Design + locked model             | Proposed |
+| 00  | Design + locked model             | Implemented |
 | 01  | Shared resource protos + codegen  | Proposed |
-| 02  | WebSocket envelope + event protos | Proposed |
+| 02  | WebSocket envelope + event protos | Implemented |
 | 03  | HTTP encode/decode + content type | Proposed |
 | 04  | Switch every HTTP handler/client  | Proposed |
-| 05  | Binary WS only; SPA + realtime    | Proposed |
+| 05  | Binary WS only; SPA + realtime    | Implemented |
 | 06  | SPA consumes generated types      | Proposed |
 | 07  | Federation relay + admin protos   | Proposed |
 
-**Track status: Not started.** HTTP and WebSocket both speak JSON (plus
-some form-urlencoded HTTP bodies) in production today. `proto/websocket.proto`
-
-- generated `websocket.pb.go` exist, but only cover 5 of the ~28 live WS
-  message types and don't match production event names — an earlier,
-  incomplete attempt, not a finished binary WS path. `realtime`'s real
-  dispatch path is `handleJSONMessage` (text frames); the binary
-  `handleProtobufMessage` path is unused stub coverage. Nothing in this
-  track is implemented yet.
+**Track status: In progress.** The WebSocket channel is binary protobuf
+only (`realtime.go`, `proto/websocket.proto`). Client↔server HTTP is
+still JSON plus form-urlencoded bodies, and federation HTTP is JSON (the
+reed-stats peer push wraps a base64 protobuf `WSMessage` inside it).
 
 ## Signed deletions (reeds + accounts)
 
@@ -474,8 +469,8 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Protobuf wire** ([`protobuf/`](protobuf/README.md)) is independent of
   recovery/invites feature work but should land as a coordinated server+SPA
   cutover; within `protobuf/`, follow that directory's depends-on column
-  (00→06). Steps 01–02 (schema) may proceed before flipping traffic;
-  04 and 05 are the hard cutovers.
+  (00→07). WebSocket (02, 05) is done; 04 and 07 are the remaining hard
+  cutovers.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
 - **Likes** ([`likes/`](likes/README.md)) — independent of every other
   track; a straightforward extension of the existing coverage/echo

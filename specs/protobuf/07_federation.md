@@ -11,14 +11,16 @@ Proposed.
 ## Context
 
 Federation (server-to-server) traffic is signed HTTP+JSON today:
-`federation_relay.go` defines 17 relay RPC legs (register-request,
-profile-page, deliver, not-held, cancel, ack, subscribe-reed,
+`federation_relay.go` serves 25 relay calls under `/api/federation/relay/`
+(request, profile-page, deliver, not-held, cancel, ack, subscribe-reed,
 unsubscribe-reed, reed-stats, holder-notify, fallback-request,
-search-users, disconnect-notify, account-removal-notify, realtime-reset,
-new-reed, reed-removal) plus
-roughly 18 admin/handshake endpoints
-(invitations, servers, attempts, connect), all registered under
-`/api/federation/*` in `main.go`. Each leg has its own ad hoc JSON
+search-users, approved-notify, disconnect-notify, realtime-reset,
+new-reed, block-notify, unblock-notify, key-revocation, server-key,
+reed-removal, thread-removal, vouch-reference, vouch-withdrawal,
+account-removal-notify) plus 19 admin/handshake endpoints (list,
+invitations, servers, attempts, attempt, connect, users/{id}/identity),
+all registered under `/api/federation/*` in `main.go`. The reed-stats
+push wraps a base64 protobuf `WSMessage` in its JSON body today. Each leg has its own ad hoc JSON
 request/response struct pair in `federation_relay.go` (e.g.
 `relayRequestPayload`, `relayRequestResponse`), marshaled and sent by
 `callPeerRelayEndpoint`.
@@ -32,13 +34,15 @@ constraint this step must honor).
 
 ## Scope
 
-- Define per-RPC-leg `*Request`/`*Response` proto messages for all 23
-  relay legs and the ~18 admin/handshake endpoints, mirroring today's
+- Define per-call `*Request`/`*Response` proto messages for all 25
+  relay calls and the 19 admin/handshake endpoints, mirroring today's
   structs in `federation_relay.go` field-for-field.
 - Reuse shared resource messages from [01](01_shared_messages.md)
   (`Reed`, `ReedRemoval`, `AccountRemoval`, certs) inside federation
   payloads wherever a leg already carries a full resource, exactly as
   HTTP and WS do.
+- Carry the reed-stats `WSMessage` as a nested message field, not
+  base64 inside JSON.
 - Switch `callPeerRelayEndpoint` and every `...FromPeer` handler to the
   codec from [03](03_http_codec.md): `Content-Type:
   application/x-protobuf`, `proto.Marshal`/`proto.Unmarshal` in place

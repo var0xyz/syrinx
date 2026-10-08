@@ -29,8 +29,8 @@ not what production sends.
   and reed subscriptions, coverage, removal deliveries).
 - Reuse shared messages from 01 inside payloads (e.g. `Reed` inside
   `DataResponse`, cert messages inside removal deliveries).
-- Freeze enum numbers; document the assignment table in the proto file
-  comments.
+- Number enum values and fields sequentially, with no gaps or `reserved`
+  entries.
 
 ## Non-goals
 
