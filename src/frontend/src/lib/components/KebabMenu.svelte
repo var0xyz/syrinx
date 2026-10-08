@@ -28,7 +28,9 @@
     option.onSelect();
   }
 
-  function handleWindowClick(event) {
+  // Capture phase: runs before anything stops propagation, including another
+  // menu's trigger, so pressing anywhere outside closes this one.
+  function handlePointerDownOutside(event) {
     if (open && container && !container.contains(event.target)) {
       close();
     }
@@ -39,7 +41,7 @@
   }
 </script>
 
-<svelte:window on:click={handleWindowClick} on:keydown={handleKeydown} />
+<svelte:window on:pointerdown|capture={handlePointerDownOutside} on:keydown={handleKeydown} />
 
 <div class="kebab-menu" bind:this={container} on:click|stopPropagation role="presentation">
   <button
