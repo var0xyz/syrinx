@@ -41,6 +41,7 @@
   import { syncPendingBackupEvents } from '$lib/services/backupMetrics';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
+  import { applyKeyRevocation } from '$lib/services/keyRevocation';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
   import { notificationStore } from '$lib/stores/notifications';
@@ -298,6 +299,15 @@
       } else {
         console.warn('ServerConnection: account removal cert failed verification:', cert.userID);
         serverConnection.sendDataInvalid(eventId);
+      }
+    });
+    serverConnection.on(ServerEvent.KeyRevoked, async (data) => {
+      const eventId = data.id;
+      if (data.data && (await applyKeyRevocation(data.data))) {
+        serverConnection.sendDataAck(eventId);
+      } else {
+        console.warn('ServerConnection: key revocation failed verification:', data.data?.id);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });
     // MailboxBell is hidden and unused for now — handler disabled so we

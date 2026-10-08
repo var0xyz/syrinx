@@ -164,6 +164,12 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
         id: msg.id,
         data: { data: decodeAccountRemovalCert(p.value.cert) },
       };
+    case 'keyRevoked':
+      return {
+        type: 'KEY_REVOKED',
+        id: msg.id,
+        data: { data: decodeKeyRevocationCert(p.value.revocation) },
+      };
     case 'pageAck':
       return {
         type: 'PAGE_ACK',
@@ -203,6 +209,19 @@ function decodeAccountRemovalCert(cert: { serverId: string; userId: string; note
   };
 }
 
+function decodeKeyRevocationCert(cert: { id: string; userId: string; reason: string; successor: string; successorSignature: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
+  if (!cert) return null;
+  return {
+    id: cert.id,
+    userID: cert.userId,
+    reason: cert.reason,
+    successor: cert.successor || null,
+    successorSignature: cert.successorSignature || null,
+    userSignature: decodeUserSignature(cert.userSignature),
+    serverSignature: decodeServerSignature(cert.serverSignature),
+  };
+}
+
 export type ServerEventHandler = (data: any) => void;
 
 type PendingRequest = { resolve: (reed: ReedType) => void; reject: (err: any) => void };
@@ -219,6 +238,7 @@ export enum ServerEvent {
   EvictionAck          = 'EVICTION_ACK',
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
+  KeyRevoked           = 'KEY_REVOKED',
   Mailbox              = 'MAILBOX',
   NewRipple            = 'NEW_RIPPLE',
   NewVouch             = 'NEW_VOUCH',

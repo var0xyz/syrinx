@@ -25,13 +25,13 @@ deliver revocations.
 
 | #  | Title                                              | Status   |
 |----|----------------------------------------------------|----------|
-| 00 | Design and trust model                             | Proposed |
+| 00 | Design and trust model                             | Implemented |
 | 01 | Relay requests name the key to encrypt to          | Implemented |
 | 02 | `KEY_REVOKED` push and catch-up                    | Implemented |
 | 03 | Revocations across peers                           | Implemented |
-| 04 | SPA: apply revocations, cache keys without re-checks | Proposed |
+| 04 | SPA: apply revocations, cache keys without re-checks | Implemented |
 
-**Track status: In progress.**
+**Track status: Implemented.**
 
 ## Locked decisions
 
