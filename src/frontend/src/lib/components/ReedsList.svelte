@@ -6,6 +6,7 @@
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
   import { removeReedAsAuthor, reedRemovalCommitted } from '$lib/services/reedRemoval';
+  import { removeThreadAsAuthor } from '$lib/services/threadRemoval';
   import { pendingRemovalSynced } from '$lib/repositories/pendingRemoval';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import Quote from '$lib/components/Quote.svelte';
@@ -399,7 +400,14 @@
     // The server's oldest reed is held and shown, so nothing older remains
     // regardless of what the last ack said.
     if (hasMore && !page.hasMore && reachedFirstReed(page.items)) hasMore = false;
-    return { ...page, hasMore };
+    // A thread shows once, as its head; a part stands alone only when the
+    // head isn't held.
+    const items = [];
+    for (const reed of page.items) {
+      if (reed.thread?.index > 0 && (await reedsService.getReed(reed.thread.head))) continue;
+      items.push(reed);
+    }
+    return { ...page, items, hasMore };
   }
 
   /** Re-read what is already loaded, without asking for more history.
@@ -466,16 +474,19 @@
 
   let deleteTarget = null;
 
-  function deleteReed(reedId, pending = false) {
-    deleteTarget = { reedId, pending };
+  function deleteReed(reedId, pending = false, thread = false) {
+    deleteTarget = { reedId, pending, thread };
   }
 
   async function confirmDeleteReed() {
     if (!deleteTarget) return;
-    const { reedId, pending } = deleteTarget;
+    const { reedId, pending, thread } = deleteTarget;
     deleteTarget = null;
     try {
-      if (pending) {
+      if (thread) {
+        await removeThreadAsAuthor(reedId);
+        reeds = reeds.filter((reed) => reed.thread?.head !== reedId);
+      } else if (pending) {
         await reedsService.discardUnsignedReed(reedId);
         pendingReeds = pendingReeds.filter((reed) => reed.id !== reedId);
       } else {
@@ -626,8 +637,10 @@
 
 {#if deleteTarget}
   <ConfirmDialog
-    title="Delete reed?"
-    message="Are you sure you want to delete this reed?"
+    title={deleteTarget.thread ? 'Delete thread?' : 'Delete reed?'}
+    message={deleteTarget.thread
+      ? 'This deletes every reed in the thread. Are you sure?'
+      : 'Are you sure you want to delete this reed?'}
     on:confirm={confirmDeleteReed}
     on:cancel={() => (deleteTarget = null)}
   />

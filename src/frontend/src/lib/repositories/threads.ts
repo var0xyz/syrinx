@@ -25,6 +25,18 @@ export const threadsRepository = {
     return !!(await dbService.get<api.ThreadRemoval>('removedThreads', threadID));
   },
 
+  /** What a list needs to place one part: the thread's size when its record
+   * is held, and the head and second part when they are. */
+  async summary(threadID: string): Promise<{ total: number; head: ReedType | null; next: ReedType | null }> {
+    const record = await threadsRepository.get(threadID);
+    const parts = await threadsRepository.getParts(threadID);
+    return {
+      total: record?.reedIDs.length ?? 0,
+      head: parts.find((reed) => reed.thread?.index === 0) ?? null,
+      next: parts.find((reed) => reed.thread?.index === 1) ?? null,
+    };
+  },
+
   /** The locally held parts of threadID, in index order. */
   async getParts(threadID: string): Promise<ReedType[]> {
     return dbService.getAllByIndex<ReedType>(

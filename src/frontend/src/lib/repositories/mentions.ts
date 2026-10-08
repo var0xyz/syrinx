@@ -68,7 +68,18 @@ export async function getMentionItems(): Promise<ResolvedMentionItem[]> {
     }
   });
 
-  return withReeds.map(({ record, reed }) => ({
+  // A thread is listed once, at its earliest part that mentions this user.
+  const firstByThread = new Map<string, number>();
+  for (const { reed } of withReeds) {
+    if (!reed.thread) continue;
+    const seen = firstByThread.get(reed.thread.head);
+    if (seen === undefined || reed.thread.index < seen) firstByThread.set(reed.thread.head, reed.thread.index);
+  }
+  const listed = withReeds.filter(
+    ({ reed }) => !reed.thread || firstByThread.get(reed.thread.head) === reed.thread.index
+  );
+
+  return listed.map(({ record, reed }) => ({
     record,
     reed,
     author: authorMap.get(reed.userID) || { username: reed.userID },

@@ -868,6 +868,31 @@ export const apiService = {
     });
   },
 
+  /** Countersigns and stores a whole thread; parts are in index order. */
+  async createThread(body: {
+    previousID?: string;
+    threadSignature: string;
+    reeds: { reedID: string; signature: string; tags: string[]; mentions: string[] }[];
+  }): Promise<{ serverSignature: SignReedResponse; reeds: SignReedResponse[] }> {
+    return request('/threads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Removes a whole thread, by its head's ID. */
+  async deleteThread(threadId: string, signature: string): Promise<api.ThreadRemoval> {
+    const formData = new URLSearchParams();
+    formData.append('signature', signature);
+    const removal = await request<Omit<api.ThreadRemoval, 'threadID'>>(`/threads/${threadId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+    return { ...removal, threadID: removal.cert?.threadID } as api.ThreadRemoval;
+  },
+
   async likeReed(
     reedId: string,
     signature: string,

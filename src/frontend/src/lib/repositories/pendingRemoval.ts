@@ -2,10 +2,13 @@ import { writable } from 'svelte/store';
 import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
+import { applyThreadRemoval } from '$lib/services/threadRemoval';
 import { allowUnsigned } from '$lib/verifiers';
 
 export interface PendingRemovalRecord {
+  /** A reed's ID, or a thread's head ID when kind is 'thread'. */
   reedID: string;
+  kind: 'reed' | 'thread';
   serverID: string;
   signature: string; // armored user detached sig
 }
@@ -35,9 +38,12 @@ export const pendingRemovalRepository = {
     const pending = await dbService.getAll<PendingRemovalRecord>('pendingRemoval');
     for (const record of pending) {
       try {
-        const cert = await apiService.deleteReed(record.reedID, record.signature);
-        if (!(await verifyAndCommitReedRemoval(cert))) {
-          console.error('Failed to verify reed removal cert on flush:', record.reedID);
+        const committed =
+          record.kind === 'thread'
+            ? await applyThreadRemoval(await apiService.deleteThread(record.reedID, record.signature))
+            : await verifyAndCommitReedRemoval(await apiService.deleteReed(record.reedID, record.signature));
+        if (!committed) {
+          console.error('Failed to verify removal cert on flush:', record.reedID);
           continue;
         }
         await pendingRemovalRepository.delete(record.reedID);

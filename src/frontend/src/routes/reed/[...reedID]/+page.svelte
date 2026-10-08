@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import ThreadNavigator from '$lib/components/ThreadNavigator.svelte';
+  import ThreadContext from '$lib/components/ThreadContext.svelte';
   import { page } from '$app/stores';
   import { reedsService, unsignedReedsProcessed } from '$lib/repositories/reeds';
   import { formatAbsoluteDateTime } from '$lib/utils/time';
@@ -34,6 +36,8 @@
 
   /** @type {import('./$types').PageData} */
   export let data;
+  /** The reed's thread when this device holds it whole, from the loader. */
+  let heldThread = null;
 
   let user = data.user;
   let authorUser = data.authorUser;
@@ -173,6 +177,7 @@
     reedNotRecognized = false;
     removedReedCert = next.removedReedCert ?? null;
     removedAccountCert = next.removedAccountCert ?? null;
+    heldThread = next.heldThread ?? null;
     fetchingReed = false;
     resetStatsState();
     lastHandledFollowReedId = '';
@@ -632,6 +637,7 @@
           </div>
         {:else if reed}
           <div class="reed-main-col">
+          <ThreadNavigator {reed} thread={heldThread} where="top" />
           <div class="reed-detail">
             <div class="reed-meta">
               <div class="reed-author">
@@ -677,6 +683,7 @@
                   </button>
                 </div>
               </div>
+              <span class="thread-chip-desktop"><ThreadContext {reed} where="chip" /></span>
             </div>
 
             <div class="reed-body">
@@ -714,6 +721,7 @@
               </button>
             </div>
           </div>
+          <ThreadNavigator {reed} thread={heldThread} where="bottom" />
           {#if reedNotRecognized}
             <p class="not-recognized-notice">Reed not recognized by the server</p>
             <!-- Ripples/Chorus lose meaning without server vouching for
@@ -1192,6 +1200,11 @@
 
   /* Responsive Design */
   @media (max-width: 768px) {
+    /* The thread navigator above already says it's a thread. */
+    .thread-chip-desktop {
+      display: none;
+    }
+
     .reed-content {
       padding: 0.5rem;
     }

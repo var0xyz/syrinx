@@ -80,3 +80,43 @@ export async function receiveThreadResponse(data: {
   serverConnection.sendDataAck(data.id);
   serverConnection.resolvePendingThreadRequest(data.request_id, bundle.reeds);
 }
+
+/** A thread held whole: its record and every part, in order. */
+export interface HeldThread {
+  record: ThreadBundle['record'];
+  reeds: ThreadBundle['reeds'];
+}
+
+/** The thread as held locally, or null unless the record and every part are. */
+export async function getLocalThread(threadId: string): Promise<HeldThread | null> {
+  const record = await threadsRepository.get(threadId);
+  if (!record) return null;
+  const reeds = await threadsRepository.getParts(threadId);
+  return threadBundleMismatch(threadId, record, reeds) ? null : { record, reeds };
+}
+
+/** The whole thread, from this device when held, else fetched as one bundle. */
+export async function loadThread(threadId: string): Promise<HeldThread> {
+  const local = await getLocalThread(threadId);
+  if (local) return local;
+  await serverConnection.requestThreadContent(threadId);
+  const fetched = await getLocalThread(threadId);
+  if (!fetched) throw new Error('thread_incomplete');
+  return fetched;
+}
+
+/** reed if it matches, else for a thread part the first part of its thread
+ * that does, fetching the thread when needed; null when none does. */
+export async function firstPartMatching(
+  reed: ThreadBundle['reeds'][number],
+  matches: (part: ThreadBundle['reeds'][number]) => boolean
+): Promise<ThreadBundle['reeds'][number] | null> {
+  if (matches(reed)) return reed;
+  if (!reed.thread) return null;
+  try {
+    const thread = await loadThread(reed.thread.head);
+    return thread.reeds.find(matches) ?? null;
+  } catch {
+    return null;
+  }
+}

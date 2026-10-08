@@ -8,6 +8,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import LocalPagination from '$lib/components/LocalPagination.svelte';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ThreadContext from '$lib/components/ThreadContext.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { unlikeReed, isReedLiked } from '$lib/services/reedLike';
   import { notificationStore } from '$lib/stores/notifications';
@@ -112,14 +113,18 @@
             stopPropagation
             linked={false}
           />
-          <ReedActionsMenu
-            reedRef={likedItem.reed.id}
-            userID={likedItem.reed.userID}
-            username={likedItem.author.username}
-            content={likedItem.reed.content}
-            extraOptions={[{ label: 'Unlike', icon: '/icons/like-16-outlined.png', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
-          />
+          <div class="item-meta">
+            <ThreadContext reed={likedItem.reed} where="chip" />
+            <ReedActionsMenu
+              reedRef={likedItem.reed.id}
+              userID={likedItem.reed.userID}
+              username={likedItem.author.username}
+              content={likedItem.reed.content}
+              extraOptions={[{ label: 'Unlike', icon: '/icons/like-16-outlined.png', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
+            />
+          </div>
         </div>
+        <ThreadContext reed={likedItem.reed} where="before" />
         {#if likedItem.reed.replying}
           <div class="quote-container">
             <Quote reedRef={likedItem.reed.replying.to} type="reply" missing={false} linked={false} />
@@ -130,6 +135,7 @@
             <MarkdownParser text={likedItem.reed.content} preview={true} />
           </div>
         {/if}
+        <ThreadContext reed={likedItem.reed} where="after" />
         {#if likedItem.reed.echoing}
           <div class="quote-container">
             <Quote reedRef={likedItem.reed.echoing} type="echo" missing={false} linked={false} />
@@ -158,6 +164,12 @@
 {/if}
 
 <style>
+  .item-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .reeds-list {
     display: flex;
     flex-direction: column;
