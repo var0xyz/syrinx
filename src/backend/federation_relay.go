@@ -2263,6 +2263,99 @@ func (h *Handlers) verifyPeerThreadRecord(ctx context.Context, peerServerID stri
 	return rec.ReedIDs, nil
 }
 
+// ThreadRemovalFromPeer receives a peer's thread removal with its record,
+// stores it once both verify, and tells this server's users.
+func (h *Handlers) ThreadRemovalFromPeer(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
+		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var rm threadRemoval
+	if err := json.NewDecoder(r.Body).Decode(&rm); err != nil {
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "thread-removal", false)
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := h.verifyPeerThreadRemoval(r.Context(), peerServerID, rm); err != nil {
+		log.Warn().Err(err).Str("threadID", rm.Cert.ThreadID).Str("peerServerID", peerServerID).Msg("Refused peer thread removal")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "thread-removal", false)
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.services.db.InsertThreadRemoval(r.Context(), rm); err != nil && !errors.Is(err, errRemovalConflict) {
+		log.Error().Err(err).Str("threadID", rm.Cert.ThreadID).Msg("Failed to store peer thread removal")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "thread-removal", false)
+		internalServerError(w)
+		return
+	}
+	for _, reedID := range rm.Record.ReedIDs {
+		if err := h.dropForeignReedReferences(r.Context(), peerServerID, reedID, "", reedRemovalCert{}); err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to drop references of removed thread part")
+		}
+	}
+	if h.realtimeRelay != nil {
+		h.realtimeRelay.HandleForeignThreadRemoval(&rm)
+	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "thread-removal", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// verifyPeerThreadRemoval checks a peer's thread removal: its record must
+// verify, and the certificate must be the author's, countersigned by the
+// peer and bound to that record's signature.
+func (h *Handlers) verifyPeerThreadRemoval(ctx context.Context, peerServerID string, rm threadRemoval) error {
+	cert := rm.Cert
+	if author, ok := authorOf(identityID(cert.ThreadID)); !ok || string(author) != rm.Record.UserID {
+		return fmt.Errorf("thread_id does not belong to the record's author")
+	}
+	if _, serverID, ok := parseIdentityID(identityID(rm.Record.UserID)); !ok || serverID != peerServerID {
+		return fmt.Errorf("thread_id does not belong to the calling peer")
+	}
+	if cert.Type != identityTypeThreadRemoval || cert.ThreadID != rm.Record.ThreadID || cert.UserID != rm.Record.UserID {
+		return fmt.Errorf("certificate does not name the record's thread")
+	}
+	if _, err := h.verifyPeerThreadRecord(ctx, peerServerID, rm.Record); err != nil {
+		return fmt.Errorf("thread record: %w", err)
+	}
+	if owner, keyServerID, _, ok := parseKeyFingerprint(identityID(cert.UserSignature.ID)); !ok ||
+		string(canonicalID(keyServerID, owner)) != cert.UserID {
+		return fmt.Errorf("removal signed by a key of another user")
+	}
+	key, err := h.resolvePublicKey(ctx, cert.UserSignature.ID)
+	if err != nil || key == nil {
+		return fmt.Errorf("resolve removal key: %v", err)
+	}
+	// Built from the record's signature: a certificate for another record fails here.
+	userPayload := buildThreadRemovalUserPayload(peerServerID, cert.ThreadID, rm.Record.UserSignature.Armor)
+	if err := h.services.crypto.verifySignature(string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
+		return fmt.Errorf("user signature: %w", err)
+	}
+	serverFP, sigServerID, ok := parseIdentityID(identityID(cert.ServerSignature.ID))
+	if !ok || sigServerID != peerServerID {
+		return fmt.Errorf("countersignature is not the calling peer's")
+	}
+	pin, err := h.services.db.GetPeerPin(ctx, peerServerID)
+	if err != nil || pin == nil {
+		return fmt.Errorf("calling peer has no pinned key")
+	}
+	serverArmor := pin.Armor
+	if pin.KeyID != cert.ServerSignature.ID {
+		if serverArmor, err = h.fetchPeerServerKeyArmor(ctx, pin.BaseURL, peerServerID, serverFP); err != nil {
+			return fmt.Errorf("fetch countersigning key: %w", err)
+		}
+	}
+	serverPayload := buildThreadRemovalServerPayload(
+		peerServerID, cert.ThreadID, cert.UserSignature.ID, serverFP,
+		cert.UserSignature.Armor, cert.ServerSignature.SignedAt.UTC().Truncate(time.Second),
+	)
+	if err := h.services.crypto.verifySignature(string(serverPayload), cert.ServerSignature.Armor, serverArmor); err != nil {
+		return fmt.Errorf("countersignature: %w", err)
+	}
+	return nil
+}
+
 // fetchForeignKeyRevocation fetches a foreign key's revocation from its home
 // server, for delivery on catch-up; clients verify it themselves.
 func (h *Handlers) fetchForeignKeyRevocation(ctx context.Context, keyID string) (*KeyRevocation, error) {

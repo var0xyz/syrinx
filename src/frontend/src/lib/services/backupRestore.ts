@@ -445,6 +445,9 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
     case 'threads':
       await threadsRepository.put(item as api.ThreadRecord);
       return;
+    case 'removedThreads':
+      await threadsRepository.putRemoval(item as api.ThreadRemoval);
+      return;
     case 'echoCounts':
     case 'replyCounts':
       return;

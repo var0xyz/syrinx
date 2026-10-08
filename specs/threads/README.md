@@ -30,7 +30,7 @@ with or after each server step.
 | 01 | `replying` and `thread` header objects                | Proposed |
 | 02 | Thread record, `POST /threads`, `PUBLISH_READY`       | Implemented |
 | 03 | `REQUEST_THREAD` / `RELAY_THREAD` and the thread ACK  | Implemented |
-| 04 | Thread-removal certificate + federation notify        | Proposed |
+| 04 | Thread-removal certificate + federation notify        | Implemented |
 | 05 | SPA: composer, thread view, removal                   | Proposed |
 
 **Track status: In progress.**

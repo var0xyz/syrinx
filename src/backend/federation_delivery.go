@@ -116,6 +116,13 @@ func (h *Handlers) sendPeerStreamItem(ctx context.Context, peer PeerServer, item
 	ctx, cancel := context.WithTimeout(ctx, peerDeliveryTimeout)
 	defer cancel()
 	if item.Kind == streamKindRemoval {
+		rm, err := h.services.db.GetThreadRemoval(ctx, item.ReedID)
+		if err != nil {
+			return 0, err
+		}
+		if rm != nil {
+			return h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/thread-removal", rm, nil)
+		}
 		payload, err := h.buildReedRemovalPayload(ctx, item.ReedID)
 		if err != nil {
 			return 0, err

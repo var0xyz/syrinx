@@ -26,6 +26,8 @@ import {
   buildReedLikeUserPayload,
   buildReedRemovalServerPayload,
   buildReedRemovalUserPayload,
+  buildThreadRemovalServerPayload,
+  buildThreadRemovalUserPayload,
   buildThreadServerPayload,
   buildThreadUserPayload,
   buildRippleServerPayload,
@@ -944,4 +946,55 @@ async function resolveAuthorArmorForRemoval(
     console.error('[resolveAuthorArmorForRemoval] failed', userID, error);
     return null;
   }
+}
+
+/**
+ * Verifies a thread removal: its record, and a certificate the author signed
+ * over that record's own signature, countersigned by their home server.
+ */
+export async function verifyThreadRemoval(removal: api.ThreadRemoval): Promise<boolean> {
+  const { cert, record } = removal ?? ({} as api.ThreadRemoval);
+  if (
+    !cert?.userSignature?.armor ||
+    !cert.serverSignature ||
+    cert.type !== 'thread_removal' ||
+    removal.threadID !== cert.threadID ||
+    cert.threadID !== record?.threadID ||
+    cert.userID !== record.userID ||
+    cert.serverID !== record.serverID
+  ) {
+    console.error('[verifyThreadRemoval] certificate does not match its record', removal?.threadID);
+    return false;
+  }
+  if (!cert.userSignature.id.startsWith(`${cert.userID}/`)) {
+    console.error('[verifyThreadRemoval] signed by a key of another user', cert.userSignature.id);
+    return false;
+  }
+  if (!(await verifyThreadRecord(record))) return false;
+
+  const armor = await resolvePublicKeyArmor(cert.userID, cert.userSignature.id);
+  if (!armor) {
+    console.error('[verifyThreadRemoval] no public key for author', cert.userID);
+    return false;
+  }
+  const userPayload = buildThreadRemovalUserPayload(cert.serverID, cert.threadID, record.userSignature.armor);
+  if (!(await cryptoService.verifySignature(userPayload, cert.userSignature.armor, armor))) {
+    console.error('[verifyThreadRemoval] user signature failed', cert.threadID);
+    return false;
+  }
+  const { fingerprint: serverFingerprint } = splitServerSignatureId(cert.serverSignature.id);
+  const serverPayload = buildThreadRemovalServerPayload(
+    cert.serverID,
+    cert.threadID,
+    cert.userSignature.id,
+    serverFingerprint,
+    cert.userSignature.armor,
+    signedAtHeader(cert.serverSignature.timestamp)
+  );
+  const serverResult = await verify(cert.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyThreadRemoval] server signature failed', serverResult);
+    return false;
+  }
+  return true;
 }

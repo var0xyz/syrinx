@@ -43,6 +43,7 @@
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
   import { receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
+  import { applyThreadRemoval } from '$lib/services/threadRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
   import { notificationStore } from '$lib/stores/notifications';
@@ -152,6 +153,15 @@
     });
     serverConnection.on(ServerEvent.RelayThread, ({ id: eventId, thread_id, requester_key_id }) => {
       void serveThreadRelay(eventId, thread_id, requester_key_id);
+    });
+    serverConnection.on(ServerEvent.ThreadRemoved, async (data) => {
+      const eventId = data.id;
+      if (data.data && (await applyThreadRemoval(data.data))) {
+        serverConnection.sendDataAck(eventId);
+      } else {
+        console.warn('ServerConnection: thread removal failed verification:', data.data?.threadID);
+        if (eventId) serverConnection.sendDataInvalid(eventId);
+      }
     });
     serverConnection.on(ServerEvent.ThreadResponse, (data) => {
       void receiveThreadResponse(data);

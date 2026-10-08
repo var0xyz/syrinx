@@ -202,6 +202,21 @@ export interface ThreadRecord extends Base {
   serverSignature: ServerSignature;
 }
 
+/** A signed thread-removal certificate with the record it removes. Stored
+ * under threadID in removedThreads, permanently. */
+export interface ThreadRemoval extends Base {
+  threadID: string;
+  cert: {
+    type: 'thread_removal';
+    serverID: string;
+    userID: string;
+    threadID: string;
+    userSignature: UserSignature;
+    serverSignature: ServerSignature;
+  };
+  record: ThreadRecord;
+}
+
 /** Wire shape of a signed account removal certificate (DELETE /users/me / 410 body). */
 export interface AccountRemoval extends Base {
   type: 'account';

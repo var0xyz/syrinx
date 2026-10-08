@@ -116,7 +116,8 @@ func ensureRipplesSchema(db *sql.DB) error {
 			reed_id VARCHAR(255) PRIMARY KEY,
 			public_key_id VARCHAR(255) NOT NULL DEFAULT '',
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			thread_id VARCHAR(255)
 		)`,
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),

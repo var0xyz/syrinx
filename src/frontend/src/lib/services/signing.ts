@@ -342,6 +342,46 @@ export function buildThreadServerPayload(
   );
 }
 
+/** Mirror of buildThreadRemovalUserPayload in identity.go. */
+export function buildThreadRemovalUserPayload(
+  serverID: string,
+  threadID: string,
+  threadSignature: string
+): string {
+  return stringToSign(
+    {
+      type: 'thread_removal',
+      serverID,
+      threadID,
+      threadSignature: btoa(threadSignature)
+    },
+    ''
+  );
+}
+
+/** Mirror of buildThreadRemovalServerPayload in identity.go. */
+export function buildThreadRemovalServerPayload(
+  serverID: string,
+  threadID: string,
+  authorKeyID: string,
+  serverKeyFingerprint: string,
+  userSignature: string,
+  signedAt: string
+): string {
+  return stringToSign(
+    {
+      type: 'thread_removal',
+      serverID,
+      threadID,
+      authorKeyID,
+      signedAt,
+      serverKeyFingerprint,
+      userSignature: btoa(userSignature)
+    },
+    ''
+  );
+}
+
 /** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). reedID is the full canonical id. */
 export function buildReedLikeUserPayload(
   reedID: string,

@@ -70,3 +70,32 @@ func TestThreadUserPayloadBindsOrder(t *testing.T) {
 		t.Error("reordered parts produced the same payload")
 	}
 }
+
+func TestThreadRemovalPayloadsCanonicalShape(t *testing.T) {
+	user := buildThreadRemovalUserPayload("home", "a@home/r0", "TSIG")
+	wantUser := "---\n" +
+		"serverID: home\n" +
+		"threadID: a@home/r0\n" +
+		"threadSignature: VFNJRw==\n" +
+		"type: thread_removal\n" +
+		"---\n"
+	if string(user) != wantUser {
+		t.Errorf("thread removal user payload mismatch:\n got=%q\nwant=%q", user, wantUser)
+	}
+	server := buildThreadRemovalServerPayload(
+		"home", "a@home/r0", "a@home/k1", "SERVERKEY01", "SIG",
+		time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
+	)
+	wantServer := "---\n" +
+		"authorKeyID: a@home/k1\n" +
+		"serverID: home\n" +
+		"serverKeyFingerprint: SERVERKEY01\n" +
+		"signedAt: 2026-10-07T12:00:00Z\n" +
+		"threadID: a@home/r0\n" +
+		"type: thread_removal\n" +
+		"userSignature: U0lH\n" +
+		"---\n"
+	if string(server) != wantServer {
+		t.Errorf("thread removal server payload mismatch:\n got=%q\nwant=%q", server, wantServer)
+	}
+}

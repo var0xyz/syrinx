@@ -380,6 +380,8 @@ func main() {
 
 	api.HandleFunc("/threads", h.CreateThread).Methods("POST")
 	api.HandleFunc("/threads", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/threads/{threadID:.+}", h.DeleteThread).Methods("DELETE")
+	api.HandleFunc("/threads/{threadID:.+}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.GetReed).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.DeleteReed).Methods("DELETE")
@@ -547,6 +549,8 @@ func main() {
 	api.HandleFunc("/federation/relay/server-key", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/reed-removal", h.ReedRemovalFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/reed-removal", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/federation/relay/thread-removal", h.ThreadRemovalFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/thread-removal", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/federation/relay/vouch-reference", h.VouchReferenceFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/vouch-reference", h.noop).Methods("OPTIONS")

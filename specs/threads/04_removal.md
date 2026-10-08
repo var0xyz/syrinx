@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented. Not covered: refusing a reply or echo to a removed part. No
+server check refuses references to any removed reed today.
 
 ## Depends on
 
@@ -17,7 +18,8 @@ A new certificate type, built like a reed removal:
   user signature). Binding the signature pins the removal to the one record
   the author signed, so it can't be paired with a different list.
 - **Server payload** (`buildThreadRemovalServerPayload`): as
-  `buildReedRemovalServerPayload`, with `threadID` in place of `reedID`.
+  `buildReedRemovalServerPayload`, with `threadID` in place of `reedID`, and
+  binding the author key ID (`authorKeyID`) like the thread record does.
 
 ## Storage
 
@@ -26,7 +28,8 @@ CREATE TABLE IF NOT EXISTS thread_removals (
   thread_id           VARCHAR(255) PRIMARY KEY,
   public_key_id       VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
   user_signature_id   INT NOT NULL REFERENCES user_signatures(id),
-  server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+  server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+  thread_record       JSONB NOT NULL  -- verified, redelivered on catch-up
 );
 ```
 
