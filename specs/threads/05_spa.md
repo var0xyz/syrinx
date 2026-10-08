@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Implemented. The thread view follows the threads UI mock (`routes/mocks/threads`),
+without key navigation. Publishing a thread needs a connection: parts are
+stored only once the server accepts the whole thread.
 
 ## Depends on
 
@@ -30,11 +32,14 @@ Proposed.
   `REQUEST_THREAD`. A holder answers `RELAY_THREAD` from the index.
 - **Mentions and pipe feeds** list a thread once, linking to the first part
   that mentions the user or carries the tag.
-- **Feeds** show the head with a "1/n" marker; a part reached on its own
-  (echo, mention, link) shows its position from `thread.index` and links to
-  the thread.
-- **Thread view** at `/reed/<head>`: all parts in order. A link to a later
-  part opens the thread scrolled to it.
+- **Feeds** show the head with a "Thread · n" marker, a peek at the second
+  part and a link to the whole thread; a part reached on its own (echo,
+  mention, link) shows its position and links to the thread. An author's
+  list shows a thread once, as its head.
+- **Thread view** at `/thread/<head>`: all parts in order, read-only, each
+  linking to its own `/reed/<id>` page.
+- **Reed page** of a part: a thread navigator (position, previous and next
+  buttons, progress) with the neighbouring parts above and below.
 - **Delete** is offered on the head only, labelled as deleting the thread;
   calls `DELETE /threads/{id}` through the existing offline-first removal
   queue.

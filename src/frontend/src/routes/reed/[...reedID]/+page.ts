@@ -4,6 +4,7 @@ import { userRepository } from '$lib/repositories/user';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { isValidRef, getUserId } from '$lib/utils/identityRef';
+import { getLocalThread } from '$lib/services/threadFetch';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {
@@ -51,6 +52,7 @@ export async function load({ params, parent }) {
   let repliedToReedMissing = false;
   let removedReedCert = null;
   let removedAccountCert = null;
+  let heldThread = null;
 
   if (!reed) {
     removedAccountCert = await removedAccountsRepository.get(userID);
@@ -64,6 +66,8 @@ export async function load({ params, parent }) {
 
   if (reed) {
     authorUser = await userRepository.get(userID).catch(() => null);
+    // Loaded with the reed so the thread navigator paints in the same frame.
+    if (reed.thread) heldThread = await getLocalThread(reed.thread.head);
 
     if (reed.echoing) {
       if (isValidRef(reed.echoing)) {
@@ -98,6 +102,7 @@ export async function load({ params, parent }) {
     repliedToReedMissing,
     removedReedCert,
     removedAccountCert,
+    heldThread,
     errorMessage: '',
     fromCache: !!(reed || removedReedCert || removedAccountCert),
   };

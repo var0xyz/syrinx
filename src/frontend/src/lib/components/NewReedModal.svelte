@@ -4,6 +4,7 @@
   import { requestSigner } from '$lib/services/request-signer';
   import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
   import { reedsService } from '$lib/repositories/reeds';
+  import { publishThread } from '$lib/services/threadPublish';
   import {
     MAX_REED_RAW_CHARS,
     MAX_REED_VISIBLE_CHARS,
@@ -233,47 +234,34 @@
 
       const keyId = authService.getActiveKeyId();
       const texts = parts.map((p) => p.text);
-      /** @type {Reed | null} */
-      let first = null;
-      /** @type {Reed | null} */
-      let prev = null;
-      /** @type {Promise<boolean>[]} */
-      const publishes = [];
-      let chainPublished = true;
 
-      for (const [i, text] of texts.entries()) {
-        const reed = new Reed();
-        reed.content = text;
-        if (pinnedReply) {
-          reed.replying = { to: pinnedReply.id, root: resolveConversationRoot(pinnedReply) };
-        } else if (first && prev) {
-          // Each later part replies to the one before it, in the first part's thread.
-          reed.replying = { to: prev.id, root: first.id };
-        }
-        if (pinnedEcho) {
-          reed.echoing = pinnedEcho.id;
-        }
-        const detachedArmor = await requestSigner.sign(reed.asMarkdown());
-        reed.setUserSignature(keyId, detachedArmor);
-        const { publish } = await reedsService.createReed(reed);
-        publishes.push(publish);
-        // The server needs each parent countersigned before its reply.
-        if (i < texts.length - 1 && chainPublished) chainPublished = await publish;
-        first ??= reed;
-        prev = reed;
+      if (texts.length > 1) {
+        const head = await publishThread(texts, keyId);
+        await goto(`/thread/${head}`);
+        close();
+        return;
       }
 
-      const href = `/reed/${first?.id}`;
+      const reed = new Reed();
+      reed.content = texts[0];
+      if (pinnedReply) {
+        reed.replying = { to: pinnedReply.id, root: resolveConversationRoot(pinnedReply) };
+      }
+      if (pinnedEcho) {
+        reed.echoing = pinnedEcho.id;
+      }
+      reed.setUserSignature(keyId, await requestSigner.sign(reed.asMarkdown()));
+      const { publish } = await reedsService.createReed(reed);
+
       // Keep the modal open (covering the feed/detail page underneath) until
       // the new route is ready, so a slow route load doesn't flash the page.
-      await goto(href);
+      await goto(`/reed/${reed.id}`);
       close();
-      Promise.all(publishes).then((results) => {
-        if (results.every(Boolean)) return;
-        const what = results.length > 1 ? 'thread' : 'reed';
+      publish.then((published) => {
+        if (published) return;
         const message = get(isOnline)
-          ? `There was an issue with the server. Your ${what} will be published automatically once it's resolved.`
-          : `You're offline. We'll publish this ${what} as soon as you're back online.`;
+          ? "There was an issue with the server. Your reed will be published automatically once it's resolved."
+          : "You're offline. We'll publish this reed as soon as you're back online.";
         notificationStore.info(message, 10000);
       });
     } catch (error) {

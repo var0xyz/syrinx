@@ -4,6 +4,7 @@
   import { formatRelativeTime } from '$lib/utils/time';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ThreadContext from '$lib/components/ThreadContext.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import { followReedQueue } from '$lib/repositories/reeds';
@@ -91,13 +92,17 @@
               stopPropagation
               linked={false}
             />
-            <ReedActionsMenu
-              reedRef={reed.id}
-              userID={reed.userID}
-              username={authors[reed.userID]?.username ?? reed.userID}
-              content={reed.content}
-            />
+            <div class="item-meta">
+              <ThreadContext reed={reed} where="chip" />
+              <ReedActionsMenu
+                reedRef={reed.id}
+                userID={reed.userID}
+                username={authors[reed.userID]?.username ?? reed.userID}
+                content={reed.content}
+              />
+            </div>
           </div>
+          <ThreadContext reed={reed} where="before" />
           {#if reed.replying}
             <div class="quote-container">
               <Quote reedRef={reed.replying.to} type="reply" missing={false} linked={false} />
@@ -108,6 +113,7 @@
               <MarkdownParser text={reed.content} preview={true} />
             </div>
           {/if}
+          <ThreadContext reed={reed} where="after" />
           {#if reed.echoing}
             <div class="quote-container">
               <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
@@ -120,6 +126,12 @@
 </div>
 
 <style>
+  .item-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .feed-content-wrap {
     max-width: 680px;
     margin: 0 auto;

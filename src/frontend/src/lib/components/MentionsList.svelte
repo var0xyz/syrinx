@@ -6,6 +6,7 @@
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ThreadContext from '$lib/components/ThreadContext.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import { goto } from '$app/navigation';
   import { restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -78,13 +79,17 @@
             stopPropagation
             linked={false}
           />
-          <ReedActionsMenu
-            reedRef={item.reed.id}
-            userID={item.reed.userID}
-            username={item.author.username}
-            content={item.reed.content}
-          />
+          <div class="item-meta">
+            <ThreadContext reed={item.reed} where="chip" />
+            <ReedActionsMenu
+              reedRef={item.reed.id}
+              userID={item.reed.userID}
+              username={item.author.username}
+              content={item.reed.content}
+            />
+          </div>
         </div>
+        <ThreadContext reed={item.reed} where="before" />
         {#if item.reed.replying}
           <div class="quote-container">
             <Quote reedRef={item.reed.replying.to} type="reply" missing={false} linked={false} />
@@ -95,6 +100,7 @@
             <MarkdownParser text={item.reed.content} preview={true} />
           </div>
         {/if}
+        <ThreadContext reed={item.reed} where="after" />
         {#if item.reed.echoing}
           <div class="quote-container">
             <Quote reedRef={item.reed.echoing} type="echo" missing={false} linked={false} />
@@ -106,6 +112,12 @@
 </div>
 
 <style>
+  .item-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .new-reed-banner {
     position: fixed;
     top: 1rem;

@@ -42,7 +42,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
-  import { receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
+  import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
@@ -211,7 +211,10 @@
       }
     });
     serverConnection.onEncryptedReed(ServerEvent.PipeReed, 'pipe reed', async (reed, data) => {
-      if (!verifyClaimedTags(reed, serverConnection.activePipeTag)) {
+      // A thread is delivered once, as its head: the tag may be in a later part.
+      const tag = serverConnection.activePipeTag;
+      const tagged = await firstPartMatching(reed, (part) => verifyClaimedTags(part, tag));
+      if (!tagged) {
         console.warn('ServerConnection: pipe reed tag claim mismatch, rejecting:', reed.id);
         serverConnection.sendContentRejected('reeds', 'tag_claim_mismatch');
         serverConnection.sendDataInvalid(data.id);
@@ -223,7 +226,7 @@
         serverConnection.sendDataAck(data.id);
         removeBroadcastReed(reed.id);
         await recordActivity(reed);
-        dispatchReedToQueue(reed, 'pipe_reed');
+        dispatchReedToQueue(tagged, 'pipe_reed');
         // Also following the author: keep the follow feed in sync without a second relay.
         if (reed.userID && (await followingRepository.isFollowing(reed.userID))) {
           dispatchReedToQueue(reed, 'follow_reed');

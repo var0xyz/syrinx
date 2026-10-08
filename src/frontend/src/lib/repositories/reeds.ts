@@ -257,11 +257,13 @@ class ReedsService {
       }
     }
 
-    // A removed thread's parts never come back.
+    // A removed thread's parts are dropped, never kept: this also finishes
+    // a removal a crash cut short.
     if (reed.thread?.head) {
       const { threadsRepository } = await import('$lib/repositories/threads');
       if (await threadsRepository.isRemoved(reed.thread.head)) {
-        throw new Error(`Thread ${reed.thread.head} was removed`);
+        await dbService.delete('reeds', reed.id);
+        return;
       }
     }
     await dbService.put('reeds', reed, verifyReed);

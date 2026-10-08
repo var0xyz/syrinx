@@ -2,6 +2,7 @@ import { apiService } from './api';
 import { serverConnection } from './serverConnection';
 import { reedsService } from '$lib/repositories/reeds';
 import { mentionsRepository, type MentionRecord } from '$lib/repositories/mentions';
+import { firstPartMatching } from './threadFetch';
 
 /** Confirms item.reedID actually mentions the caller before storing it —
  * an unbacked claim is reported (DeleteMention) and dropped. Called from
@@ -16,10 +17,12 @@ export async function verifyAndStoreMention(item: MentionRecord): Promise<boolea
   if (!reed) {
     return false;
   }
-  if (!reed.mentions.includes(myUserID)) {
+  // A thread is mentioned once, at the first part that mentions this user.
+  const mentioning = await firstPartMatching(reed, (part) => part.mentions.includes(myUserID));
+  if (!mentioning) {
     await apiService.deleteMention(item.reedID, 'mention_claim_mismatch').catch(() => {});
     return false;
   }
-  await mentionsRepository.put(item);
+  await mentionsRepository.put({ ...item, reedID: mentioning.id });
   return true;
 }

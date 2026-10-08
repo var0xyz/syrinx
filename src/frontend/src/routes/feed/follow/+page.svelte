@@ -9,6 +9,7 @@
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ThreadContext from '$lib/components/ThreadContext.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import { captureWindowScroll, restoreWindowScroll } from '$lib/utils/scrollSnapshot';
@@ -84,13 +85,17 @@
                   stopPropagation
                   linked={false}
                 />
-                <ReedActionsMenu
-                  reedRef={reed.id}
-                  userID={reed.userID}
-                  username={followReeds.authors[reed.userID]?.username ?? reed.userID}
-                  content={reed.content}
-                />
+                <div class="item-meta">
+                  <ThreadContext reed={reed} where="chip" />
+                  <ReedActionsMenu
+                    reedRef={reed.id}
+                    userID={reed.userID}
+                    username={followReeds.authors[reed.userID]?.username ?? reed.userID}
+                    content={reed.content}
+                  />
+                </div>
               </div>
+              <ThreadContext reed={reed} where="before" />
               {#if reed.replying}
                 <div class="quote-container">
                   <Quote reedRef={reed.replying.to} type="reply" missing={false} linked={false} />
@@ -101,6 +106,7 @@
                   <MarkdownParser text={reed.content} preview={true} />
                 </div>
               {/if}
+              <ThreadContext reed={reed} where="after" />
               {#if reed.echoing}
                 <div class="quote-container">
                   <Quote reedRef={reed.echoing} type="echo" missing={false} linked={false} />
@@ -117,6 +123,12 @@
 </Auth>
 
 <style>
+  .item-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .feed-container {
     flex: 1;
     display: flex;

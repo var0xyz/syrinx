@@ -5,6 +5,7 @@
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ThreadContext from '$lib/components/ThreadContext.svelte';
 
   export let reed;
   export let authorId;
@@ -25,6 +26,12 @@
     isBlankEcho(displayReed) &&
     !(displayReed.echoing && echoedReeds.has(displayReed.echoing));
   $: shareTarget = awaitingOriginal ? reed : displayReed;
+  // A thread is deleted whole, from its head; a later part can't be.
+  $: deleteOption = reed.thread
+    ? reed.thread.index === 0
+      ? [{ label: 'Delete thread', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id, false, true) }]
+      : []
+    : [{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id) }];
   $: displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId });
 </script>
 
@@ -54,11 +61,12 @@
           pinned
             ? { label: 'Unpin', icon: '/icons/pin-16-filled.png', onSelect: () => onTogglePin(reed) }
             : { label: 'Pin', icon: '/icons/pin-16-outlined.png', onSelect: () => onTogglePin(reed) },
-          { label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id) },
+          ...deleteOption,
         ] : []}
       />
     </div>
   </div>
+  <ThreadContext reed={displayReed} where="before" />
   {#if !awaitingOriginal && displayReed.replying}
     <div class="quote-container">
       <Quote
@@ -72,9 +80,11 @@
   {/if}
   {#if !awaitingOriginal && (displayReed.content || "").trim()}
     <div class={["reed-preview", !isUnwrapped && reed.echoing && "echo", !isUnwrapped && reed.replying && "reply"]}>
+      <ThreadContext reed={displayReed} where="label" />
       <MarkdownParser text={displayReed.content} preview={true} />
     </div>
   {/if}
+  <ThreadContext reed={displayReed} where="after" />
   {#if displayReed.echoing}
     <div class="quote-container">
       <Quote

@@ -58,6 +58,7 @@ export async function removeReedAsAuthor(reedID: string): Promise<api.ReedRemova
 
   await pendingRemovalRepository.put({
     reedID,
+    kind: 'reed',
     serverID,
     signature,
   });
