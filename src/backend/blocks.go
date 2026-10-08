@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -382,6 +383,16 @@ func (h *Handlers) requestViewer(r *http.Request) string {
 		return ""
 	}
 	return requester
+}
+
+// dropMentionsBlockingAuthor leaves out mentioned users who blocked the
+// author: the reed stays as signed, they just aren't sent the mention.
+func (h *Handlers) dropMentionsBlockingAuthor(ctx context.Context, mentions []string, authorID string) ([]string, error) {
+	blocking, err := h.services.db.UsersBlocking(ctx, authorID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(mentions, func(id string) bool { return blocking[id] }), nil
 }
 
 // errRecipientBlocked: the content's author blocked the event's recipient.

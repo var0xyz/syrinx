@@ -46,7 +46,7 @@ server was refused with **422** rather than half-enforced.
 | 03 | 403 + certificate on every read path                | Implemented |
 | 04 | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up | Implemented |
 | 05 | Blocks across peers                                 | Implemented |
-| 06 | Refuse follow, like, ripple, reply, echo, mention   | Proposed |
+| 06 | Refuse follow, like, ripple, reply, echo, mention   | Implemented |
 | 07 | SPA, blocked side                                   | Proposed |
 | 08 | SPA, blocking side                                   | Proposed |
 

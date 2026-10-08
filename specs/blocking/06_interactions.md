@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`handlers.go`, helpers in `blocks.go`).
 
 ## Depends on
 
@@ -22,8 +22,7 @@ interactions aimed at the blocking user are refused with **403** + certificate.
 | Like a blocking user's reed | `LikeReed` |
 | Ripple on a blocking user's reed | `PostRipple` |
 | Reply to, or echo, a blocking user's reed | `SignReed` when `replying` / echo ref names a blocking user's reed |
-| Mention the blocking user | `SignReed`: the reed publishes as signed, but the mention is not indexed for or delivered to the blocking user |
-| Add the blocking user to a thread | `CreateThread` |
+| Mention the blocking user | `SignReed`: the reed publishes as signed, but the mention is not indexed for or delivered to the blocking user (`dropMentionsBlockingAuthor`) |
 
 A mention is not refused, because the reed is the user's own and stays
 exactly as they signed it. The server only declines to deliver it to the
@@ -42,9 +41,13 @@ user published is unchanged.
 
 ## Across peers
 
-Interactions with a foreign blocking user are proxied to the blocking user's server
-already (follow, like, ripple). B refuses from its copy first; A refuses on
-the leg with the same check.
+Interactions with a foreign blocking user are proxied to their server
+(follow, like, ripple). The acting user's server refuses from its copy
+first; the blocking user's server refuses on the leg with the same check
+(`refuseBlockedRequester` against the follower or acting user the peer
+vouches for).
+
+A thread holds only its author's own reeds, so it has nothing to refuse.
 
 ## Tests
 

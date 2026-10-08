@@ -1035,6 +1035,9 @@ func (h *Handlers) resolveActingUser(r *http.Request, candidateID string) (userI
 func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	userID := mux.Vars(r)["userID"]
+	if followerID, ok := h.resolveFollower(r); ok && h.refuseBlockedRequester(w, r, userID, followerID) {
+		return
+	}
 
 	if handled, status := h.proxyFollowIfForeign(w, r, http.MethodPost, userID); handled {
 		if status == http.StatusNoContent {
@@ -1957,6 +1960,11 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "A reed cannot both echo and reply")
 		return
 	}
+	for _, ref := range []*ReedRef{echoRef, replyRef} {
+		if ref != nil && h.refuseBlockedRequester(w, r, ref.CanonicalAuthorID(), userID) {
+			return
+		}
+	}
 
 	rootID := ""
 	if replyRef != nil {
@@ -1976,6 +1984,12 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error validating mentions")
+		internalServerError(w)
+		return
+	}
+	storedMentions, err = h.dropMentionsBlockingAuthor(r.Context(), storedMentions, userID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading users blocking the author")
 		internalServerError(w)
 		return
 	}
@@ -2715,6 +2729,9 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reedID := string(appendEntity(identityID(authorID), bareReedID))
+	if viewerID := h.requestViewer(r); viewerID != "" && h.refuseBlockedRequester(w, r, authorID, viewerID) {
+		return
+	}
 
 	if h.proxyLikeToForeignReed(w, r, reedID) {
 		return
@@ -2729,6 +2746,9 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
 	if !ok {
 		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return
+	}
+	if h.refuseBlockedRequester(w, r, authorID, likerID) {
 		return
 	}
 	userSignature := strings.TrimSpace(values.Get("signature"))
@@ -5750,6 +5770,9 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
+	if viewerID := h.requestViewer(r); viewerID != "" && h.refuseBlockedRequester(w, r, reedUserID, viewerID) {
+		return
+	}
 
 	// A foreign reed's home server checks this server as the holder, so
 	// this server checks its own user before proxying.
@@ -5773,6 +5796,9 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	callerID, ok := h.resolveActingUser(r, req.UserID)
 	if !ok {
 		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		return
+	}
+	if h.refuseBlockedRequester(w, r, reedUserID, callerID) {
 		return
 	}
 
