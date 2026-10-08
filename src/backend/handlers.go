@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -784,6 +785,10 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
+
 	if handled, status := h.proxyIfForeign(w, r, userID); handled {
 		h.rememberRemoteIdentityOnSuccess(r.Context(), log, userID, status)
 		return
@@ -823,6 +828,10 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	if h.refuseIfBlocked(w, r, userID) {
 		return
 	}
 
@@ -895,6 +904,14 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 
 	foreignResults := h.fanoutUserSearchToPeers(r.Context(), query, limit, searchUsersFanoutTimeout)
 	results := mergeUserSearchResults(query, localResults, foreignResults)
+
+	blocking, err := h.services.db.UsersBlocking(r.Context(), h.getUserID(r))
+	if err != nil {
+		log.Error().Err(err).Msg("Error loading users blocking the searcher")
+		internalServerError(w)
+		return
+	}
+	results = slices.DeleteFunc(results, func(u UserSearchResult) bool { return blocking[u.ID] })
 
 	writeResponse(w, http.StatusOK, map[string]any{"users": results})
 }
@@ -2974,6 +2991,10 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
 
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
+
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
 	}
@@ -3024,6 +3045,10 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
 
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
+
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
 	}
@@ -3073,6 +3098,10 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
+
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
 
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
@@ -3131,6 +3160,10 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
+
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
 
 	if handled, _ := h.proxyIfForeign(w, r, reedID); handled {
 		return
@@ -3227,6 +3260,10 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
+
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -3266,6 +3303,10 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	if h.refuseIfBlocked(w, r, userID) {
 		return
 	}
 
@@ -5881,6 +5922,10 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
+
+	if h.refuseIfBlocked(w, r, reedUserID) {
+		return
+	}
 
 	// A foreign reed's home server checks this server as the holder, so
 	// this server checks its own user before proxying.

@@ -92,6 +92,10 @@ const (
 	MessageType_THREAD_REMOVED           MessageType = 64
 	MessageType_KEY_EVICTION             MessageType = 65
 	MessageType_KEY_EVICTION_ACK         MessageType = 66
+	MessageType_USER_BLOCKED             MessageType = 67
+	MessageType_USER_BLOCKED_ACK         MessageType = 68
+	MessageType_USER_UNBLOCKED           MessageType = 69
+	MessageType_USER_UNBLOCKED_ACK       MessageType = 70
 )
 
 // Enum value maps for MessageType.
@@ -163,6 +167,10 @@ var (
 		64: "THREAD_REMOVED",
 		65: "KEY_EVICTION",
 		66: "KEY_EVICTION_ACK",
+		67: "USER_BLOCKED",
+		68: "USER_BLOCKED_ACK",
+		69: "USER_UNBLOCKED",
+		70: "USER_UNBLOCKED_ACK",
 	}
 	MessageType_value = map[string]int32{
 		"UNKNOWN":                  0,
@@ -231,6 +239,10 @@ var (
 		"THREAD_REMOVED":           64,
 		"KEY_EVICTION":             65,
 		"KEY_EVICTION_ACK":         66,
+		"USER_BLOCKED":             67,
+		"USER_BLOCKED_ACK":         68,
+		"USER_UNBLOCKED":           69,
+		"USER_UNBLOCKED_ACK":       70,
 	}
 )
 
@@ -328,6 +340,10 @@ type WSMessage struct {
 	//	*WSMessage_ThreadRemoved
 	//	*WSMessage_KeyEviction
 	//	*WSMessage_KeyEvictionAck
+	//	*WSMessage_UserBlocked
+	//	*WSMessage_UserBlockedAck
+	//	*WSMessage_UserUnblocked
+	//	*WSMessage_UserUnblockedAck
 	Payload       isWSMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -850,6 +866,42 @@ func (x *WSMessage) GetKeyEvictionAck() *KeyEvictionAckMessage {
 	return nil
 }
 
+func (x *WSMessage) GetUserBlocked() *UserBlockedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UserBlocked); ok {
+			return x.UserBlocked
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetUserBlockedAck() *UserBlockedAckMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UserBlockedAck); ok {
+			return x.UserBlockedAck
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetUserUnblocked() *UserUnblockedMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UserUnblocked); ok {
+			return x.UserUnblocked
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetUserUnblockedAck() *UserUnblockedAckMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_UserUnblockedAck); ok {
+			return x.UserUnblockedAck
+		}
+	}
+	return nil
+}
+
 type isWSMessage_Payload interface {
 	isWSMessage_Payload()
 }
@@ -1058,6 +1110,22 @@ type WSMessage_KeyEvictionAck struct {
 	KeyEvictionAck *KeyEvictionAckMessage `protobuf:"bytes,55,opt,name=key_eviction_ack,json=keyEvictionAck,proto3,oneof"`
 }
 
+type WSMessage_UserBlocked struct {
+	UserBlocked *UserBlockedMessage `protobuf:"bytes,56,opt,name=user_blocked,json=userBlocked,proto3,oneof"`
+}
+
+type WSMessage_UserBlockedAck struct {
+	UserBlockedAck *UserBlockedAckMessage `protobuf:"bytes,57,opt,name=user_blocked_ack,json=userBlockedAck,proto3,oneof"`
+}
+
+type WSMessage_UserUnblocked struct {
+	UserUnblocked *UserUnblockedMessage `protobuf:"bytes,58,opt,name=user_unblocked,json=userUnblocked,proto3,oneof"`
+}
+
+type WSMessage_UserUnblockedAck struct {
+	UserUnblockedAck *UserUnblockedAckMessage `protobuf:"bytes,59,opt,name=user_unblocked_ack,json=userUnblockedAck,proto3,oneof"`
+}
+
 func (*WSMessage_Ping) isWSMessage_Payload() {}
 
 func (*WSMessage_Pong) isWSMessage_Payload() {}
@@ -1159,6 +1227,14 @@ func (*WSMessage_ThreadRemoved) isWSMessage_Payload() {}
 func (*WSMessage_KeyEviction) isWSMessage_Payload() {}
 
 func (*WSMessage_KeyEvictionAck) isWSMessage_Payload() {}
+
+func (*WSMessage_UserBlocked) isWSMessage_Payload() {}
+
+func (*WSMessage_UserBlockedAck) isWSMessage_Payload() {}
+
+func (*WSMessage_UserUnblocked) isWSMessage_Payload() {}
+
+func (*WSMessage_UserUnblockedAck) isWSMessage_Payload() {}
 
 // Ping message
 type PingMessage struct {
@@ -4263,6 +4339,264 @@ func (x *ThreadRemovedMessage) GetRecord() *ThreadRecord {
 	return nil
 }
 
+// A block: the blocking user's signature and their home server's
+// countersignature.
+type BlockCert struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	UserId          string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BlockedUserId   string                 `protobuf:"bytes,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
+	UserSignature   *UserSignature         `protobuf:"bytes,3,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,4,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BlockCert) Reset() {
+	*x = BlockCert{}
+	mi := &file_proto_websocket_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlockCert) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlockCert) ProtoMessage() {}
+
+func (x *BlockCert) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BlockCert.ProtoReflect.Descriptor instead.
+func (*BlockCert) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *BlockCert) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *BlockCert) GetBlockedUserId() string {
+	if x != nil {
+		return x.BlockedUserId
+	}
+	return ""
+}
+
+func (x *BlockCert) GetUserSignature() *UserSignature {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+func (x *BlockCert) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
+// Tells a blocked user they were blocked. With request_id it answers a
+// request the block refused; without one it is the push, acked with
+// USER_BLOCKED_ACK.
+type UserBlockedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Block         *BlockCert             `protobuf:"bytes,2,opt,name=block,proto3" json:"block,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserBlockedMessage) Reset() {
+	*x = UserBlockedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserBlockedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserBlockedMessage) ProtoMessage() {}
+
+func (x *UserBlockedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserBlockedMessage.ProtoReflect.Descriptor instead.
+func (*UserBlockedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *UserBlockedMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UserBlockedMessage) GetBlock() *BlockCert {
+	if x != nil {
+		return x.Block
+	}
+	return nil
+}
+
+type UserBlockedAckMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserBlockedAckMessage) Reset() {
+	*x = UserBlockedAckMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserBlockedAckMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserBlockedAckMessage) ProtoMessage() {}
+
+func (x *UserBlockedAckMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserBlockedAckMessage.ProtoReflect.Descriptor instead.
+func (*UserBlockedAckMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *UserBlockedAckMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+// Tells a blocked user a block was lifted, acked with USER_UNBLOCKED_ACK.
+type UserUnblockedMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserUnblockedMessage) Reset() {
+	*x = UserUnblockedMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserUnblockedMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserUnblockedMessage) ProtoMessage() {}
+
+func (x *UserUnblockedMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserUnblockedMessage.ProtoReflect.Descriptor instead.
+func (*UserUnblockedMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *UserUnblockedMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type UserUnblockedAckMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserUnblockedAckMessage) Reset() {
+	*x = UserUnblockedAckMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserUnblockedAckMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserUnblockedAckMessage) ProtoMessage() {}
+
+func (x *UserUnblockedAckMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserUnblockedAckMessage.ProtoReflect.Descriptor instead.
+func (*UserUnblockedAckMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *UserUnblockedAckMessage) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
 type AccountRemovedMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -4273,7 +4607,7 @@ type AccountRemovedMessage struct {
 
 func (x *AccountRemovedMessage) Reset() {
 	*x = AccountRemovedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[56]
+	mi := &file_proto_websocket_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4285,7 +4619,7 @@ func (x *AccountRemovedMessage) String() string {
 func (*AccountRemovedMessage) ProtoMessage() {}
 
 func (x *AccountRemovedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[56]
+	mi := &file_proto_websocket_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4298,7 +4632,7 @@ func (x *AccountRemovedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountRemovedMessage.ProtoReflect.Descriptor instead.
 func (*AccountRemovedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{56}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *AccountRemovedMessage) GetRequestId() string {
@@ -4327,7 +4661,7 @@ type NewVouchMessage struct {
 
 func (x *NewVouchMessage) Reset() {
 	*x = NewVouchMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[57]
+	mi := &file_proto_websocket_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4339,7 +4673,7 @@ func (x *NewVouchMessage) String() string {
 func (*NewVouchMessage) ProtoMessage() {}
 
 func (x *NewVouchMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[57]
+	mi := &file_proto_websocket_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4352,7 +4686,7 @@ func (x *NewVouchMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewVouchMessage.ProtoReflect.Descriptor instead.
 func (*NewVouchMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{57}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *NewVouchMessage) GetVouchId() string {
@@ -4372,7 +4706,7 @@ type NewRippleMessage struct {
 
 func (x *NewRippleMessage) Reset() {
 	*x = NewRippleMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[58]
+	mi := &file_proto_websocket_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4384,7 +4718,7 @@ func (x *NewRippleMessage) String() string {
 func (*NewRippleMessage) ProtoMessage() {}
 
 func (x *NewRippleMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[58]
+	mi := &file_proto_websocket_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4397,7 +4731,7 @@ func (x *NewRippleMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewRippleMessage.ProtoReflect.Descriptor instead.
 func (*NewRippleMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{58}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{63}
 }
 
 // Tells a viewer this server lost its link to a peer: live updates from
@@ -4413,7 +4747,7 @@ type PeerServerLostMessage struct {
 
 func (x *PeerServerLostMessage) Reset() {
 	*x = PeerServerLostMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[59]
+	mi := &file_proto_websocket_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4425,7 +4759,7 @@ func (x *PeerServerLostMessage) String() string {
 func (*PeerServerLostMessage) ProtoMessage() {}
 
 func (x *PeerServerLostMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[59]
+	mi := &file_proto_websocket_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4438,7 +4772,7 @@ func (x *PeerServerLostMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerServerLostMessage.ProtoReflect.Descriptor instead.
 func (*PeerServerLostMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{59}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *PeerServerLostMessage) GetServerId() string {
@@ -4459,7 +4793,7 @@ var File_proto_websocket_proto protoreflect.FileDescriptor
 
 const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xc6\x1f\n" +
+	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\x92\"\n" +
 	"\tWSMessage\x121\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1d.syrinx.websocket.MessageTypeR\x04type\x12\x1b\n" +
 	"\ttype_name\x18\f \x01(\tR\btypeName\x12\x0e\n" +
@@ -4523,7 +4857,11 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\frelay_thread\x184 \x01(\v2$.syrinx.websocket.RelayThreadMessageH\x00R\vrelayThread\x12O\n" +
 	"\x0ethread_removed\x185 \x01(\v2&.syrinx.websocket.ThreadRemovedMessageH\x00R\rthreadRemoved\x12I\n" +
 	"\fkey_eviction\x186 \x01(\v2$.syrinx.websocket.KeyEvictionMessageH\x00R\vkeyEviction\x12S\n" +
-	"\x10key_eviction_ack\x187 \x01(\v2'.syrinx.websocket.KeyEvictionAckMessageH\x00R\x0ekeyEvictionAckB\t\n" +
+	"\x10key_eviction_ack\x187 \x01(\v2'.syrinx.websocket.KeyEvictionAckMessageH\x00R\x0ekeyEvictionAck\x12I\n" +
+	"\fuser_blocked\x188 \x01(\v2$.syrinx.websocket.UserBlockedMessageH\x00R\vuserBlocked\x12S\n" +
+	"\x10user_blocked_ack\x189 \x01(\v2'.syrinx.websocket.UserBlockedAckMessageH\x00R\x0euserBlockedAck\x12O\n" +
+	"\x0euser_unblocked\x18: \x01(\v2&.syrinx.websocket.UserUnblockedMessageH\x00R\ruserUnblocked\x12Y\n" +
+	"\x12user_unblocked_ack\x18; \x01(\v2).syrinx.websocket.UserUnblockedAckMessageH\x00R\x10userUnblockedAckB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\x06R\n" +
 	"subscribed\"!\n" +
 	"\vPingMessage\x12\x12\n" +
@@ -4734,7 +5072,22 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x127\n" +
 	"\x04cert\x18\x02 \x01(\v2#.syrinx.websocket.ThreadRemovalCertR\x04cert\x126\n" +
-	"\x06record\x18\x03 \x01(\v2\x1e.syrinx.websocket.ThreadRecordR\x06record\"p\n" +
+	"\x06record\x18\x03 \x01(\v2\x1e.syrinx.websocket.ThreadRecordR\x06record\"\xe2\x01\n" +
+	"\tBlockCert\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12&\n" +
+	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserId\x12F\n" +
+	"\x0euser_signature\x18\x03 \x01(\v2\x1f.syrinx.websocket.UserSignatureR\ruserSignature\x12L\n" +
+	"\x10server_signature\x18\x04 \x01(\v2!.syrinx.websocket.ServerSignatureR\x0fserverSignature\"f\n" +
+	"\x12UserBlockedMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x121\n" +
+	"\x05block\x18\x02 \x01(\v2\x1b.syrinx.websocket.BlockCertR\x05block\"0\n" +
+	"\x15UserBlockedAckMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"/\n" +
+	"\x14UserUnblockedMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"2\n" +
+	"\x17UserUnblockedAckMessage\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"p\n" +
 	"\x15AccountRemovedMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x128\n" +
@@ -4745,7 +5098,8 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x15PeerServerLostMessage\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
-	"serverName*\xde\t\n" +
+	"serverName*\xb2\n" +
+	"\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04PING\x10\x01\x12\b\n" +
@@ -4818,7 +5172,11 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\fRELAY_THREAD\x10?\x12\x12\n" +
 	"\x0eTHREAD_REMOVED\x10@\x12\x10\n" +
 	"\fKEY_EVICTION\x10A\x12\x14\n" +
-	"\x10KEY_EVICTION_ACK\x10B\"\x04\b\x04\x10\x04*\n" +
+	"\x10KEY_EVICTION_ACK\x10B\x12\x10\n" +
+	"\fUSER_BLOCKED\x10C\x12\x14\n" +
+	"\x10USER_BLOCKED_ACK\x10D\x12\x12\n" +
+	"\x0eUSER_UNBLOCKED\x10E\x12\x16\n" +
+	"\x12USER_UNBLOCKED_ACK\x10F\"\x04\b\x04\x10\x04*\n" +
 	"SUBSCRIBEDB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
@@ -4834,7 +5192,7 @@ func file_proto_websocket_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_websocket_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
+var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
 var file_proto_websocket_proto_goTypes = []any{
 	(MessageType)(0),                     // 0: syrinx.websocket.MessageType
 	(*WSMessage)(nil),                    // 1: syrinx.websocket.WSMessage
@@ -4893,10 +5251,15 @@ var file_proto_websocket_proto_goTypes = []any{
 	(*ThreadRecord)(nil),                 // 54: syrinx.websocket.ThreadRecord
 	(*ThreadRemovalCert)(nil),            // 55: syrinx.websocket.ThreadRemovalCert
 	(*ThreadRemovedMessage)(nil),         // 56: syrinx.websocket.ThreadRemovedMessage
-	(*AccountRemovedMessage)(nil),        // 57: syrinx.websocket.AccountRemovedMessage
-	(*NewVouchMessage)(nil),              // 58: syrinx.websocket.NewVouchMessage
-	(*NewRippleMessage)(nil),             // 59: syrinx.websocket.NewRippleMessage
-	(*PeerServerLostMessage)(nil),        // 60: syrinx.websocket.PeerServerLostMessage
+	(*BlockCert)(nil),                    // 57: syrinx.websocket.BlockCert
+	(*UserBlockedMessage)(nil),           // 58: syrinx.websocket.UserBlockedMessage
+	(*UserBlockedAckMessage)(nil),        // 59: syrinx.websocket.UserBlockedAckMessage
+	(*UserUnblockedMessage)(nil),         // 60: syrinx.websocket.UserUnblockedMessage
+	(*UserUnblockedAckMessage)(nil),      // 61: syrinx.websocket.UserUnblockedAckMessage
+	(*AccountRemovedMessage)(nil),        // 62: syrinx.websocket.AccountRemovedMessage
+	(*NewVouchMessage)(nil),              // 63: syrinx.websocket.NewVouchMessage
+	(*NewRippleMessage)(nil),             // 64: syrinx.websocket.NewRippleMessage
+	(*PeerServerLostMessage)(nil),        // 65: syrinx.websocket.PeerServerLostMessage
 }
 var file_proto_websocket_proto_depIdxs = []int32{
 	0,  // 0: syrinx.websocket.WSMessage.type:type_name -> syrinx.websocket.MessageType
@@ -4937,44 +5300,51 @@ var file_proto_websocket_proto_depIdxs = []int32{
 	47, // 35: syrinx.websocket.WSMessage.ripple_posted:type_name -> syrinx.websocket.RipplePostedMessage
 	48, // 36: syrinx.websocket.WSMessage.ripple_updated:type_name -> syrinx.websocket.RippleUpdatedMessage
 	51, // 37: syrinx.websocket.WSMessage.reed_removed:type_name -> syrinx.websocket.ReedRemovedMessage
-	57, // 38: syrinx.websocket.WSMessage.account_removed:type_name -> syrinx.websocket.AccountRemovedMessage
+	62, // 38: syrinx.websocket.WSMessage.account_removed:type_name -> syrinx.websocket.AccountRemovedMessage
 	24, // 39: syrinx.websocket.WSMessage.profile_page:type_name -> syrinx.websocket.ProfilePageMessage
 	25, // 40: syrinx.websocket.WSMessage.page_ack:type_name -> syrinx.websocket.PageAckMessage
 	32, // 41: syrinx.websocket.WSMessage.eviction:type_name -> syrinx.websocket.EvictionMessage
 	33, // 42: syrinx.websocket.WSMessage.eviction_ack:type_name -> syrinx.websocket.EvictionAckMessage
-	58, // 43: syrinx.websocket.WSMessage.new_vouch:type_name -> syrinx.websocket.NewVouchMessage
-	60, // 44: syrinx.websocket.WSMessage.peer_server_lost:type_name -> syrinx.websocket.PeerServerLostMessage
-	59, // 45: syrinx.websocket.WSMessage.new_ripple:type_name -> syrinx.websocket.NewRippleMessage
+	63, // 43: syrinx.websocket.WSMessage.new_vouch:type_name -> syrinx.websocket.NewVouchMessage
+	65, // 44: syrinx.websocket.WSMessage.peer_server_lost:type_name -> syrinx.websocket.PeerServerLostMessage
+	64, // 45: syrinx.websocket.WSMessage.new_ripple:type_name -> syrinx.websocket.NewRippleMessage
 	53, // 46: syrinx.websocket.WSMessage.key_revoked:type_name -> syrinx.websocket.KeyRevokedMessage
 	14, // 47: syrinx.websocket.WSMessage.request_thread:type_name -> syrinx.websocket.RequestThreadMessage
 	15, // 48: syrinx.websocket.WSMessage.relay_thread:type_name -> syrinx.websocket.RelayThreadMessage
 	56, // 49: syrinx.websocket.WSMessage.thread_removed:type_name -> syrinx.websocket.ThreadRemovedMessage
 	34, // 50: syrinx.websocket.WSMessage.key_eviction:type_name -> syrinx.websocket.KeyEvictionMessage
 	35, // 51: syrinx.websocket.WSMessage.key_eviction_ack:type_name -> syrinx.websocket.KeyEvictionAckMessage
-	44, // 52: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
-	45, // 53: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
-	46, // 54: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
-	46, // 55: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
-	44, // 56: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	45, // 57: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	44, // 58: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	45, // 59: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	49, // 60: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
-	44, // 61: syrinx.websocket.KeyRevocationCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	45, // 62: syrinx.websocket.KeyRevocationCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	52, // 63: syrinx.websocket.KeyRevokedMessage.revocation:type_name -> syrinx.websocket.KeyRevocationCert
-	44, // 64: syrinx.websocket.ThreadRecord.user_signature:type_name -> syrinx.websocket.UserSignature
-	45, // 65: syrinx.websocket.ThreadRecord.server_signature:type_name -> syrinx.websocket.ServerSignature
-	44, // 66: syrinx.websocket.ThreadRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	45, // 67: syrinx.websocket.ThreadRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	55, // 68: syrinx.websocket.ThreadRemovedMessage.cert:type_name -> syrinx.websocket.ThreadRemovalCert
-	54, // 69: syrinx.websocket.ThreadRemovedMessage.record:type_name -> syrinx.websocket.ThreadRecord
-	50, // 70: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
-	71, // [71:71] is the sub-list for method output_type
-	71, // [71:71] is the sub-list for method input_type
-	71, // [71:71] is the sub-list for extension type_name
-	71, // [71:71] is the sub-list for extension extendee
-	0,  // [0:71] is the sub-list for field type_name
+	58, // 52: syrinx.websocket.WSMessage.user_blocked:type_name -> syrinx.websocket.UserBlockedMessage
+	59, // 53: syrinx.websocket.WSMessage.user_blocked_ack:type_name -> syrinx.websocket.UserBlockedAckMessage
+	60, // 54: syrinx.websocket.WSMessage.user_unblocked:type_name -> syrinx.websocket.UserUnblockedMessage
+	61, // 55: syrinx.websocket.WSMessage.user_unblocked_ack:type_name -> syrinx.websocket.UserUnblockedAckMessage
+	44, // 56: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 57: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
+	46, // 58: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	46, // 59: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	44, // 60: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 61: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	44, // 62: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 63: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	49, // 64: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
+	44, // 65: syrinx.websocket.KeyRevocationCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 66: syrinx.websocket.KeyRevocationCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	52, // 67: syrinx.websocket.KeyRevokedMessage.revocation:type_name -> syrinx.websocket.KeyRevocationCert
+	44, // 68: syrinx.websocket.ThreadRecord.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 69: syrinx.websocket.ThreadRecord.server_signature:type_name -> syrinx.websocket.ServerSignature
+	44, // 70: syrinx.websocket.ThreadRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 71: syrinx.websocket.ThreadRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	55, // 72: syrinx.websocket.ThreadRemovedMessage.cert:type_name -> syrinx.websocket.ThreadRemovalCert
+	54, // 73: syrinx.websocket.ThreadRemovedMessage.record:type_name -> syrinx.websocket.ThreadRecord
+	44, // 74: syrinx.websocket.BlockCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	45, // 75: syrinx.websocket.BlockCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	57, // 76: syrinx.websocket.UserBlockedMessage.block:type_name -> syrinx.websocket.BlockCert
+	50, // 77: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
+	78, // [78:78] is the sub-list for method output_type
+	78, // [78:78] is the sub-list for method input_type
+	78, // [78:78] is the sub-list for extension type_name
+	78, // [78:78] is the sub-list for extension extendee
+	0,  // [0:78] is the sub-list for field type_name
 }
 
 func init() { file_proto_websocket_proto_init() }
@@ -5034,6 +5404,10 @@ func file_proto_websocket_proto_init() {
 		(*WSMessage_ThreadRemoved)(nil),
 		(*WSMessage_KeyEviction)(nil),
 		(*WSMessage_KeyEvictionAck)(nil),
+		(*WSMessage_UserBlocked)(nil),
+		(*WSMessage_UserBlockedAck)(nil),
+		(*WSMessage_UserUnblocked)(nil),
+		(*WSMessage_UserUnblockedAck)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -5041,7 +5415,7 @@ func file_proto_websocket_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_websocket_proto_rawDesc), len(file_proto_websocket_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   60,
+			NumMessages:   65,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

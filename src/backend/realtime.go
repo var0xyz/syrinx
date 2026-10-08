@@ -2022,7 +2022,9 @@ func (rs *realtimeService) dispatchMany(recipients []string, eventName realtimeE
 			continue
 		}
 		eventID := generateRealtimeEventID(recipientID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); err != nil {
+		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); errors.Is(err, errRecipientBlocked) {
+			continue
+		} else if err != nil {
 			log.Error().
 				Err(err).
 				Str("recipientID", recipientID).
@@ -2808,6 +2810,9 @@ func generateRealtimeEventID(requesterUserID string) string {
 // deletePendingEvent's "deleted"/"fulfilled" so wasted-bandwidth analysis
 // (created with no matching fulfilled/deleted) can correlate by event.id_hash.
 func (rs *realtimeService) createPendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID string) error {
+	if eventName != reedRemovedEvent && eventName != threadRemovedEvent && rs.blockedBy(reedAuthorIdentity(reedID), requesterUserID) != nil {
+		return errRecipientBlocked
+	}
 	if err := rs.db.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
 		return err
 	}
@@ -2826,6 +2831,9 @@ func (rs *realtimeService) createPendingAccountEvent(ctx context.Context, eventI
 
 // createProfileSubscriptionEvent mirrors createPendingReedEvent for profile-subscription events.
 func (rs *realtimeService) createProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID, subscriptionID string) error {
+	if rs.blockedBy(reedAuthorIdentity(reedID), requesterUserID) != nil {
+		return errRecipientBlocked
+	}
 	if err := rs.db.CreateProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID, subscriptionID); err != nil {
 		return err
 	}
@@ -2861,6 +2869,9 @@ func (rs *realtimeService) handleRequestReed(client *realtimeClient, req *pb.Req
 func (rs *realtimeService) requestReed(client *realtimeClient, requestID, reedID string) {
 	if !rs.validateRequestID(requestID, client.userID) {
 		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
+		return
+	}
+	if rs.refuseIfBlocked(client, requestID, reedAuthorIdentity(reedID)) {
 		return
 	}
 
@@ -2909,6 +2920,9 @@ func (rs *realtimeService) handleRequestThread(client *realtimeClient, req *pb.R
 func (rs *realtimeService) requestThread(client *realtimeClient, requestID, threadID string) {
 	if !rs.validateRequestID(requestID, client.userID) {
 		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
+		return
+	}
+	if rs.refuseIfBlocked(client, requestID, reedAuthorIdentity(threadID)) {
 		return
 	}
 	if foreign, homeServerID := rs.isForeignReed(threadID); foreign {
@@ -3379,7 +3393,7 @@ func (rs *realtimeService) HandleForeignProfilePage(ctx context.Context, authorI
 }
 
 func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID string) {
-	if userID == "" {
+	if userID == "" || rs.refuseIfBlocked(client, "", userID) {
 		return
 	}
 
@@ -3393,7 +3407,7 @@ func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID
 // reed history. Independent of any profile subscription: the events carry
 // no subscription id and survive the viewer navigating away.
 func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID string, page uint32) {
-	if userID == "" {
+	if userID == "" || rs.refuseIfBlocked(client, "", userID) {
 		return
 	}
 	if page < 1 {
@@ -3634,7 +3648,7 @@ func (rs *realtimeService) DeliverForeignReedStats(ctx context.Context, reedID, 
 }
 
 func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID string) {
-	if reedID == "" {
+	if reedID == "" || rs.refuseIfBlocked(client, "", reedAuthorIdentity(reedID)) {
 		return
 	}
 

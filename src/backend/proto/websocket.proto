@@ -72,6 +72,10 @@ message WSMessage {
     ThreadRemovedMessage thread_removed = 53;
     KeyEvictionMessage key_eviction = 54;
     KeyEvictionAckMessage key_eviction_ack = 55;
+    UserBlockedMessage user_blocked = 56;
+    UserBlockedAckMessage user_blocked_ack = 57;
+    UserUnblockedMessage user_unblocked = 58;
+    UserUnblockedAckMessage user_unblocked_ack = 59;
   }
 }
 
@@ -148,6 +152,10 @@ enum MessageType {
   THREAD_REMOVED = 64;
   KEY_EVICTION = 65;
   KEY_EVICTION_ACK = 66;
+  USER_BLOCKED = 67;
+  USER_BLOCKED_ACK = 68;
+  USER_UNBLOCKED = 69;
+  USER_UNBLOCKED_ACK = 70;
 }
 
 // Ping message
@@ -512,6 +520,36 @@ message ThreadRemovedMessage {
   string request_id = 1;
   ThreadRemovalCert cert = 2;
   ThreadRecord record = 3;
+}
+
+// A block: the blocking user's signature and their home server's
+// countersignature.
+message BlockCert {
+  string user_id = 1;
+  string blocked_user_id = 2;
+  UserSignature user_signature = 3;
+  ServerSignature server_signature = 4;
+}
+
+// Tells a blocked user they were blocked. With request_id it answers a
+// request the block refused; without one it is the push, acked with
+// USER_BLOCKED_ACK.
+message UserBlockedMessage {
+  string request_id = 1;
+  BlockCert block = 2;
+}
+
+message UserBlockedAckMessage {
+  string user_id = 1;
+}
+
+// Tells a blocked user a block was lifted, acked with USER_UNBLOCKED_ACK.
+message UserUnblockedMessage {
+  string user_id = 1;
+}
+
+message UserUnblockedAckMessage {
+  string user_id = 1;
 }
 
 message AccountRemovedMessage {

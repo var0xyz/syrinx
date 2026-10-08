@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
+
+	pb "syrinx/proto"
 )
 
 // ErrBlockConflict: a block already exists for the pair under different
@@ -161,7 +164,37 @@ func applyBlockEffectsTx(ctx context.Context, tx *sql.Tx, userID, blockedUserID 
 		}
 		dropped = append(dropped, reedID)
 	}
-	return dropped, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM pending_events pe
+		USING pending_reed_events pre, reed_identities ri
+		WHERE pre.event_id = pe.event_id AND ri.id = pre.reed_id
+			AND pe.requester_user_id = $1 AND ri.author_id = $2
+	`, blockedUserID, userID); err != nil {
+		return nil, fmt.Errorf("drop blocked user's pending events: %w", err)
+	}
+	return dropped, nil
+}
+
+// UsersBlocking returns everyone who blocked blockedUserID.
+func (s *DataService) UsersBlocking(ctx context.Context, blockedUserID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT user_id FROM user_blocks WHERE blocked_user_id = $1`, blockedUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		users[id] = true
+	}
+	return users, rows.Err()
 }
 
 // DeleteBlock removes userID's block of blockedUserID. deleted is false
@@ -180,6 +213,82 @@ func (s *DataService) DeleteBlock(ctx context.Context, userID, blockedUserID str
 // writeBlocked answers a request the block refuses: 403 with the cert.
 func writeBlocked(w http.ResponseWriter, cert *BlockCert) {
 	writeResponse(w, http.StatusForbidden, cert)
+}
+
+// refuseIfBlocked answers 403 + cert when authorID blocked the caller. A
+// removed account is left to answer 410 instead.
+func (h *Handlers) refuseIfBlocked(w http.ResponseWriter, r *http.Request, authorID string) bool {
+	viewerID, ok := r.Context().Value(userIDKey).(string)
+	if !ok || viewerID == "" || viewerID == authorID {
+		return false
+	}
+	log := h.services.log.GetLogger(r.Context())
+	cert, err := h.services.db.GetBlock(r.Context(), authorID, viewerID)
+	if err != nil {
+		log.Error().Err(err).Str("authorID", authorID).Str("viewerID", viewerID).Msg("Error loading block")
+		internalServerError(w)
+		return true
+	}
+	if cert == nil {
+		return false
+	}
+	removal, err := h.services.db.GetAccountRemoval(r.Context(), authorID)
+	if err != nil {
+		log.Error().Err(err).Str("authorID", authorID).Msg("Error loading account removal")
+		internalServerError(w)
+		return true
+	}
+	if removal != nil {
+		return false
+	}
+	writeBlocked(w, cert)
+	return true
+}
+
+// errRecipientBlocked: the content's author blocked the event's recipient.
+var errRecipientBlocked = errors.New("recipient blocked by author")
+
+func pbBlockCert(cert *BlockCert) *pb.BlockCert {
+	return &pb.BlockCert{
+		UserId:          cert.UserID,
+		BlockedUserId:   cert.BlockedUserID,
+		UserSignature:   pbUserSignature(cert.UserSignature),
+		ServerSignature: pbServerSignature(cert.ServerSignature),
+	}
+}
+
+func newUserBlockedMsg(requestID string, cert *BlockCert) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_USER_BLOCKED,
+		Payload: &pb.WSMessage_UserBlocked{
+			UserBlocked: &pb.UserBlockedMessage{RequestId: requestID, Block: pbBlockCert(cert)},
+		},
+	}
+}
+
+// blockedBy returns authorID's block of viewerID, nil when there is none or
+// the lookup failed.
+func (rs *realtimeService) blockedBy(authorID, viewerID string) *BlockCert {
+	if authorID == "" || authorID == viewerID {
+		return nil
+	}
+	cert, err := rs.db.GetBlock(context.Background(), authorID, viewerID)
+	if err != nil {
+		log.Error().Err(err).Str("authorID", authorID).Str("viewerID", viewerID).Msg("Failed to load block")
+		return nil
+	}
+	return cert
+}
+
+// refuseIfBlocked answers a client's request for authorID's content with
+// USER_BLOCKED when authorID blocked them.
+func (rs *realtimeService) refuseIfBlocked(client *realtimeClient, requestID, authorID string) bool {
+	cert := rs.blockedBy(authorID, client.userID)
+	if cert == nil {
+		return false
+	}
+	rs.connManager.SendToUser(client.userID, newUserBlockedMsg(requestID, cert))
+	return true
 }
 
 // BlockUser handles POST /users/{userID}/block: the caller signs a block of
