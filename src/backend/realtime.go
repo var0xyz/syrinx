@@ -2536,6 +2536,12 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_UNSUBSCRIBE_PIPE:
 		rs.handleUnsubscribePipe(client, msg.GetUnsubscribePipe().GetTag())
 
+	case pb.MessageType_USER_BLOCKED_ACK:
+		rs.ackBlockEvent(client, msg.GetUserBlockedAck().GetUserId(), blockEventBlock)
+
+	case pb.MessageType_USER_UNBLOCKED_ACK:
+		rs.ackBlockEvent(client, msg.GetUserUnblockedAck().GetUserId(), blockEventUnblock)
+
 	case pb.MessageType_PONG:
 		rs.handlePong(client)
 
@@ -4121,6 +4127,7 @@ func (rs *realtimeService) handleSyncRequest(client *realtimeClient, requestID s
 		return
 	}
 	rs.catchUp(client.userID, requestID)
+	rs.catchUpBlocks(client.userID)
 	rs.dispatchNext(client.userID)
 	rs.redispatchPendingRequests(client.userID)
 	// Every SYNC doubles as the keepalive for delivery to peers.
