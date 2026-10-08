@@ -8,9 +8,10 @@ blocked user's client, which verifies it, stores it, and immediately drops
 everything it holds of the blocking user except their public key (kept to verify
 the certificate).
 
-The blocked user can forget the certificate and the key. The next time they
-open the blocking user's profile, the server answers **403 Forbidden** with the
-certificate again, and the client is back where it was.
+The blocked user can evict the certificate and the key from Stored users.
+The next time they open the blocking user's profile, the server answers
+**403 Forbidden** with the certificate again, and the client is back where
+it was.
 
 Blocks work across federation: the blocking user's server sends the certificate
 once to the blocked user's home server, which enforces it for its own user
@@ -28,7 +29,7 @@ when schema changes.
 | [04](04_realtime.md)                | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up | 02         |
 | [05](05_federation.md)              | Blocks across peers                                 | 03, 04     |
 | [06](06_interactions.md)            | Refuse follow, like, ripple, reply, echo, mention   | 03         |
-| [07](07_spa_blocked.md)             | SPA, blocked side: verify, purge, blocked profile, forget | 04   |
+| [07](07_spa_blocked.md)             | SPA, blocked side: verify, purge, blocked profile, evict | 04   |
 | [08](08_spa_blocking_user.md)             | SPA, blocking side: block action, outbox, blocked list | 02       |
 
 01–04 landed without federation; until 05, blocking a user on another
@@ -47,7 +48,7 @@ server was refused with **422** rather than half-enforced.
 | 04 | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up | Implemented |
 | 05 | Blocks across peers                                 | Implemented |
 | 06 | Refuse follow, like, ripple, reply, echo, mention   | Implemented |
-| 07 | SPA, blocked side                                   | Proposed |
+| 07 | SPA, blocked side                                   | Implemented |
 | 08 | SPA, blocking side                                   | Proposed |
 
 **Track status: Proposed.** Nothing is implemented.
@@ -78,9 +79,9 @@ server was refused with **422** rather than half-enforced.
 - **The blocked client keeps only the blocking user's key.** Reeds, profile and
   info are dropped as soon as the certificate verifies, and the follow row
   and list memberships go with the forced unfollow (the same cleanup a
-  manual unfollow does). Forgetting the certificate also drops the key
+  manual unfollow does). Evicting the certificate also drops the key
   (`KEY_EVICTION`), so nothing of the blocking user is left.
-- **A forgotten certificate is never re-pushed.** The push is delivered once
+- **An evicted certificate is never re-pushed.** The push is delivered once
   and acked; after that the client only gets it back by asking for something
   of the blocking user's.
 - **Server-side effects at block time:** the blocked user's follow of the

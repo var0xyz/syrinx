@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS user_block_events (
   replaces one still owed: only the latest state matters.
 - An ack deletes the event of its own kind only, so a late ack of a block
   never drops the lift that replaced it.
-- Once acked, nothing is sent again, which is what lets a forgotten
-  certificate stay forgotten.
+- Once acked, nothing is sent again, which is what lets an evicted
+  certificate stay evicted.
 - The same helper owes the event to the blocked user's home server instead
   when they are on a peer ([05](05_federation.md)).
 

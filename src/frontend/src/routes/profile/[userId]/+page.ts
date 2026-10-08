@@ -6,6 +6,7 @@ import { followingRepository } from '$lib/repositories/following';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { mergeUserView } from '$lib/utils/userView';
 import { profileVisitsRepository } from '$lib/repositories/profileVisits';
+import { blockedByRepository } from '$lib/repositories/blockedBy';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ params, parent }) {
@@ -33,6 +34,22 @@ export async function load({ params, parent }) {
       tombstoneNote: removedCert.note ?? '',
       fromCache: true,
       accountRemoved: true,
+    };
+  }
+
+  const blockCert = isOwner ? null : await blockedByRepository.get(userId);
+  if (blockCert) {
+    return {
+      currentUser,
+      userId,
+      isOwner,
+      isFollowing,
+      status: 'blocked',
+      profileUser: null,
+      blockCert,
+      tombstoneNote: '',
+      fromCache: true,
+      accountRemoved: false,
     };
   }
 

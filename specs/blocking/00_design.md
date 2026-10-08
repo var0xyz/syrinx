@@ -50,11 +50,10 @@ viewer holds, not what others can see of them.
    over WS.
 6. The blocked user opens the blocking user's profile and immediately sees, from
    `blockedBy`, that they are blocked, with **Block** / **Unblock** for their
-   own block of the blocking user and no **Follow** / **Unfollow**. They may
-   **forget** the certificate: the client
-   drops the certificate and the key. Opening the profile again gets the
-   **403** + certificate, the key is fetched to verify it, and both are
-   stored again.
+   own block of the blocking user and no **Follow** / **Unfollow**. From
+   **Stored users** they may evict the block: the client drops the
+   certificate and the key. Opening the profile again gets the **403** +
+   certificate, the key is fetched to verify it, and both are stored again.
 7. The blocking user unblocks with an unsigned `DELETE`. The row goes, the
    blocked user's server is told, and the blocked client gets
    `USER_UNBLOCKED` and drops its certificate. Nothing comes back: not the
@@ -114,8 +113,6 @@ that too.
   │ You can't see their profile or reeds.     │
   │                                           │
   │ [Block]                                   │
-  │                                           │
-  │ Forget this block                         │
   └───────────────────────────────────────────┘
 ```
 
@@ -128,9 +125,6 @@ that too.
   The blocking user can still see the viewer's profile by default; blocking back
   closes that too. The two blocks are independent: either side lifting
   theirs leaves the other in place.
-- **Forget this block** drops the certificate and the key, then leaves the
-  page. Reopening it fetches the certificate again.
-
 ## Trust model
 
 - **Clients verify, never trust a push.** A certificate is accepted only
@@ -187,13 +181,15 @@ profile is closed. Keeping it also keeps the blocked user's
 reaches them. Everything else of the blocking user's is content the blocked user
 is no longer meant to have.
 
-## Why forgetting is allowed
+## Why evicting the block is allowed
 
-The certificate is the blocked user's own data on their own device. They
-may not want a reminder that someone blocked them. Forgetting removes it
-with the key; the server still enforces the block, and hands the
-certificate back the moment they ask for something of the blocking user's, so
-forgetting hides nothing from them they could not see again.
+The certificate is the blocked user's own data on their own device, and it
+takes space like anything else held of another user. Evicting it from
+**Stored users** removes it with the key; the server still enforces the
+block, and hands the certificate back the moment they ask for something of
+the blocking user's, so eviction hides nothing they could not see again.
+There is no separate action for it on the profile: there, the server would
+answer with the certificate at once.
 
 ## Non-goals
 
