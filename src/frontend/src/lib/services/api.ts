@@ -929,6 +929,26 @@ export const apiService = {
     return { ...removal, threadID: removal.cert?.threadID } as api.ThreadRemoval;
   },
 
+  async blockUser(userId: string, signature: string, keyId: string): Promise<api.BlockCert> {
+    const formData = new URLSearchParams();
+    formData.append('signature', signature);
+    formData.append('fingerprint', parseKeyId(keyId)?.fingerprint ?? keyId);
+    return request<api.BlockCert>(`/users/${userId}/block`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+  },
+
+  async unblockUser(userId: string): Promise<void> {
+    await requestRaw(`/users/${userId}/block`, { method: 'DELETE' });
+  },
+
+  async listBlocks(): Promise<api.BlockCert[]> {
+    const { blocks } = await request<{ blocks: api.BlockCert[] }>('/blocks', { method: 'GET' });
+    return blocks ?? [];
+  },
+
   async likeReed(
     reedId: string,
     signature: string,

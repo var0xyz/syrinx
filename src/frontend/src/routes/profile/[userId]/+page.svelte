@@ -17,6 +17,7 @@
   import { blockedByRepository } from '$lib/repositories/blockedBy';
   import { blockedByChanged, commitBlockLocally } from '$lib/services/blockedBy';
   import BlockedProfile from '$lib/components/BlockedProfile.svelte';
+  import BlockButton from '$lib/components/BlockButton.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -547,7 +548,9 @@
       </div>
 
     {:else if status === 'blocked' && blockCert}
-      <BlockedProfile cert={blockCert} />
+      <BlockedProfile cert={blockCert}>
+        <BlockButton slot="actions" userID={blockCert.userID} />
+      </BlockedProfile>
 
     {:else if status === 'tombstone'}
       <div class="state-message">

@@ -77,7 +77,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 30;
+  private readonly version = 31;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -104,6 +104,10 @@ export class IndexedDbService implements DbService {
     ['removedThreads',     'threadID'   ],
     // Blocks of the viewer, keyed by the blocking user.
     ['blockedBy',          'userID'     ],
+    // The viewer's own blocks, and the outboxes that make and lift them.
+    ['blocks',             'blockedUserID'],
+    ['pendingBlocks',      'blockedUserID'],
+    ['pendingUnblocks',    'blockedUserID'],
     ['threads',            'threadID'   ],
     ['pendingLikes',       'compositeKey'],
     ['pendingUnlike',      'compositeKey'],

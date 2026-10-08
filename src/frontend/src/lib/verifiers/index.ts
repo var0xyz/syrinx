@@ -817,32 +817,27 @@ export async function verifyReedLike(cert: api.ReedLike): Promise<boolean> {
   return true;
 }
 
-/** A block of the viewer, signed by the blocking user's key and
- * countersigned by their own home server. */
-export async function verifyBlock(cert: api.BlockCert): Promise<boolean> {
+/** A block signed by its user's key and countersigned by their own home
+ * server. Callers check which side of it the viewer is on. */
+async function verifyBlockCert(cert: api.BlockCert, label: string): Promise<boolean> {
   if (!cert || cert.type !== 'block' || !cert.userSignature?.armor || !cert.serverSignature) {
-    console.error('[verifyBlock] missing fields or wrong type', cert?.type);
-    return false;
-  }
-  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
-  if (!viewerID || cert.blockedUserID !== viewerID) {
-    console.error('[verifyBlock] not a block of the viewer');
+    console.error(`[${label}] missing fields or wrong type`, cert?.type);
     return false;
   }
   const { fingerprint, serverID } = splitServerSignatureId(cert.serverSignature.id);
   if (serverID !== parseCanonicalId(cert.userID)?.[1]) {
-    console.error('[verifyBlock] not countersigned by the blocking user\'s server');
+    console.error(`[${label}] not countersigned by the blocking user's server`);
     return false;
   }
 
   const key = await resolvePublicKey(cert.userID, cert.userSignature.id);
   if (!key?.armor || key.userID !== cert.userID) {
-    console.error('[verifyBlock] no key of the blocking user', cert.userID);
+    console.error(`[${label}] no key of the blocking user`, cert.userID);
     return false;
   }
   const userPayload = buildBlockUserPayload(cert.userID, cert.blockedUserID, cert.userSignature.id);
   if (!(await cryptoService.verifySignature(userPayload, cert.userSignature.armor, key.armor))) {
-    console.error('[verifyBlock] user signature failed', cert.userID);
+    console.error(`[${label}] user signature failed`, cert.userID);
     return false;
   }
   const serverPayload = buildBlockServerPayload(
@@ -854,10 +849,30 @@ export async function verifyBlock(cert: api.BlockCert): Promise<boolean> {
   );
   const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
-    console.error('[verifyBlock] server signature failed', serverResult);
+    console.error(`[${label}] server signature failed`, serverResult);
     return false;
   }
   return true;
+}
+
+/** A block of the viewer. */
+export async function verifyBlock(cert: api.BlockCert): Promise<boolean> {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!viewerID || cert?.blockedUserID !== viewerID) {
+    console.error('[verifyBlock] not a block of the viewer');
+    return false;
+  }
+  return verifyBlockCert(cert, 'verifyBlock');
+}
+
+/** A block the viewer made. */
+export async function verifyOwnBlock(cert: api.BlockCert): Promise<boolean> {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!viewerID || cert?.userID !== viewerID) {
+    console.error('[verifyOwnBlock] not a block by the viewer');
+    return false;
+  }
+  return verifyBlockCert(cert, 'verifyOwnBlock');
 }
 
 const MAX_ACCOUNT_NOTE_LEN = 140;

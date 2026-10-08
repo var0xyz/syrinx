@@ -403,6 +403,7 @@
           <StorageUsage storage={data.storage} />
           <div class="storage-actions">
             <a class="keys-link" href="/account/storage">Stored users</a>
+            <a class="keys-link" href="/account/blocked">Blocked users</a>
           </div>
         </div>
 
@@ -763,6 +764,9 @@
   }
 
   .storage-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
     margin-top: 0.75rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--border);

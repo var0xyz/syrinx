@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
+  import BlockButton from '$lib/components/BlockButton.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
   import FollowListModal from '$lib/components/FollowListModal.svelte';
@@ -283,6 +284,9 @@
       <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
         {following ? 'Unfollow' : 'Follow'}
       </button>
+      {#if user?.id}
+        <BlockButton userID={user.id} username={user.username} />
+      {/if}
     </div>
   {/if}
 </div>

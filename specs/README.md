@@ -47,7 +47,7 @@ Each table below has a **Status** column per step. Values:
 | Invites               | In progress | 06 (00–05 implemented)                                 |
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
-| Blocking              | In progress | 08                                                     |
+| Blocking              | Implemented | —                                                      |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -158,7 +158,7 @@ nothing they signed is touched, and unblocking restores nothing.
 | 05  | Blocks across peers                                  | Implemented |
 | 06  | Refuse follow, like, ripple, reply, echo, mention    | Implemented |
 | 07  | SPA, blocked side                                    | Implemented |
-| 08  | SPA, blocking side                                    | Proposed |
+| 08  | SPA, blocking side                                    | Implemented |
 
 ## Reed likes
 

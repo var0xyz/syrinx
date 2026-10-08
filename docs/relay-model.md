@@ -206,6 +206,10 @@ Status. Every path that crosses the border folds:
 - Live stats: one `reed-stats` push per (peer, reed), forwarded by the peer
   to its own subscribers. A peer that answers 404 has nobody watching any
   more, and its subscriptions to that reed are dropped.
+- Blocks: a block of a user on a peer concerns only that one user, so it
+  crosses once, to their home server (`block-notify` / `unblock-notify`),
+  owed until accepted. The peer delivers it to its user and enforces it
+  locally ([`specs/blocking/`](https://github.com/var0xyz/syrinx/tree/main/specs/blocking)).
 
 ## Related
 

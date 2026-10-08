@@ -49,9 +49,9 @@ server was refused with **422** rather than half-enforced.
 | 05 | Blocks across peers                                 | Implemented |
 | 06 | Refuse follow, like, ripple, reply, echo, mention   | Implemented |
 | 07 | SPA, blocked side                                   | Implemented |
-| 08 | SPA, blocking side                                   | Proposed |
+| 08 | SPA, blocking side                                   | Implemented |
 
-**Track status: Proposed.** Nothing is implemented.
+**Track status: Implemented.**
 
 ## Locked decisions
 
