@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented, local blocks only; peer legs land in [05](05_federation.md).
 
 ## Depends on
 

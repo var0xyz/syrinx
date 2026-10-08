@@ -837,6 +837,10 @@ func (h *Handlers) ListVouchesForUser(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
+	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
+
 	limit := vouchPageLimit(r.URL.Query().Get("limit"))
 	cursor := r.URL.Query().Get("cursor")
 

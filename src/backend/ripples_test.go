@@ -57,6 +57,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 		`DROP TABLE IF EXISTS reeds CASCADE`,
 		`DROP TABLE IF EXISTS account_removals CASCADE`,
 		`DROP TABLE IF EXISTS public_key_revocations CASCADE`,
+		`DROP TABLE IF EXISTS user_blocks CASCADE`,
 		`DROP TABLE IF EXISTS public_keys CASCADE`,
 		`DROP TABLE IF EXISTS users CASCADE`,
 		`DROP TABLE IF EXISTS identities CASCADE`,
@@ -104,6 +105,14 @@ func ensureRipplesSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			successor VARCHAR(255) REFERENCES public_keys(id),
 			successor_signature_id INT REFERENCES user_signatures(id)
+		)`,
+		`CREATE TABLE user_blocks (
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+			blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+			public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+			PRIMARY KEY (user_id, blocked_user_id)
 		)`,
 		`CREATE TABLE reeds (
 			id VARCHAR(255) PRIMARY KEY,
