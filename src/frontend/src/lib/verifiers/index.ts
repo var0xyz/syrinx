@@ -5,7 +5,7 @@
  */
 
 import type * as api from '$lib/types/api';
-import { reedAsMarkdown, extractTags, type ReedType } from '$lib/types/reed';
+import { reedSignedPayload, extractTags, type ReedType } from '$lib/types/reed';
 import { apiService } from '$lib/services/api';
 import { cryptoService } from '$lib/services/crypto';
 import { dbService } from '$lib/services/db';
@@ -407,7 +407,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
   }
 
   const authorValid = await cryptoService.verifySignature(
-    reedAsMarkdown(reed),
+    reedSignedPayload(reed),
     reed.userSignature.armor,
     publicKeyData.armor
   );

@@ -34,7 +34,7 @@ export async function publishThread(texts: string[], keyId: string): Promise<str
     reed.id = ids[index];
     reed.content = text;
     reed.thread = { head, index };
-    reed.setUserSignature(keyId, await requestSigner.sign(reed.asMarkdown()));
+    reed.setUserSignature(keyId, await requestSigner.sign(reed.signedPayload()));
     parts.push(reed);
   }
   const threadSignature = await requestSigner.sign(buildThreadUserPayload(serverID, head, ids));

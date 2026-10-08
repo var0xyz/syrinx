@@ -1,131 +1,39 @@
 /**
- * Produces deterministic byte sequences to feed into PGP signing and
- * verification.
- *
- * Design: opaque signing input, not a document
- *
- * `bytesToSign` returns bytes that look like a markdown envelope with a
- * front-matter header block:
- *
- *     ---
- *     <sortedKey>: <value>
- *     <sortedKey>: <value>
- *     ---
- *     <content>
- *
- * This shape is convenient for humans reading a hex dump in a debugger, but
- * the bytes are NOT a document. Nothing in Syrinx ever parses them back into
- * headers/content. They exist for one purpose: to be signed on one side and
- * re-produced identically on the other side for verification.
- *
- * Consequences of that design choice:
- *
- *  1. No escaping. Values are inserted verbatim. If a value contains a
- *     literal '\n', ':', or '---' sequence, those bytes appear in the output
- *     as-is. This is safe because no code splits the output on '\n' or on
- *     ': ' to recover fields — the receiver rebuilds the same input map and
- *     calls bytesToSign again.
- *
- *  2. Empty-string values are omitted (whole line dropped). Absent and
- *     empty are equivalent by convention.
- *
- *  3. Keys are sorted ASCII byte-lexicographically to match Go's
- *     sort.Strings and Array.prototype.sort with the default comparator —
- *     the server has a mirror function `BytesToSign` (Go package `signing`)
- *     and the two MUST be byte-identical for signature verification to
- *     work.
- *
- *  4. The return type is Uint8Array, not string, to nudge callers away
- *     from treating the output as text or trying to parse it.
- *
- * A future contributor "hardening" this helper by adding an escape table
- * would silently break signature compatibility with every record already
- * signed against the current bytes. Do not do that.
+ * Canonical payloads for signed records. Every payload is a field set
+ * serialized as RFC 8785 (JCS) JSON, byte-identical to canonicalJSON and the
+ * build*Payload functions in the server's utils.go / identity.go.
  */
+import canonicalize from 'canonicalize';
 
-/**
- * Builds the canonical byte sequence for a signed record.
- *
- * Rules (see file doc for rationale):
- *   - Headers are sorted ASCII byte-lexicographically.
- *   - Header entries with an empty-string value are omitted.
- *   - Line separator is a single '\n' (LF).
- *   - Each header line is exactly '<key>: <value>'.
- *   - The output is:  '---\n' + joined headers + '\n---\n' + content
- *     with no trailing newline added; if content itself ends with '\n'
- *     that is preserved verbatim.
- *   - No escaping. Values are inserted as-is.
- */
-export function bytesToSign(headers: Record<string, string>, content: string): Uint8Array {
-  const keys = Object.keys(headers)
-    .filter((k) => headers[k] !== '')
-    .sort();
+export type SignedFields = Record<string, unknown>;
 
-  const parts: string[] = ['---\n'];
-  for (let i = 0; i < keys.length; i++) {
-    if (i > 0) parts.push('\n');
-    parts.push(keys[i], ': ', headers[keys[i]]);
+function isEmptySignedValue(value: unknown): boolean {
+  return value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
+}
+
+/** The RFC 8785 string signed over fields. Empty strings, null/undefined and
+ * empty lists are dropped, so absent and empty sign the same; false and 0
+ * stay. Mirror of canonicalJSON in utils.go. */
+export function canonicalJSON(fields: SignedFields): string {
+  const kept: SignedFields = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (!isEmptySignedValue(value)) kept[key] = value;
   }
-  if (keys.length > 0) parts.push('\n');
-  parts.push('---\n', content);
-
-  return new TextEncoder().encode(parts.join(''));
+  const out = canonicalize(kept);
+  if (out === undefined) throw new Error('canonicalJSON: nothing to serialize');
+  return out;
 }
 
-/**
- * String form of `bytesToSign`, provided for cases where a UTF-8 string is
- * more convenient than a byte array (e.g. logging, passing to PGP libraries
- * that accept strings directly). The bytes are identical to
- * `bytesToSign(...)` under UTF-8 encoding.
- */
-export function stringToSign(headers: Record<string, string>, content: string): string {
-  return new TextDecoder().decode(bytesToSign(headers, content));
+/** Mirror of buildUserIdentityPayload in identity.go. */
+export function buildUserIdentityPayload(username: string, keyID: string, bio: string): string {
+  return canonicalJSON({ type: 'identity-user', username, keyID, bio });
 }
 
-/**
- * Builds the canonical user-identity payload — the exact byte sequence a
- * user signs to produce `userSignature` for their signed identity record.
- *
- * Mirror of `buildUserIdentityPayload` in the Go module `identity.go`. The
- * two functions MUST stay byte-identical: the server verifies the user's
- * signature against bytes it rebuilds from the same header set, and any
- * drift here silently breaks signup and profile updates for every client
- * using this SPA.
- *
- * Headers (sorted by `bytesToSign` at signing time):
- *   - type:     "identity-user"
- *   - username: the account username
- *   - keyID:    the key producing this signature (self-describing)
- *
- * Content: `bio` (verbatim, unescaped, may span multiple lines or be empty).
- */
-export function buildUserIdentityPayload(
-  username: string,
-  keyID: string,
-  bio: string
-): string {
-  return stringToSign(
-    {
-      type: 'identity-user',
-      username,
-      keyID
-    },
-    bio
-  );
+export function buildNewUserIdentityPayload(username: string, keyID: string): string {
+  return buildUserIdentityPayload(username, keyID, '');
 }
 
-export function buildNewUserIdentityPayload(
-  username: string,
-  keyID: string,
-): string {
-  return buildUserIdentityPayload(
-    username,
-    keyID,
-    "",
-  );
-}
-
-/** Mirror of BuildProfilePayload in identity.go (server identity countersign). */
+/** Mirror of buildProfilePayload in identity.go. */
 export function buildProfilePayload(
   userID: string,
   username: string,
@@ -139,29 +47,44 @@ export function buildProfilePayload(
   memberSince: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'identity-server',
-      userID,
-      username,
-      keyID,
-      memberSince,
-      role,
-      serverID,
-      serverKeyFingerprint,
-      signedAt,
-      userSignature: btoa(userSignature),
-      inviteID
-    },
+  return canonicalJSON({
+    type: 'identity-server',
+    userID,
+    username,
+    keyID,
+    memberSince,
+    role,
+    serverID,
+    serverKeyFingerprint,
+    signedAt,
+    userSignature,
+    inviteID,
     bio
-  );
+  });
 }
 
-/**
- * Mirror of BuildReedPayload / ReedCountersignHeaders in identity.go.
- * reedID is the full canonical id. Content is the author userSignature
- * wire value (armor), same as POST /reeds `signature` form field.
- */
+/** The bytes a reed's author signs. Built only here: the server never sees
+ * reed content, peers verify it. replying/thread are left out when absent. */
+export function buildReedUserPayload(reed: {
+  id: string;
+  userID: string;
+  replying?: { to: string; root: string } | null;
+  echoing?: string | null;
+  thread?: { head: string; index: number } | null;
+  content?: string;
+}): string {
+  return canonicalJSON({
+    id: reed.id,
+    userID: reed.userID,
+    replying: reed.replying ? { to: reed.replying.to, root: reed.replying.root } : undefined,
+    echoing: reed.echoing,
+    thread: reed.thread ? { head: reed.thread.head, index: reed.thread.index } : undefined,
+    content: reed.content
+  });
+}
+
+/** Mirror of buildReedPayload in identity.go. reedID is the full canonical id;
+ * userSignature is the author's detached signature over the reed. */
 export function buildReedPayload(
   serverID: string,
   reedID: string,
@@ -170,19 +93,17 @@ export function buildReedPayload(
   userSignature: string,
   timestamp: string
 ): string {
-  return stringToSign(
-    {
-      authorKeyID,
-      fingerprint: serverKeyFingerprint,
-      serverID,
-      reedID,
-      timestamp
-    },
+  return canonicalJSON({
+    authorKeyID,
+    fingerprint: serverKeyFingerprint,
+    serverID,
+    reedID,
+    timestamp,
     userSignature
-  );
+  });
 }
 
-/** Mirror of publicKeyCountersignHeaders + armor in handlers.go. */
+/** Mirror of buildPublicKeyPayload in identity.go. */
 export function buildPublicKeyPayload(
   userID: string,
   keyID: string,
@@ -191,32 +112,12 @@ export function buildPublicKeyPayload(
   armor: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      keyID,
-      serverID,
-      serverKeyFingerprint,
-      signedAt,
-      userID
-    },
-    armor
-  );
+  return canonicalJSON({ keyID, serverID, serverKeyFingerprint, signedAt, userID, armor });
 }
 
 /** Mirror of buildUserRevocationPayload in identity.go. */
-export function buildUserRevocationPayload(
-  userID: string,
-  keyID: string,
-  reason: string
-): string {
-  return stringToSign(
-    {
-      type: 'revocation',
-      userID,
-      keyID
-    },
-    reason
-  );
+export function buildUserRevocationPayload(userID: string, keyID: string, reason: string): string {
+  return canonicalJSON({ type: 'revocation', userID, keyID, reason });
 }
 
 /** Mirror of buildServerRevocationPayload in identity.go. */
@@ -229,36 +130,24 @@ export function buildServerRevocationPayload(
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'revocation',
-      userID,
-      keyID,
-      signedAt,
-      serverID,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
+  return canonicalJSON({
+    type: 'revocation',
+    userID,
+    keyID,
+    signedAt,
+    serverID,
+    serverKeyFingerprint,
+    userSignature,
     reason
-  );
+  });
 }
 
-/** Mirror of BuildReedRemovalUserPayload in identity.go (`type: reed`). reedID is the full canonical id. */
-export function buildReedRemovalUserPayload(
-  serverID: string,
-  reedID: string
-): string {
-  return stringToSign(
-    {
-      type: 'reed',
-      serverID,
-      reedID
-    },
-    ''
-  );
+/** Mirror of buildReedRemovalUserPayload in identity.go. */
+export function buildReedRemovalUserPayload(serverID: string, reedID: string): string {
+  return canonicalJSON({ type: 'reed', serverID, reedID });
 }
 
-/** Mirror of BuildReedRemovalServerPayload in identity.go. */
+/** Mirror of buildReedRemovalServerPayload in identity.go. */
 export function buildReedRemovalServerPayload(
   serverID: string,
   reedID: string,
@@ -267,22 +156,18 @@ export function buildReedRemovalServerPayload(
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'reed',
-      serverID,
-      reedID,
-      authorKeyID,
-      signedAt,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
-    ''
-  );
+  return canonicalJSON({
+    type: 'reed',
+    serverID,
+    reedID,
+    authorKeyID,
+    signedAt,
+    serverKeyFingerprint,
+    userSignature
+  });
 }
 
-/** Mirror of buildServerKeyRevocationPayload in identity.go. Both the revoked
- * key and its successor sign these bytes; the reason is the content. */
+/** Mirror of buildServerKeyRevocationPayload in identity.go. */
 export function buildServerKeyRevocationPayload(
   serverID: string,
   keyID: string,
@@ -291,34 +176,20 @@ export function buildServerKeyRevocationPayload(
   reason: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'server-key-revocation',
-      serverID,
-      keyID,
-      successor,
-      compromised: String(compromised),
-      signedAt
-    },
+  return canonicalJSON({
+    type: 'server-key-revocation',
+    serverID,
+    keyID,
+    successor,
+    compromised,
+    signedAt,
     reason
-  );
+  });
 }
 
-/** Mirror of buildThreadUserPayload in identity.go (`type: thread`). Key `i` is reedIDs[i]; reedIDs[0] is the head. */
-export function buildThreadUserPayload(
-  serverID: string,
-  threadID: string,
-  reedIDs: string[]
-): string {
-  const headers: Record<string, string> = {
-    type: 'thread',
-    serverID,
-    threadID
-  };
-  reedIDs.forEach((id, i) => {
-    headers[String(i)] = id;
-  });
-  return stringToSign(headers, '');
+/** Mirror of buildThreadUserPayload in identity.go. reedIDs[0] is the head. */
+export function buildThreadUserPayload(serverID: string, threadID: string, reedIDs: string[]): string {
+  return canonicalJSON({ type: 'thread', serverID, threadID, reedIDs });
 }
 
 /** Mirror of buildThreadServerPayload in identity.go. */
@@ -330,18 +201,15 @@ export function buildThreadServerPayload(
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'thread',
-      serverID,
-      threadID,
-      authorKeyID,
-      signedAt,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
-    ''
-  );
+  return canonicalJSON({
+    type: 'thread',
+    serverID,
+    threadID,
+    authorKeyID,
+    signedAt,
+    serverKeyFingerprint,
+    userSignature
+  });
 }
 
 /** Mirror of buildThreadRemovalUserPayload in identity.go. */
@@ -350,15 +218,7 @@ export function buildThreadRemovalUserPayload(
   threadID: string,
   threadSignature: string
 ): string {
-  return stringToSign(
-    {
-      type: 'thread_removal',
-      serverID,
-      threadID,
-      threadSignature: btoa(threadSignature)
-    },
-    ''
-  );
+  return canonicalJSON({ type: 'thread_removal', serverID, threadID, threadSignature });
 }
 
 /** Mirror of buildThreadRemovalServerPayload in identity.go. */
@@ -370,131 +230,69 @@ export function buildThreadRemovalServerPayload(
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'thread_removal',
-      serverID,
-      threadID,
-      authorKeyID,
-      signedAt,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
-    ''
-  );
+  return canonicalJSON({
+    type: 'thread_removal',
+    serverID,
+    threadID,
+    authorKeyID,
+    signedAt,
+    serverKeyFingerprint,
+    userSignature
+  });
 }
 
-/** Mirror of BuildReedLikeUserPayload in identity.go (`type: reed_like`). reedID is the full canonical id. */
-export function buildReedLikeUserPayload(
-  reedID: string,
-  keyID: string
-): string {
-  return stringToSign(
-    {
-      type: 'reed_like',
-      reedID,
-      keyID
-    },
-    ''
-  );
+/** Mirror of buildReedLikeUserPayload in identity.go. */
+export function buildReedLikeUserPayload(reedID: string, keyID: string): string {
+  return canonicalJSON({ type: 'reed_like', reedID, keyID });
 }
 
-/** Mirror of BuildReedLikeServerPayload in identity.go. */
+/** Mirror of buildReedLikeServerPayload in identity.go. */
 export function buildReedLikeServerPayload(
   reedID: string,
   serverKeyFingerprint: string,
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'reed_like',
-      reedID,
-      signedAt,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
-    ''
-  );
+  return canonicalJSON({ type: 'reed_like', reedID, signedAt, serverKeyFingerprint, userSignature });
 }
 
-/** Mirror of buildVouchUserPayload in identity.go. Key ids only — a key
- * id is owner-prefixed, so the users are already in the signed bytes.
- * `note` is envelope content and may be empty; no client timestamp. */
-export function buildVouchUserPayload(
-  voucherKeyID: string,
-  subjectKeyID: string,
-  note: string
-): string {
-  return stringToSign(
-    {
-      voucherKeyID,
-      subjectKeyID
-    },
-    note
-  );
+/** Mirror of buildVouchUserPayload in identity.go. Key ids are
+ * owner-prefixed, so both users are named; no client timestamp. */
+export function buildVouchUserPayload(voucherKeyID: string, subjectKeyID: string, note: string): string {
+  return canonicalJSON({ voucherKeyID, subjectKeyID, note });
 }
 
-/** Mirror of buildVouchServerPayload in identity.go. The voucher's
- * signature is the body: the server attests the signature, not the note,
- * and that signature already covers voucherKeyID. */
+/** Mirror of buildVouchServerPayload in identity.go. */
 export function buildVouchServerPayload(
   subjectKeyID: string,
   serverKeyFingerprint: string,
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      subjectKeyID,
-      signedAt,
-      serverKeyFingerprint
-    },
-    userSignature
-  );
+  return canonicalJSON({ subjectKeyID, signedAt, serverKeyFingerprint, userSignature });
 }
 
-/** Mirror of buildVouchWithdrawalUserPayload. The vouch id is the whole
- * assertion: it fixes voucher and subject, and tells re-vouches apart. */
+/** Mirror of buildVouchWithdrawalUserPayload in identity.go. */
 export function buildVouchWithdrawalUserPayload(vouchID: string): string {
-  return stringToSign({ vouchID }, '');
+  return canonicalJSON({ vouchID });
 }
 
-/** Mirror of buildVouchWithdrawalServerPayload. vouchID addresses the
- * retraction; it has no id of its own. */
+/** Mirror of buildVouchWithdrawalServerPayload in identity.go. */
 export function buildVouchWithdrawalServerPayload(
   vouchID: string,
   serverKeyFingerprint: string,
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      vouchID,
-      signedAt,
-      serverKeyFingerprint
-    },
-    userSignature
-  );
+  return canonicalJSON({ vouchID, signedAt, serverKeyFingerprint, userSignature });
 }
 
-/** Mirror of BuildAccountRemovalUserPayload (`type: account`, note as content). */
-export function buildAccountRemovalUserPayload(
-  serverID: string,
-  userID: string,
-  note: string
-): string {
-  return stringToSign(
-    {
-      type: 'account',
-      serverID,
-      userID
-    },
-    note
-  );
+/** Mirror of buildAccountRemovalUserPayload in identity.go. */
+export function buildAccountRemovalUserPayload(serverID: string, userID: string, note: string): string {
+  return canonicalJSON({ type: 'account', serverID, userID, note });
 }
 
-/** Mirror of BuildAccountRemovalServerPayload in identity.go. */
+/** Mirror of buildAccountRemovalServerPayload in identity.go. */
 export function buildAccountRemovalServerPayload(
   serverID: string,
   userID: string,
@@ -503,20 +301,18 @@ export function buildAccountRemovalServerPayload(
   userSignature: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'account',
-      serverID,
-      userID,
-      signedAt,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
+  return canonicalJSON({
+    type: 'account',
+    serverID,
+    userID,
+    signedAt,
+    serverKeyFingerprint,
+    userSignature,
     note
-  );
+  });
 }
 
-/** Mirror of BuildInviteUserPayload in identity.go (`type: invite-user`). */
+/** Mirror of buildInviteUserPayload in identity.go. */
 export function buildInviteUserPayload(
   serverID: string,
   userID: string,
@@ -525,21 +321,18 @@ export function buildInviteUserPayload(
   createdAt: string,
   grantedRole: string = 'user'
 ): string {
-  return stringToSign(
-    {
-      type: 'invite-user',
-      serverID,
-      userID,
-      inviteID,
-      tokenHash,
-      grantedRole,
-      createdAt
-    },
-    ''
-  );
+  return canonicalJSON({
+    type: 'invite-user',
+    serverID,
+    userID,
+    inviteID,
+    tokenHash,
+    grantedRole,
+    createdAt
+  });
 }
 
-/** Mirror of BuildInviteServerPayload in identity.go (`type: invite-server`). */
+/** Mirror of buildInviteServerPayload in identity.go. */
 export function buildInviteServerPayload(
   serverID: string,
   userID: string,
@@ -550,30 +343,21 @@ export function buildInviteServerPayload(
   createdAt: string,
   signedAt: string
 ): string {
-  return stringToSign(
-    {
-      type: 'invite-server',
-      serverID,
-      userID,
-      inviteID,
-      tokenHash,
-      createdAt,
-      signedAt,
-      serverKeyFingerprint,
-      userSignature: btoa(userSignature)
-    },
-    ''
-  );
+  return canonicalJSON({
+    type: 'invite-server',
+    serverID,
+    userID,
+    inviteID,
+    tokenHash,
+    createdAt,
+    signedAt,
+    serverKeyFingerprint,
+    userSignature
+  });
 }
 
-/**
- * Mirror of BuildRippleUserPayload / rippleUserHeaders in identity.go. The
- * exact bytes a ripple's author signs. reedID is the full canonical id of
- * the parent reed. threadID is always present (client-minted);
- * replyingTo is omitted for a top-level post
- * (empty string is dropped by bytesToSign). No timestamp — client clocks
- * are never signed over.
- */
+/** Mirror of buildRippleUserPayload in identity.go. replyingTo is empty for
+ * a top-level post; no timestamp, client clocks are never signed over. */
 export function buildRippleUserPayload(
   reedID: string,
   rippleAuthorID: string,
@@ -582,26 +366,11 @@ export function buildRippleUserPayload(
   replyingTo: string,
   content: string
 ): string {
-  return stringToSign(
-    {
-      reedID,
-      rippleAuthorID,
-      keyID,
-      threadID,
-      replyingTo
-    },
-    content
-  );
+  return canonicalJSON({ reedID, rippleAuthorID, keyID, threadID, replyingTo, content });
 }
 
-/**
- * Mirror of BuildRippleServerPayload / rippleServerHeaders in identity.go.
- * Same fields the user signed, plus serverID and the server-supplied
- * timestamp. Content is the author's detached signature (armor),
- * not the ripple text — mirrors buildReedPayload exactly. `keyID`
- * here is the ripple author's signing key id (same value passed
- * to buildRippleUserPayload), not the server key's.
- */
+/** Mirror of buildRippleServerPayload in identity.go. keyID is the ripple
+ * author's key, not the server's. */
 export function buildRippleServerPayload(
   serverID: string,
   reedID: string,
@@ -612,33 +381,19 @@ export function buildRippleServerPayload(
   userSignature: string,
   timestamp: string
 ): string {
-  return stringToSign(
-    {
-      serverID,
-      reedID,
-      rippleAuthorID,
-      keyID,
-      threadID,
-      replyingTo,
-      timestamp
-    },
+  return canonicalJSON({
+    serverID,
+    reedID,
+    rippleAuthorID,
+    keyID,
+    threadID,
+    replyingTo,
+    timestamp,
     userSignature
-  );
+  });
 }
 
 /** Mirror of buildRealtimeAuthPayload in identity.go. */
-export function buildRealtimeAuthPayload(
-  serverID: string,
-  userID: string,
-  timestamp: string
-): string {
-  return stringToSign(
-    {
-      type: 'realtime-auth',
-      serverID,
-      userID,
-      timestamp
-    },
-    ''
-  );
+export function buildRealtimeAuthPayload(serverID: string, userID: string, timestamp: string): string {
+  return canonicalJSON({ type: 'realtime-auth', serverID, userID, timestamp });
 }

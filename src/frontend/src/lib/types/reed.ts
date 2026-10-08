@@ -6,7 +6,7 @@
 import type { ServerSignature, UserSignature } from '$lib/types/api';
 import { generateReedId } from '$lib/utils/id';
 import { canonicalReedId } from '$lib/utils/identityRef';
-import { signedReedMarkdown } from '$lib/utils/reedHeaders';
+import { buildReedUserPayload } from '$lib/services/signing';
 
 /** What a reply answers: its direct parent and its conversation's root. */
 export interface ReedReplying {
@@ -21,7 +21,7 @@ export interface ReedThread {
   index: number;
 }
 
-// Reed markdown frontmatter fields. Note: there is intentionally no client-side
+// Signed reed fields. Note: there is intentionally no client-side
 // `timestamp` field. The canonical publication date is the server's
 // countersigned timestamp, bound into the countersigned payload.
 export interface ReedType {
@@ -70,9 +70,9 @@ export function extractMentions(content: string, authorID: string): string[] {
   return [...seen];
 }
 
-/** Reconstruct the signed markdown payload from a reed object. */
-export function reedAsMarkdown(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'thread' | 'content'>): string {
-  return signedReedMarkdown(reed);
+/** Rebuild the payload a reed's author signed. */
+export function reedSignedPayload(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'echoing' | 'thread' | 'content'>): string {
+  return buildReedUserPayload(reed);
 }
 
 export class Reed {
@@ -136,7 +136,7 @@ export class Reed {
     this._id = value;
   }
 
-  /** Record the user's detached signature over asMarkdown(). */
+  /** Record the user's detached signature over signedPayload(). */
   setUserSignature(keyId: string, detachedArmor: string): void {
     this._userSignature = {
       id: keyId,
@@ -178,11 +178,9 @@ export class Reed {
     this._mentions = extractMentions(value, this._userID);
   }
 
-  /**
-   * Generate markdown representation with alphabetically ordered frontmatter
-   */
-  asMarkdown(): string {
-    return reedAsMarkdown(this);
+  /** The payload the author signs. */
+  signedPayload(): string {
+    return reedSignedPayload(this);
   }
 
   /**

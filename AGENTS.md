@@ -88,7 +88,7 @@ npm run build          # vite build → src/frontend/build
 npm run check          # svelte-check
 npm run test:e2e       # Playwright
 # targeted node harnesses that guard cross-language parity:
-npm run test:signing        # BytesToSign parity
+npm run test:signing        # canonicalJSON parity (shared JCS vectors)
 npm run test:verify-binary  # binary WS verify
 ```
 
@@ -141,11 +141,9 @@ same-named root file instead:
   `rootUserID = "1"` (in `constants.go`) stays a bare literal; reconstruct
   the full canonical form to compare it, never bare-string-match (prevents a
   remote user with local id "1" from being treated as root).
-  **`bytesToSign` (`utils.go`)** is the canonical signed-envelope helper,
-  mirrored by SPA `signing.ts`. **Do not "harden" `bytesToSign` with
-  escaping — it will break every existing signature.**
-  (Rationale documented at its definition and in `specs/README.md` → "Why
-  nothing is escaped".)
+  **`canonicalJSON` (`utils.go`)** serializes every signed payload as
+  RFC 8785 (JCS) JSON, mirrored by SPA `signing.ts`; each record has one
+  `build*Payload` per side. See `specs/README.md` → "Canonical signed payload".
 - `roles.go` — role tiers (root/admin/user), `isRootIdentity`,
   `validateProfileRole` (was package `roles`).
 - `secret.go` — server-key passphrase resolver (env → keychain → prompt →
@@ -227,11 +225,12 @@ same-named root file instead:
 **Signed-envelope / signature rules** (see `specs/README.md` → "Shared
 conventions"):
 
-- One canonical `bytesToSign` (Go, `utils.go`) mirrored by `bytesToSign`
-  (SPA); they MUST be byte-identical. Keys sorted ASCII-lexicographically;
-  empty values omit the whole line; **no escaping**; timestamps RFC3339 UTC
-  second-precision `Z`.
-- Detached PGP signatures over the exact `bytesToSign` output, base64 (std
+- One canonical `canonicalJSON` (Go `utils.go`, SPA `signing.ts`), RFC 8785
+  JCS; they MUST be byte-identical. Empty strings, nulls and empty lists are
+  dropped (absent == empty), `false`/`0` kept; free text and embedded
+  signatures are plain JSON strings, never base64-wrapped; timestamps
+  RFC3339 UTC second-precision `Z`.
+- Detached PGP signatures over the exact `canonicalJSON` output, base64 (std
   alphabet) on the wire, never nested base64-of-base64.
 - One helper called by both signer and verifier per feature (the drift bug that
   prerequisite 01 fixed).
@@ -273,11 +272,10 @@ recovery, realtime, or SPA key handling. Highlights a future agent must respect:
 
 **Invariants you must not break:**
 
-- **`bytesToSign` has NO escaping** and its output must stay byte-identical
-  between Go (`utils.go`) and SPA (`src/frontend/src/lib/services/signing.ts`).
-  Never add escaping "to be safe" — it silently breaks every existing
-  signature. Also **do not build code that parses a signed envelope back
-  into fields** from user-controlled bytes — a prior offender that did this
+- **`canonicalJSON` output must stay byte-identical** between Go
+  (`utils.go`) and SPA (`src/frontend/src/lib/services/signing.ts`); change
+  both together and keep the shared vectors passing. Also **do not build
+  code that parses a signed payload back into fields** from user-controlled bytes — a prior offender that did this
   (`ExtractReedHeader`) has since been removed; don't reintroduce the
   pattern.
 - **Server countersignatures must bind identity** (reedID+authorID, or
@@ -308,7 +306,7 @@ SPA `test:signing` / `test:verify-binary`).
 
 - "What's the HTTP surface?" → `main.go` route block.
 - "What's in the DB?" → `db.go` `InitDB`.
-- "How is X signed/verified?" → `utils.go` (`bytesToSign`), `crypto.go`,
+- "How is X signed/verified?" → `utils.go` (`canonicalJSON`), `crypto.go`,
   `identity.go`, and `lib/verifiers/` on the SPA side.
 - "Is feature Y built?" → `specs/README.md` status column + `specs/Y/README.md`.
 - "Realtime/WebSocket behavior" → `realtime.go` and `proto/websocket.proto`.
@@ -395,10 +393,11 @@ is saved (it only prompts y/N about deleting the remote copy, default No).
   server.
 - Add a Go test next to the code (`*_test.go`, same directory — Go requires
   this for package-internal tests); run `make test`. For anything touching
-  `bytesToSign` / wire parity, also run the SPA `test:signing` /
+  `canonicalJSON` / wire parity, also run the SPA `test:signing` /
   `test:verify-binary` harnesses.
 - Keep `specs/*/README.md` status columns accurate when you land or start a step.
-- Don't add DB migrations or escaping to `bytesToSign`. Don't commit secrets;
+- Don't add DB migrations, and don't serialize a signed payload any way but
+  `canonicalJSON`. Don't commit secrets;
   `SERVER_KEY_PASSPHRASE` is intentionally absent from `.env.example`.
 - **Never log or persist private-key material or passphrases** (no `console.log`
   of keys, no `localStorage` passphrase). Never add a WS/postMessage signing

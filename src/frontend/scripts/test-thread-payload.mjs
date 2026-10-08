@@ -10,64 +10,31 @@ import {
 
 const ids = Array.from({ length: 11 }, (_, i) => `a@home/r${i}`);
 
-// Index keys sort as strings: 10 precedes 2.
 assert.equal(
   buildThreadUserPayload('home', ids[0], ids),
-  '---\n' +
-    '0: a@home/r0\n' +
-    '1: a@home/r1\n' +
-    '10: a@home/r10\n' +
-    '2: a@home/r2\n' +
-    '3: a@home/r3\n' +
-    '4: a@home/r4\n' +
-    '5: a@home/r5\n' +
-    '6: a@home/r6\n' +
-    '7: a@home/r7\n' +
-    '8: a@home/r8\n' +
-    '9: a@home/r9\n' +
-    'serverID: home\n' +
-    'threadID: a@home/r0\n' +
-    'type: thread\n' +
-    '---\n',
+  '{"reedIDs":["a@home/r0","a@home/r1","a@home/r2","a@home/r3","a@home/r4","a@home/r5",' +
+    '"a@home/r6","a@home/r7","a@home/r8","a@home/r9","a@home/r10"],' +
+    '"serverID":"home","threadID":"a@home/r0","type":"thread"}',
   'thread user payload'
 );
 
 assert.equal(
   buildThreadServerPayload('home', 'a@home/r0', 'a@home/k1', 'SERVERKEY01', 'SIG', '2026-10-07T12:00:00Z'),
-  '---\n' +
-    'authorKeyID: a@home/k1\n' +
-    'serverID: home\n' +
-    'serverKeyFingerprint: SERVERKEY01\n' +
-    'signedAt: 2026-10-07T12:00:00Z\n' +
-    'threadID: a@home/r0\n' +
-    'type: thread\n' +
-    'userSignature: U0lH\n' +
-    '---\n',
+  '{"authorKeyID":"a@home/k1","serverID":"home","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-07T12:00:00Z","threadID":"a@home/r0","type":"thread","userSignature":"SIG"}',
   'thread server payload'
 );
 
 assert.equal(
   buildThreadRemovalUserPayload('home', 'a@home/r0', 'TSIG'),
-  '---\n' +
-    'serverID: home\n' +
-    'threadID: a@home/r0\n' +
-    'threadSignature: VFNJRw==\n' +
-    'type: thread_removal\n' +
-    '---\n',
+  '{"serverID":"home","threadID":"a@home/r0","threadSignature":"TSIG","type":"thread_removal"}',
   'thread removal user payload'
 );
 
 assert.equal(
   buildThreadRemovalServerPayload('home', 'a@home/r0', 'a@home/k1', 'SERVERKEY01', 'SIG', '2026-10-07T12:00:00Z'),
-  '---\n' +
-    'authorKeyID: a@home/k1\n' +
-    'serverID: home\n' +
-    'serverKeyFingerprint: SERVERKEY01\n' +
-    'signedAt: 2026-10-07T12:00:00Z\n' +
-    'threadID: a@home/r0\n' +
-    'type: thread_removal\n' +
-    'userSignature: U0lH\n' +
-    '---\n',
+  '{"authorKeyID":"a@home/k1","serverID":"home","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-07T12:00:00Z","threadID":"a@home/r0","type":"thread_removal","userSignature":"SIG"}',
   'thread removal server payload'
 );
 

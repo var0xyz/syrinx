@@ -1,25 +1,36 @@
-// Signed reed headers: `replying` and `thread` flatten to dotted keys,
-// sorted with the rest, and a thread part never replies or echoes.
+// A reed's signed payload nests `replying` and `thread`, and a thread part
+// never replies or echoes.
 import assert from 'node:assert/strict';
-import { reedShapeProblem, signedReedMarkdown } from '../src/lib/utils/reedHeaders.ts';
+import { reedShapeProblem } from '../src/lib/utils/reedHeaders.ts';
+import { buildReedUserPayload } from '../src/lib/services/signing.ts';
 
 const root = 'bob@home/r0';
 const head = 'alice@home/t0';
 
 assert.equal(
-  signedReedMarkdown({ id: 'alice@home/r1', userID: 'alice@home', replying: { to: 'bob@home/r5', root }, content: 'hi' }),
-  '---\nid: alice@home/r1\nreplying.root: bob@home/r0\nreplying.to: bob@home/r5\nuserID: alice@home\n---\nhi',
+  buildReedUserPayload({ id: 'alice@home/r1', userID: 'alice@home', replying: { to: 'bob@home/r5', root }, content: 'hi' }),
+  '{"content":"hi","id":"alice@home/r1","replying":{"root":"bob@home/r0","to":"bob@home/r5"},"userID":"alice@home"}',
   'reply'
 );
 assert.equal(
-  signedReedMarkdown({ id: head, userID: 'alice@home', thread: { head, index: 0 }, content: 'one' }),
-  '---\nid: alice@home/t0\nthread.head: alice@home/t0\nthread.index: 0\nuserID: alice@home\n---\none',
+  buildReedUserPayload({ id: head, userID: 'alice@home', thread: { head, index: 0 }, content: 'one' }),
+  '{"content":"one","id":"alice@home/t0","thread":{"head":"alice@home/t0","index":0},"userID":"alice@home"}',
   'thread head'
 );
 assert.equal(
-  signedReedMarkdown({ id: 'alice@home/t1', userID: 'alice@home', thread: { head, index: 1 }, content: 'two' }),
-  '---\nid: alice@home/t1\nthread.head: alice@home/t0\nthread.index: 1\nuserID: alice@home\n---\ntwo',
+  buildReedUserPayload({ id: 'alice@home/t1', userID: 'alice@home', thread: { head, index: 1 }, content: 'two' }),
+  '{"content":"two","id":"alice@home/t1","thread":{"head":"alice@home/t0","index":1},"userID":"alice@home"}',
   'later part'
+);
+assert.equal(
+  buildReedUserPayload({ id: 'alice@home/e1', userID: 'alice@home', echoing: root, content: '' }),
+  '{"echoing":"bob@home/r0","id":"alice@home/e1","userID":"alice@home"}',
+  'blank echo drops its empty content'
+);
+assert.equal(
+  buildReedUserPayload({ id: 'alice@home/r2', userID: 'alice@home', replying: null, thread: undefined, content: 'x' }),
+  buildReedUserPayload({ id: 'alice@home/r2', userID: 'alice@home', content: 'x' }),
+  'null and absent headers sign the same'
 );
 
 const part = { id: 'alice@home/t1', userID: 'alice@home', thread: { head, index: 1 } };

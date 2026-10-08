@@ -10,21 +10,14 @@ import {
 
 assert.equal(
   buildVouchUserPayload('alice@home1234/4a1e', 'bob@peer5678/9f3c', 'met at the cafe'),
-  '---\n' +
-    'subjectKeyID: bob@peer5678/9f3c\n' +
-    'voucherKeyID: alice@home1234/4a1e\n' +
-    '---\n' +
-    'met at the cafe',
+  '{"note":"met at the cafe","subjectKeyID":"bob@peer5678/9f3c","voucherKeyID":"alice@home1234/4a1e"}',
   'vouch user payload'
 );
 
-// An empty note drops the content but keeps the envelope.
+// An empty note is left out of the payload entirely.
 assert.equal(
   buildVouchUserPayload('alice@home/k1', 'bob@peer/k2', ''),
-  '---\n' +
-    'subjectKeyID: bob@peer/k2\n' +
-    'voucherKeyID: alice@home/k1\n' +
-    '---\n',
+  '{"subjectKeyID":"bob@peer/k2","voucherKeyID":"alice@home/k1"}',
   'vouch user payload, empty note'
 );
 
@@ -32,23 +25,17 @@ assert.equal(
   buildVouchServerPayload(
     'bob@peer5678/9f3c',
     'SERVERKEY01',
-    'BASE64USERSIG',
+    'USERSIG',
     '2026-09-25T12:00:00Z'
   ),
-  '---\n' +
-    'serverKeyFingerprint: SERVERKEY01\n' +
-    'signedAt: 2026-09-25T12:00:00Z\n' +
-    'subjectKeyID: bob@peer5678/9f3c\n' +
-    '---\n' +
-    'BASE64USERSIG',
+  '{"serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-09-25T12:00:00Z",' +
+    '"subjectKeyID":"bob@peer5678/9f3c","userSignature":"USERSIG"}',
   'vouch server payload'
 );
 
 assert.equal(
   buildVouchWithdrawalUserPayload('alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567'),
-  '---\n' +
-    'vouchID: alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567\n' +
-    '---\n',
+  '{"vouchID":"alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567"}',
   'vouch withdrawal payload'
 );
 
@@ -59,11 +46,8 @@ assert.equal(
     'WSIG',
     '2026-03-01T12:00:00Z'
   ),
-  '---\n' +
-    'serverKeyFingerprint: srv-fp\n' +
-    'signedAt: 2026-03-01T12:00:00Z\n' +
-    'vouchID: alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567\n' +
-    '---\nWSIG',
+  '{"serverKeyFingerprint":"srv-fp","signedAt":"2026-03-01T12:00:00Z",' +
+    '"userSignature":"WSIG","vouchID":"alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567"}',
   'vouch withdrawal server payload'
 );
 

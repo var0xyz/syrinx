@@ -1,111 +1,33 @@
-// Canonical byte sequences for signed identity records and related
-// countersignatures (keys, reeds, revocations, reed removals).
-//
-// An identity record has two signed byte sequences that overlap but are
-// not identical:
-//
-//   - The USER payload covers only user-authored fields (username,
-//     keyID, and bio as the envelope content). The user's
-//     detached PGP signature over these bytes is `userSignature`.
-//
-//   - The SERVER payload covers a superset: user-authored fields + all
-//     server-authored fields (userID, memberSince, serverID,
-//     serverKeyFingerprint, signedAt, inviteID) + the userSignature
-//     itself as a header. The server's detached PGP signature over these
-//     bytes is `serverSignature`. `inviteID` is omitted when empty
-//     (open signup with no invite).
-//
-// Including `userSignature` as a header inside the server payload welds
-// the two attestations together: a compromised server cannot re-pair
-// Alice's userSignature with a different set of server-authored fields
-// (e.g. a fabricated memberSince) without breaking serverSignature.
-//
-// The two payloads carry distinct `type` header values
-// (`identity-user` vs `identity-server`). This prevents any possibility
-// of a user signature over the user payload being misinterpreted as a
-// server signature over a truncated server payload — the header bytes
-// differ up front.
-//
-// Both payloads flow through bytesToSign, which is the sole
-// canonicalisation authority. Do not build these byte sequences any
-// other way.
+// Canonical payloads for signed records and their countersignatures. Every
+// payload is a field set serialized by canonicalJSON (RFC 8785); signers and
+// verifiers on both sides call the same builder. Don't build them any other way.
 package main
 
 import (
-	"strconv"
 	"time"
 )
 
-// identityRecordTimeFormat is the canonical time format used for
-// memberSince and signedAt headers in the signed bytes. UTC + RFC3339
-// seconds resolution. Callers MUST pass timestamps already truncated to
-// this precision so that what is signed equals what is later served.
+// identityRecordTimeFormat is the format of every signed timestamp: UTC,
+// RFC3339, whole seconds. Callers truncate before signing.
 const identityRecordTimeFormat = time.RFC3339
 
-// userIdentityHeaders returns the header map covered by userSignature.
-func userIdentityHeaders(username, keyID string) map[string]string {
-	return map[string]string{
+func signedTime(t time.Time) string {
+	return t.UTC().Format(identityRecordTimeFormat)
+}
+
+// buildUserIdentityPayload returns the bytes a user signs for their profile.
+func buildUserIdentityPayload(username, keyID, bio string) []byte {
+	return canonicalJSON(signedFields{
 		"type":     "identity-user",
 		"username": username,
 		"keyID":    keyID,
-	}
+		"bio":      bio,
+	})
 }
 
-// buildUserIdentityPayload returns the exact bytes the user signs.
-// `bio` may be empty; it is placed in the envelope's content section and
-// is not escaped.
-func buildUserIdentityPayload(username, keyID, bio string) []byte {
-	return bytesToSign(
-		userIdentityHeaders(
-			username,
-			keyID,
-		),
-		bio,
-	)
-}
-
-// profileHeaders returns the header map covered by serverSignature.
-// `userSignature` binds the user's attestation into the server-signed
-// bytes; without this header the server signature would not detect a
-// server that re-pairs a genuine userSignature with fabricated
-// server-authored fields.
-//
-// Timestamp formatting: memberSince and signedAt are formatted with
-// identityRecordTimeFormat in UTC. Callers own the truncation of the
-// input times to whole seconds — this function does not modify them.
-func profileHeaders(
-	userID,
-	username,
-	keyID,
-	serverID,
-	serverKeyFingerprint,
-	userSignature,
-	inviteID,
-	role string,
-	memberSince,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 "identity-server",
-		"userID":               userID,
-		"username":             username,
-		"keyID":                keyID,
-		"memberSince":          memberSince.UTC().Format(identityRecordTimeFormat),
-		"role":                 role,
-		"serverID":             serverID,
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"userSignature":        base64Encode(userSignature),
-		"inviteID":             inviteID,
-	}
-}
-
-// buildProfilePayload returns the exact bytes the server signs.
-// `bio` is the same string that appeared in the user payload's content
-// section — the two payloads share the same content, they only differ
-// in headers. `inviteID` is the claimed invite's id when set; empty omits
-// the header (bytesToSign drops empty values). `role` is always present
-// (root | admin | user) — server-local policy bound by the countersignature.
+// buildProfilePayload returns the bytes the server countersigns for a
+// profile. userSignature welds the user's attestation to the server-authored
+// fields; inviteID is omitted for open signups.
 func buildProfilePayload(
 	userID,
 	username,
@@ -119,160 +41,75 @@ func buildProfilePayload(
 	memberSince,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		profileHeaders(
-			userID,
-			username,
-			keyID,
-			serverID,
-			serverKeyFingerprint,
-			userSignature,
-			inviteID,
-			role,
-			memberSince,
-			signedAt,
-		),
-		bio,
-	)
+	return canonicalJSON(signedFields{
+		"type":                 "identity-server",
+		"userID":               userID,
+		"username":             username,
+		"keyID":                keyID,
+		"memberSince":          signedTime(memberSince),
+		"role":                 role,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             signedTime(signedAt),
+		"userSignature":        userSignature,
+		"inviteID":             inviteID,
+		"bio":                  bio,
+	})
 }
 
-// reedCountersignHeaders builds the header map that the server signs when
-// countersigning a reed. SignReed and client-side verifyReed (SPA) /
-// recovery verifyReedCountersig construct this identical map and feed it to
-// bytesToSign; that single source of truth is what keeps the two
-// sides in lockstep.
-//
-// reedID is the full canonical id (authorID@serverID/uuid) — it alone binds
-// the reed's identity, so there's no separate authorID header. Binding the
-// fingerprint lets a verifier with multiple historical server keys pick the
-// right one and keeps the signer's own identity covered by the signature.
-// authorKeyID binds the key the author signed with, so it can't be relabelled.
-func reedCountersignHeaders(serverID, reedID, fingerprint, authorKeyID string, ts time.Time) map[string]string {
-	return map[string]string{
-		"authorKeyID": authorKeyID,
-		"fingerprint": fingerprint,
-		"serverID":    serverID,
-		"reedID":      reedID,
-		"timestamp":   ts.UTC().Format(time.RFC3339),
-	}
-}
-
-// buildReedPayload returns the exact bytes the server countersigns for a
-// reed. reedID is the full canonical id; content is the author's detached
-// signature, so the countersignature covers both where the reed lives and
-// the user's attestation of its body.
-//
-// `timestamp` must already be truncated to whole seconds so that what
-// is signed matches what Postgres stores after any timestamp
-// round-trip.
+// buildReedPayload returns the bytes the server countersigns for a reed:
+// its full canonical id, the author's key and detached signature, and the
+// server key fingerprint and timestamp.
 func buildReedPayload(
 	serverID,
 	reedID,
 	fingerprint,
 	authorKeyID,
-	signature string,
+	userSignature string,
 	timestamp time.Time,
 ) []byte {
-	return bytesToSign(
-		reedCountersignHeaders(
-			serverID,
-			reedID,
-			fingerprint,
-			authorKeyID,
-			timestamp,
-		),
-		signature,
-	)
+	return canonicalJSON(signedFields{
+		"authorKeyID":   authorKeyID,
+		"fingerprint":   fingerprint,
+		"serverID":      serverID,
+		"reedID":        reedID,
+		"timestamp":     signedTime(timestamp),
+		"userSignature": userSignature,
+	})
 }
 
-// publicKeyCountersignHeaders is the header map signed over a user
-// public key. Content is the armored key.
-func publicKeyCountersignHeaders(userID, keyID, serverID, serverKeyFingerprint string, ts time.Time) map[string]string {
-	return map[string]string{
-		"keyID":                keyID,
-		"serverID":             serverID,
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"signedAt":             ts.UTC().Format(time.RFC3339),
-		"userID":               userID,
-	}
-}
-
-// buildPublicKeyPayload returns the exact bytes the server countersigns
-// for a user's public key. Headers bind ownership and issuance
-// (userID, user key id, serverID, server-key fingerprint,
-// signedAt); content is the armored key itself, so a verifier can
-// check that this server attested this specific key for this user.
-//
-// `timestamp` must already be truncated to whole seconds so that what
-// is signed matches what Postgres stores after any timestamp
-// round-trip.
+// buildPublicKeyPayload returns the bytes the server countersigns for a
+// user's public key: ownership, issuance, and the armored key itself.
 func buildPublicKeyPayload(
 	serverID,
 	userID,
 	userKeyID,
 	serverFingerprint,
-	publicKey string,
+	armor string,
 	timestamp time.Time,
 ) []byte {
-	return bytesToSign(
-		publicKeyCountersignHeaders(
-			userID,
-			userKeyID,
-			serverID,
-			serverFingerprint,
-			timestamp,
-		),
-		publicKey,
-	)
+	return canonicalJSON(signedFields{
+		"keyID":                userKeyID,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverFingerprint,
+		"signedAt":             signedTime(timestamp),
+		"userID":               userID,
+		"armor":                armor,
+	})
 }
 
-// userRevocationHeaders returns the header map the key owner signs when
-// revoking. Content is the free-text reason (may be empty).
-func userRevocationHeaders(userID, keyID string) map[string]string {
-	return map[string]string{
+// buildUserRevocationPayload returns the bytes the key being revoked signs.
+func buildUserRevocationPayload(userID, keyID, reason string) []byte {
+	return canonicalJSON(signedFields{
 		"type":   "revocation",
 		"userID": userID,
 		"keyID":  keyID,
-	}
+		"reason": reason,
+	})
 }
 
-// buildUserRevocationPayload returns the exact bytes the key being
-// revoked must sign to produce the wire `signature` field.
-func buildUserRevocationPayload(userID, keyID, reason string) []byte {
-	return bytesToSign(
-		userRevocationHeaders(
-			userID,
-			keyID,
-		),
-		reason,
-	)
-}
-
-// serverRevocationHeaders returns the header map the server countersigns.
-// userSignature binds the user's attestation into the server-signed
-// bytes, same pattern as identity records.
-func serverRevocationHeaders(
-	userID,
-	keyID,
-	serverID,
-	serverKeyFingerprint,
-	userSignature string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 "revocation",
-		"userID":               userID,
-		"keyID":                keyID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverID":             serverID,
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}
-}
-
-// buildServerRevocationPayload returns the exact bytes the server signs
-// when countersigning a revocation. signedAt becomes server.timestamp
-// on the wire.
+// buildServerRevocationPayload returns the bytes the server countersigns
+// for a revocation. signedAt becomes server.timestamp on the wire.
 func buildServerRevocationPayload(
 	userID,
 	keyID,
@@ -282,73 +119,34 @@ func buildServerRevocationPayload(
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		serverRevocationHeaders(
-			userID,
-			keyID,
-			serverID,
-			serverKeyFingerprint,
-			userSignature,
-			signedAt,
-		),
-		reason,
-	)
+	return canonicalJSON(signedFields{
+		"type":                 "revocation",
+		"userID":               userID,
+		"keyID":                keyID,
+		"signedAt":             signedTime(signedAt),
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+		"reason":               reason,
+	})
 }
 
-// identityTypeReed is the wire and signed-header `type` for a single-reed
-// removal certificate (JSON `"type": "reed"`). Account removals use a
-// different value; do not invent aliases such as `reed_removal`.
+// identityTypeReed is the `type` of a single-reed removal certificate, on
+// the wire and in the signed payload. Account removals use another value.
 const identityTypeReed = "reed"
 
-// reedRemovalUserHeaders returns the header map the reed author signs when
-// requesting removal. Content is empty.
-func reedRemovalUserHeaders(serverID, reedID string) map[string]string {
-	return map[string]string{
+// buildReedRemovalUserPayload returns the bytes a reed's author signs to
+// remove it. reedID is the full canonical id.
+func buildReedRemovalUserPayload(serverID, reedID string) []byte {
+	return canonicalJSON(signedFields{
 		"type":     identityTypeReed,
 		"serverID": serverID,
 		"reedID":   reedID,
-	}
+	})
 }
 
-// buildReedRemovalUserPayload returns the exact bytes the reed author signs
-// to produce the wire `signature` field on a reed-removal cert. reedID is
-// the full canonical id.
-func buildReedRemovalUserPayload(serverID, reedID string) []byte {
-	return bytesToSign(
-		reedRemovalUserHeaders(serverID, reedID),
-		"",
-	)
-}
-
-// reedRemovalServerHeaders returns the header map the server countersigns.
-// userSignature binds the author's attestation into the server-signed
-// bytes (same class as identity / revocation countersign). reedID is the
-// full canonical id.
-func reedRemovalServerHeaders(
-	serverID,
-	reedID,
-	authorKeyID,
-	serverKeyFingerprint,
-	userSignature string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 identityTypeReed,
-		"serverID":             serverID,
-		"reedID":               reedID,
-		"authorKeyID":          authorKeyID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}
-}
-
-// buildReedRemovalServerPayload returns the exact bytes the server signs
-// when countersigning a reed removal. signedAt becomes server.timestamp
-// on the wire.
-//
-// `signedAt` must already be truncated to whole seconds so that what is
-// signed matches what Postgres stores after any timestamp round-trip.
+// buildReedRemovalServerPayload returns the bytes the server countersigns
+// for a reed removal. signedAt becomes server.timestamp on the wire.
 func buildReedRemovalServerPayload(
 	serverID,
 	reedID,
@@ -357,65 +155,33 @@ func buildReedRemovalServerPayload(
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		reedRemovalServerHeaders(
-			serverID,
-			reedID,
-			authorKeyID,
-			serverKeyFingerprint,
-			userSignature,
-			signedAt,
-		),
-		"",
-	)
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeReed,
+		"serverID":             serverID,
+		"reedID":               reedID,
+		"authorKeyID":          authorKeyID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
 }
 
-// identityTypeThread is the signed-header `type` for a thread record.
+// identityTypeThread is the signed `type` of a thread record.
 const identityTypeThread = "thread"
-
-// threadUserHeaders maps each zero-based index to its reed ID, so verifiers
-// rebuild the keys from the ID list instead of parsing them.
-func threadUserHeaders(serverID, threadID string, reedIDs []string) map[string]string {
-	h := map[string]string{
-		"type":     identityTypeThread,
-		"serverID": serverID,
-		"threadID": threadID,
-	}
-	for i, id := range reedIDs {
-		h[strconv.Itoa(i)] = id
-	}
-	return h
-}
 
 // buildThreadUserPayload returns the bytes the author signs to certify which
 // reeds form threadID, in order. reedIDs[0] is the head.
 func buildThreadUserPayload(serverID, threadID string, reedIDs []string) []byte {
-	return bytesToSign(threadUserHeaders(serverID, threadID, reedIDs), "")
-}
-
-// threadServerHeaders binds the author's thread signature and key to the
-// server's countersignature.
-func threadServerHeaders(
-	serverID,
-	threadID,
-	authorKeyID,
-	serverKeyFingerprint,
-	userSignature string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 identityTypeThread,
-		"serverID":             serverID,
-		"threadID":             threadID,
-		"authorKeyID":          authorKeyID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}
+	return canonicalJSON(signedFields{
+		"type":     identityTypeThread,
+		"serverID": serverID,
+		"threadID": threadID,
+		"reedIDs":  reedIDs,
+	})
 }
 
 // buildThreadServerPayload returns the bytes the server countersigns for a
-// thread record. signedAt must already be truncated to whole seconds.
+// thread record.
 func buildThreadServerPayload(
 	serverID,
 	threadID,
@@ -424,36 +190,33 @@ func buildThreadServerPayload(
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		threadServerHeaders(
-			serverID,
-			threadID,
-			authorKeyID,
-			serverKeyFingerprint,
-			userSignature,
-			signedAt,
-		),
-		"",
-	)
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeThread,
+		"serverID":             serverID,
+		"threadID":             threadID,
+		"authorKeyID":          authorKeyID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
 }
 
-// identityTypeThreadRemoval is the signed-header `type` for a thread-removal
-// certificate.
+// identityTypeThreadRemoval is the signed `type` of a thread removal.
 const identityTypeThreadRemoval = "thread_removal"
 
 // buildThreadRemovalUserPayload returns the bytes the author signs to remove
 // threadID. threadSignature pins the removal to the one record they signed.
 func buildThreadRemovalUserPayload(serverID, threadID, threadSignature string) []byte {
-	return bytesToSign(map[string]string{
+	return canonicalJSON(signedFields{
 		"type":            identityTypeThreadRemoval,
 		"serverID":        serverID,
 		"threadID":        threadID,
-		"threadSignature": base64Encode(threadSignature),
-	}, "")
+		"threadSignature": threadSignature,
+	})
 }
 
 // buildThreadRemovalServerPayload returns the bytes the server countersigns
-// for a thread removal. signedAt must already be truncated to whole seconds.
+// for a thread removal.
 func buildThreadRemovalServerPayload(
 	serverID,
 	threadID,
@@ -462,189 +225,106 @@ func buildThreadRemovalServerPayload(
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(map[string]string{
+	return canonicalJSON(signedFields{
 		"type":                 identityTypeThreadRemoval,
 		"serverID":             serverID,
 		"threadID":             threadID,
 		"authorKeyID":          authorKeyID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"signedAt":             signedTime(signedAt),
 		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}, "")
+		"userSignature":        userSignature,
+	})
 }
 
-// identityTypeReedLike is the wire and signed-header `type` for a
-// reed-like certificate (JSON `"type": "reed_like"`).
+// identityTypeReedLike is the `type` of a reed-like certificate.
 const identityTypeReedLike = "reed_like"
 
-// reedLikeUserHeaders returns the header map the liker signs. reedID is
-// the target reed's full canonical id. keyID names the liker's own
-// signing key, so the server verifies against that exact key — avoids a
-// spurious verification failure if the liker rotates keys between signing
-// and the server processing the request. Content is empty.
-func reedLikeUserHeaders(reedID, keyID string) map[string]string {
-	return map[string]string{
+// buildReedLikeUserPayload returns the bytes a liker signs. keyID names the
+// liker's signing key, so a rotation mid-request can't fail verification.
+func buildReedLikeUserPayload(reedID, keyID string) []byte {
+	return canonicalJSON(signedFields{
 		"type":   identityTypeReedLike,
 		"reedID": reedID,
 		"keyID":  keyID,
-	}
+	})
 }
 
-// buildReedLikeUserPayload returns the exact bytes the liker signs to
-// produce the wire `signature` field on a reed-like cert.
-func buildReedLikeUserPayload(reedID, keyID string) []byte {
-	return bytesToSign(
-		reedLikeUserHeaders(reedID, keyID),
-		"",
-	)
-}
-
-// reedLikeServerHeaders returns the header map the server countersigns.
-// userSignature binds the liker's attestation into the server-signed
-// bytes (same class as identity / revocation / reed-removal countersign).
-func reedLikeServerHeaders(
-	reedID,
-	serverKeyFingerprint,
-	userSignature string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 identityTypeReedLike,
-		"reedID":               reedID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}
-}
-
-// buildReedLikeServerPayload returns the exact bytes the server signs
-// when countersigning a reed like. signedAt becomes server.timestamp on
-// the wire.
-//
-// `signedAt` must already be truncated to whole seconds so that what is
-// signed matches what Postgres stores after any timestamp round-trip.
+// buildReedLikeServerPayload returns the bytes the server countersigns for
+// a like. signedAt becomes server.timestamp on the wire.
 func buildReedLikeServerPayload(
 	reedID,
 	serverKeyFingerprint,
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		reedLikeServerHeaders(
-			reedID,
-			serverKeyFingerprint,
-			userSignature,
-			signedAt,
-		),
-		"",
-	)
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeReedLike,
+		"reedID":               reedID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
 }
 
-// MaxVouchNoteChars caps the optional public memo. The note is envelope
-// content, inserted verbatim and never parsed back, so the cap bounds it.
+// MaxVouchNoteChars caps a vouch's optional public memo.
 const MaxVouchNoteChars = 140
 
-// Headers the voucher signs. voucherKeyID names the signing key so a
-// verifier knows which key to check. Key ids only: a key id is
-// owner-prefixed, so the users are already named in the signed bytes.
-func vouchUserHeaders(voucherKeyID, subjectKeyID string) map[string]string {
-	return map[string]string{
+// buildVouchUserPayload returns the bytes a voucher signs. Key ids are
+// owner-prefixed, so both users are named; no client timestamp.
+func buildVouchUserPayload(voucherKeyID, subjectKeyID, note string) []byte {
+	return canonicalJSON(signedFields{
 		"voucherKeyID": voucherKeyID,
 		"subjectKeyID": subjectKeyID,
-	}
+		"note":         note,
+	})
 }
 
-// buildVouchUserPayload returns the bytes the voucher signs. note is
-// envelope content (may be empty; capped at the API). No client
-// timestamp: the countersignature carries the authoritative time.
-func buildVouchUserPayload(voucherKeyID, subjectKeyID, note string) []byte {
-	return bytesToSign(
-		vouchUserHeaders(voucherKeyID, subjectKeyID),
-		note,
-	)
-}
-
-// Headers the server countersigns. The voucher's signature is the
-// envelope body rather than a header, so what the server attests to is
-// the signature itself — and that signature already covers voucherKeyID.
-func vouchServerHeaders(
-	subjectKeyID,
-	serverKeyFingerprint string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"subjectKeyID":         subjectKeyID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-	}
-}
-
-// buildVouchServerPayload returns the bytes the server countersigns: the
-// voucher's signature as the body. The note is not included — it is
-// already covered by the signature being attested.
+// buildVouchServerPayload returns the bytes the server countersigns for a
+// vouch. The note is covered through the voucher's signature.
 func buildVouchServerPayload(
 	subjectKeyID,
 	serverKeyFingerprint,
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		vouchServerHeaders(subjectKeyID, serverKeyFingerprint, signedAt),
-		userSignature,
-	)
-}
-
-// Headers signed to retract. The vouch id is the whole assertion: it
-// fixes the voucher and subject, and distinguishes re-vouches for the
-// same subject key from one another.
-func vouchWithdrawalUserHeaders(vouchID string) map[string]string {
-	return map[string]string{
-		"vouchID": vouchID,
-	}
+	return canonicalJSON(signedFields{
+		"subjectKeyID":         subjectKeyID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
 }
 
 // buildVouchWithdrawalUserPayload returns the bytes signed to withdraw a
-// vouch. Content is empty: a retraction carries no memo. Signed by
-// whatever key is current now, which may not be the key that signed the
-// original vouch.
+// vouch, by whatever key is current now. The vouch id fixes everything else.
 func buildVouchWithdrawalUserPayload(vouchID string) []byte {
-	return bytesToSign(vouchWithdrawalUserHeaders(vouchID), "")
-}
-
-// Headers the server countersigns to attest a retraction. vouchID is how
-// the withdrawal is addressed; it has no id of its own.
-func vouchWithdrawalServerHeaders(
-	vouchID,
-	serverKeyFingerprint string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"vouchID":              vouchID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-	}
+	return canonicalJSON(signedFields{
+		"vouchID": vouchID,
+	})
 }
 
 // buildVouchWithdrawalServerPayload returns the bytes the server
-// countersigns to attest a retraction.
+// countersigns to attest a withdrawal.
 func buildVouchWithdrawalServerPayload(
 	vouchID,
 	serverKeyFingerprint,
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		vouchWithdrawalServerHeaders(vouchID, serverKeyFingerprint, signedAt),
-		userSignature,
-	)
+	return canonicalJSON(signedFields{
+		"vouchID":              vouchID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
 }
 
-// identityTypeServerKeyRevocation is the signed-header `type` of a server
-// key revocation, which names the key's successor.
+// identityTypeServerKeyRevocation is the signed `type` of a server key
+// revocation, which names the key's successor.
 const identityTypeServerKeyRevocation = "server-key-revocation"
 
 // buildServerKeyRevocationPayload returns the bytes both the revoked key and
-// its successor sign. Like a user key revocation, the reason is the content.
+// its successor sign.
 func buildServerKeyRevocationPayload(
 	serverID,
 	keyID,
@@ -653,55 +333,33 @@ func buildServerKeyRevocationPayload(
 	reason string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(map[string]string{
+	return canonicalJSON(signedFields{
 		"type":        identityTypeServerKeyRevocation,
 		"serverID":    serverID,
 		"keyID":       keyID,
 		"successor":   successor,
-		"compromised": strconv.FormatBool(compromised),
-		"signedAt":    signedAt.UTC().Format(identityRecordTimeFormat),
-	}, reason)
+		"compromised": compromised,
+		"signedAt":    signedTime(signedAt),
+		"reason":      reason,
+	})
 }
 
-// identityTypeAccount is the wire and signed-header `type` for account removal.
+// identityTypeAccount is the `type` of an account removal certificate.
 const identityTypeAccount = "account"
 
-func accountRemovalUserHeaders(serverID, userID string) map[string]string {
-	return map[string]string{
+// buildAccountRemovalUserPayload returns the bytes a user signs to remove
+// their account. note may be empty (≤140 enforced at the API).
+func buildAccountRemovalUserPayload(serverID, userID, note string) []byte {
+	return canonicalJSON(signedFields{
 		"type":     identityTypeAccount,
 		"serverID": serverID,
 		"userID":   userID,
-	}
+		"note":     note,
+	})
 }
 
-// buildAccountRemovalUserPayload returns the bytes the user signs to remove
-// their account. note is envelope content (may be empty; ≤140 enforced at API).
-func buildAccountRemovalUserPayload(serverID, userID, note string) []byte {
-	return bytesToSign(
-		accountRemovalUserHeaders(serverID, userID),
-		note,
-	)
-}
-
-func accountRemovalServerHeaders(
-	serverID,
-	userID,
-	serverKeyFingerprint,
-	userSignature string,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 identityTypeAccount,
-		"serverID":             serverID,
-		"userID":               userID,
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}
-}
-
-// buildAccountRemovalServerPayload returns the bytes the server countersigns.
-// note is the same content the user signed.
+// buildAccountRemovalServerPayload returns the bytes the server countersigns
+// for an account removal.
 func buildAccountRemovalServerPayload(
 	serverID,
 	userID,
@@ -710,73 +368,40 @@ func buildAccountRemovalServerPayload(
 	userSignature string,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		accountRemovalServerHeaders(
-			serverID,
-			userID,
-			serverKeyFingerprint,
-			userSignature,
-			signedAt,
-		),
-		note,
-	)
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeAccount,
+		"serverID":             serverID,
+		"userID":               userID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+		"note":                 note,
+	})
 }
 
-// identityTypeInviteUser / identityTypeInviteServer distinguish user vs
-// server invite payloads (same split as identity-user / identity-server).
+// identityTypeInviteUser / identityTypeInviteServer split user and server
+// invite payloads, like identity-user / identity-server.
 const (
 	identityTypeInviteUser   = "invite-user"
 	identityTypeInviteServer = "invite-server"
 )
 
-func inviteUserHeaders(serverID, userID, inviteID, tokenHash, grantedRole string, createdAt time.Time) map[string]string {
-	return map[string]string{
+// buildInviteUserPayload returns the bytes an issuer signs for an invite.
+// tokenHash is SHA-256 of the fragment secret, which is never signed or sent.
+func buildInviteUserPayload(serverID, userID, inviteID, tokenHash, grantedRole string, createdAt time.Time) []byte {
+	return canonicalJSON(signedFields{
 		"type":        identityTypeInviteUser,
 		"serverID":    serverID,
 		"userID":      userID,
 		"inviteID":    inviteID,
 		"tokenHash":   tokenHash,
 		"grantedRole": grantedRole,
-		"createdAt":   createdAt.UTC().Format(identityRecordTimeFormat),
-	}
-}
-
-// buildInviteUserPayload returns the bytes the issuer signs over invite id,
-// createdAt, tokenHash (SHA-256 of the fragment secret), and grantedRole
-// (user | admin). The secret itself is never signed or sent on create.
-func buildInviteUserPayload(serverID, userID, inviteID, tokenHash, grantedRole string, createdAt time.Time) []byte {
-	return bytesToSign(
-		inviteUserHeaders(serverID, userID, inviteID, tokenHash, grantedRole, createdAt),
-		"",
-	)
-}
-
-func inviteServerHeaders(
-	serverID,
-	userID,
-	inviteID,
-	tokenHash,
-	serverKeyFingerprint,
-	userSignature string,
-	createdAt,
-	signedAt time.Time,
-) map[string]string {
-	return map[string]string{
-		"type":                 identityTypeInviteServer,
-		"serverID":             serverID,
-		"userID":               userID,
-		"inviteID":             inviteID,
-		"tokenHash":            tokenHash,
-		"createdAt":            createdAt.UTC().Format(identityRecordTimeFormat),
-		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
-		"serverKeyFingerprint": serverKeyFingerprint,
-		"userSignature":        base64Encode(userSignature),
-	}
+		"createdAt":   signedTime(createdAt),
+	})
 }
 
 // buildInviteServerPayload returns the bytes the server countersigns for an
-// invite. createdAt is the user-authored resource time; signedAt is when the
-// server attested. Both must already be truncated to whole seconds.
+// invite. createdAt is the issuer's time; signedAt is the server's.
 func buildInviteServerPayload(
 	serverID,
 	userID,
@@ -787,31 +412,21 @@ func buildInviteServerPayload(
 	createdAt,
 	signedAt time.Time,
 ) []byte {
-	return bytesToSign(
-		inviteServerHeaders(
-			serverID,
-			userID,
-			inviteID,
-			tokenHash,
-			serverKeyFingerprint,
-			userSignature,
-			createdAt,
-			signedAt,
-		),
-		"",
-	)
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeInviteServer,
+		"serverID":             serverID,
+		"userID":               userID,
+		"inviteID":             inviteID,
+		"tokenHash":            tokenHash,
+		"createdAt":            signedTime(createdAt),
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
 }
 
-// buildNewProfilePayload is a convenience wrapper around
-// buildProfilePayload for the initial signup record: bio is always empty
-// (users can't set it before their account exists), and memberSince ==
-// signedAt == the moment the record is minted. Later records produced by
-// profile-update flows keep memberSince pinned and only advance signedAt,
-// so they must call buildProfilePayload directly.
-//
-// `timestamp` must already be truncated to whole seconds so that what
-// is signed matches what Postgres stores after any timestamp
-// round-trip.
+// buildNewProfilePayload is buildProfilePayload for a signup: empty bio, and
+// memberSince == signedAt. Later updates call buildProfilePayload directly.
 func buildNewProfilePayload(
 	userID,
 	username,
@@ -838,105 +453,69 @@ func buildNewProfilePayload(
 	)
 }
 
-// buildFederationInvitationPayload returns the canonical bytes the
-// initiator server signs for a federation invitation (distinct from user
-// identity payloads — do not reuse identity-user/identity-server types).
+// buildFederationInvitationPayload returns the bytes the initiating server
+// signs for a federation invitation.
 func buildFederationInvitationPayload(inviteID, serverID, baseURL, frontendURL, fingerprint, secret string) []byte {
-	return bytesToSign(map[string]string{
+	return canonicalJSON(signedFields{
 		"baseUrl":     baseURL,
 		"fingerprint": fingerprint,
 		"frontendUrl": frontendURL,
 		"inviteId":    inviteID,
 		"secret":      secret,
 		"serverId":    serverID,
-	}, "")
+	})
 }
 
-// buildFederationConnectPayload returns the canonical bytes the responder
-// server signs when calling back to POST /federation/connect/{inviteId},
-// binding its identity to the specific invite. No secret: the responder
-// proves possession of the invite separately via the secret field on the
-// connect request body, not by signing over it.
+// buildFederationConnectPayload returns the bytes the responding server
+// signs to bind its identity to an invite. The secret travels separately.
 func buildFederationConnectPayload(inviteID, serverID, baseURL, frontendURL, fingerprint string) []byte {
-	return bytesToSign(map[string]string{
+	return canonicalJSON(signedFields{
 		"baseUrl":     baseURL,
 		"fingerprint": fingerprint,
 		"frontendUrl": frontendURL,
 		"inviteId":    inviteID,
 		"serverId":    serverID,
-	}, "")
+	})
 }
 
-// rippleUserHeaders returns the header map covered by a ripple response's
-// userSignature. reedID is the full canonical id of the parent reed.
-// threadID is always present (client-minted);
-// replyingTo is omitted (and therefore dropped by bytesToSign) for a
-// top-level post. No timestamp — client clocks are never signed over,
-// same as every other user payload in this file.
-func rippleUserHeaders(reedID, rippleAuthorID, keyID, threadID, replyingTo string) map[string]string {
-	return map[string]string{
+// buildRippleUserPayload returns the bytes a ripple's author signs. reedID is
+// the parent reed's canonical id; replyingTo is empty for a top-level post.
+func buildRippleUserPayload(reedID, rippleAuthorID, keyID, threadID, replyingTo, content string) []byte {
+	return canonicalJSON(signedFields{
 		"reedID":         reedID,
 		"rippleAuthorID": rippleAuthorID,
 		"keyID":          keyID,
 		"threadID":       threadID,
 		"replyingTo":     replyingTo,
-	}
+		"content":        content,
+	})
 }
 
-// buildRippleUserPayload returns the exact bytes a ripple's author signs.
-// `content` is the ripple text, placed in the envelope's content section
-// verbatim, unescaped. `replyingTo` may be empty for a top-level post.
-func buildRippleUserPayload(reedID, rippleAuthorID, keyID, threadID, replyingTo, content string) []byte {
-	return bytesToSign(
-		rippleUserHeaders(reedID, rippleAuthorID, keyID, threadID, replyingTo),
-		content,
-	)
-}
-
-// rippleServerHeaders returns the header map covered by a ripple
-// response's serverSignature: the same fields the user signed, plus
-// serverID and a server-supplied timestamp. Binding reedID/rippleAuthorID/
-// threadID/replyingTo kills cross-reed, cross-author, and cross-thread
-// replay; binding the server-key fingerprint lets a verifier with
-// multiple historical server keys pick the right one.
-func rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo string, ts time.Time) map[string]string {
-	return map[string]string{
+// buildRippleServerPayload returns the bytes the server countersigns for a
+// ripple: the author's fields and signature plus serverID and timestamp.
+// The ripple's id is the hash of these bytes, frozen at creation.
+func buildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, userSignature string, timestamp time.Time) []byte {
+	return canonicalJSON(signedFields{
 		"serverID":       serverID,
 		"reedID":         reedID,
 		"rippleAuthorID": rippleAuthorID,
 		"keyID":          keyID,
 		"threadID":       threadID,
 		"replyingTo":     replyingTo,
-		"timestamp":      ts.UTC().Format(identityRecordTimeFormat),
-	}
-}
-
-// buildRippleServerPayload returns the exact bytes the server
-// countersigns for a ripple response. Content is the author's detached
-// signature (not the ripple text), mirroring buildReedPayload exactly —
-// the countersignature covers both the ripple's identity and the user's
-// attestation of it. The response's id is the hash of these bytes,
-// frozen at creation and never recomputed.
-//
-// `timestamp` must already be truncated to whole seconds so that what is
-// signed matches what Postgres stores after any timestamp round-trip.
-func buildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, userSignature string, timestamp time.Time) []byte {
-	return bytesToSign(
-		rippleServerHeaders(serverID, reedID, rippleAuthorID, keyID, threadID, replyingTo, timestamp),
-		userSignature,
-	)
+		"timestamp":      signedTime(timestamp),
+		"userSignature":  userSignature,
+	})
 }
 
 const identityTypeRealtimeAuth = "realtime-auth"
 
 // buildRealtimeAuthPayload returns the bytes a client signs to open a
-// WebSocket. Binding server and user stops a captured handshake from
-// opening a socket anywhere else.
+// WebSocket, bound to this server and user.
 func buildRealtimeAuthPayload(serverID, userID, timestamp string) []byte {
-	return bytesToSign(map[string]string{
+	return canonicalJSON(signedFields{
 		"type":      identityTypeRealtimeAuth,
 		"serverID":  serverID,
 		"userID":    userID,
 		"timestamp": timestamp,
-	}, "")
+	})
 }
