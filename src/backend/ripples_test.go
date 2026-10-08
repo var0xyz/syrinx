@@ -140,9 +140,10 @@ func ensureRipplesSchema(db *sql.DB) error {
 		`CREATE TABLE servers (
 			id VARCHAR(16) UNIQUE,
 			name VARCHAR(255) PRIMARY KEY,
-			self BOOLEAN NOT NULL DEFAULT FALSE
+			self BOOLEAN NOT NULL DEFAULT FALSE,
+			frontend_url TEXT NOT NULL
 		)`,
-		`INSERT INTO servers (id, name, self) VALUES ('` + ripplesTestServerID + `', '` + ripplesTestServerID + `', TRUE)`,
+		`INSERT INTO servers (id, name, self, frontend_url) VALUES ('` + ripplesTestServerID + `', '` + ripplesTestServerID + `', TRUE, 'https://test.example')`,
 		`CREATE TABLE reed_identities (
 			id VARCHAR(255) PRIMARY KEY,
 			server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,

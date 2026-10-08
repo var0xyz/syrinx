@@ -108,8 +108,8 @@ func (s signedKeyRevocation) peerHandlers(t *testing.T, fake *httptest.Server) (
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, self, base_url, connected, key_id)
-		VALUES ($1, 'home.example', FALSE, $2, TRUE, $3)
+		INSERT INTO servers (id, name, self, base_url, frontend_url, connected, key_id)
+		VALUES ($1, 'home.example', FALSE, $2, $2, TRUE, $3)
 	`, revHomeServerID, fake.URL, s.serverKeyID); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func homeWithPeer(t *testing.T, status int) (*Handlers, string, *int32) {
 	f := newKeyRevocationFixture(t)
 	f.h.federationHTTPClientOverride = fake.Client()
 	if _, err := f.db.Exec(`
-		INSERT INTO servers (id, name, self, base_url, connected) VALUES ('peer5678', 'peer.example', FALSE, $1, TRUE)
+		INSERT INTO servers (id, name, self, base_url, frontend_url, connected) VALUES ('peer5678', 'peer.example', FALSE, $1, $1, TRUE)
 	`, fake.URL); err != nil {
 		t.Fatal(err)
 	}

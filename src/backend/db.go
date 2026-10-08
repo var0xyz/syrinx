@@ -229,8 +229,9 @@ func InitDB(db *sql.DB) error {
 		disconnect_reason TEXT,
 		-- Set by the peer's shutdown notice, cleared by its boot notice.
 		down_at TIMESTAMP,
-		-- Where the peer's users open links, as the peer reports it.
-		frontend_url TEXT,
+		-- Where the server's users open links: ALLOWED_ORIGIN on our own row,
+		-- as the peer reports it on a peer's.
+		frontend_url TEXT NOT NULL,
 		-- Set once the peer is seen to have approved us too.
 		peer_approved_at TIMESTAMP,
 		-- The key of ours this peer last accepted, so a rotation is announced

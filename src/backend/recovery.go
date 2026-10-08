@@ -346,7 +346,7 @@ func identityMatchesBundle(b *recoveryBundle, self recoveryExistingSelf, keys []
 // a fresh self-countersignature for each restored public key, since the
 // original self-signature isn't part of the bundle. On mismatch with an
 // existing self identity, returns an error and writes nothing.
-func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, passphrase string, b *recoveryBundle) (recoveryImportResult, error) {
+func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, passphrase, frontendURL string, b *recoveryBundle) (recoveryImportResult, error) {
 	if err := validateBundleShape(b); err != nil {
 		return 0, err
 	}
@@ -438,9 +438,9 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 
 	backupAt := b.ExportedAt.UTC().Truncate(time.Second)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, signing_key, identity_backup_at)
-		VALUES ($1, $2, TRUE, $3, $4)
-	`, b.ServerID, b.ServerName, b.SigningKeyID, backupAt); err != nil {
+		INSERT INTO servers (id, name, self, signing_key, identity_backup_at, frontend_url)
+		VALUES ($1, $2, TRUE, $3, $4, $5)
+	`, b.ServerID, b.ServerName, b.SigningKeyID, backupAt, frontendURL); err != nil {
 		return 0, fmt.Errorf("insert self server: %w", err)
 	}
 

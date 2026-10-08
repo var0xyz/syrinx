@@ -28,6 +28,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			identity_backup_at TIMESTAMP,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
+			frontend_url TEXT NOT NULL,
 			connected BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (

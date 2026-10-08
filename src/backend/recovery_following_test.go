@@ -30,7 +30,7 @@ func insertFollowingTestIdentity(t *testing.T, db *sql.DB, id, serverID string) 
 func TestSaveFollowing_CanonicalIDs(t *testing.T) {
 	db := openFollowingTestDB(t)
 	serverID := "srv1"
-	if _, err := db.Exec(`INSERT INTO servers (id, name, self) VALUES ($1, 'test', TRUE)`, serverID); err != nil {
+	if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ($1, 'test', TRUE, 'https://test.example')`, serverID); err != nil {
 		t.Fatalf("insert server: %v", err)
 	}
 

@@ -22,7 +22,7 @@ func newTeardownTestService(t *testing.T) (*sql.DB, *realtimeService, string) {
 		id   string
 		self bool
 	}{{teardownHomeID, true}, {teardownPeerID, false}} {
-		if _, err := db.Exec(`INSERT INTO servers (id, name, self) VALUES ($1, $1, $2)`, stmt.id, stmt.self); err != nil {
+		if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ($1, $1, $2, 'https://test.example')`, stmt.id, stmt.self); err != nil {
 			t.Fatalf("insert server %s: %v", stmt.id, err)
 		}
 	}

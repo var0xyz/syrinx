@@ -32,8 +32,8 @@ func newDeliveryFixture(t *testing.T) *deliveryFixture {
 	db := newTestDatabase(t, InitDB)
 	userSig, _, pubKeyID := seedReedStatsServer(t, db, deliveryHomeID)
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, self, connected, base_url, created_at)
-		VALUES ($1, $1, FALSE, TRUE, 'https://peer.example', NOW() - INTERVAL '1 hour')`, deliveryPeerID); err != nil {
+		INSERT INTO servers (id, name, self, connected, base_url, frontend_url, created_at)
+		VALUES ($1, $1, FALSE, TRUE, 'https://peer.example', 'https://peer.example', NOW() - INTERVAL '1 hour')`, deliveryPeerID); err != nil {
 		t.Fatalf("insert peer: %v", err)
 	}
 	author := string(canonicalID(deliveryHomeID, "alice"))

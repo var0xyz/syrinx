@@ -20,7 +20,7 @@ func openReedStatsTestDB(t *testing.T) *sql.DB {
 // every reed/removal insert below FKs into.
 func seedReedStatsServer(t *testing.T, db *sql.DB, serverID string) (userSigID, serverSigID int64, pubKeyID string) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO servers (id, name, self) VALUES ($1, $2, TRUE)`, serverID, serverID); err != nil {
+	if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ($1, $2, TRUE, 'https://test.example')`, serverID, serverID); err != nil {
 		t.Fatal(err)
 	}
 	pubKeyID = "pk1@" + serverID

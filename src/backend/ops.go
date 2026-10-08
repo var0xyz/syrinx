@@ -34,6 +34,8 @@ type opsConfig struct {
 	DBSSLMode  string `env:"name='DB_SSLMODE'"`
 
 	ServerName          string `env:"name='SERVER_NAME'"`
+	// Only import-identity needs it, to write this server's frontend URL.
+	AllowedOrigin string `env:"optional,default='',name='ALLOWED_ORIGIN'"`
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 }
 
@@ -219,6 +221,10 @@ func runExportIdentity(outfile string) error {
 
 func runImportIdentity(infile string) error {
 	cfg := loadOpsConfig()
+	frontendURL := frontendURLFromOrigin(cfg.AllowedOrigin)
+	if frontendURL == "" {
+		return fmt.Errorf("ALLOWED_ORIGIN is required")
+	}
 	db, err := openDB(cfg)
 	if err != nil {
 		return err
@@ -262,7 +268,7 @@ func runImportIdentity(infile string) error {
 		return err
 	}
 
-	result, err := importIntoDB(context.Background(), db, cryptoSvc, passphrase.Value, bundle)
+	result, err := importIntoDB(context.Background(), db, cryptoSvc, passphrase.Value, frontendURL, bundle)
 	if err != nil {
 		return err
 	}

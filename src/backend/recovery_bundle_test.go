@@ -23,7 +23,7 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 	sourceDB := openRecoveryBundleTestDB(t)
 	ds := NewDataService(sourceDB, "test")
 	ds.setServerIDForTest("Ab3xY9pQ")
-	if _, err := sourceDB.Exec(`INSERT INTO servers (id, name, self) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE)`); err != nil {
+	if _, err := sourceDB.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE, 'https://test.example')`); err != nil {
 		t.Fatalf("seed self server: %v", err)
 	}
 
@@ -44,7 +44,7 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 	}
 
 	targetDB := openRecoveryBundleTestDB(t)
-	result, err := importIntoDB(context.Background(), targetDB, cryptoSvc, passphrase, bundle)
+	result, err := importIntoDB(context.Background(), targetDB, cryptoSvc, passphrase, "https://test.example", bundle)
 	if err != nil {
 		t.Fatalf("importIntoDB: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 
 	// Re-importing the identical bundle must report recoveryImportAlreadyPresent,
 	// not a mismatch — this is the exact check that was broken.
-	result2, err := importIntoDB(context.Background(), sourceDB, cryptoSvc, passphrase, bundle)
+	result2, err := importIntoDB(context.Background(), sourceDB, cryptoSvc, passphrase, "https://test.example", bundle)
 	if err != nil {
 		t.Fatalf("importIntoDB (already present): %v", err)
 	}
