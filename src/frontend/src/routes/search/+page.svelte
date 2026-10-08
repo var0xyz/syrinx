@@ -148,7 +148,13 @@
         <LocalPagination bind:this={usersPagination} fetchPage={fetchUsersPage}>
           {#snippet item(user: api.User)}
             <div class="user-item">
-              <ReedAuthorHeader userID={user.id} username={user.username} subtext={user.bio} nameTag="h3" />
+              <ReedAuthorHeader
+                userID={user.id}
+                username={user.username}
+                subtext={user.bio}
+                nameTag="h3"
+                avatarSize="28px"
+              />
             </div>
           {/snippet}
           {#snippet empty()}
@@ -287,9 +293,9 @@
   .user-item {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1rem;
-    margin-bottom: 1rem;
+    border-radius: 10px;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
   }
 
   .empty-state {
