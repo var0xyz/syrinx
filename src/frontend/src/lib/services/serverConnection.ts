@@ -132,6 +132,8 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
       return { type: 'PUBLISH_READY_ACK', data: { reed_id: p.value.reedId } };
     case 'evictionAck':
       return { type: 'EVICTION_ACK', data: { reed_id: p.value.reedId } };
+    case 'keyEvictionAck':
+      return { type: 'KEY_EVICTION_ACK', data: { key_id: p.value.keyId } };
     case 'reedStats':
       return {
         type: 'REED_STATS',
@@ -285,6 +287,7 @@ export enum ServerEvent {
   BroadcastReed        = 'BROADCAST_REED',
   DataResponse         = 'DATA_RESPONSE',
   EvictionAck          = 'EVICTION_ACK',
+  KeyEvictionAck       = 'KEY_EVICTION_ACK',
   FollowReed           = 'FOLLOW_REED',
   InvalidRequestIdError = 'INVALID_REQUEST_ID_ERROR',
   KeyRevoked           = 'KEY_REVOKED',
@@ -325,7 +328,7 @@ class ServerConnection {
   /** REQUEST_THREAD request id → its waiting caller. */
   private pendingThreadRequests: Map<string, PendingThreadRequest> = new Map();
   private pendingReedPromises: Map<string, Promise<any>> = new Map();
-  /** Reed id → settler for an EVICTION awaiting its EVICTION_ACK.
+  /** `reed:<id>` / `key:<id>` → settler for an eviction awaiting its ack.
    * Called with false when the socket closes before the ack arrives. */
   private pendingEvictions: Map<string, (acked: boolean) => void> = new Map();
   private dispatchedReedRequests = new Set<string>();
@@ -580,11 +583,9 @@ class ServerConnection {
               this.pendingRequests.delete(requestId);
             }
           } else if (message.type === ServerEvent.EvictionAck) {
-            const settle = this.pendingEvictions.get(message.data.reed_id);
-            if (settle) {
-              this.pendingEvictions.delete(message.data.reed_id);
-              settle(true);
-            }
+            this.settleEviction(`reed:${message.data.reed_id}`);
+          } else if (message.type === ServerEvent.KeyEvictionAck) {
+            this.settleEviction(`key:${message.data.key_id}`);
           } else if (message.type === ServerEvent.InvalidRequestIdError) {
             // The server rejected a request_id we minted (malformed, or
             // its identity doesn't match this connection) — the server
@@ -854,25 +855,47 @@ class ServerConnection {
    * it acks, and the caller must not delete before that. False when the
    * socket is down or the ack times out, so the reed stays held. */
   async evict(reedId: string): Promise<boolean> {
+    return this.awaitEvictionAck(`reed:${reedId}`, () =>
+      this.sendMsg({ type: MessageType.EVICTION, payload: { case: 'eviction', value: { reedId } } })
+    );
+  }
+
+  /** `evict` for a public key: once acked, the server no longer owes this
+   * device the key's revocation. */
+  async evictKey(keyId: string): Promise<boolean> {
+    return this.awaitEvictionAck(`key:${keyId}`, () =>
+      this.sendMsg({ type: MessageType.KEY_EVICTION, payload: { case: 'keyEviction', value: { keyId } } })
+    );
+  }
+
+  private async awaitEvictionAck(pendingKey: string, send: () => void): Promise<boolean> {
     await this.connect();
     if (!this.isConnected()) return false;
 
-    const existing = this.pendingEvictions.get(reedId);
+    const existing = this.pendingEvictions.get(pendingKey);
     if (existing) return false;
 
     const acked = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
-        this.pendingEvictions.delete(reedId);
+        this.pendingEvictions.delete(pendingKey);
         resolve(false);
       }, EVICTION_ACK_TIMEOUT_MS);
-      this.pendingEvictions.set(reedId, (ok) => {
+      this.pendingEvictions.set(pendingKey, (ok) => {
         clearTimeout(timer);
         resolve(ok);
       });
     });
 
-    this.sendMsg({ type: MessageType.EVICTION, payload: { case: 'eviction', value: { reedId } } });
+    send();
     return acked;
+  }
+
+  private settleEviction(pendingKey: string): void {
+    const settle = this.pendingEvictions.get(pendingKey);
+    if (settle) {
+      this.pendingEvictions.delete(pendingKey);
+      settle(true);
+    }
   }
 
   syncRequest(): void {

@@ -151,3 +151,65 @@ func TestHandleEvictionIgnoresEmptyReedID(t *testing.T) {
 		t.Fatalf("empty reed id acked %v, want none", acked)
 	}
 }
+
+// captureKeyEvictionAcks drives handleKeyEviction and returns the key ids
+// of every KEY_EVICTION_ACK the client received.
+func captureKeyEvictionAcks(t *testing.T, rs *realtimeService, userID, keyID string) []string {
+	t.Helper()
+
+	var acked []string
+	client := newEvictionTestClient(t, userID, func(_ int, data []byte) {
+		var msg pb.WSMessage
+		if err := proto.Unmarshal(data, &msg); err != nil {
+			t.Errorf("unmarshal outbound frame: %v", err)
+			return
+		}
+		if msg.Type == pb.MessageType_KEY_EVICTION_ACK {
+			acked = append(acked, msg.GetKeyEvictionAck().GetKeyId())
+		}
+	})
+
+	rs.handleKeyEviction(client, keyID)
+	return acked
+}
+
+// The key's allocation goes, so no revocation is owed, and a retry after
+// a lost ack is still acked.
+func TestHandleKeyEvictionDropsAllocationAndAcks(t *testing.T) {
+	db := openReedStatsTestDB(t)
+	ds := &DataService{db: db, serverID: "testserver"}
+	rs := &realtimeService{db: ds, connManager: newRealtimeConnectionManager(), metrics: metrics.Noop{}}
+	ctx := context.Background()
+
+	userSigID, serverSigID, pubKeyID := seedReedStatsServer(t, db, "testserver")
+	seedEvictionUser(t, db, "bob", userSigID, serverSigID)
+
+	if err := ds.AllocatePublicKey(ctx, "bob@testserver", pubKeyID); err != nil {
+		t.Fatal(err)
+	}
+
+	for attempt := 0; attempt < 2; attempt++ {
+		acked := captureKeyEvictionAcks(t, rs, "bob@testserver", pubKeyID)
+		if len(acked) != 1 || acked[0] != pubKeyID {
+			t.Fatalf("attempt %d acked %v, want [%s]", attempt, acked, pubKeyID)
+		}
+	}
+
+	holders, err := ds.PublicKeyHolders(ctx, pubKeyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(holders) != 0 {
+		t.Fatalf("key holders after eviction = %v, want none", holders)
+	}
+}
+
+// TestHandleKeyEvictionIgnoresEmptyKeyID guards the malformed-payload path.
+func TestHandleKeyEvictionIgnoresEmptyKeyID(t *testing.T) {
+	t.Parallel()
+
+	rs := &realtimeService{connManager: newRealtimeConnectionManager(), metrics: metrics.Noop{}}
+	if acked := captureKeyEvictionAcks(t, rs, "bob@testserver", ""); len(acked) != 0 {
+		t.Fatalf("empty key id acked %v, want none", acked)
+	}
+}

@@ -17,6 +17,7 @@
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
+  import StorageUsage from '$lib/components/StorageUsage.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { formatAbsoluteDateTime, formatRelativeTime } from '$lib/utils/time';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
@@ -33,11 +34,6 @@
   export let data;
 
   let user: UserView = data.user;
-  let storageUsed: number = data.storage?.used ?? 0;
-  let storageTotal: number = data.storage?.total ?? 0;
-  let storagePercentage: number = storageTotal > 0 ? (storageUsed / storageTotal) * 100 : 0;
-  let storageAvailable: boolean = data.storage != null;
-
   // Encryption Key state (seeded from page load)
   let activeKeyId: string = data.keyInfo.keyId;
   let keyIdentity: string = data.keyInfo.identity;
@@ -69,16 +65,6 @@
   // Backed up before the currently active key was minted (e.g. after a
   // revoke) — the existing backup no longer covers this key.
   $: keyBackupStale = activeKeyMintedAt != null && !!lastKeyBackupAt && lastKeyBackupAt < activeKeyMintedAt;
-
-  // Helper function to format bytes into human-readable format
-  function formatBytes(bytes: number): string {
-    console.log(`bytes: ${bytes}`);
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  }
 
   // Helper function to format date into user-friendly format
   function formatDate(dateString: string): string {
@@ -414,45 +400,10 @@
         <!-- Storage Usage -->
         <div class="section">
           <h3>💾 Storage Usage</h3>
-          {#if storageAvailable}
-            <div class="storage-info">
-              <div class="storage-stats">
-                <div class="storage-item">
-                  <span class="label">Used</span>
-                  <span class="value">{formatBytes(storageUsed)}</span>
-                </div>
-                <div class="storage-item">
-                  <span class="label">Total</span>
-                  <span class="value">{formatBytes(storageTotal)}</span>
-                </div>
-                <div class="storage-item">
-                  <span class="label">Percentage</span>
-                  <span class="value storage-percentage" class:low-usage={storagePercentage < 50} class:medium-usage={storagePercentage >= 50 && storagePercentage < 80} class:high-usage={storagePercentage >= 80}>
-                    {storagePercentage.toFixed(1)}%
-                  </span>
-                </div>
-              </div>
-              <div class="storage-progress">
-                <div class="progress-bar">
-                  <div
-                    class="progress-fill"
-                    class:low-usage={storagePercentage < 50}
-                    class:medium-usage={storagePercentage >= 50 && storagePercentage < 80}
-                    class:high-usage={storagePercentage >= 80}
-                    style="width: {storagePercentage}%"
-                  ></div>
-                </div>
-                <div class="progress-labels">
-                  <span>0%</span>
-                  <span>100%</span>
-                </div>
-              </div>
-            </div>
-          {:else}
-            <div class="storage-unavailable">
-              <p>Storage information is not available in this browser.</p>
-            </div>
-          {/if}
+          <StorageUsage storage={data.storage} />
+          <div class="storage-actions">
+            <a class="keys-link" href="/account/storage">Stored users</a>
+          </div>
         </div>
 
         <!-- Encryption Key -->
@@ -776,17 +727,6 @@
   }
 
 
-  .label {
-    color: var(--muted);
-    font-size: 0.8rem;
-    font-weight: 500;
-  }
-
-  .value {
-    color: var(--fg);
-    font-size: 0.9rem;
-  }
-
 
 
   .form-group {
@@ -822,91 +762,10 @@
     min-height: 80px;
   }
 
-  /* Storage Usage Styles */
-  .storage-info {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .storage-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 1rem;
-  }
-
-  .storage-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    text-align: center;
-  }
-
-  .storage-percentage {
-    font-weight: 600;
-  }
-
-  .storage-percentage.low-usage {
-    color: #4caf50;
-  }
-
-  .storage-percentage.medium-usage {
-    color: #ff9800;
-  }
-
-  .storage-percentage.high-usage {
-    color: #f44336;
-  }
-
-  .storage-progress {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .progress-bar {
-    width: 100%;
-    height: 12px;
-    background-color: var(--input-bg);
-    border-radius: 6px;
-    overflow: hidden;
-    position: relative;
-  }
-
-  .progress-fill {
-    height: 100%;
-    transition: width 0.3s ease;
-    border-radius: 6px;
-  }
-
-  .progress-fill.low-usage {
-    background: linear-gradient(90deg, #4caf50, #66bb6a);
-  }
-
-  .progress-fill.medium-usage {
-    background: linear-gradient(90deg, #ff9800, #ffb74d);
-  }
-
-  .progress-fill.high-usage {
-    background: linear-gradient(90deg, #f44336, #ef5350);
-  }
-
-  .progress-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.7rem;
-    color: var(--muted);
-  }
-
-  .storage-unavailable {
-    text-align: center;
-    padding: 1rem;
-    color: var(--muted);
-  }
-
-  .storage-unavailable p {
-    margin: 0;
-    font-style: italic;
+  .storage-actions {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
   }
 
   .action-buttons {
@@ -1146,15 +1005,6 @@
 
     .section {
       padding: 0.75rem;
-    }
-
-    .storage-stats {
-      grid-template-columns: 1fr;
-      gap: 0.75rem;
-    }
-
-    .storage-item {
-      text-align: left;
     }
 
     .action-btn {
