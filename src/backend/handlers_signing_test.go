@@ -10,49 +10,30 @@ import (
 func TestPublicKeyCountersignCanonicalShape(t *testing.T) {
 	ts := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	armor := "-----BEGIN PGP PUBLIC KEY BLOCK-----\nxyz\n-----END PGP PUBLIC KEY BLOCK-----"
-	got := bytesToSign(
-		publicKeyCountersignHeaders("userABC", "FINGERPRINT01", "Server01", "SERVERKEY01", ts),
-		armor,
-	)
-	want := "---\n" +
-		"keyID: FINGERPRINT01\n" +
-		"serverID: Server01\n" +
-		"serverKeyFingerprint: SERVERKEY01\n" +
-		"signedAt: 2026-07-16T12:00:00Z\n" +
-		"userID: userABC\n" +
-		"---\n" +
-		armor
+	got := buildPublicKeyPayload("Server01", "userABC", "FINGERPRINT01", "SERVERKEY01", armor, ts)
+	want := `{"armor":"-----BEGIN PGP PUBLIC KEY BLOCK-----\nxyz\n-----END PGP PUBLIC KEY BLOCK-----",` +
+		`"keyID":"FINGERPRINT01","serverID":"Server01","serverKeyFingerprint":"SERVERKEY01",` +
+		`"signedAt":"2026-07-16T12:00:00Z","userID":"userABC"}`
 	if string(got) != want {
-		t.Errorf("public key countersign payload mismatch:\n got=%q\nwant=%q", got, want)
+		t.Errorf("public key countersign payload mismatch:\n got=%s\nwant=%s", got, want)
 	}
 }
 
 func TestRealtimeAuthPayloadShape(t *testing.T) {
 	got := buildRealtimeAuthPayload("Server01", "alice@Server01", "1767225600")
-	want := "---\n" +
-		"serverID: Server01\n" +
-		"timestamp: 1767225600\n" +
-		"type: realtime-auth\n" +
-		"userID: alice@Server01\n" +
-		"---\n"
+	want := `{"serverID":"Server01","timestamp":"1767225600","type":"realtime-auth","userID":"alice@Server01"}`
 	if string(got) != want {
-		t.Errorf("realtime auth payload mismatch:\n got=%q\nwant=%q", got, want)
+		t.Errorf("realtime auth payload mismatch:\n got=%s\nwant=%s", got, want)
 	}
 }
 
 func TestReedCountersignPayloadShape(t *testing.T) {
 	ts := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	got := buildReedPayload("Server01", "alice@Server01/reed1", "SERVERKEY01", "alice@Server01/KEY01", "USERSIG", ts)
-	want := "---\n" +
-		"authorKeyID: alice@Server01/KEY01\n" +
-		"fingerprint: SERVERKEY01\n" +
-		"reedID: alice@Server01/reed1\n" +
-		"serverID: Server01\n" +
-		"timestamp: 2026-07-16T12:00:00Z\n" +
-		"---\n" +
-		"USERSIG"
+	want := `{"authorKeyID":"alice@Server01/KEY01","fingerprint":"SERVERKEY01","reedID":"alice@Server01/reed1",` +
+		`"serverID":"Server01","timestamp":"2026-07-16T12:00:00Z","userSignature":"USERSIG"}`
 	if string(got) != want {
-		t.Errorf("reed countersign payload mismatch:\n got=%q\nwant=%q", got, want)
+		t.Errorf("reed countersign payload mismatch:\n got=%s\nwant=%s", got, want)
 	}
 }
 
@@ -62,16 +43,23 @@ func TestReedRemovalServerPayloadCanonicalShape(t *testing.T) {
 		"home", "a@home/r0", "a@home/k1", "SERVERKEY01", "SIG",
 		time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
 	)
-	want := "---\n" +
-		"authorKeyID: a@home/k1\n" +
-		"reedID: a@home/r0\n" +
-		"serverID: home\n" +
-		"serverKeyFingerprint: SERVERKEY01\n" +
-		"signedAt: 2026-10-07T12:00:00Z\n" +
-		"type: reed\n" +
-		"userSignature: U0lH\n" +
-		"---\n"
+	want := `{"authorKeyID":"a@home/k1","reedID":"a@home/r0","serverID":"home","serverKeyFingerprint":"SERVERKEY01",` +
+		`"signedAt":"2026-10-07T12:00:00Z","type":"reed","userSignature":"SIG"}`
 	if string(got) != want {
-		t.Errorf("reed removal server payload mismatch:\n got=%q\nwant=%q", got, want)
+		t.Errorf("reed removal server payload mismatch:\n got=%s\nwant=%s", got, want)
+	}
+}
+
+// Armor goes in as-is: JSON escapes its newlines, so no base64 wrapping.
+func TestProfilePayloadEmbedsArmorVerbatim(t *testing.T) {
+	ts := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	got := buildProfilePayload("alice@home", "alice", "alice@home/k1", "home", "SERVERKEY01",
+		"-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n", "", "user", "line 1\nline \"2\"", ts, ts)
+	want := `{"bio":"line 1\nline \"2\"","keyID":"alice@home/k1","memberSince":"2026-07-16T12:00:00Z","role":"user",` +
+		`"serverID":"home","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-07-16T12:00:00Z",` +
+		`"type":"identity-server","userID":"alice@home",` +
+		`"userSignature":"-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n","username":"alice"}`
+	if string(got) != want {
+		t.Errorf("profile payload mismatch:\n got=%s\nwant=%s", got, want)
 	}
 }

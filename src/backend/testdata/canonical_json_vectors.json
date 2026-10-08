@@ -1,0 +1,58 @@
+[
+  {
+    "name": "keys sort, empties drop, false and zero stay",
+    "fields": {
+      "z": "1",
+      "a": "",
+      "m": false,
+      "b": 0,
+      "c": null,
+      "d": []
+    },
+    "expected": "{\"b\":0,\"m\":false,\"z\":\"1\"}"
+  },
+  {
+    "name": "armor newlines and quotes escape",
+    "fields": {
+      "userSignature": "-----BEGIN PGP SIGNATURE-----\n\nab+/=\n-----END PGP SIGNATURE-----\n",
+      "bio": "say \"hi\" \\ bye"
+    },
+    "expected": "{\"bio\":\"say \\\"hi\\\" \\\\ bye\",\"userSignature\":\"-----BEGIN PGP SIGNATURE-----\\n\\nab+/=\\n-----END PGP SIGNATURE-----\\n\"}"
+  },
+  {
+    "name": "html characters stay literal",
+    "fields": {
+      "content": "<b>&</b>"
+    },
+    "expected": "{\"content\":\"<b>&</b>\"}"
+  },
+  {
+    "name": "non-ascii stays literal, controls escape",
+    "fields": {
+      "content": "café 🎉\u0001\t"
+    },
+    "expected": "{\"content\":\"café 🎉\\u0001\\t\"}"
+  },
+  {
+    "name": "lists keep their order",
+    "fields": {
+      "reedIDs": [
+        "a@h/r0",
+        "a@h/r10",
+        "a@h/r2"
+      ]
+    },
+    "expected": "{\"reedIDs\":[\"a@h/r0\",\"a@h/r10\",\"a@h/r2\"]}"
+  },
+  {
+    "name": "nested objects sort too",
+    "fields": {
+      "thread": {
+        "index": 1,
+        "head": "a@h/r0"
+      },
+      "id": "a@h/r1"
+    },
+    "expected": "{\"id\":\"a@h/r1\",\"thread\":{\"head\":\"a@h/r0\",\"index\":1}}"
+  }
+]

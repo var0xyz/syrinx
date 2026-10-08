@@ -4,15 +4,8 @@ import { buildReedRemovalServerPayload } from '../src/lib/services/signing.ts';
 
 assert.equal(
   buildReedRemovalServerPayload('home', 'a@home/r0', 'a@home/k1', 'SERVERKEY01', 'SIG', '2026-10-07T12:00:00Z'),
-  '---\n' +
-    'authorKeyID: a@home/k1\n' +
-    'reedID: a@home/r0\n' +
-    'serverID: home\n' +
-    'serverKeyFingerprint: SERVERKEY01\n' +
-    'signedAt: 2026-10-07T12:00:00Z\n' +
-    'type: reed\n' +
-    'userSignature: U0lH\n' +
-    '---\n',
+  '{"authorKeyID":"a@home/k1","reedID":"a@home/r0","serverID":"home","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-07T12:00:00Z","type":"reed","userSignature":"SIG"}',
   'reed removal server payload'
 );
 

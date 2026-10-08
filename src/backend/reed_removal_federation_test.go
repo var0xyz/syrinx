@@ -69,11 +69,11 @@ func TestReedRemovalFromPeer_VerifiesCountersignature(t *testing.T) {
 	refused := map[string]func() relayReedRemovalPayload{
 		"countersignature without the author key": func() relayReedRemovalPayload {
 			return signedReedRemoval(t, s, func(reedID, userSig string, at time.Time) []byte {
-				return bytesToSign(map[string]string{
+				return canonicalJSON(signedFields{
 					"type": identityTypeReed, "serverID": revHomeServerID, "reedID": reedID,
 					"signedAt":             at.Format(identityRecordTimeFormat),
-					"serverKeyFingerprint": s.serverKP.Fingerprint, "userSignature": base64Encode(userSig),
-				}, "")
+					"serverKeyFingerprint": s.serverKP.Fingerprint, "userSignature": userSig,
+				})
 			})
 		},
 		"signed with another user's key": func() relayReedRemovalPayload {

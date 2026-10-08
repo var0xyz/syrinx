@@ -33,7 +33,7 @@ Project `.gitignore` is intentionally narrow (project artifacts only). Put perso
 ## Design culture
 
 - **Verify before trust** — clients check user and server signatures; don’t add server-only “trust me” paths for sensitive mutations.
-- **Canonical bytes** — signing goes through the shared `bytesToSign` helper; never “almost the same” serialization on one side.
+- **Canonical bytes** — signed payloads go through the shared `canonicalJSON` helper (RFC 8785 JCS) via one `build*Payload` per record; never “almost the same” serialization on one side.
 - **Blank-slate schema** — this project often prefers recreate-DB cutovers over long dual-write migrations while it is still early. Say so in the PR if you change schema.
 - **Idempotent certificates** — removals and similar attestations should replay safely.
 - **Offline-first where it matters** — author queues for publishes/removals/revocations; sync is not “hope the tab stayed open.”

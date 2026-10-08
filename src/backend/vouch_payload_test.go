@@ -16,23 +16,16 @@ func TestVouchUserPayloadCanonicalShape(t *testing.T) {
 		"bob@peer5678/9f3c",
 		"met at the cafe",
 	)
-	want := "---\n" +
-		"subjectKeyID: bob@peer5678/9f3c\n" +
-		"voucherKeyID: alice@home1234/4a1e\n" +
-		"---\n" +
-		"met at the cafe"
+	want := `{"note":"met at the cafe","subjectKeyID":"bob@peer5678/9f3c","voucherKeyID":"alice@home1234/4a1e"}`
 	if string(got) != want {
 		t.Errorf("vouch user payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
 
-// An empty note drops the content but leaves the envelope.
+// An empty note is left out of the payload entirely.
 func TestVouchUserPayloadEmptyNote(t *testing.T) {
 	got := buildVouchUserPayload("alice@home/k1", "bob@peer/k2", "")
-	want := "---\n" +
-		"subjectKeyID: bob@peer/k2\n" +
-		"voucherKeyID: alice@home/k1\n" +
-		"---\n"
+	want := `{"subjectKeyID":"bob@peer/k2","voucherKeyID":"alice@home/k1"}`
 	if string(got) != want {
 		t.Errorf("noteless vouch payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
@@ -43,15 +36,11 @@ func TestVouchServerPayloadCanonicalShape(t *testing.T) {
 	got := buildVouchServerPayload(
 		"bob@peer5678/9f3c",
 		"SERVERKEY01",
-		"BASE64USERSIG",
+		"USERSIG",
 		ts,
 	)
-	want := "---\n" +
-		"serverKeyFingerprint: SERVERKEY01\n" +
-		"signedAt: 2026-09-25T12:00:00Z\n" +
-		"subjectKeyID: bob@peer5678/9f3c\n" +
-		"---\n" +
-		"BASE64USERSIG"
+	want := `{"serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-09-25T12:00:00Z",` +
+		`"subjectKeyID":"bob@peer5678/9f3c","userSignature":"USERSIG"}`
 	if string(got) != want {
 		t.Errorf("vouch server payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
@@ -61,9 +50,7 @@ func TestVouchWithdrawalPayloadCanonicalShape(t *testing.T) {
 	got := buildVouchWithdrawalUserPayload(
 		"alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567",
 	)
-	want := "---\n" +
-		"vouchID: alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567\n" +
-		"---\n"
+	want := `{"vouchID":"alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567"}`
 	if string(got) != want {
 		t.Errorf("withdrawal payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
@@ -77,11 +64,8 @@ func TestVouchWithdrawalServerPayloadCanonicalShape(t *testing.T) {
 		"WSIG",
 		signedAt,
 	))
-	want := "---\n" +
-		"serverKeyFingerprint: srv-fp\n" +
-		"signedAt: " + signedAt.Format(identityRecordTimeFormat) + "\n" +
-		"vouchID: alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567\n" +
-		"---\nWSIG"
+	want := `{"serverKeyFingerprint":"srv-fp","signedAt":"2026-03-01T12:00:00Z",` +
+		`"userSignature":"WSIG","vouchID":"alice@home1234/0192f0c1-2b3d-7456-89ab-cdef01234567"}`
 	if got != want {
 		t.Errorf("withdrawal server payload mismatch:\ngot  %q\nwant %q", got, want)
 	}
@@ -116,9 +100,8 @@ func TestWithdrawalPayloadsDistinguishRevouches(t *testing.T) {
 	}
 }
 
-// The countersignature attests the voucher's signature, which is the
-// body. The note is never in these bytes: it is already covered by the
-// signature being attested.
+// The countersignature attests the voucher's signature; the note is never
+// in these bytes, since that signature already covers it.
 func TestVouchServerPayloadExcludesNote(t *testing.T) {
 	ts := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 	args := func(sig string) []byte {

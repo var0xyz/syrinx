@@ -254,7 +254,7 @@
       if (pinnedEcho) {
         reed.echoing = pinnedEcho.id;
       }
-      reed.setUserSignature(keyId, await requestSigner.sign(reed.asMarkdown()));
+      reed.setUserSignature(keyId, await requestSigner.sign(reed.signedPayload()));
       const { publish } = await reedsService.createReed(reed);
 
       // Keep the modal open (covering the feed/detail page underneath) until

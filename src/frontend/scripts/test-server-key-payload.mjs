@@ -5,29 +5,16 @@ import { buildServerKeyRevocationPayload } from '../src/lib/services/signing.ts'
 
 assert.equal(
   buildServerKeyRevocationPayload('home', 'old@home', 'new@home', true, 'laptop stolen', '2026-10-07T12:00:00Z'),
-  '---\n' +
-    'compromised: true\n' +
-    'keyID: old@home\n' +
-    'serverID: home\n' +
-    'signedAt: 2026-10-07T12:00:00Z\n' +
-    'successor: new@home\n' +
-    'type: server-key-revocation\n' +
-    '---\n' +
-    'laptop stolen',
+  '{"compromised":true,"keyID":"old@home","reason":"laptop stolen","serverID":"home",' +
+    '"signedAt":"2026-10-07T12:00:00Z","successor":"new@home","type":"server-key-revocation"}',
   'compromised revocation payload'
 );
 
-// A planned rotation: not compromised, no reason, so no content.
+// A planned rotation: false stays in, the empty reason drops out.
 assert.equal(
   buildServerKeyRevocationPayload('home', 'old@home', 'new@home', false, '', '2026-10-07T12:00:00Z'),
-  '---\n' +
-    'compromised: false\n' +
-    'keyID: old@home\n' +
-    'serverID: home\n' +
-    'signedAt: 2026-10-07T12:00:00Z\n' +
-    'successor: new@home\n' +
-    'type: server-key-revocation\n' +
-    '---\n',
+  '{"compromised":false,"keyID":"old@home","serverID":"home",' +
+    '"signedAt":"2026-10-07T12:00:00Z","successor":"new@home","type":"server-key-revocation"}',
   'rotation payload'
 );
 

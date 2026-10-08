@@ -8,40 +8,28 @@ Syrinx uses **OpenPGP** (ProtonMail `go-crypto` on the server, OpenPGP.js in the
 - **Server signing key** — Countersigns identities, keys, revocations, removals, and related records. The private key is wrapped with a passphrase resolved from the OS keychain (or an env var for HA). Operators export/import identity **bundles** for disaster recovery; the bundle password is separate from the server-key passphrase.
 - **Key rotation & revocation** — Users can rotate; revocations are signed resources so peers learn that an old key is dead. Requests signed with revoked keys are rejected.
 
-## Canonical signed envelope (`BytesToSign`)
+## Canonical signed payload (`canonicalJSON`)
 
-Signed records share one envelope format on server and client. The helper produces **opaque signing input**—not a document meant to be parsed back.
+Every signed record is a flat set of named fields serialized as **JSON Canonicalization Scheme** ([RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)) JSON. The server (`canonicalJSON` in `utils.go`, via `github.com/gowebpki/jcs`) and the SPA (`canonicalJSON` in `signing.ts`, via `canonicalize`) produce byte-identical output from the same fields.
 
-```
----
-<sortedKey>: <value>
-<sortedKey>: <value>
-...
----
-<content>
+```json
+{"keyID":"alice@home/k1","reason":"laptop lost","type":"revocation","userID":"alice@home"}
 ```
 
 Rules that matter:
 
-- Header keys sorted ASCII byte-lexicographically (Go `sort.Strings` / default JS sort for ASCII keys).
-- One header per line: `key: value` (colon-space), LF only (never CRLF).
-- Empty-string values: **omit the whole header line.** Absent and empty are equivalent.
-- Opening and closing `---` on their own lines.
-- Content appended verbatim after the closing `---\n`. No extra trailing newline from the helper.
-- Timestamps in headers: UTC, RFC3339, second precision, `Z` suffix.
-- **No escaping.** Values are inserted verbatim.
+- JCS fixes everything else: keys sorted by UTF-16 code units, no whitespace, minimal string escaping, ES6 number formatting.
+- Empty strings, `null`/`undefined` and empty lists are **dropped** before serializing, so absent and empty sign the same. `false` and `0` stay.
+- Free text (bio, reason, note, ripple content) and embedded signatures are ordinary string fields. JSON escaping handles their newlines and quotes, so nothing is base64-wrapped to fit.
+- Lists and booleans keep their types: a thread signs `reedIDs` as an array, a server key revocation signs `compromised` as a boolean.
+- Timestamps: UTC, RFC3339, second precision, `Z` suffix.
+- Every payload has exactly one builder per side (`build*Payload` in `identity.go`, mirrored in `signing.ts`). Signer and verifier both call it; nothing parses a payload back into fields.
 
-### Why nothing is escaped
-
-The envelope’s only job is a **deterministic byte sequence** both sides can reproduce from the same fields. Signed records travel as structured data (`headers`, `content`, `signature`). The receiver re-runs `BytesToSign` and verifies. Nobody splits the envelope on newlines to recover fields—so literal `\n`, `:`, or `---` inside a value cannot “break parsing,” because there is no parse step.
-
-Adding an escape table would invent a second contract both implementations must share, plus a decode path nobody needs. A future “hardening” that adds escapes would **silently break** signature compatibility.
-
-Helpers return `[]byte` / `Uint8Array` to signal: this is signing input, not prose.
+Parity is enforced by shared vectors in `src/backend/testdata/canonical_json_vectors.json` (Go `TestCanonicalJSONVectors`, SPA `npm run test:signing`) plus per-payload golden bytes on both sides.
 
 ## Detached signatures
 
-- All protocol signatures are **detached PGP** signatures over the exact `BytesToSign` bytes.
+- All protocol signatures are **detached PGP** signatures over the exact `canonicalJSON` bytes.
 - On the wire: base64 (standard alphabet), not nested base64-of-base64.
 - Sign and verify must share one helper so signer and verifier cannot drift.
 

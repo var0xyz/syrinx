@@ -491,91 +491,41 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 
 ## Shared conventions
 
-### Canonical signed envelope
+### Canonical signed payload
 
-Several proposals introduce **signed records**. They all use the same
-envelope format, produced by a single shared helper on the server and a
-mirror on the client:
+Every signed record is a flat set of named fields serialized as RFC 8785
+(JSON Canonicalization Scheme) JSON, by one helper per side:
 
+```go
+// Go (utils.go), via github.com/gowebpki/jcs
+func canonicalJSON(fields signedFields) []byte
 ```
----
-<sortedKey>: <value>
-<sortedKey>: <value>
-...
----
-<content>
+
+```ts
+// TS (signing.ts), via the `canonicalize` package
+function canonicalJSON(fields: SignedFields): string;
 ```
 
 Rules:
 
-- Header keys sorted ASCII byte-lexicographically (matches Go's
-  `sort.Strings` and JS `Array.prototype.sort` with the default
-  comparator for our ASCII keys).
-- One header per line: `<key>: <value>` (colon-space), terminated with a
-  single `\n` (LF, never CRLF).
-- Empty-string values: **omit the whole header line.** Absent and empty
-  are equivalent by convention.
-- Opening and closing `---` on their own lines.
-- Content is appended verbatim after the closing `---\n`. No trailing
-  newline is added by the helper — if the content ends with `\n`, that
-  is preserved as-is.
-- Timestamps in headers: UTC, `time.RFC3339`, second-precision, `Z`
-  suffix.
-- **No escaping.** Values are inserted verbatim. See "Why nothing is
-  escaped" below.
+- JCS defines the bytes: sorted keys, no whitespace, minimal escaping.
+- Empty strings, null/undefined and empty lists are dropped first, so
+  absent and empty are equivalent. `false` and `0` are kept.
+- Free text and embedded signatures are plain string fields; JSON
+  escaping covers newlines and quotes, so nothing is base64-wrapped.
+- Lists and booleans keep their JSON types.
+- Timestamps: UTC, `time.RFC3339`, second-precision, `Z` suffix.
+- Each record has one `build*Payload` per side, called by both signer
+  and verifier. Nothing parses a payload back into fields.
 
-The helper's signature is:
-
-```go
-// Go
-func BytesToSign(headers map[string]string, content string) []byte
-```
-
-```ts
-// TS
-function bytesToSign(
-  headers: Record<string, string>,
-  content: string,
-): Uint8Array;
-```
-
-The return type is `[]byte` / `Uint8Array` rather than a string to
-signal that the output is **opaque signing input**, not a document to
-be read or re-parsed.
-
-#### Why nothing is escaped
-
-The envelope has exactly one job: produce a deterministic byte sequence
-that both sides can reproduce from the same inputs. It is **never
-parsed back**. Signed records travel between server and client as
-structured fields (`{headers: {...}, content: "...", signature: "..."}`
-or equivalent); the receiver re-runs `BytesToSign` on those fields and
-compares the signature. Nobody ever consumes the envelope bytes as
-markdown, YAML front-matter, or any other format.
-
-Consequences:
-
-- If a header value contains a literal `\n`, `:`, `---`, or any other
-  "special" sequence, the envelope will contain those bytes verbatim.
-  This is fine — no code splits the envelope on `\n` or on `": "` to
-  recover fields, so there is nothing to confuse.
-- Adding an escape table would introduce a second contract (the escape
-  scheme) that both implementations must agree on, plus test vectors to
-  keep them honest, plus a decode path — none of which we need.
-- Values _must_ be single strings and must not be `nil`/`undefined` at
-  the call site; that is a producer-side invariant, not something the
-  helper enforces (empty strings are already handled by the omit rule).
-
-**When implementing `BytesToSign`, this rationale must be documented in
-the helper's source (a comment at the top of the file is sufficient),
-referencing this section.** The reasoning is not obvious from the code,
-and a future contributor "hardening" the helper by adding escapes would
-silently break signature compatibility.
+Shared vectors: `src/backend/testdata/canonical_json_vectors.json`.
+This replaced the earlier markdown-style `bytesToSign` envelope, which
+the older proposals below still describe.
 
 ### Detached signatures
 
 - All signatures are detached PGP signatures over the exact bytes
-  returned by `BytesToSign`.
+  returned by `canonicalJSON`.
 - On the wire, signatures are base64-encoded (std alphabet), never
   nested (no base64-of-base64).
 - One helper, called from both signer and verifier in each proposal, so

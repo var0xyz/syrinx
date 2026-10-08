@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
+	github.com/gowebpki/jcs v1.0.2
 	github.com/lib/pq v1.10.9
 	github.com/rs/zerolog v1.32.0
 	github.com/tooxie/env v0.0.0-20260816074445-2ab6f5220059

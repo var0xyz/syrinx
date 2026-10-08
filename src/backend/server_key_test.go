@@ -43,32 +43,19 @@ func TestServerKeyRevocationPayloadCanonicalShape(t *testing.T) {
 		"home", "old@home", "new@home", true, "laptop stolen",
 		time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
 	)
-	want := "---\n" +
-		"compromised: true\n" +
-		"keyID: old@home\n" +
-		"serverID: home\n" +
-		"signedAt: 2026-10-07T12:00:00Z\n" +
-		"successor: new@home\n" +
-		"type: server-key-revocation\n" +
-		"---\n" +
-		"laptop stolen"
+	want := `{"compromised":true,"keyID":"old@home","reason":"laptop stolen","serverID":"home",` +
+		`"signedAt":"2026-10-07T12:00:00Z","successor":"new@home","type":"server-key-revocation"}`
 	if string(got) != want {
 		t.Errorf("compromised revocation payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 
-	// A planned rotation: not compromised, no reason, so no content.
+	// A planned rotation: false stays in, the empty reason drops out.
 	got = buildServerKeyRevocationPayload(
 		"home", "old@home", "new@home", false, "",
 		time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
 	)
-	want = "---\n" +
-		"compromised: false\n" +
-		"keyID: old@home\n" +
-		"serverID: home\n" +
-		"signedAt: 2026-10-07T12:00:00Z\n" +
-		"successor: new@home\n" +
-		"type: server-key-revocation\n" +
-		"---\n"
+	want = `{"compromised":false,"keyID":"old@home","serverID":"home",` +
+		`"signedAt":"2026-10-07T12:00:00Z","successor":"new@home","type":"server-key-revocation"}`
 	if string(got) != want {
 		t.Errorf("rotation payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
