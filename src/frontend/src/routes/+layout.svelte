@@ -42,6 +42,7 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
+  import { receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
   import { notificationStore } from '$lib/stores/notifications';
@@ -148,6 +149,12 @@
       }
       console.log('ServerConnection: reed found and encrypted, fulfilling relay:', reed_id);
       serverConnection.sendRelayResponse(eventId, ciphertext);
+    });
+    serverConnection.on(ServerEvent.RelayThread, ({ id: eventId, thread_id, requester_key_id }) => {
+      void serveThreadRelay(eventId, thread_id, requester_key_id);
+    });
+    serverConnection.on(ServerEvent.ThreadResponse, (data) => {
+      void receiveThreadResponse(data);
     });
     serverConnection.onEncryptedReed(ServerEvent.DataResponse, 'relayed reed', async (reed, data) => {
       const requestId = data.request_id as string | undefined;

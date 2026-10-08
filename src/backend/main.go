@@ -230,6 +230,7 @@ func main() {
 	h.SetKickUserWS(rtService.DisconnectUser)
 	h.SetRealtimeRelay(rtService)
 	rtService.SetForeignRequestReedHook(h.relayRequestToPeer)
+	rtService.SetForeignRequestThreadHook(h.relayThreadRequestToPeer)
 	rtService.SetForeignProfilePageHook(h.profilePageToPeer)
 	rtService.SetForeignDeliverHook(h.deliverRelayResponseToPeer)
 	rtService.SetForeignNotHeldHook(h.notifyRelayNotHeldToPeer)

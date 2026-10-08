@@ -12,6 +12,7 @@ import { resolvePublicKeyArmor } from '$lib/verifiers';
 import { contradictingVouch } from './vouches';
 import { parseKeyId } from '$lib/utils/identityRef';
 import type { ReedType } from '$lib/types/reed';
+import type { ThreadRecord } from '$lib/types/api';
 
 /**
  * Encrypt a locally-held reed to the key RELAY_REQUEST names; the key's
@@ -22,6 +23,24 @@ export async function encryptReedForRequester(
   reed: ReedType,
   keyID: string
 ): Promise<string | null> {
+  return encryptForRequester(reed, keyID);
+}
+
+/** A whole thread, as a holder relays it: the record and every part in order. */
+export interface ThreadBundle {
+  record: ThreadRecord;
+  reeds: ReedType[];
+}
+
+/** Encrypts a thread bundle to the key RELAY_THREAD names. */
+export async function encryptThreadForRequester(
+  bundle: ThreadBundle,
+  keyID: string
+): Promise<string | null> {
+  return encryptForRequester(bundle, keyID);
+}
+
+async function encryptForRequester(payload: unknown, keyID: string): Promise<string | null> {
   const parsed = parseKeyId(keyID);
   if (!parsed) {
     console.error('Relay: request names no usable key', keyID);
@@ -45,7 +64,7 @@ export async function encryptReedForRequester(
   const armor = await resolvePublicKeyArmor(requesterID, keyID);
   if (!armor) return null;
 
-  return cryptoService.encryptToRecipient(JSON.stringify(reed), armor);
+  return cryptoService.encryptToRecipient(JSON.stringify(payload), armor);
 }
 
 /**
@@ -55,6 +74,12 @@ export async function encryptReedForRequester(
 export async function decryptRelayPayload(ciphertext: string): Promise<ReedType> {
   const plaintext = await requestSigner.decryptOwn(ciphertext);
   return JSON.parse(plaintext) as ReedType;
+}
+
+/** Decrypts a relayed thread bundle with the caller's own key. Throws on failure. */
+export async function decryptThreadBundle(ciphertext: string): Promise<ThreadBundle> {
+  const plaintext = await requestSigner.decryptOwn(ciphertext);
+  return JSON.parse(plaintext) as ThreadBundle;
 }
 
 /** Reports a decrypt failure the same way as any other content rejection. */

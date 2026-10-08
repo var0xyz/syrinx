@@ -40,6 +40,15 @@ function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
   return toBinary(WSMessageSchema, msg);
 }
 
+function encodeRequestThread(requestId: string, threadId: string): Uint8Array {
+  const msg = create(WSMessageSchema, {
+    type: MessageType.REQUEST_THREAD,
+    typeName: 'REQUEST_THREAD',
+    payload: { case: 'requestThread', value: { requestId, threadId } },
+  });
+  return toBinary(WSMessageSchema, msg);
+}
+
 /** Converts a protobuf UserSignature to the camelCase wire shape every
  * verifier (HTTP-fed or WS-fed) already expects — see lib/types/api.ts. */
 function decodeUserSignature(s: PbUserSignature | undefined) {
@@ -90,6 +99,12 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
         type: 'RELAY_REQUEST',
         id: msg.id,
         data: { reed_id: p.value.reedId, requester_key_id: p.value.requesterKeyId },
+      };
+    case 'relayThread':
+      return {
+        type: 'RELAY_THREAD',
+        id: msg.id,
+        data: { thread_id: p.value.threadId, requester_key_id: p.value.requesterKeyId },
       };
     case 'dataResponse': {
       // typeName mirrors the MessageType enum name (e.g. "BROADCAST_REED")
@@ -225,6 +240,7 @@ function decodeKeyRevocationCert(cert: { id: string; userId: string; reason: str
 export type ServerEventHandler = (data: any) => void;
 
 type PendingRequest = { resolve: (reed: ReedType) => void; reject: (err: any) => void };
+type PendingThreadRequest = { resolve: (reeds: ReedType[]) => void; reject: (err: any) => void };
 
 /** How long an EVICTION waits for its ack before the caller gives up and
  * keeps the content — the reed stays held, so a later attempt retries it. */
@@ -258,10 +274,13 @@ export enum ServerEvent {
   ReedReply            = 'REED_REPLY',
   ReedStats            = 'REED_STATS',
   RelayRequest         = 'RELAY_REQUEST',
+  RelayThread          = 'RELAY_THREAD',
   RequestAck           = 'REQUEST_ACK',
   RipplePosted         = 'RIPPLE_POSTED',
   RippleUpdated        = 'RIPPLE_UPDATED',
   Sigterm              = 'SIGTERM',
+  /** A DATA_RESPONSE answering a REQUEST_THREAD; never on the wire. */
+  ThreadResponse       = 'THREAD_RESPONSE',
 }
 
 class ServerConnection {
@@ -269,6 +288,8 @@ class ServerConnection {
   private connectingPromise: Promise<void> | null = null;
   private eventHandlers: Map<string, ServerEventHandler[]> = new Map();
   private pendingRequests: Map<string, PendingRequest> = new Map();
+  /** REQUEST_THREAD request id → its waiting caller. */
+  private pendingThreadRequests: Map<string, PendingThreadRequest> = new Map();
   private pendingReedPromises: Map<string, Promise<any>> = new Map();
   /** Reed id → settler for an EVICTION awaiting its EVICTION_ACK.
    * Called with false when the socket closes before the ack arrives. */
@@ -394,6 +415,9 @@ class ServerConnection {
     const evictions = [...this.pendingEvictions.values()];
     this.pendingEvictions.clear();
     evictions.forEach((settle) => settle(false));
+    const threads = [...this.pendingThreadRequests.values()];
+    this.pendingThreadRequests.clear();
+    threads.forEach((pending) => pending.reject(new Error('connection_lost')));
   }
 
   async connect(): Promise<void> {
@@ -505,8 +529,15 @@ class ServerConnection {
             // by +layout.svelte's DataResponse listener once it has decrypted
             // and verified — never the raw payload straight from here.
             this.dispatchedReedRequests.delete(message.data.request_id);
+            if (this.pendingThreadRequests.has(message.data.request_id)) {
+              message.type = ServerEvent.ThreadResponse;
+            }
           } else if (message.type === ServerEvent.ReedNotFound || message.type === ServerEvent.ReedNotHeld) {
             const requestId = message.data.request_id;
+            this.rejectPendingThreadRequest(
+              requestId,
+              new Error(message.type === ServerEvent.ReedNotHeld ? 'thread_not_held' : 'thread_not_found')
+            );
             this.dispatchedReedRequests.delete(requestId);
             void reedRequestsRepository.delete(requestId);
             const pending = this.pendingRequests.get(requestId);
@@ -527,6 +558,7 @@ class ServerConnection {
             // own local record rather than retry it.
             const requestId = message.data.request_id;
             console.warn('ServerConnection: request_id rejected by server, discarding:', requestId);
+            this.rejectPendingThreadRequest(requestId, new Error('invalid_request_id'));
             this.dispatchedReedRequests.delete(requestId);
             void reedRequestsRepository.delete(requestId);
             const pending = this.pendingRequests.get(requestId);
@@ -678,6 +710,30 @@ class ServerConnection {
 
     startReedRequestDrainer();
     return promise;
+  }
+
+  /** Fetches a whole thread by its head's ID, as one bundle. Resolves with
+   * its parts in order once the ThreadResponse listener has verified and
+   * stored them; rejects if no holder can relay it. */
+  requestThreadContent(threadId: string): Promise<ReedType[]> {
+    const requesterId = localStorage.getItem('userId') ?? '';
+    const requestId = `${requesterId}/${crypto.randomUUID()}`;
+    if (!this.isConnected()) return Promise.reject(new Error('not_connected'));
+    const promise = new Promise<ReedType[]>((resolve, reject) => {
+      this.pendingThreadRequests.set(requestId, { resolve, reject });
+    });
+    this.sendBinary(encodeRequestThread(requestId, threadId));
+    return promise;
+  }
+
+  resolvePendingThreadRequest(requestId: string, reeds: ReedType[]): void {
+    this.pendingThreadRequests.get(requestId)?.resolve(reeds);
+    this.pendingThreadRequests.delete(requestId);
+  }
+
+  rejectPendingThreadRequest(requestId: string, err: unknown): void {
+    this.pendingThreadRequests.get(requestId)?.reject(err);
+    this.pendingThreadRequests.delete(requestId);
   }
 
   /** Resolves a requestReedContent() caller with the reed the

@@ -29,7 +29,7 @@ with or after each server step.
 | 00 | Design, data model, trust model                       | Proposed |
 | 01 | `replying` and `thread` header objects                | Proposed |
 | 02 | Thread record, `POST /threads`, `PUBLISH_READY`       | Implemented |
-| 03 | `REQUEST_THREAD` / `RELAY_THREAD` and the thread ACK  | Proposed |
+| 03 | `REQUEST_THREAD` / `RELAY_THREAD` and the thread ACK  | Implemented |
 | 04 | Thread-removal certificate + federation notify        | Proposed |
 | 05 | SPA: composer, thread view, removal                   | Proposed |
 

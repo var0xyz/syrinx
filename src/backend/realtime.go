@@ -159,6 +159,7 @@ type realtimeEventName string
 
 const (
 	requestReedEvent         realtimeEventName = "request_reed"
+	requestThreadEvent       realtimeEventName = "request_thread"
 	profileSubscriptionEvent realtimeEventName = "profile_subscription"
 	followReedEvent          realtimeEventName = "follow_reed"
 	broadcastReedEvent       realtimeEventName = "broadcast_reed"
@@ -183,6 +184,18 @@ func newRelayRequestMsg(eventID, reedID, requesterKeyID string) *pb.WSMessage {
 		Id:   eventID,
 		Payload: &pb.WSMessage_RelayRequest{
 			RelayRequest: &pb.RelayRequestMessage{ReedId: reedID, RequesterKeyId: requesterKeyID},
+		},
+	}
+}
+
+// newRelayThreadMsg asks a holder to relay a whole thread, by its head's ID,
+// encrypted to requesterKeyID.
+func newRelayThreadMsg(eventID, threadID, requesterKeyID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_RELAY_THREAD,
+		Id:   eventID,
+		Payload: &pb.WSMessage_RelayThread{
+			RelayThread: &pb.RelayThreadMessage{ThreadId: threadID, RequesterKeyId: requesterKeyID},
 		},
 	}
 }
@@ -1191,6 +1204,7 @@ type realtimeService struct {
 	// actual peer HTTP calls are injected from the rest of root (mirrors
 	// SetDeviceCheck/SetOngoingCheck's existing injection direction).
 	foreignRequestReedHook     realtimeForeignRequestReedHook
+	foreignRequestThreadHook   realtimeForeignRequestReedHook
 	foreignDeliverHook         realtimeForeignDeliverHook
 	foreignNotHeldHook         realtimeForeignNotHeldHook
 	foreignCancelHook          realtimeForeignCancelHook
@@ -1264,6 +1278,12 @@ type realtimeForeignRequestReedHook func(ctx context.Context, reedID, requesterU
 // SetForeignRequestReedHook installs the leg-1 (register-request) hook.
 func (rs *realtimeService) SetForeignRequestReedHook(hook realtimeForeignRequestReedHook) {
 	rs.foreignRequestReedHook = hook
+}
+
+// SetForeignRequestThreadHook installs the hook that registers a request
+// for a whole foreign thread with its home server.
+func (rs *realtimeService) SetForeignRequestThreadHook(hook realtimeForeignRequestReedHook) {
+	rs.foreignRequestThreadHook = hook
 }
 
 // realtimeForeignDeliverHook delivers relayed data for peerEventID back to
@@ -2318,6 +2338,9 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_REQUEST_REED:
 		rs.handleRequestReed(client, msg.GetRequestReed())
 
+	case pb.MessageType_REQUEST_THREAD:
+		rs.handleRequestThread(client, msg.GetRequestThread())
+
 	case pb.MessageType_SYNC_REQUEST:
 		rs.handleSyncRequest(client, msg.GetSyncRequest().GetRequestId())
 
@@ -2529,7 +2552,11 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 	} else {
 		requesterKeyID = keyID
 	}
-	if err := rs.connManager.SendToUser(holderUserID, newRelayRequestMsg(pe.EventID, pe.ReedID, requesterKeyID)); err != nil {
+	relayMsg := newRelayRequestMsg(pe.EventID, pe.ReedID, requesterKeyID)
+	if realtimeEventName(pe.EventName) == requestThreadEvent {
+		relayMsg = newRelayThreadMsg(pe.EventID, pe.ReedID, requesterKeyID)
+	}
+	if err := rs.connManager.SendToUser(holderUserID, relayMsg); err != nil {
 		log.Error().
 			Err(err).
 			Str("holderUserID", holderUserID).
@@ -2733,6 +2760,64 @@ func (rs *realtimeService) requestReed(client *realtimeClient, requestID, reedID
 	}
 
 	rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, eventID, reedID))
+}
+
+func (rs *realtimeService) handleRequestThread(client *realtimeClient, req *pb.RequestThreadMessage) {
+	if req == nil || req.GetRequestId() == "" || req.GetThreadId() == "" {
+		return
+	}
+	rs.requestThread(client, req.GetRequestId(), req.GetThreadId())
+}
+
+// requestThread relays a whole thread to the requester from a holder of
+// its head, or registers it with the thread's home server.
+func (rs *realtimeService) requestThread(client *realtimeClient, requestID, threadID string) {
+	if !rs.validateRequestID(requestID, client.userID) {
+		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
+		return
+	}
+	if foreign, homeServerID := rs.isForeignReed(threadID); foreign {
+		if rs.foreignRequestThreadHook == nil {
+			rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, threadID))
+			return
+		}
+		eventID, result, err := rs.openForeignEvent(context.Background(), client.userID, requestID, threadID, homeServerID, requestThreadEvent)
+		if err != nil {
+			return
+		}
+		if result == realtimeForeignRequestReedNotFound {
+			rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, threadID))
+		} else if result != realtimeForeignRequestOK {
+			rs.connManager.SendToUser(client.userID, newReedNotHeldMsg(requestID, threadID))
+		} else {
+			rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, eventID, threadID))
+		}
+		return
+	}
+
+	rec, err := rs.db.GetThreadRecord(context.Background(), threadID)
+	if err != nil {
+		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread record")
+		return
+	}
+	if rec == nil {
+		rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, threadID))
+		return
+	}
+	exists, hasHolders, _, eventID, err := rs.registerReedRequest(context.Background(), threadID, client.userID, client.userID, requestID, true, requestThreadEvent)
+	if err != nil {
+		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to register thread request")
+		return
+	}
+	if !exists {
+		rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, threadID))
+		return
+	}
+	if !hasHolders {
+		rs.connManager.SendToUser(client.userID, newReedNotHeldMsg(requestID, threadID))
+		return
+	}
+	rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, eventID, threadID))
 }
 
 // tryPeerFallback runs when no local holder is online for a reed this
@@ -2945,7 +3030,7 @@ func (rs *realtimeService) openForeignEvent(ctx context.Context, userID, request
 		return eventID, realtimeForeignRequestOK, nil
 	}
 
-	result, err := rs.crossToHomeServer(ctx, eventID, userID, requestID, reedID, homeServerID)
+	result, err := rs.crossToHomeServer(ctx, eventID, userID, requestID, reedID, homeServerID, eventName)
 	if err != nil || result != realtimeForeignRequestOK {
 		if delErr := rs.deletePendingEvent(ctx, eventID); delErr != nil {
 			log.Error().Err(delErr).Str("eventID", eventID).Msg("Failed to delete pending event after foreign request failure")
@@ -2960,8 +3045,15 @@ func (rs *realtimeService) openForeignEvent(ctx context.Context, userID, request
 
 // crossToHomeServer asks reedID's home server to relay a copy for the
 // local event eventID, and records the mapping its answer resolves by.
-func (rs *realtimeService) crossToHomeServer(ctx context.Context, eventID, requesterUserID, requestID, reedID, homeServerID string) (realtimeForeignRequestResult, error) {
-	result, peerEventID, err := rs.foreignRequestReedHook(ctx, reedID, requesterUserID, requestID)
+func (rs *realtimeService) crossToHomeServer(ctx context.Context, eventID, requesterUserID, requestID, reedID, homeServerID string, eventName realtimeEventName) (realtimeForeignRequestResult, error) {
+	hook := rs.foreignRequestReedHook
+	if eventName == requestThreadEvent {
+		hook = rs.foreignRequestThreadHook
+	}
+	if hook == nil {
+		return realtimeForeignRequestReedNotHeld, nil
+	}
+	result, peerEventID, err := hook(ctx, reedID, requesterUserID, requestID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed request with home server")
 		return result, err
@@ -3017,7 +3109,7 @@ func (rs *realtimeService) promoteWaitingForeign(ctx context.Context, reedID str
 			}
 			return
 		}
-		result, err := rs.crossToHomeServer(ctx, pe.EventID, pe.RequesterUserID, pe.RequestID, reedID, homeServerID)
+		result, err := rs.crossToHomeServer(ctx, pe.EventID, pe.RequesterUserID, pe.RequestID, reedID, homeServerID, realtimeEventName(pe.EventName))
 		if err != nil || result != realtimeForeignRequestOK {
 			rs.failForeignRequest(ctx, pe.EventID, pe.RequesterUserID, pe.RequestID, reedID, result)
 		}
@@ -3033,7 +3125,7 @@ func (rs *realtimeService) promoteWaitingForeign(ctx context.Context, reedID str
 // online_users row can back a foreign requester) so the rest of the
 // local relay-holder machinery (dispatchNext, handleRelayResponse, etc.)
 // needs no special-casing to handle either.
-func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, reedID, requestingServerID, requestingUserID, requestingKeyID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
+func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, reedID, requestingServerID, requestingUserID, requestingKeyID string, eventName realtimeEventName) (result realtimeForeignRequestResult, peerEventID string, err error) {
 	// requestID here is our own local pending_events.request_id bookkeeping
 	// value, not the peer's own request id (that's recorded separately
 	// below) — but it still inherits the ORIGINAL remote requester's
@@ -3041,7 +3133,7 @@ func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, re
 	// surfaces it (logging, future features) reflects who actually asked,
 	// not this server's internal bookkeeping stand-in.
 	requestID := generateRealtimeEventID(requestingUserID)
-	exists, hasHolders, holderOnline, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, requestReedEvent)
+	exists, hasHolders, holderOnline, eventID, err := rs.registerReedRequest(ctx, reedID, "", requestingUserID, requestID, false, eventName)
 	if err != nil {
 		return realtimeForeignRequestReedNotFound, "", err
 	}
@@ -3066,7 +3158,20 @@ func (rs *realtimeService) registerAndRecordForeignRelay(ctx context.Context, re
 // registering a REQUEST_REED on behalf of one of its own users, for
 // content this server actually authors/owns.
 func (rs *realtimeService) HandleForeignRequestReed(ctx context.Context, canonicalReedID, requestingServerID, requestingUserID, requestingKeyID, peerRequestID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
-	return rs.registerAndRecordForeignRelay(ctx, canonicalReedID, requestingServerID, requestingUserID, requestingKeyID)
+	return rs.registerAndRecordForeignRelay(ctx, canonicalReedID, requestingServerID, requestingUserID, requestingKeyID, requestReedEvent)
+}
+
+// HandleForeignRequestThread is HandleForeignRequestReed for a whole local
+// thread, named by its head.
+func (rs *realtimeService) HandleForeignRequestThread(ctx context.Context, threadID, requestingServerID, requestingUserID, requestingKeyID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
+	rec, err := rs.db.GetThreadRecord(ctx, threadID)
+	if err != nil {
+		return realtimeForeignRequestReedNotFound, "", err
+	}
+	if rec == nil {
+		return realtimeForeignRequestReedNotFound, "", nil
+	}
+	return rs.registerAndRecordForeignRelay(ctx, threadID, requestingServerID, requestingUserID, requestingKeyID, requestThreadEvent)
 }
 
 // HandleForeignFallbackRequest is the fallback-fetch leg's callee-side
@@ -3079,7 +3184,7 @@ func (rs *realtimeService) HandleForeignRequestReed(ctx context.Context, canonic
 // from registerReedRequest's point of view, from a local holder for a
 // locally-authored one.
 func (rs *realtimeService) HandleForeignFallbackRequest(ctx context.Context, reedID, requestingServerID, requestingUserID, requestingKeyID, peerRequestID string) (result realtimeForeignRequestResult, peerEventID string, err error) {
-	return rs.registerAndRecordForeignRelay(ctx, reedID, requestingServerID, requestingUserID, requestingKeyID)
+	return rs.registerAndRecordForeignRelay(ctx, reedID, requestingServerID, requestingUserID, requestingKeyID, requestReedEvent)
 }
 
 // HandleHolderNotify records, on reedID's home server, that
@@ -4164,12 +4269,42 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 			return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+		data := realtimeJSONString(ciphertext)
+		if realtimeEventName(pe.EventName) == requestThreadEvent {
+			data = rs.relayedThreadData(pe.ReedID, ciphertext)
+		}
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, data, func() *pb.WSMessage {
 			return newDataResponseMsg(eventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	}
 
 	rs.dispatchN(client.userID, fanoutRefillBurst)
+}
+
+// relayedThread is a relayed thread as it crosses to the requester's
+// server: the ciphertext plus the thread record this server stores, which
+// that server verifies before allocating the parts.
+type relayedThread struct {
+	Ciphertext string            `json:"ciphertext"`
+	Record     *threadRecordWire `json:"record,omitempty"`
+}
+
+// relayedThreadData packs ciphertext with threadID's stored record, if this
+// server is its home.
+func (rs *realtimeService) relayedThreadData(threadID, ciphertext string) json.RawMessage {
+	out := relayedThread{Ciphertext: ciphertext}
+	rec, err := rs.db.GetThreadRecord(context.Background(), threadID)
+	if err != nil {
+		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread record for relay")
+	} else if rec != nil {
+		w := rec.wire(rs.db.GetServerID())
+		out.Record = &w
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return realtimeJSONString(ciphertext)
+	}
+	return data
 }
 
 // deliverOrForward delivers relayed data for eventID either straight to a
@@ -4396,6 +4531,8 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 				rs.notifyReedCoverage(t.ReedID)
 			}
 		}
+	} else if realtimeEventName(pe.EventName) == requestThreadEvent {
+		carried = rs.ackThread(eventID, pe.ReedID, client.userID)
 	} else {
 		// reed_identities normally already has a row for a foreign reed
 		// by request time (handleForeignRequestReedFromClient/
@@ -4464,6 +4601,61 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 	if carried {
 		rs.dispatchN(client.userID, fanoutRefillBurst)
 	}
+}
+
+// ackThread allocates every part of threadID to userID, from this server's
+// own record or, for a foreign thread, the one it verified on relay.
+// Reports whether the copy crossed from the thread's home server.
+func (rs *realtimeService) ackThread(eventID, threadID, userID string) bool {
+	ctx := context.Background()
+	foreign, homeServerID := rs.isForeignReed(threadID)
+	var reedIDs []string
+	if foreign {
+		ids, err := rs.db.GetPendingThreadParts(ctx, eventID)
+		if err != nil {
+			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to load relayed thread parts")
+		}
+		reedIDs = ids
+	} else if rec, err := rs.db.GetThreadRecord(ctx, threadID); err != nil {
+		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread record on ack")
+	} else if rec != nil {
+		reedIDs = rec.ReedIDs
+	}
+	crossed, err := rs.db.GetForeignPendingEvent(ctx, eventID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to look up foreign pending event for thread ack")
+	}
+
+	for _, reedID := range reedIDs {
+		if foreign {
+			if err := rs.db.UpsertReedIdentity(ctx, reedID); err != nil {
+				log.Error().Err(err).Str("reedID", reedID).Msg("Failed to upsert reed identity on thread ack")
+				continue
+			}
+		}
+		changed, err := rs.db.AllocateReed(ctx, reedID, userID)
+		if err != nil {
+			log.Error().Err(err).Str("reedID", reedID).Str("userID", userID).Msg("Failed to allocate thread part on ack")
+			continue
+		}
+		if changed {
+			rs.notifyReedCoverage(reedID)
+		}
+		// A crossed copy's ack below already tells the home server.
+		if foreign && crossed == nil && rs.foreignHolderNotifyHook != nil {
+			if err := rs.foreignHolderNotifyHook(ctx, homeServerID, reedID); err != nil {
+				log.Error().Err(err).Str("reedID", reedID).Msg("Failed to notify home server of new thread holder")
+			}
+		}
+	}
+
+	if crossed == nil || rs.foreignAckHook == nil {
+		return false
+	}
+	if err := rs.foreignAckHook(ctx, crossed.HomeServerID, crossed.PeerEventID); err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to notify home server of delivered thread ack")
+	}
+	return true
 }
 
 // handleDataInvalid is called when the viewer received a reed but its signature failed verification.
@@ -4635,8 +4827,20 @@ func (rs *realtimeService) HandleForeignAck(ctx context.Context, peerEventID, ca
 		return nil
 	}
 
-	if err := rs.db.RecordServerHolder(ctx, pe.ReedID, callerServerID); err != nil {
-		return err
+	held := []string{pe.ReedID}
+	if realtimeEventName(pe.EventName) == requestThreadEvent {
+		rec, err := rs.db.GetThreadRecord(ctx, pe.ReedID)
+		if err != nil {
+			return err
+		}
+		if rec != nil {
+			held = rec.ReedIDs
+		}
+	}
+	for _, reedID := range held {
+		if err := rs.db.RecordServerHolder(ctx, reedID, callerServerID); err != nil {
+			return err
+		}
 	}
 	return rs.deletePendingEvent(ctx, peerEventID)
 }
@@ -4648,7 +4852,7 @@ func (rs *realtimeService) HandleForeignAck(ctx context.Context, peerEventID, ca
 // would, but does not touch dispatchNext/DeletePendingEvent — O has no
 // holder queue for this event; allocation/deletion stays deferred until
 // the requester's own DATA_ACK/DATA_INVALID.
-func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerEventID, callerServerID string, data json.RawMessage) (found bool, err error) {
+func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerEventID, callerServerID string, data json.RawMessage, threadReedIDs []string) (found bool, err error) {
 	fpe, err := rs.db.GetForeignPendingEventByPeerEventID(ctx, peerEventID, callerServerID)
 	if err != nil {
 		return false, err
@@ -4668,7 +4872,17 @@ func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 
 	var ciphertext string
 	if err := json.Unmarshal(data, &ciphertext); err != nil {
-		return false, err
+		var thread relayedThread
+		if threadErr := json.Unmarshal(data, &thread); threadErr != nil {
+			return false, err
+		}
+		ciphertext = thread.Ciphertext
+	}
+	// Only a record the caller verified names the parts the ack allocates.
+	if realtimeEventName(pe.EventName) == requestThreadEvent && len(threadReedIDs) > 0 && threadReedIDs[0] == pe.ReedID {
+		if err := rs.db.SetPendingThreadParts(ctx, pe.EventID, threadReedIDs); err != nil {
+			log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to record relayed thread parts")
+		}
 	}
 
 	if err := rs.connManager.SendToUser(pe.RequesterUserID, relayedReedMsg(pe, ciphertext, "")); err != nil {

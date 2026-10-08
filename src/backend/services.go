@@ -2011,6 +2011,30 @@ type threadRecord struct {
 	ServerSignedAt    time.Time
 }
 
+// threadRecordWire is a thread record as clients and peers receive it.
+type threadRecordWire struct {
+	Type            string          `json:"type"`
+	ServerID        string          `json:"serverID"`
+	UserID          string          `json:"userID"`
+	ThreadID        string          `json:"threadID"`
+	ReedIDs         []string        `json:"reedIDs"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
+// wire returns rec as homeServerID serves it.
+func (rec *threadRecord) wire(homeServerID string) threadRecordWire {
+	return threadRecordWire{
+		Type:            identityTypeThread,
+		ServerID:        homeServerID,
+		UserID:          rec.UserID,
+		ThreadID:        rec.ThreadID,
+		ReedIDs:         rec.ReedIDs,
+		UserSignature:   UserSignature{ID: rec.UserKeyID, Armor: rec.UserSignature},
+		ServerSignature: ServerSignature{ID: rec.ServerFingerprint, Armor: rec.ServerSignature, SignedAt: rec.ServerSignedAt},
+	}
+}
+
 // validateThreadParts checks the shape rules a thread must meet. Part IDs
 // must ascend with their index, so the tip ordering picks the last part.
 func validateThreadParts(userID string, parts []createReedParams) error {
@@ -9313,6 +9337,28 @@ type foreignRelayRequest struct {
 	RequestingServerID string
 	RequestingUserID   string
 	RequestingKeyID    string
+}
+
+// SetPendingThreadParts records the verified parts of the foreign thread
+// relayed for eventID.
+func (s *DataService) SetPendingThreadParts(ctx context.Context, eventID string, reedIDs []string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO pending_thread_parts (event_id, reed_ids) VALUES ($1, $2)
+		ON CONFLICT (event_id) DO UPDATE SET reed_ids = EXCLUDED.reed_ids
+	`, eventID, pq.Array(reedIDs))
+	return err
+}
+
+// GetPendingThreadParts returns the parts recorded for eventID, or nil.
+func (s *DataService) GetPendingThreadParts(ctx context.Context, eventID string) ([]string, error) {
+	var ids pq.StringArray
+	err := s.db.QueryRowContext(ctx, `
+		SELECT reed_ids FROM pending_thread_parts WHERE event_id = $1
+	`, eventID).Scan(&ids)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return []string(ids), err
 }
 
 // CreateForeignRelayRequest records, on the home server, which peer+user
