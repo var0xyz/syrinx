@@ -88,13 +88,13 @@ export async function resolveRestoreTarget(): Promise<string | null> {
 
   // userId survived (localStorage) but IndexedDB has no matching record or
   // key — an IndexedDB wipe (schema bump) or a stale importRun marker left
-  // the session unusable. Clear it and send the user to re-establish identity.
+  // the session unusable. Clear it; with no session, / leads to /welcome.
   console.warn(
-    `restoreFlow: session markers present but ${user ? 'no private key for ' + keyId : 'no user'} in IndexedDB; clearing and sending to /import`
+    `restoreFlow: session markers present but ${user ? 'no private key for ' + keyId : 'no user'} in IndexedDB; clearing the session`
   );
   localStorage.removeItem('userId');
   clearImportRun();
-  return '/import';
+  return null;
 }
 
 /**
