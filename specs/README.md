@@ -47,6 +47,7 @@ Each table below has a **Status** column per step. Values:
 | Invites               | In progress | 06 (00–05 implemented)                                 |
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
+| Blocking              | Proposed    | 00–08                                                  |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -135,6 +136,29 @@ reed is announced to the server with an `EVICTION` message and deleted
 locally only once the server acks, so `reed_allocations` never claims a
 holder that has already deleted the content. The ack is idempotent — the
 server acks even when it holds no such allocation.
+
+## Blocking users
+
+See [`blocking/`](blocking/README.md). A user signs a block certificate;
+their server countersigns it and refuses the blocked user the blocking user's
+profile, reeds, relays and fanout, answering **403** + certificate. The
+blocked client verifies the certificate, keeps it with the blocking user's key and
+drops the rest of the blocking user's data; it may forget both, and gets them back
+on the next visit. Works across peers (one notice to the blocked user's
+server). The blocked user is forced to unfollow (follows are unsigned);
+nothing they signed is touched, and unblocking restores nothing.
+
+| #   | Title                                                | Status   |
+| --- | ---------------------------------------------------- | -------- |
+| 00  | Design, trust model, locked decisions                | Proposed |
+| 01  | `user_blocks` schema, canonical payload, countersign | Proposed |
+| 02  | Block / unblock / list API and immediate effects     | Proposed |
+| 03  | 403 + certificate on every read path                 | Proposed |
+| 04  | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up  | Proposed |
+| 05  | Blocks across peers                                  | Proposed |
+| 06  | Refuse follow, like, ripple, reply, echo, mention    | Proposed |
+| 07  | SPA, blocked side                                    | Proposed |
+| 08  | SPA, blocking side                                    | Proposed |
 
 ## Reed likes
 
