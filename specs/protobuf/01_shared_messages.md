@@ -19,9 +19,12 @@ HTTP and WS both need the same resource shapes. Generate them once.
   needed for live `/api/` routes.
 - Map today’s nested wire fields
   ([signatures 08](../signatures/08_wire_nested_blocks.md),
-  `spa/src/lib/types/api.ts`) onto proto3 messages.
-- Establish `make proto` / `npm run proto` and Go + TS generation output
-  locations (lock the choice called out as open in 00).
+  `src/frontend/src/lib/types/api.ts`) onto proto3 messages.
+- Move the shared shapes 02 defined in `websocket.proto`
+  (`UserSignature`, `ServerSignature`, `ReedRemovalCert`,
+  `AccountRemovalCert`, `Ripple`) into `common.proto` and import them.
+- Extend `make proto` / `npm run proto:gen` to cover the new files
+  (locations and generators are locked in 00).
 
 ## Non-goals
 

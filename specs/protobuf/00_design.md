@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented (design locked). WebSocket half (02, 05) is shipped; HTTP (01, 03, 04),
+federation (07) and SPA types (06) remain.
 
 ## Depends on
 
@@ -10,16 +11,15 @@ Proposed.
 
 ## Context
 
-Client↔server traffic today is a mix of JSON WebSocket frames, JSON HTTP
-bodies, and `application/x-www-form-urlencoded` / multipart form fields.
-`proto/websocket.proto` exists but does not match the live event set; the
-SPA and `realtime/` speak JSON structs (`RELAY_REQUEST`, `PUBLISH_READY`,
-`DATA_RESPONSE`, …). HTTP handlers encode with `encoding/json` or form
-values.
+The WebSocket channel is binary protobuf only (`realtime.go`,
+`proto/websocket.proto`, steps 02 and 05). Client↔server HTTP is still a
+mix of JSON bodies and `application/x-www-form-urlencoded` fields, and
+federation server-to-server HTTP (`federation_relay.go`) is JSON — with
+one hybrid: the reed-stats peer push carries a base64-wrapped protobuf
+`WSMessage` inside its JSON envelope.
 
-That split means two (or three) hand-maintained shapes per resource, easy
-drift between Go and TypeScript, and a WS path that already intended
-protobuf but never completed the cutover.
+That split means two (or three) hand-maintained shapes per resource and
+easy drift between Go and TypeScript.
 
 ## Scope
 
@@ -35,10 +35,10 @@ protobuf but never completed the cutover.
 
 - Changing URL paths, HTTP methods, or WS auth query parameters
   (`userID`, `fingerprint`, `timestamp`, `signature`).
-- Changing `BytesToSign`, detached PGP, or nested semantic fields of
+- Changing `canonicalJSON` signing input, detached PGP, or nested semantic fields of
   `userSignature` / `serverSignature` ([signatures 08](../signatures/08_wire_nested_blocks.md)).
 - Encoding IndexedDB, backups, or `localStorage` as protobuf.
-- Replacing the Go channel between HTTP handlers and `realtime/` (in-process
+- Replacing the Go channel between HTTP handlers and `realtime.go` (in-process
   structs stay).
 - Adopting gRPC / Connect streaming; keep existing REST routes and one
   WS endpoint.
@@ -49,7 +49,7 @@ protobuf but never completed the cutover.
 ### Principle
 
 Structured fields on the wire are protobuf messages. Domain meaning
-(who signed what, which headers go into `BytesToSign`) stays as today:
+(who signed what, which fields go into `canonicalJSON`) stays as today:
 receivers unmarshal protobuf → typed fields → verify with the same
 helpers.
 
@@ -66,12 +66,16 @@ proto/
   federation.proto   # Relay RPC + admin/handshake request/response messages
 ```
 
-Go: `option go_package` under `github.com/alvaro/syrinx/proto/…` (or a
-single package if preferred in 01 — lock one style and stick to it).
+Files live in `src/backend/proto/`. Go: one package for every file,
+`option go_package = "github.com/alvaro/syrinx/proto"` (as
+`websocket.proto` already does). Shared messages that 02 defined inside
+`websocket.proto` (`UserSignature`, `ServerSignature`, `ReedRemovalCert`,
+`AccountRemovalCert`, `Ripple`) move to `common.proto` in 01.
 
-TypeScript: generated into `spa/src/lib/proto/` (or equivalent); SPA
-services import generated types instead of hand-written `api.ts` wire
-interfaces where those interfaces only mirrored the wire.
+TypeScript: generated with protobuf-es into `src/frontend/src/lib/proto/`;
+SPA services import generated types instead of hand-written
+`lib/types/api.ts` wire interfaces where those interfaces only mirrored
+the wire.
 
 ### Shared resources
 
@@ -95,7 +99,7 @@ discipline for docs**, and **snake_case field names in `.proto` files**
 
 Timestamps that are RFC3339 strings on today’s JSON wire stay **string**
 fields in proto (do not silently switch to `google.protobuf.Timestamp`
-unless both verifiers and `BytesToSign` headers are updated in the same
+unless both verifiers and `canonicalJSON` payloads are updated in the same
 change — they are not).
 
 ### HTTP
@@ -109,7 +113,9 @@ change — they are not).
   plain English ([AGENTS](../../AGENTS.md)).
 - **Empty bodies:** `204` / no content stays allowed where appropriate.
 - **Auth:** existing request-signing headers unchanged
-  (`X-Syrinx-*`).
+  (`X-Syrinx-*`). Request and response signatures cover the exact body
+  bytes, so the SPA signs and verifies them as binary data
+  (`Uint8Array`), never through a text decode.
 - **Idempotent endpoints** (SignReed replay, removals, invite consume)
   keep the same status semantics (`200` match / `409` mismatch); only
   the body encoding changes.
@@ -133,7 +139,7 @@ message WSMessage {
 ```
 
 - `MessageType` enum lists every live event currently handled in
-  `realtime/service.go` / `spa/.../serverConnection.ts`
+  `realtime.go` / `src/frontend/src/lib/services/serverConnection.ts`
   (`PING`/`PONG`, subscribe/unsubscribe variants, `SYNC_REQUEST`,
   `REQUEST_REED`, `RELAY_*`, `DATA_*`, `PUBLISH_READY` /
   `PUBLISH_READY_ACK`, `BROADCAST_REED`, removal deliveries,
@@ -141,7 +147,7 @@ message WSMessage {
   rewritten to this set (02).
 - Payload messages carry the fields today’s `data` objects carry
   (`event_id`, `request_id`, `reed_id`, nested `Reed`, certs, …).
-- Server→client builders in `realtime/messages.go` emit protobuf
+- Server→client builders in `realtime.go` emit protobuf
   envelopes instead of JSON structs; `SendToUser` writes binary.
 - SPA: `WebSocket` `binaryType = 'arraybuffer'`; encode/decode with
   generated code; `ServerEvent` becomes the generated enum (or a thin
@@ -149,8 +155,9 @@ message WSMessage {
 
 ### Federation
 
-Server-to-server traffic (`federation_relay.go`: 23 relay RPC legs plus
-~18 admin/handshake endpoints, registered in `main.go`) is signed
+Server-to-server traffic (`federation_relay.go`: 25 relay calls under
+`/api/federation/relay/*` plus 19 admin/handshake endpoints, registered
+in `main.go`) is signed
 HTTP+JSON today and is **in scope**, migrating alongside HTTP in the
 same spirit as 03–04 but tracked as its own step ([07](07_federation.md))
 since it has its own request/response shapes and registration surface,
@@ -188,12 +195,11 @@ text path after 05.
 
 ### Codegen
 
-- Go: `protoc` + `protoc-gen-go`; commit generated `.pb.go` next to
-  protos (same practice as today’s `websocket.pb.go`) **or** generate in
-  CI with a checked script — lock one approach in 01.
-- TS: `protoc` + a maintained generator (`ts-proto` or protobuf-es);
-  SPA build depends on generated output.
-- A single `make proto` / `npm run proto` entry regenerates both.
+- Go: `protoc` + `protoc-gen-go`; generated `.pb.go` committed next to
+  the protos (as `websocket.pb.go` is).
+- TS: `protoc` + `@bufbuild/protoc-gen-es`; generated `*_pb.ts`
+  committed under `src/frontend/src/lib/proto/`.
+- `make proto` regenerates both (it calls `npm run proto:gen`).
 
 ### Testing
 
@@ -203,12 +209,13 @@ text path after 05.
   JSON/form.
 - SPA e2e stubs return protobuf bytes with the correct content type.
 
-## Open points (resolve in 01 / 02)
+## Resolved decisions
 
-- Exact `MessageType` numeric assignments (freeze once; never reuse).
-- Whether recovery/ops-only HTTP is in the first cut or a follow-up
-  within 04 (prefer **all** `/api/` in 04).
-- Single Go proto package vs per-file packages.
-- Whether each federation relay leg gets its own `*Request`/`*Response`
-  pair or several legs share one shape where the fields already
-  coincide (resolve in 07).
+- Field and enum numbers are sequential with no gaps and no `reserved`
+  entries; renumber freely when a field goes (blank slate, no old peers).
+- All of `/api/`, including recovery and ops-only routes, moves in 04.
+- One Go proto package (see Package layout).
+- Each federation relay call gets its own `*Request` (and `*Response`
+  where it returns a body); no shared shapes between calls.
+- `Error` carries `message` only; add a `code` only once a caller needs
+  to branch on it.

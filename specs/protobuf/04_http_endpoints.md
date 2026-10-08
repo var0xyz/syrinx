@@ -10,7 +10,7 @@ Proposed.
 
 ## Context
 
-All `/api/` handlers and `spa/src/lib/services/api.ts` (plus auth/signup
+All `/api/` handlers and `src/frontend/src/lib/services/api.ts` (plus auth/signup
 callers that hit HTTP) must speak protobuf in one cutover.
 
 ## Scope

@@ -10,16 +10,18 @@ Proposed.
 
 ## Context
 
-Hand-written `spa/src/lib/types/api.ts` wire interfaces and ad hoc WS
-`data` shapes duplicate generated protos.
+Hand-written `src/frontend/src/lib/types/api.ts` wire interfaces duplicate
+generated protos, and `serverConnection.ts` reshapes decoded WS payloads
+back to the field names consumers expected from the old JSON wire (05).
 
 ## Scope
 
 - Route SPA services and verifiers through generated proto types (or
   thin domain adapters where IndexedDB needs a concrete class such as
   `Reed`).
-- Delete obsolete wire-only TypeScript interfaces and JSON WS helpers.
-- Ensure verifiers still rebuild `BytesToSign` from the same logical
+- Delete obsolete wire-only TypeScript interfaces and the WS reshaping
+  layer.
+- Ensure verifiers still rebuild `canonicalJSON` payloads from the same logical
   fields after unmarshal.
 
 ## Non-goals
