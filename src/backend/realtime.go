@@ -3577,7 +3577,7 @@ func (rs *realtimeService) HandleForeignUnsubscribeReed(ctx context.Context, ree
 
 // HandleForeignReplyNotify records that a peer's replyReedID replies to
 // parentReedID, one of ours, and runs the fanout a local reply gets.
-func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
+func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentReedID, replyReedID, rootID string, ts time.Time) error {
 	exists, err := rs.db.ReedExists(ctx, parentReedID)
 	if err != nil {
 		return err
@@ -3586,7 +3586,7 @@ func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentR
 		return fmt.Errorf("parent reed not found: %s", parentReedID)
 	}
 
-	if err := rs.db.InsertForeignReply(ctx, parentReedID, replyReedID, threadID, ts); err != nil {
+	if err := rs.db.InsertForeignReply(ctx, parentReedID, replyReedID, rootID, ts); err != nil {
 		return err
 	}
 

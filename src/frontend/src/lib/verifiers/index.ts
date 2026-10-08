@@ -12,6 +12,7 @@ import { dbService } from '$lib/services/db';
 import { serverConnection } from '$lib/services/serverConnection';
 import { MAX_THREAD_REEDS, reedContentWithinLimits } from '$lib/utils/reedContent';
 import { signedBeforeRevocation } from '$lib/utils/keyRevocation';
+import { reedShapeProblem } from '$lib/utils/reedHeaders';
 import { parseKeyId, parseCanonicalId } from '$lib/utils/identityRef';
 import { canonicalKeyId } from '$lib/services/api';
 import {
@@ -375,6 +376,12 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     !reed.serverSignature
   ) {
     console.error('[verifyReed] missing signatures', reed?.id);
+    return false;
+  }
+
+  const shapeProblem = reedShapeProblem(reed);
+  if (shapeProblem) {
+    console.error('[verifyReed] invalid headers', reed.id, shapeProblem);
     return false;
   }
 

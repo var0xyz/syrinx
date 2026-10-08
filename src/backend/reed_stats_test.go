@@ -67,7 +67,7 @@ func seedReedStatsReed(t *testing.T, db *sql.DB, reedID, userID, pubKeyID string
 func seedReedStatsReply(t *testing.T, db *sql.DB, threadID, reedID, parentReedID string) {
 	t.Helper()
 	if _, err := db.Exec(`
-		INSERT INTO reed_replies (thread_id, reed_id, parent_reed_id, timestamp)
+		INSERT INTO reed_replies (root_id, reed_id, parent_reed_id, timestamp)
 		VALUES ($1, $2, $3, NOW())
 	`, threadID, reedID, parentReedID); err != nil {
 		t.Fatal(err)

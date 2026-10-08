@@ -50,7 +50,7 @@ func ensureReplyCountSchema(db *sql.DB) error {
 		// reed_id is canonical (embeds author) — no separate user_id column,
 		// mirroring db.go.
 		`CREATE TABLE reed_replies (
-			thread_id VARCHAR(255) NOT NULL,
+			root_id VARCHAR(255) NOT NULL,
 			reed_id VARCHAR(255) NOT NULL,
 			parent_reed_id VARCHAR(255) NOT NULL,
 			timestamp TIMESTAMP NOT NULL,

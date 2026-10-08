@@ -154,7 +154,7 @@ func (h *Handlers) buildNewReedPayload(ctx context.Context, reedID string) (rela
 		return relayNewReedPayload{}, fmt.Errorf("load reply: %w", err)
 	}
 	if reply != nil {
-		payload.Reply = &relayNewReedReply{ParentReedID: reply.ParentReedID, ThreadID: reply.ThreadID}
+		payload.Reply = &relayNewReedReply{ParentReedID: reply.ParentReedID, RootID: reply.RootID}
 	}
 	echoed, isBlank, ok, err := db.GetEchoTarget(ctx, reedID)
 	if err != nil {

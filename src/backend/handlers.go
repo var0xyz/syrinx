@@ -1908,7 +1908,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	// the server — only structural metadata and the author's claims about
 	// it (tags, mentions), which receiving clients verify.
 	echoing := strings.TrimSpace(r.FormValue("echoing"))
-	replying := strings.TrimSpace(r.FormValue("replying"))
+	replyingTo := strings.TrimSpace(r.FormValue("replyingTo"))
 	previousID := strings.TrimSpace(r.FormValue("previousID"))
 	claimedTags := r.Form["tags"]
 	claimedMentions := r.Form["mentions"]
@@ -1927,8 +1927,8 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		}
 		echoRef = &ref
 	}
-	if replying != "" {
-		ref, ok := h.parseReedRef(replying, localServerID)
+	if replyingTo != "" {
+		ref, ok := h.parseReedRef(replyingTo, localServerID)
 		if !ok {
 			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
 			return
@@ -1940,12 +1940,12 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	threadID := ""
+	rootID := ""
 	if replyRef != nil {
 		var err error
-		threadID, err = h.services.db.ResolveThreadIDForParent(r.Context(), *replyRef)
+		rootID, err = h.services.db.ResolveConversationRoot(r.Context(), *replyRef)
 		if err != nil {
-			log.Error().Err(err).Msg("Error resolving thread")
+			log.Error().Err(err).Msg("Error resolving conversation root")
 			internalServerError(w)
 			return
 		}
@@ -2039,7 +2039,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		// nothing — receiving clients derive the real answer themselves.
 		reed, echoIndexed, err = h.services.db.CreateReedWithEcho(r.Context(), createParams, *echoRef, false)
 	case replyRef != nil:
-		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, threadID, *replyRef)
+		reed, err = h.services.db.CreateReedWithReply(r.Context(), createParams, rootID, *replyRef)
 	default:
 		reed, err = h.services.db.CreateReed(r.Context(), createParams)
 	}

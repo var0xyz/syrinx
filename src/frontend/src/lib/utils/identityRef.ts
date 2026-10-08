@@ -108,10 +108,10 @@ export function canonicalReedId(reed: { userID: string; id: string }): string {
   return `${reed.userID}/${reed.id}`;
 }
 
-/** Thread id for a reply: inherit parent's threadId or parent ref when parent is the root. */
-export function resolveThreadId(
-  parent: { id: string; threadId?: string },
+/** Conversation root for a reply to parent: the parent's own root, or the
+ * parent itself when it replies to nothing. */
+export function resolveConversationRoot(
+  parent: { id: string; replying?: { root: string } },
 ): string {
-  if (parent.threadId) return parent.threadId;
-  return parent.id;
+  return parent.replying?.root || parent.id;
 }

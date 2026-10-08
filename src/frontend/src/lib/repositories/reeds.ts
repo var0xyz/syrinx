@@ -136,7 +136,7 @@ class ReedsService {
       const previousID = await previousIDForPublish();
       const response = await api.createReed(reed.id, armor, {
         echoing: reed.echoing,
-        replying: reed.replying,
+        replyingTo: reed.replying?.to,
         tags: reed.tags,
         mentions: reed.mentions,
         ...(previousID ? { previousID } : {}),
@@ -274,7 +274,7 @@ class ReedsService {
       }
     }
 
-    if (reed.replying && reed.threadId) {
+    if (reed.replying) {
       const { reedRepliesRepository } = await import('$lib/repositories/reedReplies');
       await reedRepliesRepository.upsertFromReed(reed);
     }

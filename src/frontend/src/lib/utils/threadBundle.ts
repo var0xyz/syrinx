@@ -9,7 +9,7 @@ export interface BundlePart {
   id: string;
   userID: string;
   thread?: { head: string; index: number } | null;
-  replying?: string | null;
+  replying?: unknown;
   echoing?: string | null;
 }
 

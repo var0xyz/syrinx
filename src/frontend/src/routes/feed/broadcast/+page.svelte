@@ -140,7 +140,7 @@
               </div>
               {#if reed.replying}
                 <div class="quote-container">
-                  <Quote reedRef={reed.replying} type="reply" missing={false} linked={false} />
+                  <Quote reedRef={reed.replying.to} type="reply" missing={false} linked={false} />
                 </div>
               {/if}
               {#if (reed.content || '').trim()}
