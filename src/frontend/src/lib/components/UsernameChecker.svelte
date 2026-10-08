@@ -111,14 +111,19 @@
   });
 </script>
 
-<div class="username-status" class:status-checking={status === 'checking'} class:status-available={status === 'available'} class:status-taken={status === 'taken'} class:status-error={status === 'error'}>
-  {message}
+<div class="username-status" class:status-checking={status === 'checking'} class:status-available={status === 'available'} class:status-taken={status === 'taken'} class:status-error={status === 'error'} class:status-idle={status === 'idle'}>
+  {message || '\u00a0'}
 </div>
 
 <style>
   .username-status {
     font-size: 0.75rem;
-    transition: color 0.3s ease;
+    transition: color 0.3s ease, opacity 0.2s ease;
+  }
+
+  /* Hidden, not removed, so the message appearing doesn't shift the layout. */
+  .username-status.status-idle {
+    opacity: 0;
   }
 
   .username-status.status-checking {
