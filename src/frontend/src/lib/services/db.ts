@@ -1,5 +1,6 @@
 import type * as api from '$lib/types/api';
 import type { Verifier } from '$lib/verifiers';
+import { compact } from '$lib/utils/compact';
 
 export interface DbMetadata {
   created: number;
@@ -14,6 +15,29 @@ export type DbWrapper<T> = T & {
 /** UTF-8 size of the durable payload (what abuse detection should watch). */
 export function payloadByteLength(data: unknown): number {
   return new TextEncoder().encode(JSON.stringify(data)).byteLength;
+}
+
+/** Fields `put` compacts away that readers expect back, by store. */
+const STORE_DEFAULTS: Record<string, () => Record<string, unknown>> = {
+  reeds: () => ({ content: '', tags: [], mentions: [] }),
+  unsignedReeds: () => ({ content: '', tags: [], mentions: [] }),
+  tags: () => ({ reeds: [] }),
+  users: () => ({ bio: '' }),
+  revocations: () => ({ reason: '' }),
+  pendingRevocation: () => ({ reason: '' }),
+  vouches: () => ({ note: '' }),
+  declinedVouches: () => ({ note: '' }),
+  pendingVouches: () => ({ note: '' }),
+  removedAccounts: () => ({ note: '' }),
+  ripples: () => ({ content: '' }),
+  mailbox: () => ({ message: '' }),
+  lists: () => ({ description: '', memberIds: [] }),
+};
+
+/** Strips `__meta__` and restores the defaults `put` compacted away. */
+function unwrap<T>(storeName: string, stored: DbWrapper<T>): T {
+  const { __meta__, ...data } = stored;
+  return { ...STORE_DEFAULTS[storeName]?.(), ...data } as T;
 }
 
 /** A store's primary key: a single string for most stores, or an array for
@@ -194,11 +218,12 @@ export class IndexedDbService implements DbService {
       throw new Error(`Refusing to store in ${storeName}: verification failed`);
     }
 
+    const trimmed = compact(data);
     const wrappedData: DbWrapper<T> = {
-      ...data,
+      ...trimmed,
       __meta__: {
         created: Date.now(),
-        bytes: payloadByteLength(data),
+        bytes: payloadByteLength(trimmed),
       }
     };
 
@@ -223,12 +248,7 @@ export class IndexedDbService implements DbService {
 
       request.onsuccess = () => {
         const result = request.result as DbWrapper<T> | null;
-        if (!result) {
-          resolve(null);
-          return;
-        }
-        const { __meta__, ...data } = result;
-        resolve(data as unknown as T);
+        resolve(result ? unwrap(storeName, result) : null);
       };
       request.onerror = () => reject(request.error);
     });
@@ -277,11 +297,7 @@ export class IndexedDbService implements DbService {
 
       request.onsuccess = () => {
         const results = request.result as DbWrapper<T>[];
-        const unwrapped = results.map(item => {
-          const { __meta__, ...data } = item;
-          return data as T;
-        });
-        resolve(unwrapped);
+        resolve(results.map((item) => unwrap(storeName, item)));
       };
       request.onerror = () => reject(request.error);
     });
@@ -307,8 +323,7 @@ export class IndexedDbService implements DbService {
           resolve(results);
           return;
         }
-        const { __meta__, ...data } = cursor.value;
-        const item = data as T;
+        const item = unwrap<T>(storeName, cursor.value);
         if (!filter || filter(item)) {
           results.push(item);
         }
@@ -344,11 +359,7 @@ export class IndexedDbService implements DbService {
 
       request.onsuccess = () => {
         const results = request.result as DbWrapper<T>[];
-        const unwrapped = results.map(item => {
-          const { __meta__, ...data } = item;
-          return data as T;
-        });
-        resolve(unwrapped);
+        resolve(results.map((item) => unwrap(storeName, item)));
       };
       request.onerror = () => reject(request.error);
     });
@@ -368,8 +379,7 @@ export class IndexedDbService implements DbService {
       request.onsuccess = () => {
         const cursor = request.result;
         if (cursor) {
-          const { __meta__, ...data } = cursor.value;
-          results.push(data as T);
+          results.push(unwrap<T>(storeName, cursor.value));
           cursor.continue();
         } else {
           resolve(results);
