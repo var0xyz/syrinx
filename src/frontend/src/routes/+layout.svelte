@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+  import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import "$lib/styles.css";
@@ -67,7 +68,7 @@
   }
 
   let user = null;
-  $: headerLink = user ? '/reeds' : '/';
+  $: headerLink = user ? '/reeds' : '/welcome';
 
   let serverKeyTrusted = hasTrustedServerKey();
   let trustedSessionStarted = false;
@@ -385,22 +386,27 @@
 <div class="app-shell">
   <UpdateAvailableIndicator />
 
-  <header>
-    <h1><a href={headerLink}>💫 Syrinx</a></h1>
-    <!-- MailboxBell hidden — unused for now, see the disabled Mailbox WS
-         handler and boot-time refresh below. -->
-  </header>
+  <!-- The splash at / shows the logo itself, large, and nothing else. -->
+  {#if $page.url.pathname !== '/'}
+    <header>
+      <h1><a href={headerLink}>💫 Syrinx</a></h1>
+      <!-- MailboxBell hidden — unused for now, see the disabled Mailbox WS
+           handler and boot-time refresh below. -->
+    </header>
+  {/if}
 
   <ServerIdMismatchIndicator />
   <ServerUnreachableIndicator />
   <OfflineIndicator />
   <slot />
 
-  {#if user}
-    <ActivitySidebar />
-  {/if}
+  {#if $page.url.pathname !== '/'}
+    {#if user}
+      <ActivitySidebar />
+    {/if}
 
-  <BottomToolbar />
+    <BottomToolbar />
+  {/if}
 
   <Notifications />
 </div>

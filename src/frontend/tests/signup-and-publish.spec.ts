@@ -25,8 +25,8 @@ test.describe('Signup and Reed Publishing Flow', () => {
     // Wait for the progress bar to appear (indicates signup process started)
     await expect(page.locator('.progress-bar')).toBeVisible();
 
-    // Wait for redirect to welcome page (signup successful)
-    await page.waitForURL('/welcome', { timeout: 30000 });
+    // Wait for redirect to the backup page (signup successful)
+    await page.waitForURL('/backup', { timeout: 30000 });
 
     // Navigate to reeds page
     await page.goto('/reeds');

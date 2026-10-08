@@ -23,21 +23,21 @@ async function mockServerInfo(
 test.describe('Signup mode gating', () => {
   test('open mode shows Sign Up on home', async ({ page }) => {
     await mockServerInfo(page, 'open');
-    await page.goto('/');
+    await page.goto('/welcome');
     await expect(page.locator('a.btn', { hasText: 'Sign Up' })).toBeVisible();
     await expect(page.locator('a.btn', { hasText: 'Already a user' })).toBeVisible();
   });
 
   test('invite mode hides Sign Up on home', async ({ page }) => {
     await mockServerInfo(page, 'invite');
-    await page.goto('/');
+    await page.goto('/welcome');
     await expect(page.locator('a.btn', { hasText: 'Already a user' })).toBeVisible();
     await expect(page.locator('a.btn', { hasText: 'Sign Up' })).toHaveCount(0);
   });
 
   test('closed mode hides Sign Up and blocks /signup form', async ({ page }) => {
     await mockServerInfo(page, 'closed');
-    await page.goto('/');
+    await page.goto('/welcome');
     await expect(page.locator('a.btn', { hasText: 'Sign Up' })).toHaveCount(0);
 
     await page.goto('/signup');
@@ -56,7 +56,7 @@ test.describe('Signup mode gating', () => {
 
   test('recovery mode hides Sign Up on home even when open', async ({ page }) => {
     await mockServerInfo(page, 'open', true);
-    await page.goto('/');
+    await page.goto('/welcome');
     await expect(page.locator('a.btn', { hasText: 'Already a user' })).toBeVisible();
     await expect(page.locator('a.btn', { hasText: 'Sign Up' })).toHaveCount(0);
   });

@@ -1,171 +1,112 @@
 <script>
-  import { page } from '$app/stores';
-  import { notificationStore } from '$lib/stores/notifications';
-  import { compressBackupPayload, encryptAndSaveBackup, buildKeyBackupPayload } from '$lib/services/backupRestore';
-  import { recordBackupEvent } from '$lib/services/backupMetrics';
-  import ExportDataModal from '$lib/components/ExportDataModal.svelte';
-  import Auth from '$lib/components/Auth.svelte';
+  import { onMount } from 'svelte';
+  import { requestPersistentStorage, isInstalled, installPWA } from '$lib/services/pwa';
+  import { redirectForRestoreState } from '$lib/services/restoreFlow';
+  import { isRecoveryMode, isSignupOpen, serverInfoLoading } from '$lib/services/serverInfo';
 
-  $: user = $page.data?.user;
+  $: showRecoveryBanner = !$serverInfoLoading && $isRecoveryMode;
 
-  let backingUp = false;
-  let showBackupModal = false;
-  /** Mandatory before continuing — Auth.svelte redirects back here on every
-   * authenticated page load until lastKeyBackupAt is set. Seeded from
-   * localStorage so a user who already backed up (e.g. navigated back to
-   * /welcome manually) isn't blocked again. */
-  let backedUp = typeof localStorage !== 'undefined' && !!localStorage.getItem('lastKeyBackupAt');
-
-  async function backupKeys(password) {
-    backingUp = true;
-    try {
-      const payload = await buildKeyBackupPayload();
-      const compressedData = await compressBackupPayload(payload);
-      const filename = `syrinx-${user?.id ?? 'identity'}-${payload.timestamp}.sxi.gpg`;
-      const saved = await encryptAndSaveBackup(compressedData, password, filename, 'identity');
-
-      if (saved) {
-        notificationStore.success('Keys backed up successfully');
-        localStorage.setItem('lastKeyBackupAt', String(payload.timestamp));
-        backedUp = true;
-        void recordBackupEvent('identity');
-      }
-    } catch (error) {
-      console.error('Error backing up keys:', error);
-      notificationStore.error(
-        error instanceof Error ? error.message : 'Failed to back up keys'
-      );
-    } finally {
-      backingUp = false;
+  onMount(async () => {
+    if (await redirectForRestoreState()) {
+      return;
     }
+
+    await requestPersistentStorage();
+  });
+
+  async function installApp() {
+    await installPWA();
   }
 </script>
 
-<Auth>
-  <div class="container">
-    <div class="card">
-      <div class="welcome-header">
-        <h1>🎉 Welcome!</h1>
-        <p class="subtitle">Your account has been successfully created.</p>
+<div class="container">
+  <div class="card">
+    <h1>Welcome to Syrinx</h1>
+    {#if showRecoveryBanner}
+      <div class="recovery-banner" role="status">
+        <p>
+          This server is rebuilding. Restore from an encrypted backup created on
+          your previous Syrinx app — this device does not yet hold your data.
+        </p>
       </div>
+      <p class="subtitle">Restore from a backup to continue</p>
+    {:else}
+      <p class="subtitle">A P2P content-distribution platform.</p>
+    {/if}
 
-      <div class="success-steps">
-        <div class="step" class:success-step={backedUp}>
-          <div class="step-icon">{backedUp ? '✅' : '🔐'}</div>
-          <div class="step-content">
-            <h3>Back Up Your Keys</h3>
-            <p>
-              A unique pair of encryption keys was generated. They are like your password — if you
-              lose them, you lose access to your account. Back them up before continuing.
-            </p>
-            {#if !backedUp}
-              <button
-                class="btn btn-primary"
-                on:click={() => (showBackupModal = true)}
-                disabled={backingUp}
-              >
-                {backingUp ? 'Backing up...' : 'Backup Keys'}
-              </button>
-            {:else}
-              <p class="backed-up-confirmation">Keys backed up.</p>
-            {/if}
-          </div>
-        </div>
-
-        <div class="step" class:success-step={backedUp}>
-          <div class="step-icon">{backedUp ? '✅' : '⏳'}</div>
-          <div class="step-content">
-            <h3>App Ready to Use!</h3>
-            <p>Once your keys are backed up, you're all set to start posting and connecting with others!</p>
-          </div>
-        </div>
+    {#if !$isInstalled}
+      <div class="install-section">
+        <button on:click={installApp} class="btn btn-install">
+          <span class="install-icon"></span>Install App
+        </button>
       </div>
-    </div>
+    {/if}
+
     <div class="action-buttons">
-      <a href="/reeds" class="btn btn-primary" class:disabled={!backedUp} aria-disabled={!backedUp}>
-        Start Posting!
-      </a>
+      <a href="/import" class="btn btn-primary">Import User</a>
+      {#if !$serverInfoLoading && $isSignupOpen && !$isRecoveryMode}
+        <a href="/signup" class="btn btn-secondary">Sign Up</a>
+      {/if}
     </div>
   </div>
-
-  <ExportDataModal
-    open={showBackupModal}
-    on:confirm={(e) => { showBackupModal = false; backupKeys(e.detail); }}
-    on:cancel={() => (showBackupModal = false)}
-  />
-</Auth>
+</div>
 
 <style>
-  .welcome-header {
-    text-align: center;
-    margin-bottom: 2rem;
-  }
-
-  .subtitle {
-    color: var(--muted);
-    font-size: 1.1rem;
-    margin: 0;
-  }
-
-  .success-steps {
-    margin: 2rem 0;
-  }
-
-  .step {
+  .container {
+    max-width: 640px;
     display: flex;
-    align-items: flex-start;
-    margin-bottom: 1.5rem;
-    padding: 1rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
+    padding: 2rem;
+    padding-top: 1rem;
+    text-align: center;
   }
 
-  .step-icon {
-    font-size: 2rem;
-    margin-right: 1rem;
-    flex-shrink: 0;
-  }
-
-  .step-content h3 {
-    margin: 0 0 0.5rem 0;
+  .card h1 {
+    margin: 0 0 1rem 0;
     color: var(--fg);
+    font-size: 2rem;
   }
 
-  .step-content p {
-    margin: 0 0 0.75rem 0;
+  .card p.subtitle {
+    margin-bottom: 1rem;
     color: var(--muted);
+    font-size: 1.1rem;
+  }
+
+  .recovery-banner {
+    margin: 0 0 1.5rem 0;
+    padding: 1rem;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(230, 126, 34, 0.15), rgba(214, 48, 49, 0.12));
+    border: 1px solid rgba(230, 126, 34, 0.45);
+    text-align: left;
+  }
+
+  .recovery-banner p {
+    margin: 0;
+    color: var(--fg);
+    font-size: 0.95rem;
     line-height: 1.5;
-  }
-
-  .step-content p:last-child {
-    margin-bottom: 0;
-  }
-
-  .backed-up-confirmation {
-    color: #22c55e;
-    font-weight: 600;
-  }
-
-  .success-step {
-    background: rgba(34, 197, 94, 0.1);
-    border: 1px solid rgba(34, 197, 94, 0.3);
-  }
-
-  .success-step .step-content h3 {
-    color: #22c55e;
   }
 
   .action-buttons {
     display: flex;
     gap: 1rem;
-    margin: 2rem 0;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    padding-top: 1rem;
   }
 
   .btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     padding: 0.75rem 1.5rem;
     border-radius: 8px;
     text-decoration: none;
@@ -173,6 +114,8 @@
     transition: all 0.2s ease;
     border: none;
     cursor: pointer;
+    white-space: nowrap;
+    width: 100%;
   }
 
   .btn-primary {
@@ -185,11 +128,47 @@
     transform: translateY(-1px);
   }
 
-  .btn:disabled,
-  .btn.disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-    pointer-events: none;
+  .btn-secondary {
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+
+  .btn-secondary:hover {
+    background: var(--input-bg);
+    transform: translateY(-1px);
+  }
+
+  .install-section {
+    margin: 2rem auto 0;
+  }
+
+  .install-icon {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-image: url('/icons/install-16.png');
+    mask-image: url('/icons/install-16.png');
+    margin-right: 0.5rem;
+  }
+
+  .btn-install {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    font-size: 1rem;
+  }
+
+  .btn-install:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
   }
 
   @media (max-width: 640px) {
@@ -197,9 +176,12 @@
       flex-direction: column;
     }
 
+    .install-section {
+      max-width: 100%;
+    }
+
     .btn {
       text-align: center;
-      justify-content: center;
     }
   }
 </style>

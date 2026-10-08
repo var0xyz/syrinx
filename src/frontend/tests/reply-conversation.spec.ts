@@ -10,7 +10,7 @@ test.describe('Reply conversation flow', () => {
     await page.fill('#username', username);
     await page.fill('#email', `${username}@example.com`);
     await page.click('button.submit');
-    await page.waitForURL('/welcome', { timeout: 30000 });
+    await page.waitForURL('/backup', { timeout: 30000 });
 
     await page.goto('/reeds');
     await expect(page.locator('.reeds-container')).toBeVisible();

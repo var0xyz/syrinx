@@ -11,7 +11,7 @@ async function signup(page: Page, username: string) {
   await page.fill('#email', `${username}@example.com`);
   await page.click('button.submit');
   await expect(page.locator('.progress-bar')).toBeVisible();
-  await page.waitForURL('/welcome', { timeout: 30000 });
+  await page.waitForURL('/backup', { timeout: 30000 });
 }
 
 test.describe('Mentions', () => {
