@@ -47,7 +47,7 @@ Each table below has a **Status** column per step. Values:
 | Invites               | In progress | 06 (00–05 implemented)                                 |
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
-| Blocking              | In progress | 02–08                                                  |
+| Blocking              | In progress | 03–08                                                  |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -152,7 +152,7 @@ nothing they signed is touched, and unblocking restores nothing.
 | --- | ---------------------------------------------------- | -------- |
 | 00  | Design, trust model, locked decisions                | Proposed |
 | 01  | `user_blocks` schema, canonical payload, countersign | Implemented |
-| 02  | Block / unblock / list API and immediate effects     | Proposed |
+| 02  | Block / unblock / list API and immediate effects     | Implemented |
 | 03  | 403 + certificate on every read path                 | Proposed |
 | 04  | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up  | Proposed |
 | 05  | Blocks across peers                                  | Proposed |

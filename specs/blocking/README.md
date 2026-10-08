@@ -42,7 +42,7 @@ another server is refused with **422** rather than half-enforced.
 |----|-----------------------------------------------------|----------|
 | 00 | Design, trust model, locked decisions               | Proposed |
 | 01 | `user_blocks` schema, canonical payload, countersign | Implemented |
-| 02 | Block / unblock / list API and immediate effects    | Proposed |
+| 02 | Block / unblock / list API and immediate effects    | Implemented |
 | 03 | 403 + certificate on every read path                | Proposed |
 | 04 | `USER_BLOCKED` / `USER_UNBLOCKED` push and catch-up | Proposed |
 | 05 | Blocks across peers                                 | Proposed |
