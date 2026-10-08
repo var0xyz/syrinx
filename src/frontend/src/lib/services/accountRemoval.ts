@@ -6,6 +6,7 @@ import { buildAccountRemovalUserPayload } from './signing';
 import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
+import { userListsRepository } from '$lib/repositories/userLists';
 import { dbService } from './db';
 import { verifyAccountRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
@@ -30,6 +31,7 @@ export async function commitAccountRemovalLocally(cert: api.AccountRemoval): Pro
   await removedAccountsRepository.put(cert);
   await reedsService.deleteReedsByAuthor(cert.userID);
   await dbService.delete('following', cert.userID);
+  await userListsRepository.removeMember(cert.userID);
   await dbService.delete('pendingFollows', cert.userID);
   await dbService.delete('unfollow', cert.userID);
   await userRepository.writeTombstone(cert.userID);

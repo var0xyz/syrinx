@@ -1,6 +1,7 @@
 import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { allowUnsigned } from '$lib/verifiers';
+import { userListsRepository } from '$lib/repositories/userLists';
 
 interface FollowRecord {
   userId: string;
@@ -54,6 +55,7 @@ export const followingRepository = {
 
   async unfollow(userId: string): Promise<void> {
     await dbService.delete(FOLLOWING_STORE, userId);
+    await userListsRepository.removeMember(userId);
     await dbService.put<UnfollowRecord>(
       UNFOLLOW_STORE,
       { userId, timestamp: Date.now() },
