@@ -416,7 +416,7 @@
 <SideNav currentPage={isOwner ? 'reeds' : ''} />
 <div class="profile-container">
   {#if isOwner}
-    <SectionTabs tabs={profileTabs} active="mine" />
+    <SectionTabs tabs={profileTabs} active="profile" />
   {/if}
   <div class="profile-content">
     {#if status === 'loading'}
