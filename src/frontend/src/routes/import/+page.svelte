@@ -19,12 +19,14 @@
   import {
     clearImportRun,
     completeImportRun,
+    getImportRun,
     isImportComplete,
     isImportInProgress,
     startImportRun,
   } from '$lib/services/importRun';
   import {
     clearRecoveryRun,
+    getRecoveryRun,
     startRecoveryRun,
     isRecoveryInProgress,
     resumeRecoveryRun,
@@ -44,6 +46,9 @@
   let importSucceeded = false;
   let pendingIdentityBackup: BackupPayload | null = null;
   let showAbortConfirm = false;
+  // Set once an identity restore may have written to this device; the backup
+  // path records that with its import-run marker instead.
+  let identityRestoreAttempted = false;
 
   $: file = files?.[0] ?? null;
   $: resumeImport = mode === 'backup' && isImportInProgress();
@@ -120,6 +125,7 @@
         return;
       }
 
+      identityRestoreAttempted = true;
       await restoreFromIdentityBackup(backup);
       window.location.assign('/reeds');
     } catch (e) {
@@ -140,6 +146,7 @@
     restoring = true;
     error = '';
     try {
+      identityRestoreAttempted = true;
       await restoreFromIdentityBackup(backup);
       window.location.assign('/reeds');
     } catch (e) {
@@ -149,15 +156,19 @@
     }
   }
 
-  // A failed run leaves its markers and any data it wrote behind; drop both
-  // so the homepage doesn't bounce back here or treat the device as logged in.
+  // With nothing written yet, just leave. A failed run leaves markers and data
+  // behind: drop both, and reload so none of it survives in memory either.
   async function cancelImport() {
+    if (!identityRestoreAttempted && !getImportRun() && !getRecoveryRun()) {
+      await goto('/welcome');
+      return;
+    }
     try {
       await discardFailedImport();
     } catch (e) {
       console.error('Failed to discard import:', e);
     }
-    window.location.assign('/');
+    window.location.assign('/welcome');
   }
 
   function cancelAbortConfirm() {
