@@ -1878,6 +1878,11 @@ func (h *Handlers) acceptForeignReedRemoval(ctx context.Context, peerServerID st
 		return reedRemovalCert{}, http.StatusBadRequest, "reed_id does not belong to the calling peer"
 	}
 
+	if author, ok := authorOf(identityID(req.ReedID)); !ok || string(author) != req.UserID ||
+		!requesterKeyBelongsTo(req.UserKeyID, req.UserID, peerServerID) {
+		return reedRemovalCert{}, http.StatusBadRequest, "user_key_id is not a key of the reed's author"
+	}
+
 	pubKey, err := h.resolvePublicKey(ctx, req.UserKeyID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", req.ReedID).Str("userKeyID", req.UserKeyID).Msg("Failed to resolve signing key for reed removal")
@@ -1894,6 +1899,16 @@ func (h *Handlers) acceptForeignReedRemoval(ctx context.Context, peerServerID st
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Reed-removal user signature verification failed")
 		return reedRemovalCert{}, http.StatusBadRequest, "user_signature verification failed"
+	}
+
+	signedAt := req.ServerSignedAt.UTC().Truncate(time.Second)
+	if err := h.verifyPeerCountersignature(ctx, peerServerID, ServerSignature{
+		ID: req.ServerFingerprint, Armor: req.ServerSignature, SignedAt: signedAt,
+	}, func(serverFP string) []byte {
+		return buildReedRemovalServerPayload(peerServerID, req.ReedID, req.UserKeyID, serverFP, req.UserSignature, signedAt)
+	}); err != nil {
+		log.Warn().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Reed-removal countersignature verification failed")
+		return reedRemovalCert{}, http.StatusBadRequest, "server_signature verification failed"
 	}
 
 	cert := reedRemovalCert{
@@ -2184,28 +2199,12 @@ func (h *Handlers) verifyPeerKeyRevocation(ctx context.Context, peerServerID str
 		return fmt.Errorf("user signature: %w", err)
 	}
 
-	serverFP, sigServerID, ok := parseIdentityID(identityID(rev.ServerSignature.ID))
-	if !ok || sigServerID != peerServerID {
-		return fmt.Errorf("countersignature is not the calling peer's")
-	}
-	pin, err := h.services.db.GetPeerPin(ctx, peerServerID)
-	if err != nil || pin == nil {
-		return fmt.Errorf("calling peer has no pinned key")
-	}
-	serverArmor := pin.Armor
-	if pin.KeyID != rev.ServerSignature.ID {
-		if serverArmor, err = h.fetchPeerServerKeyArmor(ctx, pin.BaseURL, peerServerID, serverFP); err != nil {
-			return fmt.Errorf("fetch countersigning key: %w", err)
-		}
-	}
-	serverPayload := buildServerRevocationPayload(
-		rev.UserID, rev.ID, rev.Reason, peerServerID, serverFP,
-		rev.UserSignature.Armor, rev.ServerSignature.SignedAt.UTC().Truncate(time.Second),
-	)
-	if err := h.services.crypto.verifySignature(string(serverPayload), rev.ServerSignature.Armor, serverArmor); err != nil {
-		return fmt.Errorf("countersignature: %w", err)
-	}
-	return nil
+	return h.verifyPeerCountersignature(ctx, peerServerID, rev.ServerSignature, func(serverFP string) []byte {
+		return buildServerRevocationPayload(
+			rev.UserID, rev.ID, rev.Reason, peerServerID, serverFP,
+			rev.UserSignature.Armor, rev.ServerSignature.SignedAt.UTC().Truncate(time.Second),
+		)
+	})
 }
 
 // verifyPeerThreadRecord checks that rec is a thread by a user of
@@ -2239,26 +2238,13 @@ func (h *Handlers) verifyPeerThreadRecord(ctx context.Context, peerServerID stri
 		return nil, fmt.Errorf("user signature: %w", err)
 	}
 
-	serverFP, sigServerID, ok := parseIdentityID(identityID(rec.ServerSignature.ID))
-	if !ok || sigServerID != peerServerID {
-		return nil, fmt.Errorf("countersignature is not the calling peer's")
-	}
-	pin, err := h.services.db.GetPeerPin(ctx, peerServerID)
-	if err != nil || pin == nil {
-		return nil, fmt.Errorf("calling peer has no pinned key")
-	}
-	serverArmor := pin.Armor
-	if pin.KeyID != rec.ServerSignature.ID {
-		if serverArmor, err = h.fetchPeerServerKeyArmor(ctx, pin.BaseURL, peerServerID, serverFP); err != nil {
-			return nil, fmt.Errorf("fetch countersigning key: %w", err)
-		}
-	}
-	serverPayload := buildThreadServerPayload(
-		peerServerID, rec.ThreadID, rec.UserSignature.ID, serverFP,
-		rec.UserSignature.Armor, rec.ServerSignature.SignedAt.UTC().Truncate(time.Second),
-	)
-	if err := h.services.crypto.verifySignature(string(serverPayload), rec.ServerSignature.Armor, serverArmor); err != nil {
-		return nil, fmt.Errorf("countersignature: %w", err)
+	if err := h.verifyPeerCountersignature(ctx, peerServerID, rec.ServerSignature, func(serverFP string) []byte {
+		return buildThreadServerPayload(
+			peerServerID, rec.ThreadID, rec.UserSignature.ID, serverFP,
+			rec.UserSignature.Armor, rec.ServerSignature.SignedAt.UTC().Truncate(time.Second),
+		)
+	}); err != nil {
+		return nil, err
 	}
 	return rec.ReedIDs, nil
 }
@@ -2332,7 +2318,18 @@ func (h *Handlers) verifyPeerThreadRemoval(ctx context.Context, peerServerID str
 	if err := h.services.crypto.verifySignature(string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
-	serverFP, sigServerID, ok := parseIdentityID(identityID(cert.ServerSignature.ID))
+	return h.verifyPeerCountersignature(ctx, peerServerID, cert.ServerSignature, func(serverFP string) []byte {
+		return buildThreadRemovalServerPayload(
+			peerServerID, cert.ThreadID, cert.UserSignature.ID, serverFP,
+			cert.UserSignature.Armor, cert.ServerSignature.SignedAt.UTC().Truncate(time.Second),
+		)
+	})
+}
+
+// verifyPeerCountersignature checks that sig is peerServerID's, by its
+// pinned key or one fetched from it by fingerprint, over payload(fingerprint).
+func (h *Handlers) verifyPeerCountersignature(ctx context.Context, peerServerID string, sig ServerSignature, payload func(serverFP string) []byte) error {
+	serverFP, sigServerID, ok := parseIdentityID(identityID(sig.ID))
 	if !ok || sigServerID != peerServerID {
 		return fmt.Errorf("countersignature is not the calling peer's")
 	}
@@ -2341,16 +2338,12 @@ func (h *Handlers) verifyPeerThreadRemoval(ctx context.Context, peerServerID str
 		return fmt.Errorf("calling peer has no pinned key")
 	}
 	serverArmor := pin.Armor
-	if pin.KeyID != cert.ServerSignature.ID {
+	if pin.KeyID != sig.ID {
 		if serverArmor, err = h.fetchPeerServerKeyArmor(ctx, pin.BaseURL, peerServerID, serverFP); err != nil {
 			return fmt.Errorf("fetch countersigning key: %w", err)
 		}
 	}
-	serverPayload := buildThreadRemovalServerPayload(
-		peerServerID, cert.ThreadID, cert.UserSignature.ID, serverFP,
-		cert.UserSignature.Armor, cert.ServerSignature.SignedAt.UTC().Truncate(time.Second),
-	)
-	if err := h.services.crypto.verifySignature(string(serverPayload), cert.ServerSignature.Armor, serverArmor); err != nil {
+	if err := h.services.crypto.verifySignature(string(payload(serverFP)), sig.Armor, serverArmor); err != nil {
 		return fmt.Errorf("countersignature: %w", err)
 	}
 	return nil

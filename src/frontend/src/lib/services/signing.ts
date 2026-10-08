@@ -262,6 +262,7 @@ export function buildReedRemovalUserPayload(
 export function buildReedRemovalServerPayload(
   serverID: string,
   reedID: string,
+  authorKeyID: string,
   serverKeyFingerprint: string,
   userSignature: string,
   signedAt: string
@@ -271,6 +272,7 @@ export function buildReedRemovalServerPayload(
       type: 'reed',
       serverID,
       reedID,
+      authorKeyID,
       signedAt,
       serverKeyFingerprint,
       userSignature: btoa(userSignature)

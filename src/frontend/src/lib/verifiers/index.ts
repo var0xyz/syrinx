@@ -560,6 +560,7 @@ export async function verifyReedRemoval(cert: api.ReedRemoval): Promise<boolean>
   const serverPayload = buildReedRemovalServerPayload(
     cert.serverID,
     cert.reedID,
+    cert.userSignature.id,
     removalServerFingerprint,
     cert.userSignature.armor,
     signedAtHeader(cert.serverSignature.timestamp)
