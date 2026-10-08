@@ -105,6 +105,8 @@ type relayRequestPayload struct {
 	RequesterUserID string `json:"requester_user_id"`
 	RequesterKeyID  string `json:"requester_key_id"`
 	PeerRequestID   string `json:"peer_request_id"`
+	// Thread asks for the whole thread reed_id heads.
+	Thread bool `json:"thread,omitempty"`
 }
 
 // requesterKeyBelongsTo reports whether keyID is a key of userID, a user of
@@ -123,6 +125,16 @@ type relayRequestResponse struct {
 // (leg 1, O's side): registers requesterUserID's interest in reedID with
 // reedID's home server over peer HTTP.
 func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUserID, localRequestID string) (realtimeForeignRequestResult, string, error) {
+	return h.registerRelayWithPeer(ctx, reedID, requesterUserID, localRequestID, false)
+}
+
+// relayThreadRequestToPeer registers a request for the whole thread
+// threadID heads with its home server.
+func (h *Handlers) relayThreadRequestToPeer(ctx context.Context, threadID, requesterUserID, localRequestID string) (realtimeForeignRequestResult, string, error) {
+	return h.registerRelayWithPeer(ctx, threadID, requesterUserID, localRequestID, true)
+}
+
+func (h *Handlers) registerRelayWithPeer(ctx context.Context, reedID, requesterUserID, localRequestID string, thread bool) (realtimeForeignRequestResult, string, error) {
 	authorUserID, homeServerID, bareReedID, ok := parseKeyFingerprint(identityID(reedID))
 	if !ok {
 		return realtimeForeignRequestReedNotFound, "", nil
@@ -145,6 +157,7 @@ func (h *Handlers) relayRequestToPeer(ctx context.Context, reedID, requesterUser
 		RequesterUserID: requesterUserID,
 		RequesterKeyID:  requesterKeyID,
 		PeerRequestID:   localRequestID,
+		Thread:          thread,
 	}
 	var respBody relayRequestResponse
 	status, err := h.callPeerRelayEndpoint(ctx, homeServerID, peer.BaseURL, "/api/federation/relay/request", payload, &respBody)
@@ -218,7 +231,14 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 		internalServerError(w)
 		return
 	}
-	result, peerEventID, err := h.realtimeRelay.HandleForeignRequestReed(r.Context(), canonicalReedID, peerServerID, req.RequesterUserID, req.RequesterKeyID, req.PeerRequestID)
+	var result realtimeForeignRequestResult
+	var peerEventID string
+	var err error
+	if req.Thread {
+		result, peerEventID, err = h.realtimeRelay.HandleForeignRequestThread(r.Context(), canonicalReedID, peerServerID, req.RequesterUserID, req.RequesterKeyID)
+	} else {
+		result, peerEventID, err = h.realtimeRelay.HandleForeignRequestReed(r.Context(), canonicalReedID, peerServerID, req.RequesterUserID, req.RequesterKeyID, req.PeerRequestID)
+	}
 	if err != nil {
 		log.Error().Err(err).Str("reedID", canonicalReedID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign reed request")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
@@ -394,7 +414,18 @@ func (h *Handlers) DeliverRelayResponseFromPeer(w http.ResponseWriter, r *http.R
 		internalServerError(w)
 		return
 	}
-	found, err := h.realtimeRelay.HandleForeignRelayResponse(r.Context(), req.PeerEventID, peerServerID, req.Data)
+	// A relayed thread carries its record; the parts count only once verified.
+	var threadReedIDs []string
+	var thread relayedThread
+	if json.Unmarshal(req.Data, &thread) == nil && thread.Record != nil {
+		ids, err := h.verifyPeerThreadRecord(r.Context(), peerServerID, *thread.Record)
+		if err != nil {
+			log.Warn().Err(err).Str("peerEventID", req.PeerEventID).Str("peerServerID", peerServerID).Msg("Relayed thread record failed verification")
+		} else {
+			threadReedIDs = ids
+		}
+	}
+	found, err := h.realtimeRelay.HandleForeignRelayResponse(r.Context(), req.PeerEventID, peerServerID, req.Data, threadReedIDs)
 	if err != nil {
 		log.Error().Err(err).Str("peerEventID", req.PeerEventID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign relay response")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "deliver", false)
@@ -2175,6 +2206,61 @@ func (h *Handlers) verifyPeerKeyRevocation(ctx context.Context, peerServerID str
 		return fmt.Errorf("countersignature: %w", err)
 	}
 	return nil
+}
+
+// verifyPeerThreadRecord checks that rec is a thread by a user of
+// peerServerID, signed by their key and countersigned by the peer, and
+// returns its parts in order.
+func (h *Handlers) verifyPeerThreadRecord(ctx context.Context, peerServerID string, rec threadRecordWire) ([]string, error) {
+	if rec.Type != identityTypeThread || rec.ServerID != peerServerID || len(rec.ReedIDs) == 0 || rec.ReedIDs[0] != rec.ThreadID {
+		return nil, fmt.Errorf("malformed thread record")
+	}
+	parts := make([]createReedParams, len(rec.ReedIDs))
+	for i, id := range rec.ReedIDs {
+		parts[i] = createReedParams{ReedID: id, UserID: rec.UserID}
+	}
+	if err := validateThreadParts(rec.UserID, parts); err != nil {
+		return nil, err
+	}
+	if _, userServerID, ok := parseIdentityID(identityID(rec.UserID)); !ok || userServerID != peerServerID {
+		return nil, fmt.Errorf("thread author is not a user of the calling peer")
+	}
+	if owner, keyServerID, _, ok := parseKeyFingerprint(identityID(rec.UserSignature.ID)); !ok ||
+		string(canonicalID(keyServerID, owner)) != rec.UserID {
+		return nil, fmt.Errorf("thread signed by a key of another user")
+	}
+
+	key, err := h.resolvePublicKey(ctx, rec.UserSignature.ID)
+	if err != nil || key == nil {
+		return nil, fmt.Errorf("resolve author key: %v", err)
+	}
+	userPayload := buildThreadUserPayload(peerServerID, rec.ThreadID, rec.ReedIDs)
+	if err := h.services.crypto.verifySignature(string(userPayload), rec.UserSignature.Armor, key.Armor); err != nil {
+		return nil, fmt.Errorf("user signature: %w", err)
+	}
+
+	serverFP, sigServerID, ok := parseIdentityID(identityID(rec.ServerSignature.ID))
+	if !ok || sigServerID != peerServerID {
+		return nil, fmt.Errorf("countersignature is not the calling peer's")
+	}
+	pin, err := h.services.db.GetPeerPin(ctx, peerServerID)
+	if err != nil || pin == nil {
+		return nil, fmt.Errorf("calling peer has no pinned key")
+	}
+	serverArmor := pin.Armor
+	if pin.KeyID != rec.ServerSignature.ID {
+		if serverArmor, err = h.fetchPeerServerKeyArmor(ctx, pin.BaseURL, peerServerID, serverFP); err != nil {
+			return nil, fmt.Errorf("fetch countersigning key: %w", err)
+		}
+	}
+	serverPayload := buildThreadServerPayload(
+		peerServerID, rec.ThreadID, rec.UserSignature.ID, serverFP,
+		rec.UserSignature.Armor, rec.ServerSignature.SignedAt.UTC().Truncate(time.Second),
+	)
+	if err := h.services.crypto.verifySignature(string(serverPayload), rec.ServerSignature.Armor, serverArmor); err != nil {
+		return nil, fmt.Errorf("countersignature: %w", err)
+	}
+	return rec.ReedIDs, nil
 }
 
 // fetchForeignKeyRevocation fetches a foreign key's revocation from its home

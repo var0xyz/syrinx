@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented. A holder is anyone holding the head; one who lacks a part
+answers `RELAY_MISS` and loses its head allocation, like any miss.
 
 ## Depends on
 

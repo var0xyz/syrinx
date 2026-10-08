@@ -16,6 +16,7 @@
     "test:vouch-payload": "node --experimental-strip-types scripts/test-vouch-payload.mjs",
     "test:server-key-payload": "node --experimental-strip-types scripts/test-server-key-payload.mjs",
     "test:thread-payload": "node --experimental-strip-types scripts/test-thread-payload.mjs",
+    "test:thread-bundle": "node --experimental-strip-types scripts/test-thread-bundle.mjs",
     "test:trust-mark": "node --experimental-strip-types scripts/test-trust-mark.mjs",
     "test:eviction-protection": "node --experimental-strip-types scripts/test-eviction-protection.mjs",
     "test:relay-refusal": "node --experimental-strip-types scripts/test-relay-refusal.mjs",

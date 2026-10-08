@@ -67,6 +67,8 @@ message WSMessage {
     PeerServerLostMessage peer_server_lost = 48;
     NewRippleMessage new_ripple = 49;
     KeyRevokedMessage key_revoked = 50;
+    RequestThreadMessage request_thread = 51;
+    RelayThreadMessage relay_thread = 52;
   }
 }
 
@@ -138,6 +140,8 @@ enum MessageType {
   PEER_SERVER_LOST = 59;
   NEW_RIPPLE = 60;
   KEY_REVOKED = 61;
+  REQUEST_THREAD = 62;
+  RELAY_THREAD = 63;
 }
 
 // Ping message
@@ -216,6 +220,19 @@ message RelayRequestMessage {
   string reed_id = 1;
   // The requester's key, which the holder must encrypt to; its owner is the
   // requester. Set by the requester's home server, never picked by the holder.
+  string requester_key_id = 2;
+}
+
+// Client ask for a whole thread, by its head's ID.
+message RequestThreadMessage {
+  string request_id = 1;
+  string thread_id = 2;
+}
+
+// Server ask to a holder to relay a whole thread as one bundle, encrypted
+// to requester_key_id like RELAY_REQUEST.
+message RelayThreadMessage {
+  string thread_id = 1;
   string requester_key_id = 2;
 }
 

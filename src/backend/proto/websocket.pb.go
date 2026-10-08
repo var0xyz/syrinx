@@ -87,6 +87,8 @@ const (
 	MessageType_PEER_SERVER_LOST         MessageType = 59
 	MessageType_NEW_RIPPLE               MessageType = 60
 	MessageType_KEY_REVOKED              MessageType = 61
+	MessageType_REQUEST_THREAD           MessageType = 62
+	MessageType_RELAY_THREAD             MessageType = 63
 )
 
 // Enum value maps for MessageType.
@@ -153,6 +155,8 @@ var (
 		59: "PEER_SERVER_LOST",
 		60: "NEW_RIPPLE",
 		61: "KEY_REVOKED",
+		62: "REQUEST_THREAD",
+		63: "RELAY_THREAD",
 	}
 	MessageType_value = map[string]int32{
 		"UNKNOWN":                  0,
@@ -216,6 +220,8 @@ var (
 		"PEER_SERVER_LOST":         59,
 		"NEW_RIPPLE":               60,
 		"KEY_REVOKED":              61,
+		"REQUEST_THREAD":           62,
+		"RELAY_THREAD":             63,
 	}
 )
 
@@ -308,6 +314,8 @@ type WSMessage struct {
 	//	*WSMessage_PeerServerLost
 	//	*WSMessage_NewRipple
 	//	*WSMessage_KeyRevoked
+	//	*WSMessage_RequestThread
+	//	*WSMessage_RelayThread
 	Payload       isWSMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -785,6 +793,24 @@ func (x *WSMessage) GetKeyRevoked() *KeyRevokedMessage {
 	return nil
 }
 
+func (x *WSMessage) GetRequestThread() *RequestThreadMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RequestThread); ok {
+			return x.RequestThread
+		}
+	}
+	return nil
+}
+
+func (x *WSMessage) GetRelayThread() *RelayThreadMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_RelayThread); ok {
+			return x.RelayThread
+		}
+	}
+	return nil
+}
+
 type isWSMessage_Payload interface {
 	isWSMessage_Payload()
 }
@@ -973,6 +999,14 @@ type WSMessage_KeyRevoked struct {
 	KeyRevoked *KeyRevokedMessage `protobuf:"bytes,50,opt,name=key_revoked,json=keyRevoked,proto3,oneof"`
 }
 
+type WSMessage_RequestThread struct {
+	RequestThread *RequestThreadMessage `protobuf:"bytes,51,opt,name=request_thread,json=requestThread,proto3,oneof"`
+}
+
+type WSMessage_RelayThread struct {
+	RelayThread *RelayThreadMessage `protobuf:"bytes,52,opt,name=relay_thread,json=relayThread,proto3,oneof"`
+}
+
 func (*WSMessage_Ping) isWSMessage_Payload() {}
 
 func (*WSMessage_Pong) isWSMessage_Payload() {}
@@ -1064,6 +1098,10 @@ func (*WSMessage_PeerServerLost) isWSMessage_Payload() {}
 func (*WSMessage_NewRipple) isWSMessage_Payload() {}
 
 func (*WSMessage_KeyRevoked) isWSMessage_Payload() {}
+
+func (*WSMessage_RequestThread) isWSMessage_Payload() {}
+
+func (*WSMessage_RelayThread) isWSMessage_Payload() {}
 
 // Ping message
 type PingMessage struct {
@@ -1708,6 +1746,113 @@ func (x *RelayRequestMessage) GetRequesterKeyId() string {
 	return ""
 }
 
+// Client ask for a whole thread, by its head's ID.
+type RequestThreadMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ThreadId      string                 `protobuf:"bytes,2,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestThreadMessage) Reset() {
+	*x = RequestThreadMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestThreadMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestThreadMessage) ProtoMessage() {}
+
+func (x *RequestThreadMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestThreadMessage.ProtoReflect.Descriptor instead.
+func (*RequestThreadMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RequestThreadMessage) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *RequestThreadMessage) GetThreadId() string {
+	if x != nil {
+		return x.ThreadId
+	}
+	return ""
+}
+
+// Server ask to a holder to relay a whole thread as one bundle, encrypted
+// to requester_key_id like RELAY_REQUEST.
+type RelayThreadMessage struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ThreadId       string                 `protobuf:"bytes,1,opt,name=thread_id,json=threadId,proto3" json:"thread_id,omitempty"`
+	RequesterKeyId string                 `protobuf:"bytes,2,opt,name=requester_key_id,json=requesterKeyId,proto3" json:"requester_key_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RelayThreadMessage) Reset() {
+	*x = RelayThreadMessage{}
+	mi := &file_proto_websocket_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayThreadMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayThreadMessage) ProtoMessage() {}
+
+func (x *RelayThreadMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_websocket_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayThreadMessage.ProtoReflect.Descriptor instead.
+func (*RelayThreadMessage) Descriptor() ([]byte, []int) {
+	return file_proto_websocket_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RelayThreadMessage) GetThreadId() string {
+	if x != nil {
+		return x.ThreadId
+	}
+	return ""
+}
+
+func (x *RelayThreadMessage) GetRequesterKeyId() string {
+	if x != nil {
+		return x.RequesterKeyId
+	}
+	return ""
+}
+
 // Server ack of a client's REQUEST_REED, naming which reed/request it matched.
 type RequestAckMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1719,7 +1864,7 @@ type RequestAckMessage struct {
 
 func (x *RequestAckMessage) Reset() {
 	*x = RequestAckMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[13]
+	mi := &file_proto_websocket_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1731,7 +1876,7 @@ func (x *RequestAckMessage) String() string {
 func (*RequestAckMessage) ProtoMessage() {}
 
 func (x *RequestAckMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[13]
+	mi := &file_proto_websocket_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1744,7 +1889,7 @@ func (x *RequestAckMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RequestAckMessage.ProtoReflect.Descriptor instead.
 func (*RequestAckMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{13}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RequestAckMessage) GetRequestId() string {
@@ -1772,7 +1917,7 @@ type MailboxMessage struct {
 
 func (x *MailboxMessage) Reset() {
 	*x = MailboxMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[14]
+	mi := &file_proto_websocket_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1784,7 +1929,7 @@ func (x *MailboxMessage) String() string {
 func (*MailboxMessage) ProtoMessage() {}
 
 func (x *MailboxMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[14]
+	mi := &file_proto_websocket_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1797,7 +1942,7 @@ func (x *MailboxMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MailboxMessage.ProtoReflect.Descriptor instead.
 func (*MailboxMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{14}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MailboxMessage) GetId() string {
@@ -1824,7 +1969,7 @@ type MailboxAckMessage struct {
 
 func (x *MailboxAckMessage) Reset() {
 	*x = MailboxAckMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[15]
+	mi := &file_proto_websocket_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1836,7 +1981,7 @@ func (x *MailboxAckMessage) String() string {
 func (*MailboxAckMessage) ProtoMessage() {}
 
 func (x *MailboxAckMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[15]
+	mi := &file_proto_websocket_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1849,7 +1994,7 @@ func (x *MailboxAckMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MailboxAckMessage.ProtoReflect.Descriptor instead.
 func (*MailboxAckMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{15}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *MailboxAckMessage) GetId() string {
@@ -1871,7 +2016,7 @@ type KeyFetchErrorMessage struct {
 
 func (x *KeyFetchErrorMessage) Reset() {
 	*x = KeyFetchErrorMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[16]
+	mi := &file_proto_websocket_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1883,7 +2028,7 @@ func (x *KeyFetchErrorMessage) String() string {
 func (*KeyFetchErrorMessage) ProtoMessage() {}
 
 func (x *KeyFetchErrorMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[16]
+	mi := &file_proto_websocket_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1896,7 +2041,7 @@ func (x *KeyFetchErrorMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyFetchErrorMessage.ProtoReflect.Descriptor instead.
 func (*KeyFetchErrorMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{16}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *KeyFetchErrorMessage) GetUserId() string {
@@ -1924,7 +2069,7 @@ type RevokedKeyUsedMessage struct {
 
 func (x *RevokedKeyUsedMessage) Reset() {
 	*x = RevokedKeyUsedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[17]
+	mi := &file_proto_websocket_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1936,7 +2081,7 @@ func (x *RevokedKeyUsedMessage) String() string {
 func (*RevokedKeyUsedMessage) ProtoMessage() {}
 
 func (x *RevokedKeyUsedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[17]
+	mi := &file_proto_websocket_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1949,7 +2094,7 @@ func (x *RevokedKeyUsedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokedKeyUsedMessage.ProtoReflect.Descriptor instead.
 func (*RevokedKeyUsedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{17}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RevokedKeyUsedMessage) GetUserId() string {
@@ -1978,7 +2123,7 @@ type ContentRejectedMessage struct {
 
 func (x *ContentRejectedMessage) Reset() {
 	*x = ContentRejectedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[18]
+	mi := &file_proto_websocket_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1990,7 +2135,7 @@ func (x *ContentRejectedMessage) String() string {
 func (*ContentRejectedMessage) ProtoMessage() {}
 
 func (x *ContentRejectedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[18]
+	mi := &file_proto_websocket_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2003,7 +2148,7 @@ func (x *ContentRejectedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContentRejectedMessage.ProtoReflect.Descriptor instead.
 func (*ContentRejectedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{18}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ContentRejectedMessage) GetStoreName() string {
@@ -2029,7 +2174,7 @@ type SubscribeProfileMessage struct {
 
 func (x *SubscribeProfileMessage) Reset() {
 	*x = SubscribeProfileMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[19]
+	mi := &file_proto_websocket_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2041,7 +2186,7 @@ func (x *SubscribeProfileMessage) String() string {
 func (*SubscribeProfileMessage) ProtoMessage() {}
 
 func (x *SubscribeProfileMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[19]
+	mi := &file_proto_websocket_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2054,7 +2199,7 @@ func (x *SubscribeProfileMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeProfileMessage.ProtoReflect.Descriptor instead.
 func (*SubscribeProfileMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{19}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SubscribeProfileMessage) GetUserId() string {
@@ -2073,7 +2218,7 @@ type UnsubscribeProfileMessage struct {
 
 func (x *UnsubscribeProfileMessage) Reset() {
 	*x = UnsubscribeProfileMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[20]
+	mi := &file_proto_websocket_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2085,7 +2230,7 @@ func (x *UnsubscribeProfileMessage) String() string {
 func (*UnsubscribeProfileMessage) ProtoMessage() {}
 
 func (x *UnsubscribeProfileMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[20]
+	mi := &file_proto_websocket_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2098,7 +2243,7 @@ func (x *UnsubscribeProfileMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsubscribeProfileMessage.ProtoReflect.Descriptor instead.
 func (*UnsubscribeProfileMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{20}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UnsubscribeProfileMessage) GetUserId() string {
@@ -2119,7 +2264,7 @@ type ProfilePageMessage struct {
 
 func (x *ProfilePageMessage) Reset() {
 	*x = ProfilePageMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[21]
+	mi := &file_proto_websocket_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2131,7 +2276,7 @@ func (x *ProfilePageMessage) String() string {
 func (*ProfilePageMessage) ProtoMessage() {}
 
 func (x *ProfilePageMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[21]
+	mi := &file_proto_websocket_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2144,7 +2289,7 @@ func (x *ProfilePageMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilePageMessage.ProtoReflect.Descriptor instead.
 func (*ProfilePageMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{21}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ProfilePageMessage) GetUserId() string {
@@ -2176,7 +2321,7 @@ type PageAckMessage struct {
 
 func (x *PageAckMessage) Reset() {
 	*x = PageAckMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[22]
+	mi := &file_proto_websocket_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2188,7 +2333,7 @@ func (x *PageAckMessage) String() string {
 func (*PageAckMessage) ProtoMessage() {}
 
 func (x *PageAckMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[22]
+	mi := &file_proto_websocket_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2201,7 +2346,7 @@ func (x *PageAckMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PageAckMessage.ProtoReflect.Descriptor instead.
 func (*PageAckMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{22}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *PageAckMessage) GetUserId() string {
@@ -2241,7 +2386,7 @@ type SubscribeReedMessage struct {
 
 func (x *SubscribeReedMessage) Reset() {
 	*x = SubscribeReedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[23]
+	mi := &file_proto_websocket_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2253,7 +2398,7 @@ func (x *SubscribeReedMessage) String() string {
 func (*SubscribeReedMessage) ProtoMessage() {}
 
 func (x *SubscribeReedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[23]
+	mi := &file_proto_websocket_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2266,7 +2411,7 @@ func (x *SubscribeReedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeReedMessage.ProtoReflect.Descriptor instead.
 func (*SubscribeReedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{23}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SubscribeReedMessage) GetReedId() string {
@@ -2285,7 +2430,7 @@ type UnsubscribeReedMessage struct {
 
 func (x *UnsubscribeReedMessage) Reset() {
 	*x = UnsubscribeReedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[24]
+	mi := &file_proto_websocket_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2297,7 +2442,7 @@ func (x *UnsubscribeReedMessage) String() string {
 func (*UnsubscribeReedMessage) ProtoMessage() {}
 
 func (x *UnsubscribeReedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[24]
+	mi := &file_proto_websocket_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2310,7 +2455,7 @@ func (x *UnsubscribeReedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsubscribeReedMessage.ProtoReflect.Descriptor instead.
 func (*UnsubscribeReedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{24}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *UnsubscribeReedMessage) GetReedId() string {
@@ -2329,7 +2474,7 @@ type SubscribePipeMessage struct {
 
 func (x *SubscribePipeMessage) Reset() {
 	*x = SubscribePipeMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[25]
+	mi := &file_proto_websocket_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2341,7 +2486,7 @@ func (x *SubscribePipeMessage) String() string {
 func (*SubscribePipeMessage) ProtoMessage() {}
 
 func (x *SubscribePipeMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[25]
+	mi := &file_proto_websocket_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2354,7 +2499,7 @@ func (x *SubscribePipeMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribePipeMessage.ProtoReflect.Descriptor instead.
 func (*SubscribePipeMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{25}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SubscribePipeMessage) GetTag() string {
@@ -2373,7 +2518,7 @@ type UnsubscribePipeMessage struct {
 
 func (x *UnsubscribePipeMessage) Reset() {
 	*x = UnsubscribePipeMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[26]
+	mi := &file_proto_websocket_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2385,7 +2530,7 @@ func (x *UnsubscribePipeMessage) String() string {
 func (*UnsubscribePipeMessage) ProtoMessage() {}
 
 func (x *UnsubscribePipeMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[26]
+	mi := &file_proto_websocket_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2398,7 +2543,7 @@ func (x *UnsubscribePipeMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsubscribePipeMessage.ProtoReflect.Descriptor instead.
 func (*UnsubscribePipeMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{26}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *UnsubscribePipeMessage) GetTag() string {
@@ -2422,7 +2567,7 @@ type PublishReadyMessage struct {
 
 func (x *PublishReadyMessage) Reset() {
 	*x = PublishReadyMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[27]
+	mi := &file_proto_websocket_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2434,7 +2579,7 @@ func (x *PublishReadyMessage) String() string {
 func (*PublishReadyMessage) ProtoMessage() {}
 
 func (x *PublishReadyMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[27]
+	mi := &file_proto_websocket_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2447,7 +2592,7 @@ func (x *PublishReadyMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishReadyMessage.ProtoReflect.Descriptor instead.
 func (*PublishReadyMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{27}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *PublishReadyMessage) GetReedId() string {
@@ -2480,7 +2625,7 @@ type PublishReadyAckMessage struct {
 
 func (x *PublishReadyAckMessage) Reset() {
 	*x = PublishReadyAckMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[28]
+	mi := &file_proto_websocket_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2492,7 +2637,7 @@ func (x *PublishReadyAckMessage) String() string {
 func (*PublishReadyAckMessage) ProtoMessage() {}
 
 func (x *PublishReadyAckMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[28]
+	mi := &file_proto_websocket_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2505,7 +2650,7 @@ func (x *PublishReadyAckMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PublishReadyAckMessage.ProtoReflect.Descriptor instead.
 func (*PublishReadyAckMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{28}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PublishReadyAckMessage) GetReedId() string {
@@ -2526,7 +2671,7 @@ type EvictionMessage struct {
 
 func (x *EvictionMessage) Reset() {
 	*x = EvictionMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[29]
+	mi := &file_proto_websocket_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2538,7 +2683,7 @@ func (x *EvictionMessage) String() string {
 func (*EvictionMessage) ProtoMessage() {}
 
 func (x *EvictionMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[29]
+	mi := &file_proto_websocket_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2551,7 +2696,7 @@ func (x *EvictionMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvictionMessage.ProtoReflect.Descriptor instead.
 func (*EvictionMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{29}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *EvictionMessage) GetReedId() string {
@@ -2572,7 +2717,7 @@ type EvictionAckMessage struct {
 
 func (x *EvictionAckMessage) Reset() {
 	*x = EvictionAckMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[30]
+	mi := &file_proto_websocket_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2584,7 +2729,7 @@ func (x *EvictionAckMessage) String() string {
 func (*EvictionAckMessage) ProtoMessage() {}
 
 func (x *EvictionAckMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[30]
+	mi := &file_proto_websocket_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2597,7 +2742,7 @@ func (x *EvictionAckMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvictionAckMessage.ProtoReflect.Descriptor instead.
 func (*EvictionAckMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{30}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *EvictionAckMessage) GetReedId() string {
@@ -2617,7 +2762,7 @@ type ReedNotFoundMessage struct {
 
 func (x *ReedNotFoundMessage) Reset() {
 	*x = ReedNotFoundMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[31]
+	mi := &file_proto_websocket_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2629,7 +2774,7 @@ func (x *ReedNotFoundMessage) String() string {
 func (*ReedNotFoundMessage) ProtoMessage() {}
 
 func (x *ReedNotFoundMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[31]
+	mi := &file_proto_websocket_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2642,7 +2787,7 @@ func (x *ReedNotFoundMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedNotFoundMessage.ProtoReflect.Descriptor instead.
 func (*ReedNotFoundMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{31}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ReedNotFoundMessage) GetRequestId() string {
@@ -2671,7 +2816,7 @@ type ReedNotHeldMessage struct {
 
 func (x *ReedNotHeldMessage) Reset() {
 	*x = ReedNotHeldMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[32]
+	mi := &file_proto_websocket_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2683,7 +2828,7 @@ func (x *ReedNotHeldMessage) String() string {
 func (*ReedNotHeldMessage) ProtoMessage() {}
 
 func (x *ReedNotHeldMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[32]
+	mi := &file_proto_websocket_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2696,7 +2841,7 @@ func (x *ReedNotHeldMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedNotHeldMessage.ProtoReflect.Descriptor instead.
 func (*ReedNotHeldMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{32}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ReedNotHeldMessage) GetRequestId() string {
@@ -2724,7 +2869,7 @@ type InvalidRequestIdErrorMessage struct {
 
 func (x *InvalidRequestIdErrorMessage) Reset() {
 	*x = InvalidRequestIdErrorMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[33]
+	mi := &file_proto_websocket_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2736,7 +2881,7 @@ func (x *InvalidRequestIdErrorMessage) String() string {
 func (*InvalidRequestIdErrorMessage) ProtoMessage() {}
 
 func (x *InvalidRequestIdErrorMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[33]
+	mi := &file_proto_websocket_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2749,7 +2894,7 @@ func (x *InvalidRequestIdErrorMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvalidRequestIdErrorMessage.ProtoReflect.Descriptor instead.
 func (*InvalidRequestIdErrorMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{33}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *InvalidRequestIdErrorMessage) GetRequestId() string {
@@ -2772,7 +2917,7 @@ type ReedStatsMessage struct {
 
 func (x *ReedStatsMessage) Reset() {
 	*x = ReedStatsMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[34]
+	mi := &file_proto_websocket_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2784,7 +2929,7 @@ func (x *ReedStatsMessage) String() string {
 func (*ReedStatsMessage) ProtoMessage() {}
 
 func (x *ReedStatsMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[34]
+	mi := &file_proto_websocket_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2797,7 +2942,7 @@ func (x *ReedStatsMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedStatsMessage.ProtoReflect.Descriptor instead.
 func (*ReedStatsMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{34}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ReedStatsMessage) GetReedId() string {
@@ -2845,7 +2990,7 @@ type ReedCoverageMessage struct {
 
 func (x *ReedCoverageMessage) Reset() {
 	*x = ReedCoverageMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[35]
+	mi := &file_proto_websocket_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2857,7 +3002,7 @@ func (x *ReedCoverageMessage) String() string {
 func (*ReedCoverageMessage) ProtoMessage() {}
 
 func (x *ReedCoverageMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[35]
+	mi := &file_proto_websocket_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2870,7 +3015,7 @@ func (x *ReedCoverageMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedCoverageMessage.ProtoReflect.Descriptor instead.
 func (*ReedCoverageMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{35}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ReedCoverageMessage) GetReedId() string {
@@ -2897,7 +3042,7 @@ type ReedEchoesMessage struct {
 
 func (x *ReedEchoesMessage) Reset() {
 	*x = ReedEchoesMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[36]
+	mi := &file_proto_websocket_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2909,7 +3054,7 @@ func (x *ReedEchoesMessage) String() string {
 func (*ReedEchoesMessage) ProtoMessage() {}
 
 func (x *ReedEchoesMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[36]
+	mi := &file_proto_websocket_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2922,7 +3067,7 @@ func (x *ReedEchoesMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedEchoesMessage.ProtoReflect.Descriptor instead.
 func (*ReedEchoesMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{36}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ReedEchoesMessage) GetReedId() string {
@@ -2949,7 +3094,7 @@ type ReedRepliesMessage struct {
 
 func (x *ReedRepliesMessage) Reset() {
 	*x = ReedRepliesMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[37]
+	mi := &file_proto_websocket_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2961,7 +3106,7 @@ func (x *ReedRepliesMessage) String() string {
 func (*ReedRepliesMessage) ProtoMessage() {}
 
 func (x *ReedRepliesMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[37]
+	mi := &file_proto_websocket_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2974,7 +3119,7 @@ func (x *ReedRepliesMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedRepliesMessage.ProtoReflect.Descriptor instead.
 func (*ReedRepliesMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{37}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ReedRepliesMessage) GetReedId() string {
@@ -3001,7 +3146,7 @@ type ReedLikesMessage struct {
 
 func (x *ReedLikesMessage) Reset() {
 	*x = ReedLikesMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[38]
+	mi := &file_proto_websocket_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3013,7 +3158,7 @@ func (x *ReedLikesMessage) String() string {
 func (*ReedLikesMessage) ProtoMessage() {}
 
 func (x *ReedLikesMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[38]
+	mi := &file_proto_websocket_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3026,7 +3171,7 @@ func (x *ReedLikesMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedLikesMessage.ProtoReflect.Descriptor instead.
 func (*ReedLikesMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{38}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ReedLikesMessage) GetReedId() string {
@@ -3055,7 +3200,7 @@ type UserSignature struct {
 
 func (x *UserSignature) Reset() {
 	*x = UserSignature{}
-	mi := &file_proto_websocket_proto_msgTypes[39]
+	mi := &file_proto_websocket_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3067,7 +3212,7 @@ func (x *UserSignature) String() string {
 func (*UserSignature) ProtoMessage() {}
 
 func (x *UserSignature) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[39]
+	mi := &file_proto_websocket_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3080,7 +3225,7 @@ func (x *UserSignature) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserSignature.ProtoReflect.Descriptor instead.
 func (*UserSignature) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{39}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *UserSignature) GetId() string {
@@ -3109,7 +3254,7 @@ type ServerSignature struct {
 
 func (x *ServerSignature) Reset() {
 	*x = ServerSignature{}
-	mi := &file_proto_websocket_proto_msgTypes[40]
+	mi := &file_proto_websocket_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3121,7 +3266,7 @@ func (x *ServerSignature) String() string {
 func (*ServerSignature) ProtoMessage() {}
 
 func (x *ServerSignature) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[40]
+	mi := &file_proto_websocket_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3134,7 +3279,7 @@ func (x *ServerSignature) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerSignature.ProtoReflect.Descriptor instead.
 func (*ServerSignature) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{40}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ServerSignature) GetId() string {
@@ -3176,7 +3321,7 @@ type Ripple struct {
 
 func (x *Ripple) Reset() {
 	*x = Ripple{}
-	mi := &file_proto_websocket_proto_msgTypes[41]
+	mi := &file_proto_websocket_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3188,7 +3333,7 @@ func (x *Ripple) String() string {
 func (*Ripple) ProtoMessage() {}
 
 func (x *Ripple) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[41]
+	mi := &file_proto_websocket_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3201,7 +3346,7 @@ func (x *Ripple) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ripple.ProtoReflect.Descriptor instead.
 func (*Ripple) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{41}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *Ripple) GetHash() string {
@@ -3279,7 +3424,7 @@ type RipplePostedMessage struct {
 
 func (x *RipplePostedMessage) Reset() {
 	*x = RipplePostedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[42]
+	mi := &file_proto_websocket_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3291,7 +3436,7 @@ func (x *RipplePostedMessage) String() string {
 func (*RipplePostedMessage) ProtoMessage() {}
 
 func (x *RipplePostedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[42]
+	mi := &file_proto_websocket_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3304,7 +3449,7 @@ func (x *RipplePostedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RipplePostedMessage.ProtoReflect.Descriptor instead.
 func (*RipplePostedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{42}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *RipplePostedMessage) GetUserId() string {
@@ -3342,7 +3487,7 @@ type RippleUpdatedMessage struct {
 
 func (x *RippleUpdatedMessage) Reset() {
 	*x = RippleUpdatedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[43]
+	mi := &file_proto_websocket_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3354,7 +3499,7 @@ func (x *RippleUpdatedMessage) String() string {
 func (*RippleUpdatedMessage) ProtoMessage() {}
 
 func (x *RippleUpdatedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[43]
+	mi := &file_proto_websocket_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3367,7 +3512,7 @@ func (x *RippleUpdatedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RippleUpdatedMessage.ProtoReflect.Descriptor instead.
 func (*RippleUpdatedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{43}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *RippleUpdatedMessage) GetUserId() string {
@@ -3406,7 +3551,7 @@ type ReedRemovalCert struct {
 
 func (x *ReedRemovalCert) Reset() {
 	*x = ReedRemovalCert{}
-	mi := &file_proto_websocket_proto_msgTypes[44]
+	mi := &file_proto_websocket_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3418,7 +3563,7 @@ func (x *ReedRemovalCert) String() string {
 func (*ReedRemovalCert) ProtoMessage() {}
 
 func (x *ReedRemovalCert) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[44]
+	mi := &file_proto_websocket_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3431,7 +3576,7 @@ func (x *ReedRemovalCert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedRemovalCert.ProtoReflect.Descriptor instead.
 func (*ReedRemovalCert) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{44}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *ReedRemovalCert) GetServerId() string {
@@ -3484,7 +3629,7 @@ type AccountRemovalCert struct {
 
 func (x *AccountRemovalCert) Reset() {
 	*x = AccountRemovalCert{}
-	mi := &file_proto_websocket_proto_msgTypes[45]
+	mi := &file_proto_websocket_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3496,7 +3641,7 @@ func (x *AccountRemovalCert) String() string {
 func (*AccountRemovalCert) ProtoMessage() {}
 
 func (x *AccountRemovalCert) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[45]
+	mi := &file_proto_websocket_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3509,7 +3654,7 @@ func (x *AccountRemovalCert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountRemovalCert.ProtoReflect.Descriptor instead.
 func (*AccountRemovalCert) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{45}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AccountRemovalCert) GetServerId() string {
@@ -3557,7 +3702,7 @@ type ReedRemovedMessage struct {
 
 func (x *ReedRemovedMessage) Reset() {
 	*x = ReedRemovedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[46]
+	mi := &file_proto_websocket_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3569,7 +3714,7 @@ func (x *ReedRemovedMessage) String() string {
 func (*ReedRemovedMessage) ProtoMessage() {}
 
 func (x *ReedRemovedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[46]
+	mi := &file_proto_websocket_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3582,7 +3727,7 @@ func (x *ReedRemovedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedRemovedMessage.ProtoReflect.Descriptor instead.
 func (*ReedRemovedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{46}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ReedRemovedMessage) GetRequestId() string {
@@ -3616,7 +3761,7 @@ type KeyRevocationCert struct {
 
 func (x *KeyRevocationCert) Reset() {
 	*x = KeyRevocationCert{}
-	mi := &file_proto_websocket_proto_msgTypes[47]
+	mi := &file_proto_websocket_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3628,7 +3773,7 @@ func (x *KeyRevocationCert) String() string {
 func (*KeyRevocationCert) ProtoMessage() {}
 
 func (x *KeyRevocationCert) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[47]
+	mi := &file_proto_websocket_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3641,7 +3786,7 @@ func (x *KeyRevocationCert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyRevocationCert.ProtoReflect.Descriptor instead.
 func (*KeyRevocationCert) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{47}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *KeyRevocationCert) GetId() string {
@@ -3705,7 +3850,7 @@ type KeyRevokedMessage struct {
 
 func (x *KeyRevokedMessage) Reset() {
 	*x = KeyRevokedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[48]
+	mi := &file_proto_websocket_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3717,7 +3862,7 @@ func (x *KeyRevokedMessage) String() string {
 func (*KeyRevokedMessage) ProtoMessage() {}
 
 func (x *KeyRevokedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[48]
+	mi := &file_proto_websocket_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3730,7 +3875,7 @@ func (x *KeyRevokedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KeyRevokedMessage.ProtoReflect.Descriptor instead.
 func (*KeyRevokedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{48}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *KeyRevokedMessage) GetRequestId() string {
@@ -3757,7 +3902,7 @@ type AccountRemovedMessage struct {
 
 func (x *AccountRemovedMessage) Reset() {
 	*x = AccountRemovedMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[49]
+	mi := &file_proto_websocket_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3769,7 +3914,7 @@ func (x *AccountRemovedMessage) String() string {
 func (*AccountRemovedMessage) ProtoMessage() {}
 
 func (x *AccountRemovedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[49]
+	mi := &file_proto_websocket_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3782,7 +3927,7 @@ func (x *AccountRemovedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountRemovedMessage.ProtoReflect.Descriptor instead.
 func (*AccountRemovedMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{49}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *AccountRemovedMessage) GetRequestId() string {
@@ -3811,7 +3956,7 @@ type NewVouchMessage struct {
 
 func (x *NewVouchMessage) Reset() {
 	*x = NewVouchMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[50]
+	mi := &file_proto_websocket_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3823,7 +3968,7 @@ func (x *NewVouchMessage) String() string {
 func (*NewVouchMessage) ProtoMessage() {}
 
 func (x *NewVouchMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[50]
+	mi := &file_proto_websocket_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3836,7 +3981,7 @@ func (x *NewVouchMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewVouchMessage.ProtoReflect.Descriptor instead.
 func (*NewVouchMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{50}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *NewVouchMessage) GetVouchId() string {
@@ -3856,7 +4001,7 @@ type NewRippleMessage struct {
 
 func (x *NewRippleMessage) Reset() {
 	*x = NewRippleMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[51]
+	mi := &file_proto_websocket_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3868,7 +4013,7 @@ func (x *NewRippleMessage) String() string {
 func (*NewRippleMessage) ProtoMessage() {}
 
 func (x *NewRippleMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[51]
+	mi := &file_proto_websocket_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3881,7 +4026,7 @@ func (x *NewRippleMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewRippleMessage.ProtoReflect.Descriptor instead.
 func (*NewRippleMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{51}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{53}
 }
 
 // Tells a viewer this server lost its link to a peer: live updates from
@@ -3897,7 +4042,7 @@ type PeerServerLostMessage struct {
 
 func (x *PeerServerLostMessage) Reset() {
 	*x = PeerServerLostMessage{}
-	mi := &file_proto_websocket_proto_msgTypes[52]
+	mi := &file_proto_websocket_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3909,7 +4054,7 @@ func (x *PeerServerLostMessage) String() string {
 func (*PeerServerLostMessage) ProtoMessage() {}
 
 func (x *PeerServerLostMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_websocket_proto_msgTypes[52]
+	mi := &file_proto_websocket_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3922,7 +4067,7 @@ func (x *PeerServerLostMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerServerLostMessage.ProtoReflect.Descriptor instead.
 func (*PeerServerLostMessage) Descriptor() ([]byte, []int) {
-	return file_proto_websocket_proto_rawDescGZIP(), []int{52}
+	return file_proto_websocket_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *PeerServerLostMessage) GetServerId() string {
@@ -3943,7 +4088,7 @@ var File_proto_websocket_proto protoreflect.FileDescriptor
 
 const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xb9\x1c\n" +
+	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\xd5\x1d\n" +
 	"\tWSMessage\x121\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x1d.syrinx.websocket.MessageTypeR\x04type\x12\x1b\n" +
 	"\ttype_name\x18\f \x01(\tR\btypeName\x12\x0e\n" +
@@ -4002,7 +4147,9 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
 	"new_ripple\x181 \x01(\v2\".syrinx.websocket.NewRippleMessageH\x00R\tnewRipple\x12F\n" +
 	"\vkey_revoked\x182 \x01(\v2#.syrinx.websocket.KeyRevokedMessageH\x00R\n" +
-	"keyRevokedB\t\n" +
+	"keyRevoked\x12O\n" +
+	"\x0erequest_thread\x183 \x01(\v2&.syrinx.websocket.RequestThreadMessageH\x00R\rrequestThread\x12I\n" +
+	"\frelay_thread\x184 \x01(\v2$.syrinx.websocket.RelayThreadMessageH\x00R\vrelayThreadB\t\n" +
 	"\apayloadJ\x04\b\x05\x10\x06R\n" +
 	"subscribed\"!\n" +
 	"\vPingMessage\x12\x12\n" +
@@ -4048,6 +4195,13 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"ciphertext\"X\n" +
 	"\x13RelayRequestMessage\x12\x17\n" +
 	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12(\n" +
+	"\x10requester_key_id\x18\x02 \x01(\tR\x0erequesterKeyId\"R\n" +
+	"\x14RequestThreadMessage\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\"[\n" +
+	"\x12RelayThreadMessage\x12\x1b\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12(\n" +
 	"\x10requester_key_id\x18\x02 \x01(\tR\x0erequesterKeyId\"K\n" +
 	"\x11RequestAckMessage\x12\x1d\n" +
 	"\n" +
@@ -4195,7 +4349,7 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x15PeerServerLostMessage\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
-	"serverName*\xfc\b\n" +
+	"serverName*\xa2\t\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04PING\x10\x01\x12\b\n" +
@@ -4263,7 +4417,9 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x10PEER_SERVER_LOST\x10;\x12\x0e\n" +
 	"\n" +
 	"NEW_RIPPLE\x10<\x12\x0f\n" +
-	"\vKEY_REVOKED\x10=\"\x04\b\x04\x10\x04*\n" +
+	"\vKEY_REVOKED\x10=\x12\x12\n" +
+	"\x0eREQUEST_THREAD\x10>\x12\x10\n" +
+	"\fRELAY_THREAD\x10?\"\x04\b\x04\x10\x04*\n" +
 	"SUBSCRIBEDB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
@@ -4279,7 +4435,7 @@ func file_proto_websocket_proto_rawDescGZIP() []byte {
 }
 
 var file_proto_websocket_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 53)
+var file_proto_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_proto_websocket_proto_goTypes = []any{
 	(MessageType)(0),                     // 0: syrinx.websocket.MessageType
 	(*WSMessage)(nil),                    // 1: syrinx.websocket.WSMessage
@@ -4295,46 +4451,48 @@ var file_proto_websocket_proto_goTypes = []any{
 	(*SyncRequestMessage)(nil),           // 11: syrinx.websocket.SyncRequestMessage
 	(*RelayResponseMessage)(nil),         // 12: syrinx.websocket.RelayResponseMessage
 	(*RelayRequestMessage)(nil),          // 13: syrinx.websocket.RelayRequestMessage
-	(*RequestAckMessage)(nil),            // 14: syrinx.websocket.RequestAckMessage
-	(*MailboxMessage)(nil),               // 15: syrinx.websocket.MailboxMessage
-	(*MailboxAckMessage)(nil),            // 16: syrinx.websocket.MailboxAckMessage
-	(*KeyFetchErrorMessage)(nil),         // 17: syrinx.websocket.KeyFetchErrorMessage
-	(*RevokedKeyUsedMessage)(nil),        // 18: syrinx.websocket.RevokedKeyUsedMessage
-	(*ContentRejectedMessage)(nil),       // 19: syrinx.websocket.ContentRejectedMessage
-	(*SubscribeProfileMessage)(nil),      // 20: syrinx.websocket.SubscribeProfileMessage
-	(*UnsubscribeProfileMessage)(nil),    // 21: syrinx.websocket.UnsubscribeProfileMessage
-	(*ProfilePageMessage)(nil),           // 22: syrinx.websocket.ProfilePageMessage
-	(*PageAckMessage)(nil),               // 23: syrinx.websocket.PageAckMessage
-	(*SubscribeReedMessage)(nil),         // 24: syrinx.websocket.SubscribeReedMessage
-	(*UnsubscribeReedMessage)(nil),       // 25: syrinx.websocket.UnsubscribeReedMessage
-	(*SubscribePipeMessage)(nil),         // 26: syrinx.websocket.SubscribePipeMessage
-	(*UnsubscribePipeMessage)(nil),       // 27: syrinx.websocket.UnsubscribePipeMessage
-	(*PublishReadyMessage)(nil),          // 28: syrinx.websocket.PublishReadyMessage
-	(*PublishReadyAckMessage)(nil),       // 29: syrinx.websocket.PublishReadyAckMessage
-	(*EvictionMessage)(nil),              // 30: syrinx.websocket.EvictionMessage
-	(*EvictionAckMessage)(nil),           // 31: syrinx.websocket.EvictionAckMessage
-	(*ReedNotFoundMessage)(nil),          // 32: syrinx.websocket.ReedNotFoundMessage
-	(*ReedNotHeldMessage)(nil),           // 33: syrinx.websocket.ReedNotHeldMessage
-	(*InvalidRequestIdErrorMessage)(nil), // 34: syrinx.websocket.InvalidRequestIdErrorMessage
-	(*ReedStatsMessage)(nil),             // 35: syrinx.websocket.ReedStatsMessage
-	(*ReedCoverageMessage)(nil),          // 36: syrinx.websocket.ReedCoverageMessage
-	(*ReedEchoesMessage)(nil),            // 37: syrinx.websocket.ReedEchoesMessage
-	(*ReedRepliesMessage)(nil),           // 38: syrinx.websocket.ReedRepliesMessage
-	(*ReedLikesMessage)(nil),             // 39: syrinx.websocket.ReedLikesMessage
-	(*UserSignature)(nil),                // 40: syrinx.websocket.UserSignature
-	(*ServerSignature)(nil),              // 41: syrinx.websocket.ServerSignature
-	(*Ripple)(nil),                       // 42: syrinx.websocket.Ripple
-	(*RipplePostedMessage)(nil),          // 43: syrinx.websocket.RipplePostedMessage
-	(*RippleUpdatedMessage)(nil),         // 44: syrinx.websocket.RippleUpdatedMessage
-	(*ReedRemovalCert)(nil),              // 45: syrinx.websocket.ReedRemovalCert
-	(*AccountRemovalCert)(nil),           // 46: syrinx.websocket.AccountRemovalCert
-	(*ReedRemovedMessage)(nil),           // 47: syrinx.websocket.ReedRemovedMessage
-	(*KeyRevocationCert)(nil),            // 48: syrinx.websocket.KeyRevocationCert
-	(*KeyRevokedMessage)(nil),            // 49: syrinx.websocket.KeyRevokedMessage
-	(*AccountRemovedMessage)(nil),        // 50: syrinx.websocket.AccountRemovedMessage
-	(*NewVouchMessage)(nil),              // 51: syrinx.websocket.NewVouchMessage
-	(*NewRippleMessage)(nil),             // 52: syrinx.websocket.NewRippleMessage
-	(*PeerServerLostMessage)(nil),        // 53: syrinx.websocket.PeerServerLostMessage
+	(*RequestThreadMessage)(nil),         // 14: syrinx.websocket.RequestThreadMessage
+	(*RelayThreadMessage)(nil),           // 15: syrinx.websocket.RelayThreadMessage
+	(*RequestAckMessage)(nil),            // 16: syrinx.websocket.RequestAckMessage
+	(*MailboxMessage)(nil),               // 17: syrinx.websocket.MailboxMessage
+	(*MailboxAckMessage)(nil),            // 18: syrinx.websocket.MailboxAckMessage
+	(*KeyFetchErrorMessage)(nil),         // 19: syrinx.websocket.KeyFetchErrorMessage
+	(*RevokedKeyUsedMessage)(nil),        // 20: syrinx.websocket.RevokedKeyUsedMessage
+	(*ContentRejectedMessage)(nil),       // 21: syrinx.websocket.ContentRejectedMessage
+	(*SubscribeProfileMessage)(nil),      // 22: syrinx.websocket.SubscribeProfileMessage
+	(*UnsubscribeProfileMessage)(nil),    // 23: syrinx.websocket.UnsubscribeProfileMessage
+	(*ProfilePageMessage)(nil),           // 24: syrinx.websocket.ProfilePageMessage
+	(*PageAckMessage)(nil),               // 25: syrinx.websocket.PageAckMessage
+	(*SubscribeReedMessage)(nil),         // 26: syrinx.websocket.SubscribeReedMessage
+	(*UnsubscribeReedMessage)(nil),       // 27: syrinx.websocket.UnsubscribeReedMessage
+	(*SubscribePipeMessage)(nil),         // 28: syrinx.websocket.SubscribePipeMessage
+	(*UnsubscribePipeMessage)(nil),       // 29: syrinx.websocket.UnsubscribePipeMessage
+	(*PublishReadyMessage)(nil),          // 30: syrinx.websocket.PublishReadyMessage
+	(*PublishReadyAckMessage)(nil),       // 31: syrinx.websocket.PublishReadyAckMessage
+	(*EvictionMessage)(nil),              // 32: syrinx.websocket.EvictionMessage
+	(*EvictionAckMessage)(nil),           // 33: syrinx.websocket.EvictionAckMessage
+	(*ReedNotFoundMessage)(nil),          // 34: syrinx.websocket.ReedNotFoundMessage
+	(*ReedNotHeldMessage)(nil),           // 35: syrinx.websocket.ReedNotHeldMessage
+	(*InvalidRequestIdErrorMessage)(nil), // 36: syrinx.websocket.InvalidRequestIdErrorMessage
+	(*ReedStatsMessage)(nil),             // 37: syrinx.websocket.ReedStatsMessage
+	(*ReedCoverageMessage)(nil),          // 38: syrinx.websocket.ReedCoverageMessage
+	(*ReedEchoesMessage)(nil),            // 39: syrinx.websocket.ReedEchoesMessage
+	(*ReedRepliesMessage)(nil),           // 40: syrinx.websocket.ReedRepliesMessage
+	(*ReedLikesMessage)(nil),             // 41: syrinx.websocket.ReedLikesMessage
+	(*UserSignature)(nil),                // 42: syrinx.websocket.UserSignature
+	(*ServerSignature)(nil),              // 43: syrinx.websocket.ServerSignature
+	(*Ripple)(nil),                       // 44: syrinx.websocket.Ripple
+	(*RipplePostedMessage)(nil),          // 45: syrinx.websocket.RipplePostedMessage
+	(*RippleUpdatedMessage)(nil),         // 46: syrinx.websocket.RippleUpdatedMessage
+	(*ReedRemovalCert)(nil),              // 47: syrinx.websocket.ReedRemovalCert
+	(*AccountRemovalCert)(nil),           // 48: syrinx.websocket.AccountRemovalCert
+	(*ReedRemovedMessage)(nil),           // 49: syrinx.websocket.ReedRemovedMessage
+	(*KeyRevocationCert)(nil),            // 50: syrinx.websocket.KeyRevocationCert
+	(*KeyRevokedMessage)(nil),            // 51: syrinx.websocket.KeyRevokedMessage
+	(*AccountRemovedMessage)(nil),        // 52: syrinx.websocket.AccountRemovedMessage
+	(*NewVouchMessage)(nil),              // 53: syrinx.websocket.NewVouchMessage
+	(*NewRippleMessage)(nil),             // 54: syrinx.websocket.NewRippleMessage
+	(*PeerServerLostMessage)(nil),        // 55: syrinx.websocket.PeerServerLostMessage
 }
 var file_proto_websocket_proto_depIdxs = []int32{
 	0,  // 0: syrinx.websocket.WSMessage.type:type_name -> syrinx.websocket.MessageType
@@ -4350,58 +4508,60 @@ var file_proto_websocket_proto_depIdxs = []int32{
 	11, // 10: syrinx.websocket.WSMessage.sync_request:type_name -> syrinx.websocket.SyncRequestMessage
 	12, // 11: syrinx.websocket.WSMessage.relay_response:type_name -> syrinx.websocket.RelayResponseMessage
 	13, // 12: syrinx.websocket.WSMessage.relay_request:type_name -> syrinx.websocket.RelayRequestMessage
-	14, // 13: syrinx.websocket.WSMessage.request_ack:type_name -> syrinx.websocket.RequestAckMessage
-	15, // 14: syrinx.websocket.WSMessage.mailbox:type_name -> syrinx.websocket.MailboxMessage
-	16, // 15: syrinx.websocket.WSMessage.mailbox_ack:type_name -> syrinx.websocket.MailboxAckMessage
-	17, // 16: syrinx.websocket.WSMessage.key_fetch_error:type_name -> syrinx.websocket.KeyFetchErrorMessage
-	18, // 17: syrinx.websocket.WSMessage.revoked_key_used:type_name -> syrinx.websocket.RevokedKeyUsedMessage
-	19, // 18: syrinx.websocket.WSMessage.content_rejected:type_name -> syrinx.websocket.ContentRejectedMessage
-	20, // 19: syrinx.websocket.WSMessage.subscribe_profile:type_name -> syrinx.websocket.SubscribeProfileMessage
-	21, // 20: syrinx.websocket.WSMessage.unsubscribe_profile:type_name -> syrinx.websocket.UnsubscribeProfileMessage
-	24, // 21: syrinx.websocket.WSMessage.subscribe_reed:type_name -> syrinx.websocket.SubscribeReedMessage
-	25, // 22: syrinx.websocket.WSMessage.unsubscribe_reed:type_name -> syrinx.websocket.UnsubscribeReedMessage
-	26, // 23: syrinx.websocket.WSMessage.subscribe_pipe:type_name -> syrinx.websocket.SubscribePipeMessage
-	27, // 24: syrinx.websocket.WSMessage.unsubscribe_pipe:type_name -> syrinx.websocket.UnsubscribePipeMessage
-	28, // 25: syrinx.websocket.WSMessage.publish_ready:type_name -> syrinx.websocket.PublishReadyMessage
-	29, // 26: syrinx.websocket.WSMessage.publish_ready_ack:type_name -> syrinx.websocket.PublishReadyAckMessage
-	32, // 27: syrinx.websocket.WSMessage.reed_not_found:type_name -> syrinx.websocket.ReedNotFoundMessage
-	33, // 28: syrinx.websocket.WSMessage.reed_not_held:type_name -> syrinx.websocket.ReedNotHeldMessage
-	34, // 29: syrinx.websocket.WSMessage.invalid_request_id_error:type_name -> syrinx.websocket.InvalidRequestIdErrorMessage
-	35, // 30: syrinx.websocket.WSMessage.reed_stats:type_name -> syrinx.websocket.ReedStatsMessage
-	36, // 31: syrinx.websocket.WSMessage.reed_coverage:type_name -> syrinx.websocket.ReedCoverageMessage
-	37, // 32: syrinx.websocket.WSMessage.reed_echoes:type_name -> syrinx.websocket.ReedEchoesMessage
-	38, // 33: syrinx.websocket.WSMessage.reed_replies:type_name -> syrinx.websocket.ReedRepliesMessage
-	39, // 34: syrinx.websocket.WSMessage.reed_likes:type_name -> syrinx.websocket.ReedLikesMessage
-	43, // 35: syrinx.websocket.WSMessage.ripple_posted:type_name -> syrinx.websocket.RipplePostedMessage
-	44, // 36: syrinx.websocket.WSMessage.ripple_updated:type_name -> syrinx.websocket.RippleUpdatedMessage
-	47, // 37: syrinx.websocket.WSMessage.reed_removed:type_name -> syrinx.websocket.ReedRemovedMessage
-	50, // 38: syrinx.websocket.WSMessage.account_removed:type_name -> syrinx.websocket.AccountRemovedMessage
-	22, // 39: syrinx.websocket.WSMessage.profile_page:type_name -> syrinx.websocket.ProfilePageMessage
-	23, // 40: syrinx.websocket.WSMessage.page_ack:type_name -> syrinx.websocket.PageAckMessage
-	30, // 41: syrinx.websocket.WSMessage.eviction:type_name -> syrinx.websocket.EvictionMessage
-	31, // 42: syrinx.websocket.WSMessage.eviction_ack:type_name -> syrinx.websocket.EvictionAckMessage
-	51, // 43: syrinx.websocket.WSMessage.new_vouch:type_name -> syrinx.websocket.NewVouchMessage
-	53, // 44: syrinx.websocket.WSMessage.peer_server_lost:type_name -> syrinx.websocket.PeerServerLostMessage
-	52, // 45: syrinx.websocket.WSMessage.new_ripple:type_name -> syrinx.websocket.NewRippleMessage
-	49, // 46: syrinx.websocket.WSMessage.key_revoked:type_name -> syrinx.websocket.KeyRevokedMessage
-	40, // 47: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 48: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
-	42, // 49: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
-	42, // 50: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
-	40, // 51: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 52: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	40, // 53: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 54: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	45, // 55: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
-	40, // 56: syrinx.websocket.KeyRevocationCert.user_signature:type_name -> syrinx.websocket.UserSignature
-	41, // 57: syrinx.websocket.KeyRevocationCert.server_signature:type_name -> syrinx.websocket.ServerSignature
-	48, // 58: syrinx.websocket.KeyRevokedMessage.revocation:type_name -> syrinx.websocket.KeyRevocationCert
-	46, // 59: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
-	60, // [60:60] is the sub-list for method output_type
-	60, // [60:60] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	16, // 13: syrinx.websocket.WSMessage.request_ack:type_name -> syrinx.websocket.RequestAckMessage
+	17, // 14: syrinx.websocket.WSMessage.mailbox:type_name -> syrinx.websocket.MailboxMessage
+	18, // 15: syrinx.websocket.WSMessage.mailbox_ack:type_name -> syrinx.websocket.MailboxAckMessage
+	19, // 16: syrinx.websocket.WSMessage.key_fetch_error:type_name -> syrinx.websocket.KeyFetchErrorMessage
+	20, // 17: syrinx.websocket.WSMessage.revoked_key_used:type_name -> syrinx.websocket.RevokedKeyUsedMessage
+	21, // 18: syrinx.websocket.WSMessage.content_rejected:type_name -> syrinx.websocket.ContentRejectedMessage
+	22, // 19: syrinx.websocket.WSMessage.subscribe_profile:type_name -> syrinx.websocket.SubscribeProfileMessage
+	23, // 20: syrinx.websocket.WSMessage.unsubscribe_profile:type_name -> syrinx.websocket.UnsubscribeProfileMessage
+	26, // 21: syrinx.websocket.WSMessage.subscribe_reed:type_name -> syrinx.websocket.SubscribeReedMessage
+	27, // 22: syrinx.websocket.WSMessage.unsubscribe_reed:type_name -> syrinx.websocket.UnsubscribeReedMessage
+	28, // 23: syrinx.websocket.WSMessage.subscribe_pipe:type_name -> syrinx.websocket.SubscribePipeMessage
+	29, // 24: syrinx.websocket.WSMessage.unsubscribe_pipe:type_name -> syrinx.websocket.UnsubscribePipeMessage
+	30, // 25: syrinx.websocket.WSMessage.publish_ready:type_name -> syrinx.websocket.PublishReadyMessage
+	31, // 26: syrinx.websocket.WSMessage.publish_ready_ack:type_name -> syrinx.websocket.PublishReadyAckMessage
+	34, // 27: syrinx.websocket.WSMessage.reed_not_found:type_name -> syrinx.websocket.ReedNotFoundMessage
+	35, // 28: syrinx.websocket.WSMessage.reed_not_held:type_name -> syrinx.websocket.ReedNotHeldMessage
+	36, // 29: syrinx.websocket.WSMessage.invalid_request_id_error:type_name -> syrinx.websocket.InvalidRequestIdErrorMessage
+	37, // 30: syrinx.websocket.WSMessage.reed_stats:type_name -> syrinx.websocket.ReedStatsMessage
+	38, // 31: syrinx.websocket.WSMessage.reed_coverage:type_name -> syrinx.websocket.ReedCoverageMessage
+	39, // 32: syrinx.websocket.WSMessage.reed_echoes:type_name -> syrinx.websocket.ReedEchoesMessage
+	40, // 33: syrinx.websocket.WSMessage.reed_replies:type_name -> syrinx.websocket.ReedRepliesMessage
+	41, // 34: syrinx.websocket.WSMessage.reed_likes:type_name -> syrinx.websocket.ReedLikesMessage
+	45, // 35: syrinx.websocket.WSMessage.ripple_posted:type_name -> syrinx.websocket.RipplePostedMessage
+	46, // 36: syrinx.websocket.WSMessage.ripple_updated:type_name -> syrinx.websocket.RippleUpdatedMessage
+	49, // 37: syrinx.websocket.WSMessage.reed_removed:type_name -> syrinx.websocket.ReedRemovedMessage
+	52, // 38: syrinx.websocket.WSMessage.account_removed:type_name -> syrinx.websocket.AccountRemovedMessage
+	24, // 39: syrinx.websocket.WSMessage.profile_page:type_name -> syrinx.websocket.ProfilePageMessage
+	25, // 40: syrinx.websocket.WSMessage.page_ack:type_name -> syrinx.websocket.PageAckMessage
+	32, // 41: syrinx.websocket.WSMessage.eviction:type_name -> syrinx.websocket.EvictionMessage
+	33, // 42: syrinx.websocket.WSMessage.eviction_ack:type_name -> syrinx.websocket.EvictionAckMessage
+	53, // 43: syrinx.websocket.WSMessage.new_vouch:type_name -> syrinx.websocket.NewVouchMessage
+	55, // 44: syrinx.websocket.WSMessage.peer_server_lost:type_name -> syrinx.websocket.PeerServerLostMessage
+	54, // 45: syrinx.websocket.WSMessage.new_ripple:type_name -> syrinx.websocket.NewRippleMessage
+	51, // 46: syrinx.websocket.WSMessage.key_revoked:type_name -> syrinx.websocket.KeyRevokedMessage
+	14, // 47: syrinx.websocket.WSMessage.request_thread:type_name -> syrinx.websocket.RequestThreadMessage
+	15, // 48: syrinx.websocket.WSMessage.relay_thread:type_name -> syrinx.websocket.RelayThreadMessage
+	42, // 49: syrinx.websocket.Ripple.user_signature:type_name -> syrinx.websocket.UserSignature
+	43, // 50: syrinx.websocket.Ripple.server_signature:type_name -> syrinx.websocket.ServerSignature
+	44, // 51: syrinx.websocket.RipplePostedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	44, // 52: syrinx.websocket.RippleUpdatedMessage.ripple:type_name -> syrinx.websocket.Ripple
+	42, // 53: syrinx.websocket.ReedRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	43, // 54: syrinx.websocket.ReedRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	42, // 55: syrinx.websocket.AccountRemovalCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	43, // 56: syrinx.websocket.AccountRemovalCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	47, // 57: syrinx.websocket.ReedRemovedMessage.cert:type_name -> syrinx.websocket.ReedRemovalCert
+	42, // 58: syrinx.websocket.KeyRevocationCert.user_signature:type_name -> syrinx.websocket.UserSignature
+	43, // 59: syrinx.websocket.KeyRevocationCert.server_signature:type_name -> syrinx.websocket.ServerSignature
+	50, // 60: syrinx.websocket.KeyRevokedMessage.revocation:type_name -> syrinx.websocket.KeyRevocationCert
+	48, // 61: syrinx.websocket.AccountRemovedMessage.cert:type_name -> syrinx.websocket.AccountRemovalCert
+	62, // [62:62] is the sub-list for method output_type
+	62, // [62:62] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() { file_proto_websocket_proto_init() }
@@ -4456,6 +4616,8 @@ func file_proto_websocket_proto_init() {
 		(*WSMessage_PeerServerLost)(nil),
 		(*WSMessage_NewRipple)(nil),
 		(*WSMessage_KeyRevoked)(nil),
+		(*WSMessage_RequestThread)(nil),
+		(*WSMessage_RelayThread)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -4463,7 +4625,7 @@ func file_proto_websocket_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_websocket_proto_rawDesc), len(file_proto_websocket_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   53,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

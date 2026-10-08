@@ -1117,6 +1117,15 @@ func InitDB(db *sql.DB) error {
 
 	// Home-server bookkeeping: records which peer+user a sentinel-attributed
 	// pending_events row was actually registered on behalf of.
+	// The parts of a foreign thread relayed for event_id, from a thread
+	// record this server verified; its DATA_ACK allocates each one.
+	createPendingThreadPartsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS pending_thread_parts (
+		event_id VARCHAR(255) PRIMARY KEY
+			REFERENCES pending_events(event_id) ON DELETE CASCADE,
+		reed_ids TEXT[] NOT NULL
+	);`
+
 	createForeignRelayRequestsTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS foreign_relay_requests (
 		event_id VARCHAR(255) PRIMARY KEY
@@ -1463,6 +1472,7 @@ func InitDB(db *sql.DB) error {
 
 		createForeignRelayRequestsTable,
 		createForeignRelayRequestsIndexes,
+		createPendingThreadPartsTable,
 
 		// Triggers
 
