@@ -2056,7 +2056,7 @@ func (rs *realtimeService) dispatchManyForeign(recipients []string, eventName re
 	}
 	for _, recipientID := range recipients {
 		requestID := generateRealtimeEventID(recipientID)
-		if _, _, err := rs.openForeignEvent(context.Background(), recipientID, requestID, reedID, homeServerID, eventName); err != nil {
+		if _, _, err := rs.openForeignEvent(context.Background(), recipientID, requestID, reedID, homeServerID, eventName); err != nil && !errors.Is(err, errRecipientBlocked) {
 			log.Error().Err(err).Str("recipientID", recipientID).Str("reedID", reedID).Msg("Failed to open foreign event")
 		}
 	}
@@ -3381,7 +3381,7 @@ func (rs *realtimeService) recordForeignRelayRequest(ctx context.Context, eventI
 
 // realtimeForeignProfilePageHook fetches one page of a foreign author's
 // reed ids from their home server, with that page's count and hasMore.
-type realtimeForeignProfilePageHook func(ctx context.Context, authorID string, page int) ([]string, int, bool, error)
+type realtimeForeignProfilePageHook func(ctx context.Context, authorID, requesterUserID string, page int) ([]string, int, bool, error)
 
 // SetForeignProfilePageHook installs the profile history-page hook.
 func (rs *realtimeService) SetForeignProfilePageHook(hook realtimeForeignProfilePageHook) {
@@ -3465,7 +3465,7 @@ func (rs *realtimeService) handleForeignProfilePageFromClient(client *realtimeCl
 	}
 	ctx := context.Background()
 
-	reedIDs, count, hasMore, err := rs.foreignProfilePageHook(ctx, authorID, int(page))
+	reedIDs, count, hasMore, err := rs.foreignProfilePageHook(ctx, authorID, client.userID, int(page))
 	if err != nil {
 		log.Error().Err(err).Str("authorID", authorID).Str("homeServerID", homeServerID).Msg("Failed to fetch foreign profile page")
 		return

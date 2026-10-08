@@ -105,7 +105,7 @@ func TestForeignProfilePageHookWiresUp(t *testing.T) {
 	}
 
 	var called bool
-	rs.SetForeignProfilePageHook(func(_ context.Context, _ string, _ int) ([]string, int, bool, error) {
+	rs.SetForeignProfilePageHook(func(_ context.Context, _, _ string, _ int) ([]string, int, bool, error) {
 		called = true
 		return nil, 50, true, nil
 	})
@@ -114,7 +114,7 @@ func TestForeignProfilePageHookWiresUp(t *testing.T) {
 		t.Fatal("expected foreignProfilePageHook to be set")
 	}
 
-	_, count, hasMore, err := rs.foreignProfilePageHook(context.Background(), "alice@peer5678", 1)
+	_, count, hasMore, err := rs.foreignProfilePageHook(context.Background(), "alice@peer5678", "bob@home1234", 1)
 	if err != nil {
 		t.Fatalf("foreignProfilePageHook: %v", err)
 	}

@@ -4037,8 +4037,12 @@ func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Reque
 // mirror locally.
 func (h *Handlers) forwardToPeer(r *http.Request, baseURL, body string) (respBody []byte, status int, err error) {
 	target := strings.TrimRight(baseURL, "/") + r.URL.Path
-	if r.URL.RawQuery != "" {
-		target += "?" + r.URL.RawQuery
+	query := r.URL.Query()
+	if viewerID, ok := r.Context().Value(userIDKey).(string); ok {
+		query.Set("requester", viewerID)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		target += "?" + encoded
 	}
 	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, strings.NewReader(body))
 	if err != nil {
@@ -4078,8 +4082,12 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 	// PathPrefix("/api").Subrouter() matches on it but does not strip it
 	// from the request, unlike some other routers' subrouter semantics.
 	target := strings.TrimRight(baseURL, "/") + r.URL.Path
-	if r.URL.RawQuery != "" {
-		target += "?" + r.URL.RawQuery
+	query := r.URL.Query()
+	if viewerID, ok := r.Context().Value(userIDKey).(string); ok {
+		query.Set("requester", viewerID)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		target += "?" + encoded
 	}
 	httpReq, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(body))
 	if err != nil {
@@ -4111,8 +4119,15 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 	if contentType := resp.Header.Get("Content-Type"); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
+	var respBody io.Reader = resp.Body
+	if resp.StatusCode == http.StatusForbidden {
+		if body, err := io.ReadAll(resp.Body); err == nil {
+			h.acceptRefusalBlock(r.Context(), peerServerID, body)
+			respBody = bytes.NewReader(body)
+		}
+	}
 	w.WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(w, resp.Body); err != nil {
+	if _, err := io.Copy(w, respBody); err != nil {
 		log.Error().Err(err).Str("target", target).Msg("failed to relay proxied response body")
 	}
 	return resp.StatusCode

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`blocks.go`, legs in `federation_relay.go`).
 
 ## Depends on
 

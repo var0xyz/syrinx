@@ -567,6 +567,18 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked_user
 		ON user_blocks (blocked_user_id);`
 
+	// The block or lift a foreign blocked user's home server is owed for
+	// each pair, at most one, deleted once the peer accepts.
+	createBlockPeerNoticesTable := `
+	CREATE TABLE IF NOT EXISTS block_peer_notices (
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		kind VARCHAR(8) NOT NULL CHECK (kind IN ('block', 'unblock')),
+
+		PRIMARY KEY (server_id, user_id, blocked_user_id)
+	);`
+
 	// The block or lift a local blocked user's client is owed for each
 	// pair, at most one, replaced by a later one and deleted on ack.
 	createUserBlockEventsTable := `
@@ -1464,6 +1476,7 @@ func InitDB(db *sql.DB) error {
 		createUserBlocksTable,
 		createUserBlocksIndexes,
 		createUserBlockEventsTable,
+		createBlockPeerNoticesTable,
 
 		createUserVouchesTable,
 		createUserVouchesActiveTable,
