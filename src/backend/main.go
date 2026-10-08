@@ -335,6 +335,13 @@ func main() {
 	api.HandleFunc("/users/{userID}/follow", h.UnfollowUser).Methods("DELETE")
 	api.HandleFunc("/users/{userID}/follow", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/users/{userID}/block", h.BlockUser).Methods("POST")
+	api.HandleFunc("/users/{userID}/block", h.UnblockUser).Methods("DELETE")
+	api.HandleFunc("/users/{userID}/block", h.noop).Methods("OPTIONS")
+
+	api.HandleFunc("/blocks", h.ListMyBlocks).Methods("GET")
+	api.HandleFunc("/blocks", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/following", h.GetUserFollowing).Methods("GET")
 	api.HandleFunc("/users/{userID}/following", h.noop).Methods("OPTIONS")
 

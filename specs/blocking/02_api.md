@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented (`blocks.go`).
 
 ## Depends on
 
