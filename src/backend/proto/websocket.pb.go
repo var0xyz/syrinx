@@ -21,8 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Message types. Numbers are frozen once assigned — never renumber or
-// reuse a retired value.
+// Message types.
 type MessageType int32
 
 const (
@@ -30,72 +29,72 @@ const (
 	MessageType_PING                     MessageType = 1
 	MessageType_PONG                     MessageType = 2
 	MessageType_SUBSCRIBE                MessageType = 3
-	MessageType_REED_NOTIFICATION        MessageType = 5
-	MessageType_USER_UPDATE              MessageType = 6
-	MessageType_ERROR                    MessageType = 7
-	MessageType_SUBSCRIBE_USER           MessageType = 8
-	MessageType_SUBSCRIBE_BROADCAST      MessageType = 9
-	MessageType_UNSUBSCRIBE_USER         MessageType = 10
-	MessageType_UNSUBSCRIBE_BROADCAST    MessageType = 11
-	MessageType_REQUEST_REED             MessageType = 12
-	MessageType_DATA_RESPONSE            MessageType = 13
-	MessageType_SIGTERM                  MessageType = 14
-	MessageType_SYNC_REQUEST             MessageType = 15
-	MessageType_RELAY_RESPONSE           MessageType = 16
-	MessageType_RELAY_MISS               MessageType = 17
-	MessageType_RELAY_ERROR              MessageType = 18
-	MessageType_RELAY_REQUEST            MessageType = 19
-	MessageType_DATA_ACK                 MessageType = 20
-	MessageType_DATA_INVALID             MessageType = 21
-	MessageType_REQUEST_ACK              MessageType = 22
-	MessageType_MAILBOX                  MessageType = 23
-	MessageType_MAILBOX_ACK              MessageType = 24
-	MessageType_KEY_FETCH_ERROR          MessageType = 25
-	MessageType_REVOKED_KEY_USED         MessageType = 26
-	MessageType_CONTENT_REJECTED         MessageType = 27
-	MessageType_SUBSCRIBE_PROFILE        MessageType = 28
-	MessageType_UNSUBSCRIBE_PROFILE      MessageType = 29
-	MessageType_SUBSCRIBE_REED           MessageType = 30
-	MessageType_UNSUBSCRIBE_REED         MessageType = 31
-	MessageType_SUBSCRIBE_PIPE           MessageType = 32
-	MessageType_UNSUBSCRIBE_PIPE         MessageType = 33
-	MessageType_PUBLISH_READY            MessageType = 34
-	MessageType_PUBLISH_READY_ACK        MessageType = 35
-	MessageType_REED_NOT_FOUND           MessageType = 36
-	MessageType_REED_NOT_HELD            MessageType = 37
-	MessageType_INVALID_REQUEST_ID_ERROR MessageType = 38
-	MessageType_REED_STATS               MessageType = 39
-	MessageType_REED_COVERAGE            MessageType = 40
-	MessageType_REED_ECHOES              MessageType = 41
-	MessageType_REED_REPLIES             MessageType = 42
-	MessageType_REED_LIKES               MessageType = 43
-	MessageType_RIPPLE_POSTED            MessageType = 44
-	MessageType_RIPPLE_UPDATED           MessageType = 45
-	MessageType_REED_REMOVED             MessageType = 46
-	MessageType_ACCOUNT_REMOVED          MessageType = 47
-	MessageType_BROADCAST_REED           MessageType = 48
-	MessageType_PIPE_REED                MessageType = 49
-	MessageType_FOLLOW_REED              MessageType = 50
-	MessageType_ARCHIVE_REED             MessageType = 51
-	MessageType_REED_REPLY               MessageType = 52
-	MessageType_MENTION                  MessageType = 53
-	MessageType_PROFILE_PAGE             MessageType = 54
-	MessageType_PAGE_ACK                 MessageType = 55
-	MessageType_EVICTION                 MessageType = 56
-	MessageType_EVICTION_ACK             MessageType = 57
-	MessageType_NEW_VOUCH                MessageType = 58
-	MessageType_PEER_SERVER_LOST         MessageType = 59
-	MessageType_NEW_RIPPLE               MessageType = 60
-	MessageType_KEY_REVOKED              MessageType = 61
-	MessageType_REQUEST_THREAD           MessageType = 62
-	MessageType_RELAY_THREAD             MessageType = 63
-	MessageType_THREAD_REMOVED           MessageType = 64
-	MessageType_KEY_EVICTION             MessageType = 65
-	MessageType_KEY_EVICTION_ACK         MessageType = 66
-	MessageType_USER_BLOCKED             MessageType = 67
-	MessageType_USER_BLOCKED_ACK         MessageType = 68
-	MessageType_USER_UNBLOCKED           MessageType = 69
-	MessageType_USER_UNBLOCKED_ACK       MessageType = 70
+	MessageType_REED_NOTIFICATION        MessageType = 4
+	MessageType_USER_UPDATE              MessageType = 5
+	MessageType_ERROR                    MessageType = 6
+	MessageType_SUBSCRIBE_USER           MessageType = 7
+	MessageType_SUBSCRIBE_BROADCAST      MessageType = 8
+	MessageType_UNSUBSCRIBE_USER         MessageType = 9
+	MessageType_UNSUBSCRIBE_BROADCAST    MessageType = 10
+	MessageType_REQUEST_REED             MessageType = 11
+	MessageType_DATA_RESPONSE            MessageType = 12
+	MessageType_SIGTERM                  MessageType = 13
+	MessageType_SYNC_REQUEST             MessageType = 14
+	MessageType_RELAY_RESPONSE           MessageType = 15
+	MessageType_RELAY_MISS               MessageType = 16
+	MessageType_RELAY_ERROR              MessageType = 17
+	MessageType_RELAY_REQUEST            MessageType = 18
+	MessageType_DATA_ACK                 MessageType = 19
+	MessageType_DATA_INVALID             MessageType = 20
+	MessageType_REQUEST_ACK              MessageType = 21
+	MessageType_MAILBOX                  MessageType = 22
+	MessageType_MAILBOX_ACK              MessageType = 23
+	MessageType_KEY_FETCH_ERROR          MessageType = 24
+	MessageType_REVOKED_KEY_USED         MessageType = 25
+	MessageType_CONTENT_REJECTED         MessageType = 26
+	MessageType_SUBSCRIBE_PROFILE        MessageType = 27
+	MessageType_UNSUBSCRIBE_PROFILE      MessageType = 28
+	MessageType_SUBSCRIBE_REED           MessageType = 29
+	MessageType_UNSUBSCRIBE_REED         MessageType = 30
+	MessageType_SUBSCRIBE_PIPE           MessageType = 31
+	MessageType_UNSUBSCRIBE_PIPE         MessageType = 32
+	MessageType_PUBLISH_READY            MessageType = 33
+	MessageType_PUBLISH_READY_ACK        MessageType = 34
+	MessageType_REED_NOT_FOUND           MessageType = 35
+	MessageType_REED_NOT_HELD            MessageType = 36
+	MessageType_INVALID_REQUEST_ID_ERROR MessageType = 37
+	MessageType_REED_STATS               MessageType = 38
+	MessageType_REED_COVERAGE            MessageType = 39
+	MessageType_REED_ECHOES              MessageType = 40
+	MessageType_REED_REPLIES             MessageType = 41
+	MessageType_REED_LIKES               MessageType = 42
+	MessageType_RIPPLE_POSTED            MessageType = 43
+	MessageType_RIPPLE_UPDATED           MessageType = 44
+	MessageType_REED_REMOVED             MessageType = 45
+	MessageType_ACCOUNT_REMOVED          MessageType = 46
+	MessageType_BROADCAST_REED           MessageType = 47
+	MessageType_PIPE_REED                MessageType = 48
+	MessageType_FOLLOW_REED              MessageType = 49
+	MessageType_ARCHIVE_REED             MessageType = 50
+	MessageType_REED_REPLY               MessageType = 51
+	MessageType_MENTION                  MessageType = 52
+	MessageType_PROFILE_PAGE             MessageType = 53
+	MessageType_PAGE_ACK                 MessageType = 54
+	MessageType_EVICTION                 MessageType = 55
+	MessageType_EVICTION_ACK             MessageType = 56
+	MessageType_NEW_VOUCH                MessageType = 57
+	MessageType_PEER_SERVER_LOST         MessageType = 58
+	MessageType_NEW_RIPPLE               MessageType = 59
+	MessageType_KEY_REVOKED              MessageType = 60
+	MessageType_REQUEST_THREAD           MessageType = 61
+	MessageType_RELAY_THREAD             MessageType = 62
+	MessageType_THREAD_REMOVED           MessageType = 63
+	MessageType_KEY_EVICTION             MessageType = 64
+	MessageType_KEY_EVICTION_ACK         MessageType = 65
+	MessageType_USER_BLOCKED             MessageType = 66
+	MessageType_USER_BLOCKED_ACK         MessageType = 67
+	MessageType_USER_UNBLOCKED           MessageType = 68
+	MessageType_USER_UNBLOCKED_ACK       MessageType = 69
 )
 
 // Enum value maps for MessageType.
@@ -105,144 +104,144 @@ var (
 		1:  "PING",
 		2:  "PONG",
 		3:  "SUBSCRIBE",
-		5:  "REED_NOTIFICATION",
-		6:  "USER_UPDATE",
-		7:  "ERROR",
-		8:  "SUBSCRIBE_USER",
-		9:  "SUBSCRIBE_BROADCAST",
-		10: "UNSUBSCRIBE_USER",
-		11: "UNSUBSCRIBE_BROADCAST",
-		12: "REQUEST_REED",
-		13: "DATA_RESPONSE",
-		14: "SIGTERM",
-		15: "SYNC_REQUEST",
-		16: "RELAY_RESPONSE",
-		17: "RELAY_MISS",
-		18: "RELAY_ERROR",
-		19: "RELAY_REQUEST",
-		20: "DATA_ACK",
-		21: "DATA_INVALID",
-		22: "REQUEST_ACK",
-		23: "MAILBOX",
-		24: "MAILBOX_ACK",
-		25: "KEY_FETCH_ERROR",
-		26: "REVOKED_KEY_USED",
-		27: "CONTENT_REJECTED",
-		28: "SUBSCRIBE_PROFILE",
-		29: "UNSUBSCRIBE_PROFILE",
-		30: "SUBSCRIBE_REED",
-		31: "UNSUBSCRIBE_REED",
-		32: "SUBSCRIBE_PIPE",
-		33: "UNSUBSCRIBE_PIPE",
-		34: "PUBLISH_READY",
-		35: "PUBLISH_READY_ACK",
-		36: "REED_NOT_FOUND",
-		37: "REED_NOT_HELD",
-		38: "INVALID_REQUEST_ID_ERROR",
-		39: "REED_STATS",
-		40: "REED_COVERAGE",
-		41: "REED_ECHOES",
-		42: "REED_REPLIES",
-		43: "REED_LIKES",
-		44: "RIPPLE_POSTED",
-		45: "RIPPLE_UPDATED",
-		46: "REED_REMOVED",
-		47: "ACCOUNT_REMOVED",
-		48: "BROADCAST_REED",
-		49: "PIPE_REED",
-		50: "FOLLOW_REED",
-		51: "ARCHIVE_REED",
-		52: "REED_REPLY",
-		53: "MENTION",
-		54: "PROFILE_PAGE",
-		55: "PAGE_ACK",
-		56: "EVICTION",
-		57: "EVICTION_ACK",
-		58: "NEW_VOUCH",
-		59: "PEER_SERVER_LOST",
-		60: "NEW_RIPPLE",
-		61: "KEY_REVOKED",
-		62: "REQUEST_THREAD",
-		63: "RELAY_THREAD",
-		64: "THREAD_REMOVED",
-		65: "KEY_EVICTION",
-		66: "KEY_EVICTION_ACK",
-		67: "USER_BLOCKED",
-		68: "USER_BLOCKED_ACK",
-		69: "USER_UNBLOCKED",
-		70: "USER_UNBLOCKED_ACK",
+		4:  "REED_NOTIFICATION",
+		5:  "USER_UPDATE",
+		6:  "ERROR",
+		7:  "SUBSCRIBE_USER",
+		8:  "SUBSCRIBE_BROADCAST",
+		9:  "UNSUBSCRIBE_USER",
+		10: "UNSUBSCRIBE_BROADCAST",
+		11: "REQUEST_REED",
+		12: "DATA_RESPONSE",
+		13: "SIGTERM",
+		14: "SYNC_REQUEST",
+		15: "RELAY_RESPONSE",
+		16: "RELAY_MISS",
+		17: "RELAY_ERROR",
+		18: "RELAY_REQUEST",
+		19: "DATA_ACK",
+		20: "DATA_INVALID",
+		21: "REQUEST_ACK",
+		22: "MAILBOX",
+		23: "MAILBOX_ACK",
+		24: "KEY_FETCH_ERROR",
+		25: "REVOKED_KEY_USED",
+		26: "CONTENT_REJECTED",
+		27: "SUBSCRIBE_PROFILE",
+		28: "UNSUBSCRIBE_PROFILE",
+		29: "SUBSCRIBE_REED",
+		30: "UNSUBSCRIBE_REED",
+		31: "SUBSCRIBE_PIPE",
+		32: "UNSUBSCRIBE_PIPE",
+		33: "PUBLISH_READY",
+		34: "PUBLISH_READY_ACK",
+		35: "REED_NOT_FOUND",
+		36: "REED_NOT_HELD",
+		37: "INVALID_REQUEST_ID_ERROR",
+		38: "REED_STATS",
+		39: "REED_COVERAGE",
+		40: "REED_ECHOES",
+		41: "REED_REPLIES",
+		42: "REED_LIKES",
+		43: "RIPPLE_POSTED",
+		44: "RIPPLE_UPDATED",
+		45: "REED_REMOVED",
+		46: "ACCOUNT_REMOVED",
+		47: "BROADCAST_REED",
+		48: "PIPE_REED",
+		49: "FOLLOW_REED",
+		50: "ARCHIVE_REED",
+		51: "REED_REPLY",
+		52: "MENTION",
+		53: "PROFILE_PAGE",
+		54: "PAGE_ACK",
+		55: "EVICTION",
+		56: "EVICTION_ACK",
+		57: "NEW_VOUCH",
+		58: "PEER_SERVER_LOST",
+		59: "NEW_RIPPLE",
+		60: "KEY_REVOKED",
+		61: "REQUEST_THREAD",
+		62: "RELAY_THREAD",
+		63: "THREAD_REMOVED",
+		64: "KEY_EVICTION",
+		65: "KEY_EVICTION_ACK",
+		66: "USER_BLOCKED",
+		67: "USER_BLOCKED_ACK",
+		68: "USER_UNBLOCKED",
+		69: "USER_UNBLOCKED_ACK",
 	}
 	MessageType_value = map[string]int32{
 		"UNKNOWN":                  0,
 		"PING":                     1,
 		"PONG":                     2,
 		"SUBSCRIBE":                3,
-		"REED_NOTIFICATION":        5,
-		"USER_UPDATE":              6,
-		"ERROR":                    7,
-		"SUBSCRIBE_USER":           8,
-		"SUBSCRIBE_BROADCAST":      9,
-		"UNSUBSCRIBE_USER":         10,
-		"UNSUBSCRIBE_BROADCAST":    11,
-		"REQUEST_REED":             12,
-		"DATA_RESPONSE":            13,
-		"SIGTERM":                  14,
-		"SYNC_REQUEST":             15,
-		"RELAY_RESPONSE":           16,
-		"RELAY_MISS":               17,
-		"RELAY_ERROR":              18,
-		"RELAY_REQUEST":            19,
-		"DATA_ACK":                 20,
-		"DATA_INVALID":             21,
-		"REQUEST_ACK":              22,
-		"MAILBOX":                  23,
-		"MAILBOX_ACK":              24,
-		"KEY_FETCH_ERROR":          25,
-		"REVOKED_KEY_USED":         26,
-		"CONTENT_REJECTED":         27,
-		"SUBSCRIBE_PROFILE":        28,
-		"UNSUBSCRIBE_PROFILE":      29,
-		"SUBSCRIBE_REED":           30,
-		"UNSUBSCRIBE_REED":         31,
-		"SUBSCRIBE_PIPE":           32,
-		"UNSUBSCRIBE_PIPE":         33,
-		"PUBLISH_READY":            34,
-		"PUBLISH_READY_ACK":        35,
-		"REED_NOT_FOUND":           36,
-		"REED_NOT_HELD":            37,
-		"INVALID_REQUEST_ID_ERROR": 38,
-		"REED_STATS":               39,
-		"REED_COVERAGE":            40,
-		"REED_ECHOES":              41,
-		"REED_REPLIES":             42,
-		"REED_LIKES":               43,
-		"RIPPLE_POSTED":            44,
-		"RIPPLE_UPDATED":           45,
-		"REED_REMOVED":             46,
-		"ACCOUNT_REMOVED":          47,
-		"BROADCAST_REED":           48,
-		"PIPE_REED":                49,
-		"FOLLOW_REED":              50,
-		"ARCHIVE_REED":             51,
-		"REED_REPLY":               52,
-		"MENTION":                  53,
-		"PROFILE_PAGE":             54,
-		"PAGE_ACK":                 55,
-		"EVICTION":                 56,
-		"EVICTION_ACK":             57,
-		"NEW_VOUCH":                58,
-		"PEER_SERVER_LOST":         59,
-		"NEW_RIPPLE":               60,
-		"KEY_REVOKED":              61,
-		"REQUEST_THREAD":           62,
-		"RELAY_THREAD":             63,
-		"THREAD_REMOVED":           64,
-		"KEY_EVICTION":             65,
-		"KEY_EVICTION_ACK":         66,
-		"USER_BLOCKED":             67,
-		"USER_BLOCKED_ACK":         68,
-		"USER_UNBLOCKED":           69,
-		"USER_UNBLOCKED_ACK":       70,
+		"REED_NOTIFICATION":        4,
+		"USER_UPDATE":              5,
+		"ERROR":                    6,
+		"SUBSCRIBE_USER":           7,
+		"SUBSCRIBE_BROADCAST":      8,
+		"UNSUBSCRIBE_USER":         9,
+		"UNSUBSCRIBE_BROADCAST":    10,
+		"REQUEST_REED":             11,
+		"DATA_RESPONSE":            12,
+		"SIGTERM":                  13,
+		"SYNC_REQUEST":             14,
+		"RELAY_RESPONSE":           15,
+		"RELAY_MISS":               16,
+		"RELAY_ERROR":              17,
+		"RELAY_REQUEST":            18,
+		"DATA_ACK":                 19,
+		"DATA_INVALID":             20,
+		"REQUEST_ACK":              21,
+		"MAILBOX":                  22,
+		"MAILBOX_ACK":              23,
+		"KEY_FETCH_ERROR":          24,
+		"REVOKED_KEY_USED":         25,
+		"CONTENT_REJECTED":         26,
+		"SUBSCRIBE_PROFILE":        27,
+		"UNSUBSCRIBE_PROFILE":      28,
+		"SUBSCRIBE_REED":           29,
+		"UNSUBSCRIBE_REED":         30,
+		"SUBSCRIBE_PIPE":           31,
+		"UNSUBSCRIBE_PIPE":         32,
+		"PUBLISH_READY":            33,
+		"PUBLISH_READY_ACK":        34,
+		"REED_NOT_FOUND":           35,
+		"REED_NOT_HELD":            36,
+		"INVALID_REQUEST_ID_ERROR": 37,
+		"REED_STATS":               38,
+		"REED_COVERAGE":            39,
+		"REED_ECHOES":              40,
+		"REED_REPLIES":             41,
+		"REED_LIKES":               42,
+		"RIPPLE_POSTED":            43,
+		"RIPPLE_UPDATED":           44,
+		"REED_REMOVED":             45,
+		"ACCOUNT_REMOVED":          46,
+		"BROADCAST_REED":           47,
+		"PIPE_REED":                48,
+		"FOLLOW_REED":              49,
+		"ARCHIVE_REED":             50,
+		"REED_REPLY":               51,
+		"MENTION":                  52,
+		"PROFILE_PAGE":             53,
+		"PAGE_ACK":                 54,
+		"EVICTION":                 55,
+		"EVICTION_ACK":             56,
+		"NEW_VOUCH":                57,
+		"PEER_SERVER_LOST":         58,
+		"NEW_RIPPLE":               59,
+		"KEY_REVOKED":              60,
+		"REQUEST_THREAD":           61,
+		"RELAY_THREAD":             62,
+		"THREAD_REMOVED":           63,
+		"KEY_EVICTION":             64,
+		"KEY_EVICTION_ACK":         65,
+		"USER_BLOCKED":             66,
+		"USER_BLOCKED_ACK":         67,
+		"USER_UNBLOCKED":           68,
+		"USER_UNBLOCKED_ACK":       69,
 	}
 )
 
@@ -278,15 +277,15 @@ func (MessageType) EnumDescriptor() ([]byte, []int) {
 type WSMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Type  MessageType            `protobuf:"varint,1,opt,name=type,proto3,enum=syrinx.websocket.MessageType" json:"type,omitempty"`
-	// Human-readable mirror of type (e.g. "DATA_RESPONSE"), redundant with
-	// the enum — lets a raw frame be read without cross-referencing this
-	// schema (protobuf enums are wire-encoded as bare varints, not names).
-	TypeName string `protobuf:"bytes,12,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
 	// Event id this message replies to or originates (relay event id for
 	// DATA_RESPONSE-family deliveries and mailbox notifications; echoed
 	// back by the client on DATA_ACK/DATA_INVALID/RELAY_RESPONSE/MISS/
 	// ERROR). Empty for message types that carry no event id.
-	Id string `protobuf:"bytes,11,opt,name=id,proto3" json:"id,omitempty"`
+	Id string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	// Human-readable mirror of type (e.g. "DATA_RESPONSE"), redundant with
+	// the enum — lets a raw frame be read without cross-referencing this
+	// schema (protobuf enums are wire-encoded as bare varints, not names).
+	TypeName string `protobuf:"bytes,3,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
 	// Types that are valid to be assigned to Payload:
 	//
 	//	*WSMessage_Ping
@@ -386,16 +385,16 @@ func (x *WSMessage) GetType() MessageType {
 	return MessageType_UNKNOWN
 }
 
-func (x *WSMessage) GetTypeName() string {
+func (x *WSMessage) GetId() string {
 	if x != nil {
-		return x.TypeName
+		return x.Id
 	}
 	return ""
 }
 
-func (x *WSMessage) GetId() string {
+func (x *WSMessage) GetTypeName() string {
 	if x != nil {
-		return x.Id
+		return x.TypeName
 	}
 	return ""
 }
@@ -907,223 +906,223 @@ type isWSMessage_Payload interface {
 }
 
 type WSMessage_Ping struct {
-	Ping *PingMessage `protobuf:"bytes,2,opt,name=ping,proto3,oneof"`
+	Ping *PingMessage `protobuf:"bytes,4,opt,name=ping,proto3,oneof"`
 }
 
 type WSMessage_Pong struct {
-	Pong *PongMessage `protobuf:"bytes,3,opt,name=pong,proto3,oneof"`
+	Pong *PongMessage `protobuf:"bytes,5,opt,name=pong,proto3,oneof"`
 }
 
 type WSMessage_Subscribe struct {
-	Subscribe *SubscribeMessage `protobuf:"bytes,4,opt,name=subscribe,proto3,oneof"`
+	Subscribe *SubscribeMessage `protobuf:"bytes,6,opt,name=subscribe,proto3,oneof"`
 }
 
 type WSMessage_ReedNotification struct {
-	ReedNotification *ReedNotificationMessage `protobuf:"bytes,6,opt,name=reed_notification,json=reedNotification,proto3,oneof"`
+	ReedNotification *ReedNotificationMessage `protobuf:"bytes,7,opt,name=reed_notification,json=reedNotification,proto3,oneof"`
 }
 
 type WSMessage_UserUpdate struct {
-	UserUpdate *UserUpdateMessage `protobuf:"bytes,7,opt,name=user_update,json=userUpdate,proto3,oneof"`
+	UserUpdate *UserUpdateMessage `protobuf:"bytes,8,opt,name=user_update,json=userUpdate,proto3,oneof"`
 }
 
 type WSMessage_Error struct {
-	Error *ErrorMessage `protobuf:"bytes,8,opt,name=error,proto3,oneof"`
+	Error *ErrorMessage `protobuf:"bytes,9,opt,name=error,proto3,oneof"`
 }
 
 type WSMessage_RequestReed struct {
-	RequestReed *RequestReedMessage `protobuf:"bytes,9,opt,name=request_reed,json=requestReed,proto3,oneof"`
+	RequestReed *RequestReedMessage `protobuf:"bytes,10,opt,name=request_reed,json=requestReed,proto3,oneof"`
 }
 
 type WSMessage_DataResponse struct {
-	DataResponse *DataResponseMessage `protobuf:"bytes,10,opt,name=data_response,json=dataResponse,proto3,oneof"`
+	DataResponse *DataResponseMessage `protobuf:"bytes,11,opt,name=data_response,json=dataResponse,proto3,oneof"`
 }
 
 type WSMessage_Shutdown struct {
-	Shutdown *ShutdownMessage `protobuf:"bytes,13,opt,name=shutdown,proto3,oneof"`
+	Shutdown *ShutdownMessage `protobuf:"bytes,12,opt,name=shutdown,proto3,oneof"`
 }
 
 type WSMessage_SyncRequest struct {
-	SyncRequest *SyncRequestMessage `protobuf:"bytes,14,opt,name=sync_request,json=syncRequest,proto3,oneof"`
+	SyncRequest *SyncRequestMessage `protobuf:"bytes,13,opt,name=sync_request,json=syncRequest,proto3,oneof"`
 }
 
 type WSMessage_RelayResponse struct {
-	RelayResponse *RelayResponseMessage `protobuf:"bytes,15,opt,name=relay_response,json=relayResponse,proto3,oneof"`
+	RelayResponse *RelayResponseMessage `protobuf:"bytes,14,opt,name=relay_response,json=relayResponse,proto3,oneof"`
 }
 
 type WSMessage_RelayRequest struct {
-	RelayRequest *RelayRequestMessage `protobuf:"bytes,16,opt,name=relay_request,json=relayRequest,proto3,oneof"`
+	RelayRequest *RelayRequestMessage `protobuf:"bytes,15,opt,name=relay_request,json=relayRequest,proto3,oneof"`
 }
 
 type WSMessage_RequestAck struct {
-	RequestAck *RequestAckMessage `protobuf:"bytes,17,opt,name=request_ack,json=requestAck,proto3,oneof"`
+	RequestAck *RequestAckMessage `protobuf:"bytes,16,opt,name=request_ack,json=requestAck,proto3,oneof"`
 }
 
 type WSMessage_Mailbox struct {
-	Mailbox *MailboxMessage `protobuf:"bytes,18,opt,name=mailbox,proto3,oneof"`
+	Mailbox *MailboxMessage `protobuf:"bytes,17,opt,name=mailbox,proto3,oneof"`
 }
 
 type WSMessage_MailboxAck struct {
-	MailboxAck *MailboxAckMessage `protobuf:"bytes,19,opt,name=mailbox_ack,json=mailboxAck,proto3,oneof"`
+	MailboxAck *MailboxAckMessage `protobuf:"bytes,18,opt,name=mailbox_ack,json=mailboxAck,proto3,oneof"`
 }
 
 type WSMessage_KeyFetchError struct {
-	KeyFetchError *KeyFetchErrorMessage `protobuf:"bytes,20,opt,name=key_fetch_error,json=keyFetchError,proto3,oneof"`
+	KeyFetchError *KeyFetchErrorMessage `protobuf:"bytes,19,opt,name=key_fetch_error,json=keyFetchError,proto3,oneof"`
 }
 
 type WSMessage_RevokedKeyUsed struct {
-	RevokedKeyUsed *RevokedKeyUsedMessage `protobuf:"bytes,21,opt,name=revoked_key_used,json=revokedKeyUsed,proto3,oneof"`
+	RevokedKeyUsed *RevokedKeyUsedMessage `protobuf:"bytes,20,opt,name=revoked_key_used,json=revokedKeyUsed,proto3,oneof"`
 }
 
 type WSMessage_ContentRejected struct {
-	ContentRejected *ContentRejectedMessage `protobuf:"bytes,22,opt,name=content_rejected,json=contentRejected,proto3,oneof"`
+	ContentRejected *ContentRejectedMessage `protobuf:"bytes,21,opt,name=content_rejected,json=contentRejected,proto3,oneof"`
 }
 
 type WSMessage_SubscribeProfile struct {
-	SubscribeProfile *SubscribeProfileMessage `protobuf:"bytes,23,opt,name=subscribe_profile,json=subscribeProfile,proto3,oneof"`
+	SubscribeProfile *SubscribeProfileMessage `protobuf:"bytes,22,opt,name=subscribe_profile,json=subscribeProfile,proto3,oneof"`
 }
 
 type WSMessage_UnsubscribeProfile struct {
-	UnsubscribeProfile *UnsubscribeProfileMessage `protobuf:"bytes,24,opt,name=unsubscribe_profile,json=unsubscribeProfile,proto3,oneof"`
+	UnsubscribeProfile *UnsubscribeProfileMessage `protobuf:"bytes,23,opt,name=unsubscribe_profile,json=unsubscribeProfile,proto3,oneof"`
 }
 
 type WSMessage_SubscribeReed struct {
-	SubscribeReed *SubscribeReedMessage `protobuf:"bytes,25,opt,name=subscribe_reed,json=subscribeReed,proto3,oneof"`
+	SubscribeReed *SubscribeReedMessage `protobuf:"bytes,24,opt,name=subscribe_reed,json=subscribeReed,proto3,oneof"`
 }
 
 type WSMessage_UnsubscribeReed struct {
-	UnsubscribeReed *UnsubscribeReedMessage `protobuf:"bytes,26,opt,name=unsubscribe_reed,json=unsubscribeReed,proto3,oneof"`
+	UnsubscribeReed *UnsubscribeReedMessage `protobuf:"bytes,25,opt,name=unsubscribe_reed,json=unsubscribeReed,proto3,oneof"`
 }
 
 type WSMessage_SubscribePipe struct {
-	SubscribePipe *SubscribePipeMessage `protobuf:"bytes,27,opt,name=subscribe_pipe,json=subscribePipe,proto3,oneof"`
+	SubscribePipe *SubscribePipeMessage `protobuf:"bytes,26,opt,name=subscribe_pipe,json=subscribePipe,proto3,oneof"`
 }
 
 type WSMessage_UnsubscribePipe struct {
-	UnsubscribePipe *UnsubscribePipeMessage `protobuf:"bytes,28,opt,name=unsubscribe_pipe,json=unsubscribePipe,proto3,oneof"`
+	UnsubscribePipe *UnsubscribePipeMessage `protobuf:"bytes,27,opt,name=unsubscribe_pipe,json=unsubscribePipe,proto3,oneof"`
 }
 
 type WSMessage_PublishReady struct {
-	PublishReady *PublishReadyMessage `protobuf:"bytes,29,opt,name=publish_ready,json=publishReady,proto3,oneof"`
+	PublishReady *PublishReadyMessage `protobuf:"bytes,28,opt,name=publish_ready,json=publishReady,proto3,oneof"`
 }
 
 type WSMessage_PublishReadyAck struct {
-	PublishReadyAck *PublishReadyAckMessage `protobuf:"bytes,30,opt,name=publish_ready_ack,json=publishReadyAck,proto3,oneof"`
+	PublishReadyAck *PublishReadyAckMessage `protobuf:"bytes,29,opt,name=publish_ready_ack,json=publishReadyAck,proto3,oneof"`
 }
 
 type WSMessage_ReedNotFound struct {
-	ReedNotFound *ReedNotFoundMessage `protobuf:"bytes,31,opt,name=reed_not_found,json=reedNotFound,proto3,oneof"`
+	ReedNotFound *ReedNotFoundMessage `protobuf:"bytes,30,opt,name=reed_not_found,json=reedNotFound,proto3,oneof"`
 }
 
 type WSMessage_ReedNotHeld struct {
-	ReedNotHeld *ReedNotHeldMessage `protobuf:"bytes,32,opt,name=reed_not_held,json=reedNotHeld,proto3,oneof"`
+	ReedNotHeld *ReedNotHeldMessage `protobuf:"bytes,31,opt,name=reed_not_held,json=reedNotHeld,proto3,oneof"`
 }
 
 type WSMessage_InvalidRequestIdError struct {
-	InvalidRequestIdError *InvalidRequestIdErrorMessage `protobuf:"bytes,33,opt,name=invalid_request_id_error,json=invalidRequestIdError,proto3,oneof"`
+	InvalidRequestIdError *InvalidRequestIdErrorMessage `protobuf:"bytes,32,opt,name=invalid_request_id_error,json=invalidRequestIdError,proto3,oneof"`
 }
 
 type WSMessage_ReedStats struct {
-	ReedStats *ReedStatsMessage `protobuf:"bytes,34,opt,name=reed_stats,json=reedStats,proto3,oneof"`
+	ReedStats *ReedStatsMessage `protobuf:"bytes,33,opt,name=reed_stats,json=reedStats,proto3,oneof"`
 }
 
 type WSMessage_ReedCoverage struct {
-	ReedCoverage *ReedCoverageMessage `protobuf:"bytes,35,opt,name=reed_coverage,json=reedCoverage,proto3,oneof"`
+	ReedCoverage *ReedCoverageMessage `protobuf:"bytes,34,opt,name=reed_coverage,json=reedCoverage,proto3,oneof"`
 }
 
 type WSMessage_ReedEchoes struct {
-	ReedEchoes *ReedEchoesMessage `protobuf:"bytes,36,opt,name=reed_echoes,json=reedEchoes,proto3,oneof"`
+	ReedEchoes *ReedEchoesMessage `protobuf:"bytes,35,opt,name=reed_echoes,json=reedEchoes,proto3,oneof"`
 }
 
 type WSMessage_ReedReplies struct {
-	ReedReplies *ReedRepliesMessage `protobuf:"bytes,37,opt,name=reed_replies,json=reedReplies,proto3,oneof"`
+	ReedReplies *ReedRepliesMessage `protobuf:"bytes,36,opt,name=reed_replies,json=reedReplies,proto3,oneof"`
 }
 
 type WSMessage_ReedLikes struct {
-	ReedLikes *ReedLikesMessage `protobuf:"bytes,38,opt,name=reed_likes,json=reedLikes,proto3,oneof"`
+	ReedLikes *ReedLikesMessage `protobuf:"bytes,37,opt,name=reed_likes,json=reedLikes,proto3,oneof"`
 }
 
 type WSMessage_RipplePosted struct {
-	RipplePosted *RipplePostedMessage `protobuf:"bytes,39,opt,name=ripple_posted,json=ripplePosted,proto3,oneof"`
+	RipplePosted *RipplePostedMessage `protobuf:"bytes,38,opt,name=ripple_posted,json=ripplePosted,proto3,oneof"`
 }
 
 type WSMessage_RippleUpdated struct {
-	RippleUpdated *RippleUpdatedMessage `protobuf:"bytes,40,opt,name=ripple_updated,json=rippleUpdated,proto3,oneof"`
+	RippleUpdated *RippleUpdatedMessage `protobuf:"bytes,39,opt,name=ripple_updated,json=rippleUpdated,proto3,oneof"`
 }
 
 type WSMessage_ReedRemoved struct {
-	ReedRemoved *ReedRemovedMessage `protobuf:"bytes,41,opt,name=reed_removed,json=reedRemoved,proto3,oneof"`
+	ReedRemoved *ReedRemovedMessage `protobuf:"bytes,40,opt,name=reed_removed,json=reedRemoved,proto3,oneof"`
 }
 
 type WSMessage_AccountRemoved struct {
-	AccountRemoved *AccountRemovedMessage `protobuf:"bytes,42,opt,name=account_removed,json=accountRemoved,proto3,oneof"`
+	AccountRemoved *AccountRemovedMessage `protobuf:"bytes,41,opt,name=account_removed,json=accountRemoved,proto3,oneof"`
 }
 
 type WSMessage_ProfilePage struct {
-	ProfilePage *ProfilePageMessage `protobuf:"bytes,43,opt,name=profile_page,json=profilePage,proto3,oneof"`
+	ProfilePage *ProfilePageMessage `protobuf:"bytes,42,opt,name=profile_page,json=profilePage,proto3,oneof"`
 }
 
 type WSMessage_PageAck struct {
-	PageAck *PageAckMessage `protobuf:"bytes,44,opt,name=page_ack,json=pageAck,proto3,oneof"`
+	PageAck *PageAckMessage `protobuf:"bytes,43,opt,name=page_ack,json=pageAck,proto3,oneof"`
 }
 
 type WSMessage_Eviction struct {
-	Eviction *EvictionMessage `protobuf:"bytes,45,opt,name=eviction,proto3,oneof"`
+	Eviction *EvictionMessage `protobuf:"bytes,44,opt,name=eviction,proto3,oneof"`
 }
 
 type WSMessage_EvictionAck struct {
-	EvictionAck *EvictionAckMessage `protobuf:"bytes,46,opt,name=eviction_ack,json=evictionAck,proto3,oneof"`
+	EvictionAck *EvictionAckMessage `protobuf:"bytes,45,opt,name=eviction_ack,json=evictionAck,proto3,oneof"`
 }
 
 type WSMessage_NewVouch struct {
-	NewVouch *NewVouchMessage `protobuf:"bytes,47,opt,name=new_vouch,json=newVouch,proto3,oneof"`
+	NewVouch *NewVouchMessage `protobuf:"bytes,46,opt,name=new_vouch,json=newVouch,proto3,oneof"`
 }
 
 type WSMessage_PeerServerLost struct {
-	PeerServerLost *PeerServerLostMessage `protobuf:"bytes,48,opt,name=peer_server_lost,json=peerServerLost,proto3,oneof"`
+	PeerServerLost *PeerServerLostMessage `protobuf:"bytes,47,opt,name=peer_server_lost,json=peerServerLost,proto3,oneof"`
 }
 
 type WSMessage_NewRipple struct {
-	NewRipple *NewRippleMessage `protobuf:"bytes,49,opt,name=new_ripple,json=newRipple,proto3,oneof"`
+	NewRipple *NewRippleMessage `protobuf:"bytes,48,opt,name=new_ripple,json=newRipple,proto3,oneof"`
 }
 
 type WSMessage_KeyRevoked struct {
-	KeyRevoked *KeyRevokedMessage `protobuf:"bytes,50,opt,name=key_revoked,json=keyRevoked,proto3,oneof"`
+	KeyRevoked *KeyRevokedMessage `protobuf:"bytes,49,opt,name=key_revoked,json=keyRevoked,proto3,oneof"`
 }
 
 type WSMessage_RequestThread struct {
-	RequestThread *RequestThreadMessage `protobuf:"bytes,51,opt,name=request_thread,json=requestThread,proto3,oneof"`
+	RequestThread *RequestThreadMessage `protobuf:"bytes,50,opt,name=request_thread,json=requestThread,proto3,oneof"`
 }
 
 type WSMessage_RelayThread struct {
-	RelayThread *RelayThreadMessage `protobuf:"bytes,52,opt,name=relay_thread,json=relayThread,proto3,oneof"`
+	RelayThread *RelayThreadMessage `protobuf:"bytes,51,opt,name=relay_thread,json=relayThread,proto3,oneof"`
 }
 
 type WSMessage_ThreadRemoved struct {
-	ThreadRemoved *ThreadRemovedMessage `protobuf:"bytes,53,opt,name=thread_removed,json=threadRemoved,proto3,oneof"`
+	ThreadRemoved *ThreadRemovedMessage `protobuf:"bytes,52,opt,name=thread_removed,json=threadRemoved,proto3,oneof"`
 }
 
 type WSMessage_KeyEviction struct {
-	KeyEviction *KeyEvictionMessage `protobuf:"bytes,54,opt,name=key_eviction,json=keyEviction,proto3,oneof"`
+	KeyEviction *KeyEvictionMessage `protobuf:"bytes,53,opt,name=key_eviction,json=keyEviction,proto3,oneof"`
 }
 
 type WSMessage_KeyEvictionAck struct {
-	KeyEvictionAck *KeyEvictionAckMessage `protobuf:"bytes,55,opt,name=key_eviction_ack,json=keyEvictionAck,proto3,oneof"`
+	KeyEvictionAck *KeyEvictionAckMessage `protobuf:"bytes,54,opt,name=key_eviction_ack,json=keyEvictionAck,proto3,oneof"`
 }
 
 type WSMessage_UserBlocked struct {
-	UserBlocked *UserBlockedMessage `protobuf:"bytes,56,opt,name=user_blocked,json=userBlocked,proto3,oneof"`
+	UserBlocked *UserBlockedMessage `protobuf:"bytes,55,opt,name=user_blocked,json=userBlocked,proto3,oneof"`
 }
 
 type WSMessage_UserBlockedAck struct {
-	UserBlockedAck *UserBlockedAckMessage `protobuf:"bytes,57,opt,name=user_blocked_ack,json=userBlockedAck,proto3,oneof"`
+	UserBlockedAck *UserBlockedAckMessage `protobuf:"bytes,56,opt,name=user_blocked_ack,json=userBlockedAck,proto3,oneof"`
 }
 
 type WSMessage_UserUnblocked struct {
-	UserUnblocked *UserUnblockedMessage `protobuf:"bytes,58,opt,name=user_unblocked,json=userUnblocked,proto3,oneof"`
+	UserUnblocked *UserUnblockedMessage `protobuf:"bytes,57,opt,name=user_unblocked,json=userUnblocked,proto3,oneof"`
 }
 
 type WSMessage_UserUnblockedAck struct {
-	UserUnblockedAck *UserUnblockedAckMessage `protobuf:"bytes,59,opt,name=user_unblocked_ack,json=userUnblockedAck,proto3,oneof"`
+	UserUnblockedAck *UserUnblockedAckMessage `protobuf:"bytes,58,opt,name=user_unblocked_ack,json=userUnblockedAck,proto3,oneof"`
 }
 
 func (*WSMessage_Ping) isWSMessage_Payload() {}
@@ -4793,77 +4792,76 @@ var File_proto_websocket_proto protoreflect.FileDescriptor
 
 const file_proto_websocket_proto_rawDesc = "" +
 	"\n" +
-	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\x92\"\n" +
+	"\x15proto/websocket.proto\x12\x10syrinx.websocket\"\x80\"\n" +
 	"\tWSMessage\x121\n" +
-	"\x04type\x18\x01 \x01(\x0e2\x1d.syrinx.websocket.MessageTypeR\x04type\x12\x1b\n" +
-	"\ttype_name\x18\f \x01(\tR\btypeName\x12\x0e\n" +
-	"\x02id\x18\v \x01(\tR\x02id\x123\n" +
-	"\x04ping\x18\x02 \x01(\v2\x1d.syrinx.websocket.PingMessageH\x00R\x04ping\x123\n" +
-	"\x04pong\x18\x03 \x01(\v2\x1d.syrinx.websocket.PongMessageH\x00R\x04pong\x12B\n" +
-	"\tsubscribe\x18\x04 \x01(\v2\".syrinx.websocket.SubscribeMessageH\x00R\tsubscribe\x12X\n" +
-	"\x11reed_notification\x18\x06 \x01(\v2).syrinx.websocket.ReedNotificationMessageH\x00R\x10reedNotification\x12F\n" +
-	"\vuser_update\x18\a \x01(\v2#.syrinx.websocket.UserUpdateMessageH\x00R\n" +
+	"\x04type\x18\x01 \x01(\x0e2\x1d.syrinx.websocket.MessageTypeR\x04type\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1b\n" +
+	"\ttype_name\x18\x03 \x01(\tR\btypeName\x123\n" +
+	"\x04ping\x18\x04 \x01(\v2\x1d.syrinx.websocket.PingMessageH\x00R\x04ping\x123\n" +
+	"\x04pong\x18\x05 \x01(\v2\x1d.syrinx.websocket.PongMessageH\x00R\x04pong\x12B\n" +
+	"\tsubscribe\x18\x06 \x01(\v2\".syrinx.websocket.SubscribeMessageH\x00R\tsubscribe\x12X\n" +
+	"\x11reed_notification\x18\a \x01(\v2).syrinx.websocket.ReedNotificationMessageH\x00R\x10reedNotification\x12F\n" +
+	"\vuser_update\x18\b \x01(\v2#.syrinx.websocket.UserUpdateMessageH\x00R\n" +
 	"userUpdate\x126\n" +
-	"\x05error\x18\b \x01(\v2\x1e.syrinx.websocket.ErrorMessageH\x00R\x05error\x12I\n" +
-	"\frequest_reed\x18\t \x01(\v2$.syrinx.websocket.RequestReedMessageH\x00R\vrequestReed\x12L\n" +
-	"\rdata_response\x18\n" +
-	" \x01(\v2%.syrinx.websocket.DataResponseMessageH\x00R\fdataResponse\x12?\n" +
-	"\bshutdown\x18\r \x01(\v2!.syrinx.websocket.ShutdownMessageH\x00R\bshutdown\x12I\n" +
-	"\fsync_request\x18\x0e \x01(\v2$.syrinx.websocket.SyncRequestMessageH\x00R\vsyncRequest\x12O\n" +
-	"\x0erelay_response\x18\x0f \x01(\v2&.syrinx.websocket.RelayResponseMessageH\x00R\rrelayResponse\x12L\n" +
-	"\rrelay_request\x18\x10 \x01(\v2%.syrinx.websocket.RelayRequestMessageH\x00R\frelayRequest\x12F\n" +
-	"\vrequest_ack\x18\x11 \x01(\v2#.syrinx.websocket.RequestAckMessageH\x00R\n" +
+	"\x05error\x18\t \x01(\v2\x1e.syrinx.websocket.ErrorMessageH\x00R\x05error\x12I\n" +
+	"\frequest_reed\x18\n" +
+	" \x01(\v2$.syrinx.websocket.RequestReedMessageH\x00R\vrequestReed\x12L\n" +
+	"\rdata_response\x18\v \x01(\v2%.syrinx.websocket.DataResponseMessageH\x00R\fdataResponse\x12?\n" +
+	"\bshutdown\x18\f \x01(\v2!.syrinx.websocket.ShutdownMessageH\x00R\bshutdown\x12I\n" +
+	"\fsync_request\x18\r \x01(\v2$.syrinx.websocket.SyncRequestMessageH\x00R\vsyncRequest\x12O\n" +
+	"\x0erelay_response\x18\x0e \x01(\v2&.syrinx.websocket.RelayResponseMessageH\x00R\rrelayResponse\x12L\n" +
+	"\rrelay_request\x18\x0f \x01(\v2%.syrinx.websocket.RelayRequestMessageH\x00R\frelayRequest\x12F\n" +
+	"\vrequest_ack\x18\x10 \x01(\v2#.syrinx.websocket.RequestAckMessageH\x00R\n" +
 	"requestAck\x12<\n" +
-	"\amailbox\x18\x12 \x01(\v2 .syrinx.websocket.MailboxMessageH\x00R\amailbox\x12F\n" +
-	"\vmailbox_ack\x18\x13 \x01(\v2#.syrinx.websocket.MailboxAckMessageH\x00R\n" +
+	"\amailbox\x18\x11 \x01(\v2 .syrinx.websocket.MailboxMessageH\x00R\amailbox\x12F\n" +
+	"\vmailbox_ack\x18\x12 \x01(\v2#.syrinx.websocket.MailboxAckMessageH\x00R\n" +
 	"mailboxAck\x12P\n" +
-	"\x0fkey_fetch_error\x18\x14 \x01(\v2&.syrinx.websocket.KeyFetchErrorMessageH\x00R\rkeyFetchError\x12S\n" +
-	"\x10revoked_key_used\x18\x15 \x01(\v2'.syrinx.websocket.RevokedKeyUsedMessageH\x00R\x0erevokedKeyUsed\x12U\n" +
-	"\x10content_rejected\x18\x16 \x01(\v2(.syrinx.websocket.ContentRejectedMessageH\x00R\x0fcontentRejected\x12X\n" +
-	"\x11subscribe_profile\x18\x17 \x01(\v2).syrinx.websocket.SubscribeProfileMessageH\x00R\x10subscribeProfile\x12^\n" +
-	"\x13unsubscribe_profile\x18\x18 \x01(\v2+.syrinx.websocket.UnsubscribeProfileMessageH\x00R\x12unsubscribeProfile\x12O\n" +
-	"\x0esubscribe_reed\x18\x19 \x01(\v2&.syrinx.websocket.SubscribeReedMessageH\x00R\rsubscribeReed\x12U\n" +
-	"\x10unsubscribe_reed\x18\x1a \x01(\v2(.syrinx.websocket.UnsubscribeReedMessageH\x00R\x0funsubscribeReed\x12O\n" +
-	"\x0esubscribe_pipe\x18\x1b \x01(\v2&.syrinx.websocket.SubscribePipeMessageH\x00R\rsubscribePipe\x12U\n" +
-	"\x10unsubscribe_pipe\x18\x1c \x01(\v2(.syrinx.websocket.UnsubscribePipeMessageH\x00R\x0funsubscribePipe\x12L\n" +
-	"\rpublish_ready\x18\x1d \x01(\v2%.syrinx.websocket.PublishReadyMessageH\x00R\fpublishReady\x12V\n" +
-	"\x11publish_ready_ack\x18\x1e \x01(\v2(.syrinx.websocket.PublishReadyAckMessageH\x00R\x0fpublishReadyAck\x12M\n" +
-	"\x0ereed_not_found\x18\x1f \x01(\v2%.syrinx.websocket.ReedNotFoundMessageH\x00R\freedNotFound\x12J\n" +
-	"\rreed_not_held\x18  \x01(\v2$.syrinx.websocket.ReedNotHeldMessageH\x00R\vreedNotHeld\x12i\n" +
-	"\x18invalid_request_id_error\x18! \x01(\v2..syrinx.websocket.InvalidRequestIdErrorMessageH\x00R\x15invalidRequestIdError\x12C\n" +
+	"\x0fkey_fetch_error\x18\x13 \x01(\v2&.syrinx.websocket.KeyFetchErrorMessageH\x00R\rkeyFetchError\x12S\n" +
+	"\x10revoked_key_used\x18\x14 \x01(\v2'.syrinx.websocket.RevokedKeyUsedMessageH\x00R\x0erevokedKeyUsed\x12U\n" +
+	"\x10content_rejected\x18\x15 \x01(\v2(.syrinx.websocket.ContentRejectedMessageH\x00R\x0fcontentRejected\x12X\n" +
+	"\x11subscribe_profile\x18\x16 \x01(\v2).syrinx.websocket.SubscribeProfileMessageH\x00R\x10subscribeProfile\x12^\n" +
+	"\x13unsubscribe_profile\x18\x17 \x01(\v2+.syrinx.websocket.UnsubscribeProfileMessageH\x00R\x12unsubscribeProfile\x12O\n" +
+	"\x0esubscribe_reed\x18\x18 \x01(\v2&.syrinx.websocket.SubscribeReedMessageH\x00R\rsubscribeReed\x12U\n" +
+	"\x10unsubscribe_reed\x18\x19 \x01(\v2(.syrinx.websocket.UnsubscribeReedMessageH\x00R\x0funsubscribeReed\x12O\n" +
+	"\x0esubscribe_pipe\x18\x1a \x01(\v2&.syrinx.websocket.SubscribePipeMessageH\x00R\rsubscribePipe\x12U\n" +
+	"\x10unsubscribe_pipe\x18\x1b \x01(\v2(.syrinx.websocket.UnsubscribePipeMessageH\x00R\x0funsubscribePipe\x12L\n" +
+	"\rpublish_ready\x18\x1c \x01(\v2%.syrinx.websocket.PublishReadyMessageH\x00R\fpublishReady\x12V\n" +
+	"\x11publish_ready_ack\x18\x1d \x01(\v2(.syrinx.websocket.PublishReadyAckMessageH\x00R\x0fpublishReadyAck\x12M\n" +
+	"\x0ereed_not_found\x18\x1e \x01(\v2%.syrinx.websocket.ReedNotFoundMessageH\x00R\freedNotFound\x12J\n" +
+	"\rreed_not_held\x18\x1f \x01(\v2$.syrinx.websocket.ReedNotHeldMessageH\x00R\vreedNotHeld\x12i\n" +
+	"\x18invalid_request_id_error\x18  \x01(\v2..syrinx.websocket.InvalidRequestIdErrorMessageH\x00R\x15invalidRequestIdError\x12C\n" +
 	"\n" +
-	"reed_stats\x18\" \x01(\v2\".syrinx.websocket.ReedStatsMessageH\x00R\treedStats\x12L\n" +
-	"\rreed_coverage\x18# \x01(\v2%.syrinx.websocket.ReedCoverageMessageH\x00R\freedCoverage\x12F\n" +
-	"\vreed_echoes\x18$ \x01(\v2#.syrinx.websocket.ReedEchoesMessageH\x00R\n" +
+	"reed_stats\x18! \x01(\v2\".syrinx.websocket.ReedStatsMessageH\x00R\treedStats\x12L\n" +
+	"\rreed_coverage\x18\" \x01(\v2%.syrinx.websocket.ReedCoverageMessageH\x00R\freedCoverage\x12F\n" +
+	"\vreed_echoes\x18# \x01(\v2#.syrinx.websocket.ReedEchoesMessageH\x00R\n" +
 	"reedEchoes\x12I\n" +
-	"\freed_replies\x18% \x01(\v2$.syrinx.websocket.ReedRepliesMessageH\x00R\vreedReplies\x12C\n" +
+	"\freed_replies\x18$ \x01(\v2$.syrinx.websocket.ReedRepliesMessageH\x00R\vreedReplies\x12C\n" +
 	"\n" +
-	"reed_likes\x18& \x01(\v2\".syrinx.websocket.ReedLikesMessageH\x00R\treedLikes\x12L\n" +
-	"\rripple_posted\x18' \x01(\v2%.syrinx.websocket.RipplePostedMessageH\x00R\fripplePosted\x12O\n" +
-	"\x0eripple_updated\x18( \x01(\v2&.syrinx.websocket.RippleUpdatedMessageH\x00R\rrippleUpdated\x12I\n" +
-	"\freed_removed\x18) \x01(\v2$.syrinx.websocket.ReedRemovedMessageH\x00R\vreedRemoved\x12R\n" +
-	"\x0faccount_removed\x18* \x01(\v2'.syrinx.websocket.AccountRemovedMessageH\x00R\x0eaccountRemoved\x12I\n" +
-	"\fprofile_page\x18+ \x01(\v2$.syrinx.websocket.ProfilePageMessageH\x00R\vprofilePage\x12=\n" +
-	"\bpage_ack\x18, \x01(\v2 .syrinx.websocket.PageAckMessageH\x00R\apageAck\x12?\n" +
-	"\beviction\x18- \x01(\v2!.syrinx.websocket.EvictionMessageH\x00R\beviction\x12I\n" +
-	"\feviction_ack\x18. \x01(\v2$.syrinx.websocket.EvictionAckMessageH\x00R\vevictionAck\x12@\n" +
-	"\tnew_vouch\x18/ \x01(\v2!.syrinx.websocket.NewVouchMessageH\x00R\bnewVouch\x12S\n" +
-	"\x10peer_server_lost\x180 \x01(\v2'.syrinx.websocket.PeerServerLostMessageH\x00R\x0epeerServerLost\x12C\n" +
+	"reed_likes\x18% \x01(\v2\".syrinx.websocket.ReedLikesMessageH\x00R\treedLikes\x12L\n" +
+	"\rripple_posted\x18& \x01(\v2%.syrinx.websocket.RipplePostedMessageH\x00R\fripplePosted\x12O\n" +
+	"\x0eripple_updated\x18' \x01(\v2&.syrinx.websocket.RippleUpdatedMessageH\x00R\rrippleUpdated\x12I\n" +
+	"\freed_removed\x18( \x01(\v2$.syrinx.websocket.ReedRemovedMessageH\x00R\vreedRemoved\x12R\n" +
+	"\x0faccount_removed\x18) \x01(\v2'.syrinx.websocket.AccountRemovedMessageH\x00R\x0eaccountRemoved\x12I\n" +
+	"\fprofile_page\x18* \x01(\v2$.syrinx.websocket.ProfilePageMessageH\x00R\vprofilePage\x12=\n" +
+	"\bpage_ack\x18+ \x01(\v2 .syrinx.websocket.PageAckMessageH\x00R\apageAck\x12?\n" +
+	"\beviction\x18, \x01(\v2!.syrinx.websocket.EvictionMessageH\x00R\beviction\x12I\n" +
+	"\feviction_ack\x18- \x01(\v2$.syrinx.websocket.EvictionAckMessageH\x00R\vevictionAck\x12@\n" +
+	"\tnew_vouch\x18. \x01(\v2!.syrinx.websocket.NewVouchMessageH\x00R\bnewVouch\x12S\n" +
+	"\x10peer_server_lost\x18/ \x01(\v2'.syrinx.websocket.PeerServerLostMessageH\x00R\x0epeerServerLost\x12C\n" +
 	"\n" +
-	"new_ripple\x181 \x01(\v2\".syrinx.websocket.NewRippleMessageH\x00R\tnewRipple\x12F\n" +
-	"\vkey_revoked\x182 \x01(\v2#.syrinx.websocket.KeyRevokedMessageH\x00R\n" +
+	"new_ripple\x180 \x01(\v2\".syrinx.websocket.NewRippleMessageH\x00R\tnewRipple\x12F\n" +
+	"\vkey_revoked\x181 \x01(\v2#.syrinx.websocket.KeyRevokedMessageH\x00R\n" +
 	"keyRevoked\x12O\n" +
-	"\x0erequest_thread\x183 \x01(\v2&.syrinx.websocket.RequestThreadMessageH\x00R\rrequestThread\x12I\n" +
-	"\frelay_thread\x184 \x01(\v2$.syrinx.websocket.RelayThreadMessageH\x00R\vrelayThread\x12O\n" +
-	"\x0ethread_removed\x185 \x01(\v2&.syrinx.websocket.ThreadRemovedMessageH\x00R\rthreadRemoved\x12I\n" +
-	"\fkey_eviction\x186 \x01(\v2$.syrinx.websocket.KeyEvictionMessageH\x00R\vkeyEviction\x12S\n" +
-	"\x10key_eviction_ack\x187 \x01(\v2'.syrinx.websocket.KeyEvictionAckMessageH\x00R\x0ekeyEvictionAck\x12I\n" +
-	"\fuser_blocked\x188 \x01(\v2$.syrinx.websocket.UserBlockedMessageH\x00R\vuserBlocked\x12S\n" +
-	"\x10user_blocked_ack\x189 \x01(\v2'.syrinx.websocket.UserBlockedAckMessageH\x00R\x0euserBlockedAck\x12O\n" +
-	"\x0euser_unblocked\x18: \x01(\v2&.syrinx.websocket.UserUnblockedMessageH\x00R\ruserUnblocked\x12Y\n" +
-	"\x12user_unblocked_ack\x18; \x01(\v2).syrinx.websocket.UserUnblockedAckMessageH\x00R\x10userUnblockedAckB\t\n" +
-	"\apayloadJ\x04\b\x05\x10\x06R\n" +
-	"subscribed\"!\n" +
+	"\x0erequest_thread\x182 \x01(\v2&.syrinx.websocket.RequestThreadMessageH\x00R\rrequestThread\x12I\n" +
+	"\frelay_thread\x183 \x01(\v2$.syrinx.websocket.RelayThreadMessageH\x00R\vrelayThread\x12O\n" +
+	"\x0ethread_removed\x184 \x01(\v2&.syrinx.websocket.ThreadRemovedMessageH\x00R\rthreadRemoved\x12I\n" +
+	"\fkey_eviction\x185 \x01(\v2$.syrinx.websocket.KeyEvictionMessageH\x00R\vkeyEviction\x12S\n" +
+	"\x10key_eviction_ack\x186 \x01(\v2'.syrinx.websocket.KeyEvictionAckMessageH\x00R\x0ekeyEvictionAck\x12I\n" +
+	"\fuser_blocked\x187 \x01(\v2$.syrinx.websocket.UserBlockedMessageH\x00R\vuserBlocked\x12S\n" +
+	"\x10user_blocked_ack\x188 \x01(\v2'.syrinx.websocket.UserBlockedAckMessageH\x00R\x0euserBlockedAck\x12O\n" +
+	"\x0euser_unblocked\x189 \x01(\v2&.syrinx.websocket.UserUnblockedMessageH\x00R\ruserUnblocked\x12Y\n" +
+	"\x12user_unblocked_ack\x18: \x01(\v2).syrinx.websocket.UserUnblockedAckMessageH\x00R\x10userUnblockedAckB\t\n" +
+	"\apayload\"!\n" +
 	"\vPingMessage\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\tR\x04data\"!\n" +
 	"\vPongMessage\x12\x12\n" +
@@ -5098,86 +5096,85 @@ const file_proto_websocket_proto_rawDesc = "" +
 	"\x15PeerServerLostMessage\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
-	"serverName*\xb2\n" +
+	"serverName*\xa0\n" +
 	"\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
 	"\x04PING\x10\x01\x12\b\n" +
 	"\x04PONG\x10\x02\x12\r\n" +
 	"\tSUBSCRIBE\x10\x03\x12\x15\n" +
-	"\x11REED_NOTIFICATION\x10\x05\x12\x0f\n" +
-	"\vUSER_UPDATE\x10\x06\x12\t\n" +
-	"\x05ERROR\x10\a\x12\x12\n" +
-	"\x0eSUBSCRIBE_USER\x10\b\x12\x17\n" +
-	"\x13SUBSCRIBE_BROADCAST\x10\t\x12\x14\n" +
-	"\x10UNSUBSCRIBE_USER\x10\n" +
-	"\x12\x19\n" +
-	"\x15UNSUBSCRIBE_BROADCAST\x10\v\x12\x10\n" +
-	"\fREQUEST_REED\x10\f\x12\x11\n" +
-	"\rDATA_RESPONSE\x10\r\x12\v\n" +
-	"\aSIGTERM\x10\x0e\x12\x10\n" +
-	"\fSYNC_REQUEST\x10\x0f\x12\x12\n" +
-	"\x0eRELAY_RESPONSE\x10\x10\x12\x0e\n" +
+	"\x11REED_NOTIFICATION\x10\x04\x12\x0f\n" +
+	"\vUSER_UPDATE\x10\x05\x12\t\n" +
+	"\x05ERROR\x10\x06\x12\x12\n" +
+	"\x0eSUBSCRIBE_USER\x10\a\x12\x17\n" +
+	"\x13SUBSCRIBE_BROADCAST\x10\b\x12\x14\n" +
+	"\x10UNSUBSCRIBE_USER\x10\t\x12\x19\n" +
+	"\x15UNSUBSCRIBE_BROADCAST\x10\n" +
+	"\x12\x10\n" +
+	"\fREQUEST_REED\x10\v\x12\x11\n" +
+	"\rDATA_RESPONSE\x10\f\x12\v\n" +
+	"\aSIGTERM\x10\r\x12\x10\n" +
+	"\fSYNC_REQUEST\x10\x0e\x12\x12\n" +
+	"\x0eRELAY_RESPONSE\x10\x0f\x12\x0e\n" +
 	"\n" +
-	"RELAY_MISS\x10\x11\x12\x0f\n" +
-	"\vRELAY_ERROR\x10\x12\x12\x11\n" +
-	"\rRELAY_REQUEST\x10\x13\x12\f\n" +
-	"\bDATA_ACK\x10\x14\x12\x10\n" +
-	"\fDATA_INVALID\x10\x15\x12\x0f\n" +
-	"\vREQUEST_ACK\x10\x16\x12\v\n" +
-	"\aMAILBOX\x10\x17\x12\x0f\n" +
-	"\vMAILBOX_ACK\x10\x18\x12\x13\n" +
-	"\x0fKEY_FETCH_ERROR\x10\x19\x12\x14\n" +
-	"\x10REVOKED_KEY_USED\x10\x1a\x12\x14\n" +
-	"\x10CONTENT_REJECTED\x10\x1b\x12\x15\n" +
-	"\x11SUBSCRIBE_PROFILE\x10\x1c\x12\x17\n" +
-	"\x13UNSUBSCRIBE_PROFILE\x10\x1d\x12\x12\n" +
-	"\x0eSUBSCRIBE_REED\x10\x1e\x12\x14\n" +
-	"\x10UNSUBSCRIBE_REED\x10\x1f\x12\x12\n" +
-	"\x0eSUBSCRIBE_PIPE\x10 \x12\x14\n" +
-	"\x10UNSUBSCRIBE_PIPE\x10!\x12\x11\n" +
-	"\rPUBLISH_READY\x10\"\x12\x15\n" +
-	"\x11PUBLISH_READY_ACK\x10#\x12\x12\n" +
-	"\x0eREED_NOT_FOUND\x10$\x12\x11\n" +
-	"\rREED_NOT_HELD\x10%\x12\x1c\n" +
-	"\x18INVALID_REQUEST_ID_ERROR\x10&\x12\x0e\n" +
+	"RELAY_MISS\x10\x10\x12\x0f\n" +
+	"\vRELAY_ERROR\x10\x11\x12\x11\n" +
+	"\rRELAY_REQUEST\x10\x12\x12\f\n" +
+	"\bDATA_ACK\x10\x13\x12\x10\n" +
+	"\fDATA_INVALID\x10\x14\x12\x0f\n" +
+	"\vREQUEST_ACK\x10\x15\x12\v\n" +
+	"\aMAILBOX\x10\x16\x12\x0f\n" +
+	"\vMAILBOX_ACK\x10\x17\x12\x13\n" +
+	"\x0fKEY_FETCH_ERROR\x10\x18\x12\x14\n" +
+	"\x10REVOKED_KEY_USED\x10\x19\x12\x14\n" +
+	"\x10CONTENT_REJECTED\x10\x1a\x12\x15\n" +
+	"\x11SUBSCRIBE_PROFILE\x10\x1b\x12\x17\n" +
+	"\x13UNSUBSCRIBE_PROFILE\x10\x1c\x12\x12\n" +
+	"\x0eSUBSCRIBE_REED\x10\x1d\x12\x14\n" +
+	"\x10UNSUBSCRIBE_REED\x10\x1e\x12\x12\n" +
+	"\x0eSUBSCRIBE_PIPE\x10\x1f\x12\x14\n" +
+	"\x10UNSUBSCRIBE_PIPE\x10 \x12\x11\n" +
+	"\rPUBLISH_READY\x10!\x12\x15\n" +
+	"\x11PUBLISH_READY_ACK\x10\"\x12\x12\n" +
+	"\x0eREED_NOT_FOUND\x10#\x12\x11\n" +
+	"\rREED_NOT_HELD\x10$\x12\x1c\n" +
+	"\x18INVALID_REQUEST_ID_ERROR\x10%\x12\x0e\n" +
 	"\n" +
-	"REED_STATS\x10'\x12\x11\n" +
-	"\rREED_COVERAGE\x10(\x12\x0f\n" +
-	"\vREED_ECHOES\x10)\x12\x10\n" +
-	"\fREED_REPLIES\x10*\x12\x0e\n" +
+	"REED_STATS\x10&\x12\x11\n" +
+	"\rREED_COVERAGE\x10'\x12\x0f\n" +
+	"\vREED_ECHOES\x10(\x12\x10\n" +
+	"\fREED_REPLIES\x10)\x12\x0e\n" +
 	"\n" +
-	"REED_LIKES\x10+\x12\x11\n" +
-	"\rRIPPLE_POSTED\x10,\x12\x12\n" +
-	"\x0eRIPPLE_UPDATED\x10-\x12\x10\n" +
-	"\fREED_REMOVED\x10.\x12\x13\n" +
-	"\x0fACCOUNT_REMOVED\x10/\x12\x12\n" +
-	"\x0eBROADCAST_REED\x100\x12\r\n" +
-	"\tPIPE_REED\x101\x12\x0f\n" +
-	"\vFOLLOW_REED\x102\x12\x10\n" +
-	"\fARCHIVE_REED\x103\x12\x0e\n" +
+	"REED_LIKES\x10*\x12\x11\n" +
+	"\rRIPPLE_POSTED\x10+\x12\x12\n" +
+	"\x0eRIPPLE_UPDATED\x10,\x12\x10\n" +
+	"\fREED_REMOVED\x10-\x12\x13\n" +
+	"\x0fACCOUNT_REMOVED\x10.\x12\x12\n" +
+	"\x0eBROADCAST_REED\x10/\x12\r\n" +
+	"\tPIPE_REED\x100\x12\x0f\n" +
+	"\vFOLLOW_REED\x101\x12\x10\n" +
+	"\fARCHIVE_REED\x102\x12\x0e\n" +
 	"\n" +
-	"REED_REPLY\x104\x12\v\n" +
-	"\aMENTION\x105\x12\x10\n" +
-	"\fPROFILE_PAGE\x106\x12\f\n" +
-	"\bPAGE_ACK\x107\x12\f\n" +
-	"\bEVICTION\x108\x12\x10\n" +
-	"\fEVICTION_ACK\x109\x12\r\n" +
-	"\tNEW_VOUCH\x10:\x12\x14\n" +
-	"\x10PEER_SERVER_LOST\x10;\x12\x0e\n" +
+	"REED_REPLY\x103\x12\v\n" +
+	"\aMENTION\x104\x12\x10\n" +
+	"\fPROFILE_PAGE\x105\x12\f\n" +
+	"\bPAGE_ACK\x106\x12\f\n" +
+	"\bEVICTION\x107\x12\x10\n" +
+	"\fEVICTION_ACK\x108\x12\r\n" +
+	"\tNEW_VOUCH\x109\x12\x14\n" +
+	"\x10PEER_SERVER_LOST\x10:\x12\x0e\n" +
 	"\n" +
-	"NEW_RIPPLE\x10<\x12\x0f\n" +
-	"\vKEY_REVOKED\x10=\x12\x12\n" +
-	"\x0eREQUEST_THREAD\x10>\x12\x10\n" +
-	"\fRELAY_THREAD\x10?\x12\x12\n" +
-	"\x0eTHREAD_REMOVED\x10@\x12\x10\n" +
-	"\fKEY_EVICTION\x10A\x12\x14\n" +
-	"\x10KEY_EVICTION_ACK\x10B\x12\x10\n" +
-	"\fUSER_BLOCKED\x10C\x12\x14\n" +
-	"\x10USER_BLOCKED_ACK\x10D\x12\x12\n" +
-	"\x0eUSER_UNBLOCKED\x10E\x12\x16\n" +
-	"\x12USER_UNBLOCKED_ACK\x10F\"\x04\b\x04\x10\x04*\n" +
-	"SUBSCRIBEDB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"NEW_RIPPLE\x10;\x12\x0f\n" +
+	"\vKEY_REVOKED\x10<\x12\x12\n" +
+	"\x0eREQUEST_THREAD\x10=\x12\x10\n" +
+	"\fRELAY_THREAD\x10>\x12\x12\n" +
+	"\x0eTHREAD_REMOVED\x10?\x12\x10\n" +
+	"\fKEY_EVICTION\x10@\x12\x14\n" +
+	"\x10KEY_EVICTION_ACK\x10A\x12\x10\n" +
+	"\fUSER_BLOCKED\x10B\x12\x14\n" +
+	"\x10USER_BLOCKED_ACK\x10C\x12\x12\n" +
+	"\x0eUSER_UNBLOCKED\x10D\x12\x16\n" +
+	"\x12USER_UNBLOCKED_ACK\x10EB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_proto_websocket_proto_rawDescOnce sync.Once
