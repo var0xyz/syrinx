@@ -275,7 +275,7 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
     cursor: pointer;
     transition: all 0.2s ease;
   }
