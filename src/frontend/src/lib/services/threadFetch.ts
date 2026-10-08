@@ -27,6 +27,10 @@ export async function serveThreadRelay(eventId: string, threadId: string, keyId:
 /** Every check a bundle must pass before any of it is stored. */
 async function bundleVerifies(threadId: string, bundle: ThreadBundle): Promise<boolean> {
   if (!bundle?.record || !Array.isArray(bundle.reeds)) return false;
+  if (await threadsRepository.isRemoved(threadId)) {
+    console.warn('Thread bundle rejected: the thread was removed', threadId);
+    return false;
+  }
   const mismatch = threadBundleMismatch(threadId, bundle.record, bundle.reeds);
   if (mismatch) {
     console.warn('Thread bundle rejected:', threadId, mismatch);

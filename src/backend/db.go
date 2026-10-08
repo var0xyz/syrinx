@@ -481,16 +481,32 @@ func InitDB(db *sql.DB) error {
 		ON reed_mentions (mentioning_reed_id);
 	`
 
+	// Signed thread-removal certificates, with the thread record they remove
+	// (verified when it came from a peer) so it can be redelivered.
+	createThreadRemovalsTable := `
+	CREATE TABLE IF NOT EXISTS thread_removals (
+		thread_id VARCHAR(255) PRIMARY KEY,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+		thread_record JSONB NOT NULL
+	);`
+
 	// Signed reed-removal certificates. Source of truth for "gone"; no FK to
 	// reeds(id) so the live row may be dropped after the cert is stored.
-	// PK is reed_id, which embeds the author — no separate user_id column.
+	// A thread part's row names its thread removal and carries no signatures.
 	createReedRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS reed_removals (
 		reed_id VARCHAR(255) PRIMARY KEY,
-		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
-		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
-	);`
+		public_key_id VARCHAR(255) REFERENCES public_keys(id) ON DELETE CASCADE,
+		user_signature_id INT REFERENCES user_signatures(id),
+		server_signature_id INT REFERENCES server_signatures(id),
+		thread_id VARCHAR(255) REFERENCES thread_removals(thread_id) ON DELETE CASCADE,
+		CHECK ((thread_id IS NULL) = (public_key_id IS NOT NULL
+			AND user_signature_id IS NOT NULL AND server_signature_id IS NOT NULL))
+	);
+	CREATE INDEX IF NOT EXISTS idx_reed_removals_thread
+		ON reed_removals(thread_id) WHERE thread_id IS NOT NULL;`
 
 	// Signed account-removal certificates. One cert per user; public keys
 	// remain. public_key_id binds the signing key (same class as reed
@@ -1391,6 +1407,7 @@ func InitDB(db *sql.DB) error {
 		createReedMentionsTable,
 		createReedMentionsIndexes,
 
+		createThreadRemovalsTable,
 		createReedRemovalsTable,
 		createAccountRemovalsTable,
 

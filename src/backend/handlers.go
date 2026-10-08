@@ -2360,6 +2360,109 @@ func (h *Handlers) respondThreadReplay(w http.ResponseWriter, r *http.Request, e
 	writeResponse(w, http.StatusOK, sigs)
 }
 
+// DeleteThread removes a whole thread: the author signs a removal bound to
+// the thread record's signature, and every part is removed with it.
+func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	userID := h.getUserID(r)
+	threadID := mux.Vars(r)["threadID"]
+
+	author, ok := authorOf(identityID(threadID))
+	if !ok || string(author) != userID {
+		writeResponse(w, http.StatusForbidden, "You can only delete your own threads")
+		return
+	}
+	values, err := parseFormData(r)
+	if err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		return
+	}
+	userSignature := strings.TrimSpace(values.Get("signature"))
+	if userSignature == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		return
+	}
+
+	existing, err := h.services.db.GetThreadRemoval(r.Context(), threadID)
+	if err != nil {
+		log.Error().Str("threadID", threadID).Err(err).Msg("Error loading thread removal")
+		internalServerError(w)
+		return
+	}
+	if existing != nil {
+		if existing.Cert.UserSignature.Armor != userSignature {
+			writeResponse(w, http.StatusConflict, "Thread removal already exists with a different signature")
+			return
+		}
+		writeResponse(w, http.StatusOK, existing)
+		return
+	}
+
+	rec, err := h.services.db.GetThreadRecord(r.Context(), threadID)
+	if err != nil {
+		log.Error().Str("threadID", threadID).Err(err).Msg("Error loading thread record")
+		internalServerError(w)
+		return
+	}
+	if rec == nil {
+		writeResponse(w, http.StatusNotFound, "Thread not found")
+		return
+	}
+
+	pubKey, ok := h.activeUserKey(w, r, userID)
+	if !ok {
+		return
+	}
+	serverID := h.services.db.GetServerID()
+	userPayload := buildThreadRemovalUserPayload(serverID, threadID, rec.UserSignature)
+	if err := h.services.crypto.verifySignature(string(userPayload), userSignature, pubKey.Armor); err != nil {
+		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		return
+	}
+
+	now := time.Now().UTC().Truncate(time.Second)
+	serverSignature, err := h.countersign(buildThreadRemovalServerPayload(
+		serverID, threadID, pubKey.ID, h.signingKey.Fingerprint, userSignature, now,
+	), now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error producing thread-removal countersignature")
+		internalServerError(w)
+		return
+	}
+	rm := threadRemoval{
+		Cert: threadRemovalWire{
+			Type:            identityTypeThreadRemoval,
+			ServerID:        serverID,
+			UserID:          userID,
+			ThreadID:        threadID,
+			UserSignature:   UserSignature{ID: pubKey.ID, Armor: userSignature},
+			ServerSignature: serverSignature,
+		},
+		Record: rec.wire(serverID),
+	}
+	if err := h.services.db.InsertThreadRemoval(r.Context(), rm); err != nil {
+		if errors.Is(err, errRemovalConflict) {
+			writeResponse(w, http.StatusConflict, "Thread removal already exists with a different signature")
+			return
+		}
+		log.Error().Str("threadID", threadID).Err(err).Msg("Error storing thread removal")
+		internalServerError(w)
+		return
+	}
+
+	for _, reedID := range rec.ReedIDs {
+		h.metrics.ReedDeleted(r.Context(), userID, reedID)
+		if err := h.services.db.DeleteMentionsForReed(r.Context(), reedID); err != nil {
+			log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing mention index for removed thread part")
+		}
+	}
+	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeThreadRemoved, ThreadRemoval: &rm}
+	go h.deliverAuthorToPeers(userID)
+
+	log.Info().Str("userID", userID).Str("threadID", threadID).Msg("Thread removal accepted")
+	writeResponse(w, http.StatusOK, rm)
+}
+
 // parseReedRef parses userID@serverID/reedID and checks reed id + local server.
 func (h *Handlers) parseReedRef(raw, localServerID string) (ReedRef, bool) {
 	ref, ok := ParseReedRef(raw)
@@ -2403,6 +2506,16 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
+
+	// A thread is removed whole, never one part at a time.
+	if head, err := h.services.db.ThreadHeadOf(r.Context(), reedID); err != nil {
+		log.Error().Str("reedID", reedID).Err(err).Msg("Error checking thread membership")
+		internalServerError(w)
+		return
+	} else if head != "" {
+		writeResponse(w, http.StatusBadRequest, "Delete the whole thread")
+		return
+	}
 
 	existing, err := h.services.db.GetReedRemoval(r.Context(), reedID)
 	if err != nil {
@@ -2878,6 +2991,10 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
 		return
 	}
+	if result.ThreadRemoval != nil {
+		writeResponse(w, http.StatusGone, result.ThreadRemoval)
+		return
+	}
 	if result.Reed == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
@@ -2924,6 +3041,10 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
 		return
 	}
+	if result.ThreadRemoval != nil {
+		writeResponse(w, http.StatusGone, result.ThreadRemoval)
+		return
+	}
 	if result.Reed == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
@@ -2962,7 +3083,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil {
+	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil && result.ThreadRemoval == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
 	}
@@ -3020,7 +3141,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil {
+	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil && result.ThreadRemoval == nil {
 		writeResponse(w, http.StatusNotFound, "Post not found")
 		return
 	}
@@ -5518,6 +5639,10 @@ func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request,
 	}
 	if result.ReedRemoval != nil {
 		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		return false
+	}
+	if result.ThreadRemoval != nil {
+		writeResponse(w, http.StatusGone, result.ThreadRemoval)
 		return false
 	}
 	if result.Reed == nil {

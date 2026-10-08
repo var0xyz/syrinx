@@ -69,6 +69,7 @@ message WSMessage {
     KeyRevokedMessage key_revoked = 50;
     RequestThreadMessage request_thread = 51;
     RelayThreadMessage relay_thread = 52;
+    ThreadRemovedMessage thread_removed = 53;
   }
 }
 
@@ -142,6 +143,7 @@ enum MessageType {
   KEY_REVOKED = 61;
   REQUEST_THREAD = 62;
   RELAY_THREAD = 63;
+  THREAD_REMOVED = 64;
 }
 
 // Ping message
@@ -469,6 +471,32 @@ message KeyRevocationCert {
 message KeyRevokedMessage {
   string request_id = 1;
   KeyRevocationCert revocation = 2;
+}
+
+// A thread record: the author's ordered list of a thread's reeds.
+message ThreadRecord {
+  string server_id = 1;
+  string user_id = 2;
+  string thread_id = 3;
+  repeated string reed_ids = 4;
+  UserSignature user_signature = 5;
+  ServerSignature server_signature = 6;
+}
+
+message ThreadRemovalCert {
+  string server_id = 1;
+  string user_id = 2;
+  string thread_id = 3;
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+// Pushed to users who hold or follow any part of a removed thread; they
+// drop every part the record lists and answer DATA_ACK.
+message ThreadRemovedMessage {
+  string request_id = 1;
+  ThreadRemovalCert cert = 2;
+  ThreadRecord record = 3;
 }
 
 message AccountRemovedMessage {

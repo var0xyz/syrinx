@@ -185,6 +185,12 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
         id: msg.id,
         data: { data: decodeKeyRevocationCert(p.value.revocation) },
       };
+    case 'threadRemoved':
+      return {
+        type: 'THREAD_REMOVED',
+        id: msg.id,
+        data: { data: decodeThreadRemoval(p.value.cert, p.value.record) },
+      };
     case 'pageAck':
       return {
         type: 'PAGE_ACK',
@@ -237,6 +243,33 @@ function decodeKeyRevocationCert(cert: { id: string; userId: string; reason: str
   };
 }
 
+function decodeThreadRemoval(
+  cert: { serverId: string; userId: string; threadId: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined,
+  record: { serverId: string; userId: string; threadId: string; reedIds: string[]; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined
+) {
+  if (!cert || !record) return null;
+  return {
+    threadID: cert.threadId,
+    cert: {
+      type: 'thread_removal',
+      serverID: cert.serverId,
+      userID: cert.userId,
+      threadID: cert.threadId,
+      userSignature: decodeUserSignature(cert.userSignature),
+      serverSignature: decodeServerSignature(cert.serverSignature),
+    },
+    record: {
+      type: 'thread',
+      serverID: record.serverId,
+      userID: record.userId,
+      threadID: record.threadId,
+      reedIDs: record.reedIds,
+      userSignature: decodeUserSignature(record.userSignature),
+      serverSignature: decodeServerSignature(record.serverSignature),
+    },
+  };
+}
+
 export type ServerEventHandler = (data: any) => void;
 
 type PendingRequest = { resolve: (reed: ReedType) => void; reject: (err: any) => void };
@@ -281,6 +314,7 @@ export enum ServerEvent {
   Sigterm              = 'SIGTERM',
   /** A DATA_RESPONSE answering a REQUEST_THREAD; never on the wire. */
   ThreadResponse       = 'THREAD_RESPONSE',
+  ThreadRemoved        = 'THREAD_REMOVED',
 }
 
 class ServerConnection {

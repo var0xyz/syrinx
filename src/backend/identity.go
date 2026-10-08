@@ -433,6 +433,42 @@ func buildThreadServerPayload(
 	)
 }
 
+// identityTypeThreadRemoval is the signed-header `type` for a thread-removal
+// certificate.
+const identityTypeThreadRemoval = "thread_removal"
+
+// buildThreadRemovalUserPayload returns the bytes the author signs to remove
+// threadID. threadSignature pins the removal to the one record they signed.
+func buildThreadRemovalUserPayload(serverID, threadID, threadSignature string) []byte {
+	return bytesToSign(map[string]string{
+		"type":            identityTypeThreadRemoval,
+		"serverID":        serverID,
+		"threadID":        threadID,
+		"threadSignature": base64Encode(threadSignature),
+	}, "")
+}
+
+// buildThreadRemovalServerPayload returns the bytes the server countersigns
+// for a thread removal. signedAt must already be truncated to whole seconds.
+func buildThreadRemovalServerPayload(
+	serverID,
+	threadID,
+	authorKeyID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) []byte {
+	return bytesToSign(map[string]string{
+		"type":                 identityTypeThreadRemoval,
+		"serverID":             serverID,
+		"threadID":             threadID,
+		"authorKeyID":          authorKeyID,
+		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        base64Encode(userSignature),
+	}, "")
+}
+
 // identityTypeReedLike is the wire and signed-header `type` for a
 // reed-like certificate (JSON `"type": "reed_like"`).
 const identityTypeReedLike = "reed_like"

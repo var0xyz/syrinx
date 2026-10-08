@@ -2967,6 +2967,7 @@ type ReedOrRemovalResult struct {
 	Reed           *Reed
 	AccountRemoval *accountRemovalCert
 	ReedRemoval    *reedRemovalCert
+	ThreadRemoval  *threadRemoval
 }
 
 // GetReed loads a live tip reed by its canonical id.
@@ -3022,6 +3023,17 @@ func (s *DataService) GetReedOrRemovalCert(ctx context.Context, reedID string) (
 	if removal != nil {
 		out.ReedRemoval = removal
 		return out, nil
+	}
+
+	threadID, err := s.RemovedThreadOf(ctx, reedID)
+	if err != nil {
+		return out, err
+	}
+	if threadID != "" {
+		out.ThreadRemoval, err = s.GetThreadRemoval(ctx, threadID)
+		if err != nil || out.ThreadRemoval != nil {
+			return out, err
+		}
 	}
 
 	reed, err := s.GetReed(ctx, reedID)
@@ -5758,7 +5770,7 @@ func loadReedCertTx(ctx context.Context, q reedQuerier, reedID string, forUpdate
 	query := `
 		SELECT public_key_id, user_signature_id, server_signature_id
 		FROM reed_removals
-		WHERE reed_id = $1`
+		WHERE reed_id = $1 AND user_signature_id IS NOT NULL`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
@@ -5798,6 +5810,204 @@ func assembleReedCert(ctx context.Context, q reedQuerier, reedID, userID, userFP
 		ServerFingerprint: serverRow.PrivateKeyID,
 		ServerSignedAt:    serverRow.SignedAt,
 	}, nil
+}
+
+// threadRemovalWire is a signed thread-removal certificate on the wire.
+type threadRemovalWire struct {
+	Type            string          `json:"type"`
+	ServerID        string          `json:"serverID"`
+	UserID          string          `json:"userID"`
+	ThreadID        string          `json:"threadID"`
+	UserSignature   UserSignature   `json:"userSignature"`
+	ServerSignature ServerSignature `json:"serverSignature"`
+}
+
+// threadRemoval is a thread-removal certificate with the record it removes,
+// as clients and peers receive it.
+type threadRemoval struct {
+	Cert   threadRemovalWire `json:"cert"`
+	Record threadRecordWire  `json:"record"`
+}
+
+// InsertThreadRemoval stores rm once, with a reed_removals row for every
+// part its record lists. A different certificate for the same thread is
+// errRemovalConflict.
+func (s *DataService) InsertThreadRemoval(ctx context.Context, rm threadRemoval) error {
+	signedAt := rm.Cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
+	record, err := json.Marshal(rm.Record)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var storedUserSig string
+	err = tx.QueryRowContext(ctx, `
+		SELECT us.signature FROM thread_removals tr
+		JOIN user_signatures us ON us.id = tr.user_signature_id
+		WHERE tr.thread_id = $1 FOR UPDATE
+	`, rm.Cert.ThreadID).Scan(&storedUserSig)
+	if err == nil {
+		if storedUserSig != rm.Cert.UserSignature.Armor {
+			return errRemovalConflict
+		}
+		return nil
+	}
+	if err != sql.ErrNoRows {
+		return err
+	}
+
+	userSigID, err := insertUserSignature(ctx, tx, rm.Cert.UserSignature.ID, rm.Cert.UserSignature.Armor)
+	if err != nil {
+		return err
+	}
+	serverSigID, err := insertServerSignature(ctx, tx, rm.Cert.ServerSignature.ID, rm.Cert.ServerSignature.Armor, signedAt)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO thread_removals (thread_id, public_key_id, user_signature_id, server_signature_id, thread_record)
+		VALUES ($1, $2, $3, $4, $5)
+	`, rm.Cert.ThreadID, rm.Cert.UserSignature.ID, userSigID, serverSigID, record); err != nil {
+		return fmt.Errorf("insert thread removal: %w", err)
+	}
+	for _, reedID := range rm.Record.ReedIDs {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_removals (reed_id, thread_id) VALUES ($1, $2)
+			ON CONFLICT (reed_id) DO NOTHING
+		`, reedID, rm.Cert.ThreadID); err != nil {
+			return fmt.Errorf("insert thread part removal: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// GetThreadRemoval returns threadID's removal with its record, or nil.
+func (s *DataService) GetThreadRemoval(ctx context.Context, threadID string) (*threadRemoval, error) {
+	var rm threadRemoval
+	var record []byte
+	err := s.db.QueryRowContext(ctx, `
+		SELECT tr.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at, tr.thread_record
+		FROM thread_removals tr
+		JOIN user_signatures us ON us.id = tr.user_signature_id
+		JOIN server_signatures ss ON ss.id = tr.server_signature_id
+		WHERE tr.thread_id = $1
+	`, threadID).Scan(
+		&rm.Cert.UserSignature.ID, &rm.Cert.UserSignature.Armor,
+		&rm.Cert.ServerSignature.ID, &rm.Cert.ServerSignature.Armor, &rm.Cert.ServerSignature.SignedAt,
+		&record,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(record, &rm.Record); err != nil {
+		return nil, err
+	}
+	rm.Cert.Type = identityTypeThreadRemoval
+	rm.Cert.ThreadID = threadID
+	rm.Cert.UserID = rm.Record.UserID
+	rm.Cert.ServerID = rm.Record.ServerID
+	rm.Cert.ServerSignature.SignedAt = rm.Cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
+	return &rm, nil
+}
+
+// RemovedThreadOf returns the removed thread reedID was a part of, or "".
+func (s *DataService) RemovedThreadOf(ctx context.Context, reedID string) (string, error) {
+	var threadID string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT thread_id FROM reed_removals WHERE reed_id = $1 AND thread_id IS NOT NULL
+	`, reedID).Scan(&threadID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return threadID, err
+}
+
+// ThreadHeadOf returns the head of the thread a local reed belongs to, or "".
+func (s *DataService) ThreadHeadOf(ctx context.Context, reedID string) (string, error) {
+	var head sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT thread_head FROM reeds WHERE id = $1`, reedID).Scan(&head)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return head.String, err
+}
+
+// GetMissingThreadRemovals lists removed threads userID still holds a part of.
+func (s *DataService) GetMissingThreadRemovals(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT rr.thread_id
+		FROM reed_allocations ra
+		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
+		WHERE ra.holder_user_id = $1 AND rr.thread_id IS NOT NULL
+	`, identityID(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// OnlineThreadHolders lists online users holding any part of removed threadID.
+func (s *DataService) OnlineThreadHolders(ctx context.Context, threadID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT ra.holder_user_id
+		FROM reed_allocations ra
+		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
+		JOIN online_users ou ON ou.user_id = ra.holder_user_id
+		WHERE rr.thread_id = $1
+	`, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// DeleteThreadAllocations drops userID's allocations of removed threadID's
+// parts, returning the parts that had one.
+func (s *DataService) DeleteThreadAllocations(ctx context.Context, threadID, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		DELETE FROM reed_allocations ra
+		USING reed_removals rr
+		WHERE rr.reed_id = ra.reed_id AND rr.thread_id = $1 AND ra.holder_user_id = $2
+		RETURNING ra.reed_id
+	`, threadID, identityID(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // maxAccountNoteLen is the goodbye note limit (API + DB).
@@ -9008,7 +9218,7 @@ func (s *DataService) GetMissingRemovals(ctx context.Context, userID string) ([]
 		SELECT rr.reed_id
 		FROM reed_allocations ra
 		JOIN reed_removals rr ON rr.reed_id = ra.reed_id
-		WHERE ra.holder_user_id = $1
+		WHERE ra.holder_user_id = $1 AND rr.user_signature_id IS NOT NULL
 	`, selfIdentity)
 	if err != nil {
 		return nil, err
@@ -9416,8 +9626,8 @@ type peerStreamItem struct {
 }
 
 // peerStreamSQL defines every local author's stream. Only reeds published
-// here count, a thread crosses once as its head, and a removal is later
-// than its creation by construction.
+// here count, a thread and its removal cross once as its head, and a
+// removal is later than its creation by construction.
 const peerStreamSQL = `
 	WITH stream AS (
 		SELECT r.user_id AS author_id, r.published_at AS at, 0 AS kind, r.id AS reed_id
@@ -9428,6 +9638,12 @@ const peerStreamSQL = `
 		FROM reed_removals rr
 		JOIN reeds r ON r.id = rr.reed_id
 		JOIN server_signatures ss ON ss.id = rr.server_signature_id
+		WHERE r.published_at IS NOT NULL
+		UNION ALL
+		SELECT r.user_id, ss.signed_at, 1, tr.thread_id
+		FROM thread_removals tr
+		JOIN reeds r ON r.id = tr.thread_id
+		JOIN server_signatures ss ON ss.id = tr.server_signature_id
 		WHERE r.published_at IS NOT NULL
 	)`
 

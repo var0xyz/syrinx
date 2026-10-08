@@ -165,6 +165,7 @@ const (
 	broadcastReedEvent       realtimeEventName = "broadcast_reed"
 	pipeReedEvent            realtimeEventName = "pipe_reed"
 	reedRemovedEvent         realtimeEventName = "reed_removed"
+	threadRemovedEvent       realtimeEventName = "thread_removed"
 	accountRemovedEvent      realtimeEventName = "account_removed"
 	keyRevokedEvent          realtimeEventName = "key_revoked"
 	reedReplyEvent           realtimeEventName = "reed_reply"
@@ -315,6 +316,35 @@ func newReedRemovedMsg(eventID, requestID string, cert reedRemovalWire) *pb.WSMe
 		Id:   eventID,
 		Payload: &pb.WSMessage_ReedRemoved{
 			ReedRemoved: &pb.ReedRemovedMessage{RequestId: requestID, Cert: pbReedRemovalCert(cert)},
+		},
+	}
+}
+
+// newThreadRemovedMsg builds a THREAD_REMOVED delivery: the certificate and
+// the record naming every part it removes.
+func newThreadRemovedMsg(eventID, requestID string, rm threadRemoval) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_THREAD_REMOVED,
+		Id:   eventID,
+		Payload: &pb.WSMessage_ThreadRemoved{
+			ThreadRemoved: &pb.ThreadRemovedMessage{
+				RequestId: requestID,
+				Cert: &pb.ThreadRemovalCert{
+					ServerId:        rm.Cert.ServerID,
+					UserId:          rm.Cert.UserID,
+					ThreadId:        rm.Cert.ThreadID,
+					UserSignature:   pbUserSignature(rm.Cert.UserSignature),
+					ServerSignature: pbServerSignature(rm.Cert.ServerSignature),
+				},
+				Record: &pb.ThreadRecord{
+					ServerId:        rm.Record.ServerID,
+					UserId:          rm.Record.UserID,
+					ThreadId:        rm.Record.ThreadID,
+					ReedIds:         rm.Record.ReedIDs,
+					UserSignature:   pbUserSignature(rm.Record.UserSignature),
+					ServerSignature: pbServerSignature(rm.Record.ServerSignature),
+				},
+			},
 		},
 	}
 }
@@ -549,6 +579,7 @@ const (
 	realtimeRippleUpdated     // UserID/ReedID = parent reed; Ripple = the soft-deleted ripple response (deleted=true, content="[DELETED]")
 	realtimeVouchCreated      // UserID = the subject to notify; VouchID = the new vouch
 	realtimeKeyRevoked        // KeyID = the revoked user key
+	realtimeThreadRemoved     // ThreadRemoval = the certificate and its record
 )
 
 // realtimeBroadcastMessage represents a message sent from the main app to
@@ -579,6 +610,9 @@ type realtimeBroadcastMessage struct {
 
 	// KeyRevoked only: the revoked user key's id.
 	KeyID string
+
+	// ThreadRemoved only.
+	ThreadRemoval *threadRemoval
 }
 
 // realtimeClientSubscriptionFlags tracks per-client subscription toggles.
@@ -633,6 +667,8 @@ func (bt realtimeBroadcastType) String() string {
 		return "AccountRemoved"
 	case realtimeKeyRevoked:
 		return "KeyRevoked"
+	case realtimeThreadRemoved:
+		return "ThreadRemoved"
 	case realtimeEchoCountChanged:
 		return "EchoCountChanged"
 	case realtimeReplyCountChanged:
@@ -1496,6 +1532,11 @@ func (rs *realtimeService) handleBroadcasts(broadcastChan <-chan realtimeBroadca
 			rs.fanoutReedRemoval(message.UserID, reedID, message.ReedRemoval)
 		}
 
+		if message.Type == realtimeThreadRemoved && message.ThreadRemoval != nil {
+			log.Info().Str("threadID", message.ThreadRemoval.Cert.ThreadID).Msg("Thread removed; fanout cert")
+			rs.fanoutThreadRemoval(message.ThreadRemoval)
+		}
+
 		if message.Type == realtimeAccountRemoved {
 			log.Info().
 				Str("userID", message.UserID).
@@ -1631,6 +1672,93 @@ func (rs *realtimeService) fanoutReedRemoval(authorUserID, reedID string, cert *
 	// ancestor further up the thread also needs the removal notice — they
 	// were shown the reply and need to know it's gone.
 	rs.notifyReplyAncestorsOfRemoval(reedID, cert)
+}
+
+// fanoutThreadRemoval delivers a thread removal once to every local user a
+// removal of any part would reach, plus anyone online holding a part.
+func (rs *realtimeService) fanoutThreadRemoval(rm *threadRemoval) {
+	ctx := context.Background()
+	authorUserID := rm.Record.UserID
+	threadID := rm.Cert.ThreadID
+	var recipients []string
+
+	followers, err := rs.db.GetOnlineFollowers(ctx, authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get online followers for thread removal")
+	}
+	recipients = unionUserIDs(recipients, followers)
+	broadcastRecipients, err := rs.db.GetBroadcastSubscribers(ctx, authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get broadcast subscribers for thread removal")
+	}
+	recipients = unionUserIDs(recipients, broadcastRecipients)
+	profileSubscribers, err := rs.db.GetProfileSubscribers(ctx, authorUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get profile subscribers for thread removal")
+	}
+	for _, sub := range profileSubscribers {
+		recipients = unionUserIDs(recipients, []string{sub.ViewerUserID})
+	}
+	for _, reedID := range rm.Record.ReedIDs {
+		recipients = unionUserIDs(recipients, rs.reedSubscriberUserIDs(reedID, ""))
+	}
+	holders, err := rs.db.OnlineThreadHolders(ctx, threadID)
+	if err != nil {
+		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to get holders for thread removal")
+	}
+	recipients = unionUserIDs(recipients, holders)
+
+	if err := rs.db.UpsertReedIdentity(ctx, threadID); err != nil {
+		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to upsert thread identity for removal")
+		return
+	}
+	for _, recipientID := range recipients {
+		if foreign, _ := rs.isForeignReed(recipientID); foreign {
+			continue
+		}
+		rs.dispatchThreadRemovalTo(recipientID, threadID, rm)
+	}
+}
+
+func (rs *realtimeService) dispatchThreadRemovalTo(recipientID, threadID string, rm *threadRemoval) {
+	requestID, err := rs.db.GetSyncRequestID(context.Background(), recipientID)
+	if err != nil || requestID == "" {
+		return
+	}
+	eventID := generateRealtimeEventID(recipientID)
+	if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, threadRemovedEvent, threadID); err != nil {
+		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create thread_removed pending event")
+		return
+	}
+	rs.deliverThreadRemoved(eventID, requestID, recipientID, threadID, rm)
+}
+
+func (rs *realtimeService) deliverThreadRemoved(eventID, requestID, recipientID, threadID string, rm *threadRemoval) {
+	if rm == nil {
+		var err error
+		rm, err = rs.db.GetThreadRemoval(context.Background(), threadID)
+		if err != nil || rm == nil {
+			log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread removal for delivery")
+			return
+		}
+	}
+	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
+	if err != nil {
+		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark thread_removed dispatched")
+		return
+	}
+	if !ok {
+		return
+	}
+	if err := rs.connManager.SendToUser(recipientID, newThreadRemovedMsg(eventID, requestID, *rm)); err != nil {
+		log.Error().Err(err).Str("recipientID", recipientID).Str("threadID", threadID).Msg("Failed to send THREAD_REMOVED")
+	}
+}
+
+// HandleForeignThreadRemoval delivers a peer's verified thread removal to
+// this server's users.
+func (rs *realtimeService) HandleForeignThreadRemoval(rm *threadRemoval) {
+	rs.fanoutThreadRemoval(rm)
 }
 
 // fanoutNewReed dispatches a newly published reed to followers, broadcast subs,
@@ -2530,6 +2658,10 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 	}
 	if realtimeEventName(pe.EventName) == reedRemovedEvent {
 		rs.deliverReedRemoved(pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
+		return rs.dispatchNext(holderUserID)
+	}
+	if realtimeEventName(pe.EventName) == threadRemovedEvent {
+		rs.deliverThreadRemoved(pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
 		return rs.dispatchNext(holderUserID)
 	}
 	ok, err := rs.db.MarkEventDispatched(context.Background(), pe.EventID, holderUserID)
@@ -4076,6 +4208,19 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		rs.deliverReedRemoved(eventID, requestID, userID, rem.ReedID, &rem.Cert)
 	}
 
+	threadRemovals, err := rs.db.GetMissingThreadRemovals(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing thread removals")
+		return
+	}
+	for _, threadID := range threadRemovals {
+		if err := rs.db.UpsertReedIdentity(context.Background(), threadID); err != nil {
+			log.Error().Err(err).Str("threadID", threadID).Msg("Failed to upsert thread identity for catch-up")
+			continue
+		}
+		rs.dispatchThreadRemovalTo(userID, threadID, nil)
+	}
+
 	accountRemovals, err := rs.db.GetMissingAccountRemovals(context.Background(), userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing account removals")
@@ -4475,7 +4620,7 @@ func (rs *realtimeService) failReedNotHeld(pe *pendingReedEvent) {
 // removal cert) itself, so dispatching it is already the delivery.
 func isRemovalEvent(eventName string) bool {
 	name := realtimeEventName(eventName)
-	return name == reedRemovedEvent || name == accountRemovedEvent || name == keyRevokedEvent
+	return name == reedRemovedEvent || name == accountRemovedEvent || name == keyRevokedEvent || name == threadRemovedEvent
 }
 
 // ackAcceptable: only the requester may ack, and only once something was
@@ -4517,6 +4662,14 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear allocation on reed_removed ack")
 		} else if changed {
 			rs.notifyReedCoverage(pe.ReedID)
+		}
+	} else if realtimeEventName(pe.EventName) == threadRemovedEvent {
+		parts, err := rs.db.DeleteThreadAllocations(context.Background(), pe.ReedID, client.userID)
+		if err != nil {
+			log.Error().Err(err).Str("threadID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear thread allocations on thread_removed ack")
+		}
+		for _, reedID := range parts {
+			rs.notifyReedCoverage(reedID)
 		}
 	} else if realtimeEventName(pe.EventName) == keyRevokedEvent {
 		if err := rs.db.DeletePublicKeyAllocation(context.Background(), client.userID, pe.KeyID); err != nil {

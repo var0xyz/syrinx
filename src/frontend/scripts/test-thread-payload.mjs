@@ -1,7 +1,12 @@
 // Thread record payload parity against the Go golden bytes. Imports the
 // real module, so this cannot pass while signing.ts drifts.
 import assert from 'node:assert/strict';
-import { buildThreadUserPayload, buildThreadServerPayload } from '../src/lib/services/signing.ts';
+import {
+  buildThreadUserPayload,
+  buildThreadServerPayload,
+  buildThreadRemovalUserPayload,
+  buildThreadRemovalServerPayload,
+} from '../src/lib/services/signing.ts';
 
 const ids = Array.from({ length: 11 }, (_, i) => `a@home/r${i}`);
 
@@ -39,6 +44,31 @@ assert.equal(
     'userSignature: U0lH\n' +
     '---\n',
   'thread server payload'
+);
+
+assert.equal(
+  buildThreadRemovalUserPayload('home', 'a@home/r0', 'TSIG'),
+  '---\n' +
+    'serverID: home\n' +
+    'threadID: a@home/r0\n' +
+    'threadSignature: VFNJRw==\n' +
+    'type: thread_removal\n' +
+    '---\n',
+  'thread removal user payload'
+);
+
+assert.equal(
+  buildThreadRemovalServerPayload('home', 'a@home/r0', 'a@home/k1', 'SERVERKEY01', 'SIG', '2026-10-07T12:00:00Z'),
+  '---\n' +
+    'authorKeyID: a@home/k1\n' +
+    'serverID: home\n' +
+    'serverKeyFingerprint: SERVERKEY01\n' +
+    'signedAt: 2026-10-07T12:00:00Z\n' +
+    'threadID: a@home/r0\n' +
+    'type: thread_removal\n' +
+    'userSignature: U0lH\n' +
+    '---\n',
+  'thread removal server payload'
 );
 
 console.log('ok   thread payloads');
