@@ -1,5 +1,5 @@
 import { redirect, error } from '@sveltejs/kit';
-import { getListReeds } from '$lib/repositories/reeds';
+import { getUserListReeds } from '$lib/repositories/reeds';
 
 /** @type {import('./$types').PageLoad} */
 export async function load({ parent, params }) {
@@ -8,10 +8,10 @@ export async function load({ parent, params }) {
     throw redirect(307, '/');
   }
 
-  const { reeds, authors, list } = await getListReeds(params.listId);
-  if (!list) {
+  const { reeds, authors, userList } = await getUserListReeds(params.listId);
+  if (!userList) {
     throw error(404, 'List not found');
   }
 
-  return { user, list, reeds, authors };
+  return { user, userList, reeds, authors };
 }

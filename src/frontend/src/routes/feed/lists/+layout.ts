@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { listsRepository } from '$lib/repositories/lists';
+import { userListsRepository } from '$lib/repositories/userLists';
 
 /** @type {import('./$types').LayoutLoad} */
 export async function load({ parent }) {
@@ -8,7 +8,7 @@ export async function load({ parent }) {
     throw redirect(307, '/');
   }
 
-  const lists = await listsRepository.getAll();
+  const userLists = await userListsRepository.getAll();
 
-  return { user, lists };
+  return { user, userLists };
 }

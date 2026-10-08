@@ -21,6 +21,6 @@ export function generateReedId(): string {
 }
 
 /** Time-ordered list id (UUID v7). */
-export function generateListId(): string {
+export function generateUserListId(): string {
   return uuidv7();
 }
