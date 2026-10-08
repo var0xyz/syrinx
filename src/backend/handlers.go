@@ -2588,7 +2588,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UTC().Truncate(time.Second)
 	serverPayload := buildReedRemovalServerPayload(
-		serverID, reedID,
+		serverID, reedID, fingerprint,
 		h.signingKey.Fingerprint, userSignature, now,
 	)
 	serverSignature, err := h.countersign(serverPayload, now)

@@ -55,3 +55,23 @@ func TestReedCountersignPayloadShape(t *testing.T) {
 		t.Errorf("reed countersign payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+// Golden bytes, asserted by the SPA's test:removal-payload too.
+func TestReedRemovalServerPayloadCanonicalShape(t *testing.T) {
+	got := buildReedRemovalServerPayload(
+		"home", "a@home/r0", "a@home/k1", "SERVERKEY01", "SIG",
+		time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
+	)
+	want := "---\n" +
+		"authorKeyID: a@home/k1\n" +
+		"reedID: a@home/r0\n" +
+		"serverID: home\n" +
+		"serverKeyFingerprint: SERVERKEY01\n" +
+		"signedAt: 2026-10-07T12:00:00Z\n" +
+		"type: reed\n" +
+		"userSignature: U0lH\n" +
+		"---\n"
+	if string(got) != want {
+		t.Errorf("reed removal server payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

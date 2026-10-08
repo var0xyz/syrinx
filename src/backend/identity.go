@@ -327,6 +327,7 @@ func buildReedRemovalUserPayload(serverID, reedID string) []byte {
 func reedRemovalServerHeaders(
 	serverID,
 	reedID,
+	authorKeyID,
 	serverKeyFingerprint,
 	userSignature string,
 	signedAt time.Time,
@@ -335,6 +336,7 @@ func reedRemovalServerHeaders(
 		"type":                 identityTypeReed,
 		"serverID":             serverID,
 		"reedID":               reedID,
+		"authorKeyID":          authorKeyID,
 		"signedAt":             signedAt.UTC().Format(identityRecordTimeFormat),
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"userSignature":        base64Encode(userSignature),
@@ -350,6 +352,7 @@ func reedRemovalServerHeaders(
 func buildReedRemovalServerPayload(
 	serverID,
 	reedID,
+	authorKeyID,
 	serverKeyFingerprint,
 	userSignature string,
 	signedAt time.Time,
@@ -358,6 +361,7 @@ func buildReedRemovalServerPayload(
 		reedRemovalServerHeaders(
 			serverID,
 			reedID,
+			authorKeyID,
 			serverKeyFingerprint,
 			userSignature,
 			signedAt,

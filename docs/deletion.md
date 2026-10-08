@@ -9,7 +9,7 @@ Syrinx therefore uses **signed removal certificates**.
 | Layer | Who | Attests |
 |-------|-----|---------|
 | User signature | Author’s active key | “I remove this reed / this account” |
-| Server countersignature | Active server key | “This server witnessed that removal at this timestamp” |
+| Server countersignature | Active server key | “This server witnessed that removal, signed by this author key, at this timestamp” |
 
 Clients **must** verify both before deleting local reed content or purging peer account data. Either failure → ignore the event; keep data.
 
@@ -30,6 +30,7 @@ That raises the bar for an attacker who only owns the server: they need author k
 - First successful accept stores user signature + countersignature.
 - Later identical retries return the **same** cert—never mint a second server signature for the same removal (**idempotent**).
 - `GET` of a removed reed returns **410 Gone** with the certificate body so holders can verify before purge.
+- A peer's removal is accepted only when the author's signature verifies with a key of that author and the countersignature verifies with the peer's own key.
 - Fanout reuses the new-reed realtime path (live dispatch + `SYNC_REQUEST` catch-up). Holders clear allocations after apply so removals do not re-deliver forever. The server may keep bookkeeping rows so allocations are not cascade-deleted before peers apply.
 
 ## Account removal
