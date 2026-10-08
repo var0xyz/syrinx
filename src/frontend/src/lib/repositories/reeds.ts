@@ -22,6 +22,7 @@ import { isOnline, onReconnect } from '$lib/services/pwa';
 import { isBlankEcho } from '$lib/utils/emptyEcho';
 import { clearPublishTipOverride, previousIDForPublish } from '../services/publishTip';
 import { listsRepository } from './lists';
+import { tagsRepository } from './tags';
 import { isOverThreshold } from '$lib/services/quota';
 import { freeSpace } from '$lib/services/eviction';
 import type { ListType } from '$lib/types/list';
@@ -263,6 +264,7 @@ class ReedsService {
       const { threadsRepository } = await import('$lib/repositories/threads');
       if (await threadsRepository.isRemoved(reed.thread.head)) {
         await dbService.delete('reeds', reed.id);
+        await tagsRepository.removeReed(reed.id);
         return;
       }
     }
@@ -281,22 +283,13 @@ class ReedsService {
       await reedRepliesRepository.upsertFromReed(reed);
     }
 
-    if (reed.tags?.length > 0) {
-      for (const tag of reed.tags) {
-        const name = tag.toLowerCase();
-        const existing = await dbService.get<{ name: string; reeds: string[] }>('tags', name);
-        const already = existing?.reeds?.includes(reed.id);
-        const reeds = already
-          ? existing!.reeds
-          : [...(existing?.reeds ?? []), reed.id];
-        await dbService.put('tags', { name, reeds }, allowUnsigned);
-      }
-    }
+    await tagsRepository.add(reed);
   }
 
   async deleteReedsByAuthor(authorId: string): Promise<void> {
     const reeds = await dbService.getAllByIndex<ReedType>('reeds', 'userID', authorId);
     await Promise.all(reeds.map(r => dbService.delete('reeds', r.id)));
+    await Promise.all(reeds.map(r => tagsRepository.removeReed(r.id)));
   }
 
   /**
@@ -366,39 +359,38 @@ class ReedsService {
     }
   }
 
-  /** Local reeds indexed under a normalized tag (newest server signature first). */
-  async getReedsByTag(tag: string): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
+  /** One page of local reeds under a tag, newest publication first. Pass the
+   * previous page's nextCursor as `after` to resume. */
+  async getReedsByTag(
+    tag: string,
+    limit: number,
+    after?: string
+  ): Promise<{ items: ReedType[]; authors: Record<string, User>; hasMore: boolean; nextCursor?: string }> {
     const normalized = tag.trim().replace(/^#/, '').toLowerCase();
-    if (!normalized) {
-      return { reeds: [], authors: {} };
-    }
-    try {
-      const entry = await dbService.get<{ name: string; reeds: string[] }>('tags', normalized);
-      const refs = entry?.reeds ?? [];
-      const reeds: ReedType[] = [];
-      for (const ref of refs) {
-        const reed = await dbService.get<ReedType>('reeds', ref);
-        if (reed?.tags?.some((t) => t.toLowerCase() === normalized)) {
-          reeds.push(reed);
-        }
+    if (!normalized) return { items: [], authors: {}, hasMore: false };
+
+    const rows = await tagsRepository.page(normalized, limit + 1, after ? JSON.parse(after) : undefined);
+    const hasMore = rows.length > limit;
+    const pageRows = rows.slice(0, limit);
+    const last = pageRows[pageRows.length - 1];
+
+    const items: ReedType[] = [];
+    const authors: Record<string, User> = {};
+    for (const row of pageRows) {
+      const reed = await dbService.get<ReedType>('reeds', row.reedID);
+      if (!reed) continue;
+      items.push(reed);
+      if (!authors[reed.userID]) {
+        const user = await dbService.get<User>('users', reed.userID);
+        if (user) authors[reed.userID] = user;
       }
-      reeds.sort((a, b) => {
-        const ta = a.serverSignature?.timestamp ?? '';
-        const tb = b.serverSignature?.timestamp ?? '';
-        return tb.localeCompare(ta);
-      });
-      const authors: Record<string, User> = {};
-      for (const reed of reeds) {
-        if (!authors[reed.userID]) {
-          const user = await dbService.get<User>('users', reed.userID);
-          if (user) authors[reed.userID] = user;
-        }
-      }
-      return { reeds, authors };
-    } catch (error) {
-      console.error('Failed to get reeds by tag:', error);
-      return { reeds: [], authors: {} };
     }
+    return {
+      items,
+      authors,
+      hasMore,
+      nextCursor: last ? JSON.stringify({ createdAt: last.createdAt, reedID: last.reedID }) : undefined,
+    };
   }
 
   /**

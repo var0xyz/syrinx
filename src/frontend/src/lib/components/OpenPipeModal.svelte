@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { dbService } from '$lib/services/db';
+  import { tagsRepository } from '$lib/repositories/tags';
   import { normalizePipeTag, pipeTagLabel } from '$lib/utils/pipeTag';
 
   const dispatch = createEventDispatcher();
@@ -13,8 +13,7 @@
   let errorMessage = '';
 
   onMount(async () => {
-    const tags = await dbService.getAll<{ name: string }>('tags');
-    allTags = tags.map((t) => t.name).sort();
+    allTags = await tagsRepository.names();
   });
 
   $: normalized = normalizePipeTag(query);

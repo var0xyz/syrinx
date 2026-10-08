@@ -3,6 +3,7 @@ import { dbService } from './db';
 import { reedRemovalCommitted } from './reedRemoval';
 import { get } from 'svelte/store';
 import { threadsRepository } from '$lib/repositories/threads';
+import { tagsRepository } from '$lib/repositories/tags';
 import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
 import { apiService } from './api';
 import { requestSigner } from './request-signer';
@@ -24,6 +25,7 @@ export async function applyThreadRemoval(removal: api.ThreadRemoval): Promise<bo
   const local = await threadsRepository.getParts(removal.threadID);
   const ids = new Set([...removal.record.reedIDs, ...local.map((reed) => reed.id)]);
   await Promise.all([...ids].map((id) => dbService.delete('reeds', id)));
+  await Promise.all([...ids].map((id) => tagsRepository.removeReed(id)));
   await threadsRepository.delete(removal.threadID);
   reedRemovalCommitted.update((n) => n + 1);
   return true;

@@ -21,7 +21,6 @@ export function payloadByteLength(data: unknown): number {
 const STORE_DEFAULTS: Record<string, () => Record<string, unknown>> = {
   reeds: () => ({ content: '', tags: [], mentions: [] }),
   unsignedReeds: () => ({ content: '', tags: [], mentions: [] }),
-  tags: () => ({ reeds: [] }),
   users: () => ({ bio: '' }),
   revocations: () => ({ reason: '' }),
   pendingRevocation: () => ({ reason: '' }),
@@ -63,6 +62,8 @@ export interface DbService {
   getAllSortedByIndex<T>(storeName: string, indexName: string): Promise<T[]>;
   getLatestFromIndex<T>(storeName: string, indexName: string, limit: number, filter?: (item: T) => boolean, after?: IDBValidKey): Promise<T[]>;
   getAllByIndex<T>(storeName: string, indexName: string, key: IDBValidKey | IDBKeyRange): Promise<T[]>;
+  getRangeFromIndex<T>(storeName: string, indexName: string, range: IDBKeyRange, limit: number, direction?: IDBCursorDirection): Promise<T[]>;
+  getUniqueIndexKeys(storeName: string, indexName: string): Promise<IDBValidKey[]>;
   clear(storeName: string): Promise<void>;
 }
 
@@ -75,13 +76,12 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 24;
+  private readonly version = 26;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
     ['publicKeys',  'id'         ],
     ['revocations', 'id'         ],
-    ['tags',        'name'       ],
     ['users',       'id'         ],
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
@@ -195,6 +195,12 @@ export class IndexedDbService implements DbService {
 
         // Reed ids are canonical (globally unique) as of v12 — dropped above.
         ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
+        // One row per (tag, reed); byTime pages a tag newest first.
+        ensureStore('tags', ['name', 'reedID'], ['name', 'reedID']);
+        const tags = tx.objectStore('tags');
+        if (!tags.indexNames.contains('byTime')) {
+          tags.createIndex('byTime', ['name', 'createdAt', 'reedID'], { unique: false });
+        }
         // A thread's parts in order; reeds without `thread` aren't indexed.
         const reeds = tx.objectStore('reeds');
         if (!reeds.indexNames.contains('thread')) {
@@ -360,6 +366,58 @@ export class IndexedDbService implements DbService {
       request.onsuccess = () => {
         const results = request.result as DbWrapper<T>[];
         resolve(results.map((item) => unwrap(storeName, item)));
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /** Up to `limit` records in `range`, walked in `direction` order. */
+  async getRangeFromIndex<T>(
+    storeName: string,
+    indexName: string,
+    range: IDBKeyRange,
+    limit: number,
+    direction: IDBCursorDirection = 'prev'
+  ): Promise<T[]> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const request = transaction.objectStore(storeName).index(indexName).openCursor(range, direction);
+      const results: T[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || results.length >= limit) {
+          resolve(results);
+          return;
+        }
+        results.push(unwrap<T>(storeName, cursor.value));
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /** Each distinct key of an index, ascending. */
+  async getUniqueIndexKeys(storeName: string, indexName: string): Promise<IDBValidKey[]> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
+      const request = transaction.objectStore(storeName).index(indexName).openKeyCursor(null, 'nextunique');
+      const keys: IDBValidKey[] = [];
+
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(keys);
+          return;
+        }
+        keys.push(cursor.key);
+        cursor.continue();
       };
       request.onerror = () => reject(request.error);
     });

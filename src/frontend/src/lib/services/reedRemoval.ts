@@ -5,6 +5,7 @@ import { dbService } from './db';
 import { buildReedRemovalUserPayload } from './signing';
 import { pendingRemovalRepository } from '$lib/repositories/pendingRemoval';
 import { removedReedsRepository } from '$lib/repositories/removedReeds';
+import { tagsRepository } from '$lib/repositories/tags';
 import { verifyReedRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
 import { serverInfo } from './serverInfo';
@@ -27,6 +28,7 @@ export const reedRemovalCommittedID = writable('');
 export async function commitReedRemovalLocally(cert: api.ReedRemoval): Promise<void> {
   await removedReedsRepository.put(cert);
   await dbService.delete('reeds', cert.reedID);
+  await tagsRepository.removeReed(cert.reedID);
 }
 
 /** Put-then-side-effects. Returns false if verification fails (reed retained). */

@@ -1,5 +1,4 @@
 import { redirect, error } from '@sveltejs/kit';
-import { reedsService } from '$lib/repositories/reeds';
 import { normalizePipeTag, pipeTagLabel } from '$lib/utils/pipeTag';
 
 /** @type {import('./$types').PageLoad} */
@@ -14,13 +13,9 @@ export async function load({ parent, params }) {
     throw error(404, 'Pipe not found');
   }
 
-  const { reeds, authors } = await reedsService.getReedsByTag(tag);
-
   return {
     user,
     tag,
     displayName: pipeTagLabel(params.tag ?? ''),
-    reeds,
-    authors,
   };
 }
