@@ -2,10 +2,9 @@
 
 ## Status
 
-In progress. Landed: schema, payload builders (Go + SPA, golden tests),
-`DataService.CreateThread` / `GetThreadRecord`. Open: the endpoint,
-`PUBLISH_READY` handling with grouped mention and pipe delivery, removing the
-self-reply path.
+Implemented. A thread crosses to peers once, as its head (the peer stream
+skips later parts, and the head's new-reed carries every part's mentions).
+The SPA composer still publishes self-replies until [05](05_spa.md).
 
 ## Depends on
 

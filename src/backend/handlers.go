@@ -1812,6 +1812,71 @@ func normalizeClaimedTags(claims []string) []string {
 	return out
 }
 
+// errMentionTargetNotFound rejects a claimed mention of a local user who
+// doesn't exist.
+var errMentionTargetNotFound = errors.New("mentioned user not found")
+
+// resolveMentionClaims returns the mentions to store for a reed. Local ones
+// must exist; foreign ones are kept when their server is a peer, for
+// new-reed to carry. Either way the mentioned client re-verifies.
+func (h *Handlers) resolveMentionClaims(ctx context.Context, claimed []string, userID string) ([]string, error) {
+	localServerID := h.services.db.GetServerID()
+	all := ValidateMentionClaims(claimed, userID)
+	stored := make([]string, 0, len(all))
+	var foreign []string
+	for _, m := range all {
+		mentionedUserID := m.CanonicalAuthorID()
+		if m.ServerID != localServerID {
+			foreign = append(foreign, mentionedUserID)
+			continue
+		}
+		valid, err := h.services.db.MentionTargetValid(ctx, m.AuthorID, m.ServerID)
+		if err != nil {
+			return nil, err
+		}
+		if !valid {
+			return nil, errMentionTargetNotFound
+		}
+		stored = append(stored, mentionedUserID)
+	}
+	for _, mentionedUserID := range foreign {
+		_, mentionedServerID, _ := parseIdentityID(identityID(mentionedUserID))
+		peer, err := h.services.db.GetServerByID(ctx, mentionedServerID)
+		if err != nil || peer == nil {
+			continue
+		}
+		if err := h.services.db.UpsertRemoteIdentity(ctx, mentionedUserID, mentionedServerID); err != nil {
+			h.services.log.GetLogger(ctx).Error().Str("mentionedUserID", mentionedUserID).Err(err).Msg("Error recording foreign mention target")
+			continue
+		}
+		stored = append(stored, mentionedUserID)
+	}
+	return stored, nil
+}
+
+// activeUserKey loads userID's active key, writing the error response and
+// returning false when it is missing or revoked.
+func (h *Handlers) activeUserKey(w http.ResponseWriter, r *http.Request, userID string) (*Key, bool) {
+	log := h.services.log.GetLogger(r.Context())
+	keyID, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
+	if err != nil || keyID == "" {
+		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
+		internalServerError(w)
+		return nil, false
+	}
+	key, err := h.services.db.GetPublicKey(r.Context(), keyID)
+	if err != nil {
+		log.Error().Str("userID", userID).Str("keyID", keyID).Err(err).Msg("Error loading public key")
+		internalServerError(w)
+		return nil, false
+	}
+	if key == nil || key.Revoked {
+		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		return nil, false
+	}
+	return key, true
+}
+
 func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("SignReed request received")
@@ -1884,58 +1949,17 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
-		// Replying to yourself extends your own thread, which is capped.
-		if replyRef.CanonicalAuthorID() == userID {
-			n, err := h.services.db.SelfReplyChainLength(r.Context(), FormatReedRef(*replyRef), userID, MaxThreadReeds)
-			if err != nil {
-				log.Error().Err(err).Msg("Error measuring thread length")
-				internalServerError(w)
-				return
-			}
-			if n >= MaxThreadReeds {
-				log.Warn().Str("userID", userID).Str("replying", replying).Msg("Thread reed limit reached")
-				writeResponse(w, http.StatusBadRequest, fmt.Sprintf("A thread cannot have more than %d reeds", MaxThreadReeds))
-				return
-			}
-		}
 	}
 
-	// Mentions are claimed metadata now. Local mentions still get an
-	// existence sanity check; foreign ones are stored when their server is
-	// a peer, for new-reed to carry. Either way the mentioned client re-verifies.
-	allMentions := ValidateMentionClaims(claimedMentions, userID)
-	localMentions := make([]string, 0, len(allMentions))
-	foreignMentions := make([]string, 0, len(allMentions))
-	for _, m := range allMentions {
-		mentionedUserID := m.CanonicalAuthorID()
-		if m.ServerID != localServerID {
-			foreignMentions = append(foreignMentions, mentionedUserID)
-			continue
-		}
-		valid, err := h.services.db.MentionTargetValid(r.Context(), m.AuthorID, m.ServerID)
-		if err != nil {
-			log.Error().Str("mentionedUserID", m.AuthorID).Err(err).Msg("Error validating mention target")
-			internalServerError(w)
-			return
-		}
-		if !valid {
-			writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
-			return
-		}
-		localMentions = append(localMentions, mentionedUserID)
+	storedMentions, err := h.resolveMentionClaims(r.Context(), claimedMentions, userID)
+	if errors.Is(err, errMentionTargetNotFound) {
+		writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
+		return
 	}
-	storedMentions := localMentions
-	for _, mentionedUserID := range foreignMentions {
-		_, mentionedServerID, _ := parseIdentityID(identityID(mentionedUserID))
-		peer, err := h.services.db.GetServerByID(r.Context(), mentionedServerID)
-		if err != nil || peer == nil {
-			continue
-		}
-		if err := h.services.db.UpsertRemoteIdentity(r.Context(), mentionedUserID, mentionedServerID); err != nil {
-			log.Error().Str("mentionedUserID", mentionedUserID).Err(err).Msg("Error recording foreign mention target")
-			continue
-		}
-		storedMentions = append(storedMentions, mentionedUserID)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error validating mentions")
+		internalServerError(w)
+		return
 	}
 
 	user, err := h.services.db.GetUserProfile(r.Context(), userID)
@@ -1949,25 +1973,14 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userFingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
-	if err != nil || userFingerprint == "" {
-		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
-		internalServerError(w)
-		return
-	}
 	// Unverifiable here (no content), but still required/stored/countersigned:
 	// it closes the "re-sign different content under the same id" swap
 	// attack. See docs/content_privacy.md.
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), userFingerprint)
-	if err != nil {
-		log.Error().Str("userID", userID).Str("userFingerprint", userFingerprint).Err(err).Msg("Error loading public key")
-		internalServerError(w)
+	pubKey, ok := h.activeUserKey(w, r, userID)
+	if !ok {
 		return
 	}
-	if pubKey == nil || pubKey.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
-		return
-	}
+	userFingerprint := pubKey.ID
 
 	existing, err := h.services.db.GetReedAttestation(r.Context(), reedID)
 	if err != nil {
@@ -2134,6 +2147,217 @@ func (h *Handlers) respondSignReedReplay(
 		Armor:    existing.ServerSignature,
 		SignedAt: existing.ServerSignedAt,
 	})
+}
+
+// threadPartRequest is one part of a POST /threads body; its position in
+// the list is its index.
+type threadPartRequest struct {
+	ReedID    string   `json:"reedID"`
+	Signature string   `json:"signature"`
+	Tags      []string `json:"tags"`
+	Mentions  []string `json:"mentions"`
+}
+
+type createThreadRequest struct {
+	PreviousID      string              `json:"previousID"`
+	ThreadSignature string              `json:"threadSignature"`
+	Reeds           []threadPartRequest `json:"reeds"`
+}
+
+// threadSignatures is the server's countersignature on a thread record and
+// on each of its parts, in index order.
+type threadSignatures struct {
+	ServerSignature ServerSignature   `json:"serverSignature"`
+	Reeds           []ServerSignature `json:"reeds"`
+}
+
+// CreateThread countersigns and stores a whole thread: every part and the
+// author-signed thread record, in one transaction.
+func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
+	log := h.services.log.GetLogger(r.Context())
+	userID := h.getUserID(r)
+
+	var req createThreadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if req.ThreadSignature == "" {
+		writeResponse(w, http.StatusBadRequest, "Argument `threadSignature` is required")
+		return
+	}
+
+	parts := make([]createReedParams, len(req.Reeds))
+	reedIDs := make([]string, len(req.Reeds))
+	seen := make(map[string]struct{}, len(req.Reeds))
+	for i, part := range req.Reeds {
+		if part.ReedID == "" || part.Signature == "" {
+			writeResponse(w, http.StatusBadRequest, "Every reed needs `reedID` and `signature`")
+			return
+		}
+		if _, dup := seen[part.ReedID]; dup {
+			writeResponse(w, http.StatusBadRequest, "A reed appears twice in the thread")
+			return
+		}
+		seen[part.ReedID] = struct{}{}
+		reedIDs[i] = part.ReedID
+		parts[i] = createReedParams{ReedID: part.ReedID, UserID: userID, UserSignature: part.Signature}
+	}
+	if err := validateThreadParts(userID, parts); err != nil {
+		writeResponse(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	threadID := reedIDs[0]
+
+	for i, part := range req.Reeds {
+		mentions, err := h.resolveMentionClaims(r.Context(), part.Mentions, userID)
+		if errors.Is(err, errMentionTargetNotFound) {
+			writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
+			return
+		}
+		if err != nil {
+			log.Error().Str("userID", userID).Err(err).Msg("Error validating mentions")
+			internalServerError(w)
+			return
+		}
+		tags := normalizeClaimedTags(part.Tags)
+		if h.filterPipeTags != nil {
+			tags = h.filterPipeTags(tags)
+		}
+		parts[i].Mentions = mentions
+		parts[i].Tags = tags
+	}
+
+	pubKey, ok := h.activeUserKey(w, r, userID)
+	if !ok {
+		return
+	}
+	serverID := h.services.db.GetServerID()
+	userPayload := buildThreadUserPayload(serverID, threadID, reedIDs)
+	if err := h.services.crypto.verifySignature(string(userPayload), req.ThreadSignature, pubKey.Armor); err != nil {
+		writeResponse(w, http.StatusBadRequest, "Thread signature verification failed")
+		return
+	}
+
+	existing, err := h.services.db.GetThreadRecord(r.Context(), threadID)
+	if err != nil {
+		log.Error().Str("threadID", threadID).Err(err).Msg("Error loading thread")
+		internalServerError(w)
+		return
+	}
+	if existing != nil {
+		h.respondThreadReplay(w, r, existing, req)
+		return
+	}
+
+	timestamp := time.Now().UTC().Truncate(time.Second)
+	sigs := threadSignatures{Reeds: make([]ServerSignature, len(parts))}
+	for i := range parts {
+		sig, err := h.countersign(buildReedPayload(
+			serverID, parts[i].ReedID, h.signingKey.Fingerprint, pubKey.ID, parts[i].UserSignature, timestamp,
+		), timestamp)
+		if err != nil {
+			log.Error().Str("userID", userID).Err(err).Msg("Error signing thread part")
+			internalServerError(w)
+			return
+		}
+		parts[i].UserKeyID = pubKey.ID
+		parts[i].ServerFingerprint = sig.ID
+		parts[i].ServerSignature = sig.Armor
+		sigs.Reeds[i] = sig
+	}
+	threadSig, err := h.countersign(buildThreadServerPayload(
+		serverID, threadID, pubKey.ID, h.signingKey.Fingerprint, req.ThreadSignature, timestamp,
+	), timestamp)
+	if err != nil {
+		log.Error().Str("userID", userID).Err(err).Msg("Error signing thread record")
+		internalServerError(w)
+		return
+	}
+	sigs.ServerSignature = threadSig
+
+	_, err = h.services.db.CreateThread(r.Context(), createThreadParams{
+		UserID:            userID,
+		UserKeyID:         pubKey.ID,
+		UserSignature:     req.ThreadSignature,
+		ServerFingerprint: threadSig.ID,
+		ServerSignature:   threadSig.Armor,
+		Timestamp:         timestamp,
+		PreviousID:        strings.TrimSpace(req.PreviousID),
+		Parts:             parts,
+	})
+	if err != nil {
+		// A concurrent duplicate lost the insert race: replay the winner.
+		if isThreadUniqueViolation(err) {
+			if existing, getErr := h.services.db.GetThreadRecord(r.Context(), threadID); getErr == nil && existing != nil {
+				h.respondThreadReplay(w, r, existing, req)
+				return
+			}
+			writeResponse(w, http.StatusConflict, "A reed in the thread already exists")
+			return
+		}
+		switch {
+		case errors.Is(err, ErrReedFork):
+			writeResponse(w, http.StatusConflict, "previousID does not match the author's current tip")
+		case errors.Is(err, ErrInvalidThread):
+			writeResponse(w, http.StatusBadRequest, err.Error())
+		default:
+			log.Error().Str("threadID", threadID).Str("userID", userID).Err(err).Msg("Error creating thread")
+			internalServerError(w)
+		}
+		return
+	}
+
+	for i, part := range parts {
+		h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
+			Kind:     metrics.ReedKindPlain,
+			AuthorID: userID,
+			ReedID:   part.ReedID,
+			TagCount: len(parts[i].Tags),
+		})
+	}
+	log.Debug().Str("userID", userID).Str("threadID", threadID).Int("reeds", len(parts)).Msg("Thread created")
+	writeResponse(w, http.StatusCreated, sigs)
+}
+
+// respondThreadReplay returns the stored signatures (HTTP 200) when the
+// request repeats the stored thread exactly; otherwise 409.
+func (h *Handlers) respondThreadReplay(w http.ResponseWriter, r *http.Request, existing *threadRecord, req createThreadRequest) {
+	log := h.services.log.GetLogger(r.Context())
+	conflict := func() {
+		writeResponse(w, http.StatusConflict, "Thread already exists with different signatures")
+	}
+	if existing.UserSignature != req.ThreadSignature || len(existing.ReedIDs) != len(req.Reeds) {
+		conflict()
+		return
+	}
+	sigs := threadSignatures{
+		ServerSignature: ServerSignature{
+			ID:       existing.ServerFingerprint,
+			Armor:    existing.ServerSignature,
+			SignedAt: existing.ServerSignedAt,
+		},
+		Reeds: make([]ServerSignature, len(req.Reeds)),
+	}
+	for i, part := range req.Reeds {
+		if existing.ReedIDs[i] != part.ReedID {
+			conflict()
+			return
+		}
+		att, err := h.services.db.GetReedAttestation(r.Context(), part.ReedID)
+		if err != nil {
+			log.Error().Str("reedID", part.ReedID).Err(err).Msg("Error loading thread part")
+			internalServerError(w)
+			return
+		}
+		if att == nil || att.UserSignature != part.Signature {
+			conflict()
+			return
+		}
+		sigs.Reeds[i] = ServerSignature{ID: att.ServerFingerprint, Armor: att.ServerSignature, SignedAt: att.ServerSignedAt}
+	}
+	log.Info().Str("threadID", existing.ThreadID).Msg("CreateThread replay: returning stored countersignatures")
+	writeResponse(w, http.StatusOK, sigs)
 }
 
 // parseReedRef parses userID@serverID/reedID and checks reed id + local server.
