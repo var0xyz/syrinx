@@ -711,9 +711,9 @@
                 <span class="action-icon icon-echo"></span>
                 <span class="action-label">Echo</span>
               </button>
-              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Unlike' : 'Like'} disabled={isPending || isBlankEchoView || reedNotRecognized}>
+              <button class="action-btn" on:click={handleLike} aria-label={isLiked ? 'Un-like' : 'Like'} disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-like" class:filled={isLiked}></span>
-                <span class="action-label">Like</span>
+                <span class="action-label">{isLiked ? 'Liked' : 'Like'}</span>
               </button>
               <button class="action-btn" on:click={handleShare} aria-label="Share" disabled={isPending || isBlankEchoView || reedNotRecognized}>
                 <span class="action-icon icon-share"></span>
