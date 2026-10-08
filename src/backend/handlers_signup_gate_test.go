@@ -24,7 +24,7 @@ func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	t.Helper()
 	dataService := NewDataService(db, "test")
-	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
+	if err := dataService.InitServer(context.Background(), false, "https://test.example", "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
 	cryptoSvc := newCryptoService()
@@ -273,7 +273,7 @@ func TestCheckUsernameForRename_RequiresAuthentication(t *testing.T) {
 func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	db := openSignupTestDB(t)
 	dataService := NewDataService(db, "test")
-	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
+	if err := dataService.InitServer(context.Background(), false, "https://test.example", "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
 	cryptoSvc := newCryptoService()

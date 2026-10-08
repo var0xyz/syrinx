@@ -6088,7 +6088,7 @@ func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
 // federationFrontendURL is where this server's users open links
 // (ALLOWED_ORIGIN), told to peers in the handshake.
 func (h *Handlers) federationFrontendURL() string {
-	return strings.TrimRight(h.cfg.AllowedOrigin, "/")
+	return frontendURLFromOrigin(h.cfg.AllowedOrigin)
 }
 
 // federationURLAllowed applies the handshake's https rule to an address a

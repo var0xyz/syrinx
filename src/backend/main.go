@@ -95,6 +95,11 @@ func main() {
 		l.Panicf("[ERR] ServerName cannot be empty")
 	}
 
+	// Peers need it to send users to our frontend, so it can't be empty.
+	if frontendURLFromOrigin(cfg.AllowedOrigin) == "" {
+		l.Panicf("[ERR] ALLOWED_ORIGIN cannot be empty")
+	}
+
 	if !strings.HasPrefix(string(cfg.APIBaseURL), "https://") {
 		l.Printf("[WARN] API_BASE_URL %q is not https:// — fine for local dev, not for production", cfg.APIBaseURL)
 	}
@@ -157,7 +162,7 @@ func main() {
 	log.Info().Msg("[OK] Services initialized successfully")
 
 	log.Debug().Msg("Initializing server identity...")
-	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL)); err != nil {
+	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL), frontendURLFromOrigin(cfg.AllowedOrigin)); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
 

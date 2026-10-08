@@ -42,7 +42,8 @@ func ensureInviteStoreSchema(db *sql.DB) error {
 		`CREATE TABLE servers (
 			id VARCHAR(16) UNIQUE,
 			name VARCHAR(255) PRIMARY KEY,
-			self BOOLEAN NOT NULL DEFAULT FALSE
+			self BOOLEAN NOT NULL DEFAULT FALSE,
+			frontend_url TEXT NOT NULL
 		)`,
 		`CREATE TABLE identities (
 			id VARCHAR(255) PRIMARY KEY,
@@ -71,7 +72,7 @@ func ensureInviteStoreSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			invite_id VARCHAR(255) REFERENCES invites(id)
 		)`,
-		fmt.Sprintf(`INSERT INTO servers (id, name, self) VALUES ('%s', 'test', TRUE)`, inviteStoreTestServerID),
+		fmt.Sprintf(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('%s', 'test', TRUE, 'https://test.example')`, inviteStoreTestServerID),
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

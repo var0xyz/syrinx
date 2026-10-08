@@ -31,11 +31,11 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			self BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
+			frontend_url TEXT NOT NULL,
 			connected BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS frontend_url TEXT`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS peer_approved_at TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS key_id VARCHAR(255)`,
@@ -282,7 +282,7 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *cryptoKeyPa
 	}
 
 	dataService := NewDataService(db, "test")
-	if err := dataService.InitServer(context.Background(), false, "https://test.example"); err != nil {
+	if err := dataService.InitServer(context.Background(), false, "https://test.example", "https://test.example"); err != nil {
 		t.Fatal(err)
 	}
 

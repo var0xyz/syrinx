@@ -19,7 +19,7 @@ func newServerKeyTestDB(t *testing.T) (*sql.DB, *DataService, *ServerSigningKey)
 	db := newTestDatabase(t, InitDB)
 	ds := NewDataService(db, "test")
 	ds.setServerIDForTest("Ab3xY9pQ")
-	if _, err := db.Exec(`INSERT INTO servers (id, name, self) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE)`); err != nil {
+	if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE, 'https://test.example')`); err != nil {
 		t.Fatalf("seed self server: %v", err)
 	}
 	key, err := ds.InitServerKey(context.Background(), newCryptoService(), serverKeyTestPassphrase)
@@ -224,7 +224,7 @@ func TestRecoveryBundleCarriesKeyChain(t *testing.T) {
 	}
 
 	targetDB := newTestDatabase(t, InitDB)
-	if _, err := importIntoDB(ctx, targetDB, cryptoSvc, serverKeyTestPassphrase, bundle); err != nil {
+	if _, err := importIntoDB(ctx, targetDB, cryptoSvc, serverKeyTestPassphrase, "https://test.example", bundle); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	restored, err := loadServerKeyRevocations(ctx, targetDB)

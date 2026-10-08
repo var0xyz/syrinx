@@ -322,7 +322,7 @@ func TestGetRipples_Handler_PeerHolder(t *testing.T) {
 	svc := &DataService{db: db, serverID: ripplesTestServerID}
 	h := ripplesTestHandlers(svc)
 	const peer = "peerserver"
-	if _, err := db.Exec(`INSERT INTO servers (id, name) VALUES ($1, $1) ON CONFLICT DO NOTHING`, peer); err != nil {
+	if _, err := db.Exec(`INSERT INTO servers (id, name, frontend_url) VALUES ($1, $1, 'https://test.example') ON CONFLICT DO NOTHING`, peer); err != nil {
 		t.Fatalf("insert peer server: %v", err)
 	}
 

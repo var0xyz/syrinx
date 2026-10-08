@@ -216,11 +216,11 @@ func generateUserID() (string, error) {
 	return newCryptoID()
 }
 
-func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL string) error {
-	var id, name string
+func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL, frontendURL string) error {
+	var id, name, dbFrontendURL string
 	var dbBaseURL sql.NullString
 
-	err := s.db.QueryRowContext(ctx, `SELECT id, name, base_url FROM servers WHERE self = TRUE`).Scan(&id, &name, &dbBaseURL)
+	err := s.db.QueryRowContext(ctx, `SELECT id, name, base_url, frontend_url FROM servers WHERE self = TRUE`).Scan(&id, &name, &dbBaseURL, &dbFrontendURL)
 	if err == sql.ErrNoRows {
 		if recoveryMode {
 			return errRecoveryNoIdentityFound
@@ -229,7 +229,7 @@ func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL
 		if err != nil {
 			return err
 		}
-		_, err = s.db.ExecContext(ctx, `INSERT INTO servers (id, name, self, base_url) VALUES ($1, $2, TRUE, $3)`, id, s.serverName, baseURL)
+		_, err = s.db.ExecContext(ctx, `INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ($1, $2, TRUE, $3, $4)`, id, s.serverName, baseURL, frontendURL)
 		if err != nil {
 			return err
 		}
@@ -240,8 +240,8 @@ func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL
 		return err
 	}
 	s.serverID = id
-	if name != s.serverName || dbBaseURL.String != baseURL {
-		_, err = s.db.ExecContext(ctx, `UPDATE servers SET name = $1, base_url = $2 WHERE self = TRUE`, s.serverName, baseURL)
+	if name != s.serverName || dbBaseURL.String != baseURL || dbFrontendURL != frontendURL {
+		_, err = s.db.ExecContext(ctx, `UPDATE servers SET name = $1, base_url = $2, frontend_url = $3 WHERE self = TRUE`, s.serverName, baseURL, frontendURL)
 		return err
 	}
 
@@ -3589,7 +3589,7 @@ type federationServerListRow struct {
 // ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, name, COALESCE(base_url, ''), COALESCE(frontend_url, ''), connected,
+		SELECT id, name, COALESCE(base_url, ''), frontend_url, connected,
 			peer_approved_at IS NOT NULL, created_at,
 			revoked_at, COALESCE(revoked_by, ''), COALESCE(revoked_reason, ''),
 			disconnect_requested_at, COALESCE(disconnect_requested_by, ''),
@@ -9654,11 +9654,10 @@ const peerStreamSQL = `
 func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, COALESCE(key_id, ''), COALESCE(created_at, CURRENT_TIMESTAMP),
-		       COALESCE(frontend_url, '')
+		       frontend_url
 		FROM servers
 		WHERE self = FALSE AND connected = TRUE AND revoked_at IS NULL
 		  AND peer_approved_at IS NOT NULL
-		  AND frontend_url IS NOT NULL AND frontend_url != ''
 		ORDER BY name
 	`)
 	if err != nil {

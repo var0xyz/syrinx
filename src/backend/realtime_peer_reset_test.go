@@ -21,7 +21,7 @@ const teardownOtherPeerID = "othr9012"
 func seedPeerResetState(t *testing.T, db *sql.DB, rs *realtimeService, viewer string) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := db.Exec(`INSERT INTO servers (id, name, self) VALUES ($1, $1, FALSE)`, teardownOtherPeerID); err != nil {
+	if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ($1, $1, FALSE, 'https://test.example')`, teardownOtherPeerID); err != nil {
 		t.Fatalf("insert other peer: %v", err)
 	}
 

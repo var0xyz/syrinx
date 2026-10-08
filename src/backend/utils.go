@@ -115,3 +115,9 @@ func bytesToSign(headers map[string]string, content string) []byte {
 	out = append(out, content...)
 	return out
 }
+
+
+// frontendURLFromOrigin is this server's frontend URL, from ALLOWED_ORIGIN.
+func frontendURLFromOrigin(origin string) string {
+	return strings.TrimRight(strings.TrimSpace(origin), "/")
+}

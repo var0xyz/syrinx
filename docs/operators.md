@@ -23,7 +23,8 @@ Copy from [`.env.example`](https://github.com/var0xyz/syrinx/blob/main/.env.exam
 |----------|---------|
 | `SERVER_NAME` | Short instance name (no spaces) |
 | `DB_*` | Postgres connection |
-| `PORT` / `ALLOWED_ORIGIN` | Listen address and SPA origin |
+| `PORT` | Listen address |
+| `ALLOWED_ORIGIN` | Required. SPA origin, also this server's frontend URL: peers send their users here, and `ops import-identity` needs it too |
 | `SERVER_KEY_PASSPHRASE` | Optional; if unset, interactive boot uses OS keychain (auto-generate or prompt) |
 | `SIGNUP_MODE` | `open` \| `invite` \| `closed`; ignored while `RECOVERY_MODE=true` (signups always blocked then) |
 | `MAX_INVITES_PER_USER` | Cap (`-1` / unset = infinite) |
