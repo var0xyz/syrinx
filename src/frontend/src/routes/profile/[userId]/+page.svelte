@@ -434,11 +434,12 @@
                     placeholder="Enter username"
                     maxlength="50"
                   />
-                  {#if editForm.username && editForm.username !== profileUser.username}
-                    <div class="help-text">
-                      <UsernameChecker username={editForm.username} authenticated />
-                    </div>
-                  {/if}
+                  <div class="help-text">
+                    <UsernameChecker
+                      username={editForm.username !== profileUser.username ? editForm.username : ''}
+                      authenticated
+                    />
+                  </div>
                 </div>
 
                 <div class="form-group">
@@ -539,11 +540,12 @@
                     placeholder="Enter username"
                     maxlength="50"
                   />
-                  {#if editForm.username && editForm.username !== profileUser.username}
-                    <div class="help-text">
-                      <UsernameChecker username={editForm.username} authenticated />
-                    </div>
-                  {/if}
+                  <div class="help-text">
+                    <UsernameChecker
+                      username={editForm.username !== profileUser.username ? editForm.username : ''}
+                      authenticated
+                    />
+                  </div>
                 </div>
 
                 <div class="form-group">
