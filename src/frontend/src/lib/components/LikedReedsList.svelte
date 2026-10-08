@@ -120,7 +120,7 @@
               userID={likedItem.reed.userID}
               username={likedItem.author.username}
               content={likedItem.reed.content}
-              extraOptions={[{ label: 'Unlike', icon: '/icons/like-16-outlined.png', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
+              extraOptions={[{ label: 'Un-like', icon: '/icons/dislike-16.png', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
             />
           </div>
         </div>
@@ -155,9 +155,9 @@
 
 {#if pendingUnlikeID}
   <ConfirmDialog
-    title="Unlike reed?"
+    title="Un-like reed?"
     message="This reed will be removed from your liked reeds."
-    confirmLabel="Unlike"
+    confirmLabel="Un-like"
     on:confirm={confirmUnlike}
     on:cancel={() => (pendingUnlikeID = null)}
   />
