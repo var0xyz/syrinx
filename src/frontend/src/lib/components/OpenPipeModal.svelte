@@ -13,8 +13,8 @@
   let errorMessage = '';
 
   onMount(async () => {
-    const tags = await dbService.getAll<{ tagName: string; displayName?: string }>('tags');
-    allTags = tags.map((t) => t.displayName ?? t.tagName).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    const tags = await dbService.getAll<{ name: string }>('tags');
+    allTags = tags.map((t) => t.name).sort();
   });
 
   $: normalized = normalizePipeTag(query);
