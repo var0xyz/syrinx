@@ -869,14 +869,16 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	return tx.Commit()
 }
 
-func (s *DataService) UsernameExists(ctx context.Context, username string) (bool, error) {
+// UsernameExists reports whether a user other than exceptUserID holds
+// username (case-insensitively); pass "" to exclude nobody.
+func (s *DataService) UsernameExists(ctx context.Context, username, exceptUserID string) (bool, error) {
 	var exists bool
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM users WHERE LOWER(username) = LOWER($1)
+			SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) AND id <> $2
 		)
-	`, username).Scan(&exists)
+	`, username, exceptUserID).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
