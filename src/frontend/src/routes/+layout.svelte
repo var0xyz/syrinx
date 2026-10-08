@@ -44,6 +44,7 @@
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
   import { receiveBlock, receiveUnblock } from '$lib/services/blockedBy';
+  import { syncPendingBlocks } from '$lib/services/blocks';
   import { setBlockedReporter } from '$lib/services/api';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
@@ -87,6 +88,7 @@
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
       pendingVouchesRepository.syncPending();
+      void syncPendingBlocks();
       syncPendingBackupEvents();
       void syncPendingEvictions();
       serverConnection.reconnect()
@@ -366,6 +368,7 @@
       pendingLikeRepository.syncPending();
       pendingUnlikeRepository.syncPending();
       pendingVouchesRepository.syncPending();
+      void syncPendingBlocks();
         syncPendingBackupEvents();
         void syncPendingEvictions();
       }
