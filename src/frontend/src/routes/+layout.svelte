@@ -56,7 +56,7 @@
 
   // Prefetch reeds referenced by echoing/replying (userID@serverID/reedID).
   async function requestReferencedReeds(reed: any) {
-    const refs = [reed.echoing, reed.replying].filter(Boolean);
+    const refs = [reed.echoing, reed.replying?.to].filter(Boolean);
     for (const ref of refs) {
       if (!isValidRef(ref)) continue;
       const existing = await reedsService.getReed(ref);

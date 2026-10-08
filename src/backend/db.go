@@ -442,12 +442,12 @@ func InitDB(db *sql.DB) error {
 		ON reed_echoes (echoed_reed_id, signed_at);
 	`
 
-	// id is the root reed ref; one row per thread, created on first reply.
+	// root_id is the conversation's root reed; one row per reply.
 	// reed_id FKs to reed_identities, not reeds directly, since a reply's
 	// home server may relay just a reference rather than the content itself.
 	createReedRepliesTable := `
 	CREATE TABLE IF NOT EXISTS reed_replies (
-		thread_id VARCHAR(255) NOT NULL,
+		root_id VARCHAR(255) NOT NULL,
 		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reed_identities(id) ON DELETE CASCADE,
 		parent_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		timestamp TIMESTAMP NOT NULL
@@ -457,8 +457,8 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_reed_replies_parent_timestamp
 		ON reed_replies (parent_reed_id, timestamp);
 
-	CREATE INDEX IF NOT EXISTS idx_reed_replies_thread
-		ON reed_replies (thread_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_reed_replies_root
+		ON reed_replies (root_id, timestamp);
 	`
 
 	// One row per (reed, mentioned user) — the mentioned user's pull inbox,

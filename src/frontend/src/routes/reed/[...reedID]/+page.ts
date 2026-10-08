@@ -75,8 +75,8 @@ export async function load({ params, parent }) {
     }
 
     if (reed.replying) {
-      if (isValidRef(reed.replying)) {
-        repliedToReed = await reedsService.getReed(reed.replying);
+      if (isValidRef(reed.replying.to)) {
+        repliedToReed = await reedsService.getReed(reed.replying.to);
         repliedToReedMissing = false;
       } else {
         repliedToReedMissing = true;

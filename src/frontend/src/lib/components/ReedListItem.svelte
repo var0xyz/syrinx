@@ -62,8 +62,8 @@
   {#if !awaitingOriginal && displayReed.replying}
     <div class="quote-container">
       <Quote
-        reed={repliedToReeds.get(displayReed.replying)}
-        reedRef={displayReed.replying}
+        reed={repliedToReeds.get(displayReed.replying.to)}
+        reedRef={displayReed.replying.to}
         type="reply"
         missing={false}
         linked={false}

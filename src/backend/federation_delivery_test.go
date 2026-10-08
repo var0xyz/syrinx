@@ -260,7 +260,7 @@ func TestBuildNewReedPayload(t *testing.T) {
 	if _, err := f.db.Exec(`INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id) VALUES ($1, $2)`, reply, mentioned); err != nil {
 		t.Fatalf("insert mention: %v", err)
 	}
-	if _, err := f.db.Exec(`INSERT INTO reed_replies (thread_id, reed_id, parent_reed_id, timestamp) VALUES ($1, $2, $1, NOW())`, parent, reply); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO reed_replies (root_id, reed_id, parent_reed_id, timestamp) VALUES ($1, $2, $1, NOW())`, parent, reply); err != nil {
 		t.Fatalf("insert reply: %v", err)
 	}
 

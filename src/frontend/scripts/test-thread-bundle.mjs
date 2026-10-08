@@ -17,7 +17,7 @@ const fails = {
   'a part by someone else': [ids[0], record, [parts[0], { ...parts[1], userID: 'eve@home' }, parts[2]]],
   'a part naming another index': [ids[0], record, [parts[0], { ...parts[1], thread: { head: ids[0], index: 2 } }, parts[2]]],
   'a part naming another head': [ids[0], record, [parts[0], { ...parts[1], thread: { head: 'x', index: 1 } }, parts[2]]],
-  'a part that is also a reply': [ids[0], record, [parts[0], { ...parts[1], replying: 'bob@home/r9' }, parts[2]]],
+  'a part that is also a reply': [ids[0], record, [parts[0], { ...parts[1], replying: { to: 'bob@home/r9', root: 'bob@home/r9' } }, parts[2]]],
 };
 for (const [name, args] of Object.entries(fails)) {
   assert.notEqual(threadBundleMismatch(...args), null, name);

@@ -346,7 +346,7 @@
     const replyKeys = new Set();
     for (const r of reedList) {
       const display = resolveBlankEchoFromMap(r, echoMap);
-      if (display.replying) replyKeys.add(display.replying);
+      if (display.replying) replyKeys.add(display.replying.to);
     }
     const replyEntries = [...replyKeys]
       .map((key) => (isValidRef(key) ? { key } : null))
@@ -536,8 +536,8 @@
         {#if !awaitingOriginal && displayReed.replying}
           <div class="quote-container">
             <Quote
-              reed={repliedToReeds.get(displayReed.replying)}
-              reedRef={displayReed.replying}
+              reed={repliedToReeds.get(displayReed.replying.to)}
+              reedRef={displayReed.replying.to}
               type="reply"
               missing={false}
               linked={false}

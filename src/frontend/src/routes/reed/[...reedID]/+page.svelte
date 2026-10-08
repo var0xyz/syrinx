@@ -29,7 +29,7 @@
   import ChorusSection from '$lib/components/ChorusSection.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
-  import { resolveThreadId, getUserId } from '$lib/utils/identityRef';
+  import { resolveConversationRoot, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
 
   /** @type {import('./$types').PageData} */
@@ -107,12 +107,12 @@
   let ripplesCount = 0;
   let chorusCount = 0;
 
-  // A removed reed's own body (and thus any threadId it inherited) is
+  // A removed reed's own body (and thus the root it inherited) is
   // gone — self-reference using the removal cert's own fields so replies
   // cached from before the removal still key correctly, same as a live
   // thread-root reed would.
-  $: parentThreadId = reed && reedMatchesRoute
-    ? (reed.threadId || resolveThreadId(reed))
+  $: conversationRootId = reed && reedMatchesRoute
+    ? resolveConversationRoot(reed)
     : removedReedCert
       ? removedReedCert.reedID
       : removedAccountCert
@@ -340,7 +340,7 @@
   // here, since that push already lands on the same fanout wave and an
   // extra += 1 on top double-counts the very reply it's confirming.
   async function onFollowReedArrived(incoming) {
-    if (incoming?.replying && incoming.replying === canonicalReedID) {
+    if (incoming?.replying?.to === canonicalReedID) {
       await conversationSection?.onReplyArrived(incoming);
     }
   }
@@ -614,7 +614,7 @@
             <ConversationSection
               bind:this={conversationSection}
               parentReedRef={routeReedRef}
-              threadId={parentThreadId}
+              rootId={conversationRootId}
               bind:count={conversationCount}
             />
           </div>
@@ -682,7 +682,7 @@
             <div class="reed-body">
               {#if reed.replying}
                 <div class="quote-container">
-                  <Quote reed={repliedToReed} reedRef={reed.replying} missing={repliedToReedMissing} type="reply" linked={true} />
+                  <Quote reed={repliedToReed} reedRef={reed.replying.to} missing={repliedToReedMissing} type="reply" linked={true} />
                 </div>
               {/if}
               {#if reed.content}
@@ -726,7 +726,7 @@
               <ConversationSection
                 bind:this={conversationSection}
                 parentReedRef={routeReedRef}
-                threadId={parentThreadId}
+                rootId={conversationRootId}
                 bind:count={conversationCount}
               />
             </div>
@@ -771,7 +771,7 @@
               <ConversationSection
                 bind:this={conversationSection}
                 parentReedRef={routeReedRef}
-                threadId={parentThreadId}
+                rootId={conversationRootId}
                 bind:count={conversationCount}
               />
             </div>

@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented. `SignReed` can't refuse thread parts: it never sees content,
+so a reed claiming a `thread` header is only trusted with its record.
 
 ## Depends on
 

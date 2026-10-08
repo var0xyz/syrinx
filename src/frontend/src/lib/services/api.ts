@@ -667,7 +667,7 @@ export const apiService = {
     signature: string,
     fields: {
       echoing?: string;
-      replying?: string;
+      replyingTo?: string;
       previousID?: string;
       tags?: string[];
       mentions?: string[];
@@ -677,7 +677,7 @@ export const apiService = {
     formData.append('signature', signature);
     formData.append('reedID', reedId);
     if (fields.echoing) formData.append('echoing', fields.echoing);
-    if (fields.replying) formData.append('replying', fields.replying);
+    if (fields.replyingTo) formData.append('replyingTo', fields.replyingTo);
     if (fields.previousID) formData.append('previousID', fields.previousID);
     for (const tag of fields.tags ?? []) formData.append('tags', tag);
     for (const mention of fields.mentions ?? []) formData.append('mentions', mention);

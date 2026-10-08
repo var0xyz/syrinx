@@ -130,7 +130,7 @@ func TestDropForeignReedReferences(t *testing.T) {
 			t.Fatalf("insert reed identity: %v", err)
 		}
 	}
-	if _, err := f.db.Exec(`INSERT INTO reed_replies (thread_id, reed_id, parent_reed_id, timestamp) VALUES ($1, $2, $1, NOW())`, parent, f.reedID); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO reed_replies (root_id, reed_id, parent_reed_id, timestamp) VALUES ($1, $2, $1, NOW())`, parent, f.reedID); err != nil {
 		t.Fatalf("insert reply: %v", err)
 	}
 	if err := f.rs.db.InsertForeignEcho(ctx, f.reedID, echoed, author, local, false, time.Now().UTC()); err != nil {

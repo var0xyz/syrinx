@@ -15,7 +15,7 @@
   /** Parent reed's own canonical ref (authorID@serverID/reedID). */
   export let parentReedRef = '';
   /** Thread wire ref for cache rows. */
-  export let threadId = '';
+  export let rootId = '';
   /** Bump to force reload (e.g. after FOLLOW_REED). */
   export let refreshToken = 0;
   /** Bound out to the parent for tab-count display and empty-state gating. */
@@ -60,8 +60,8 @@
     if (showLoading) loading = true;
     try {
       const res = await apiService.listReplies(parentReedRef);
-      if (threadId) {
-        await reedRepliesRepository.syncFromServerList(parentReedRef, threadId, res.replies);
+      if (rootId) {
+        await reedRepliesRepository.syncFromServerList(parentReedRef, rootId, res.replies);
         if (!res.hasMore) {
           await reedRepliesRepository.pruneStale(
             parentReedRef,
@@ -167,8 +167,8 @@
     loadingMore = true;
     try {
       const res = await apiService.listReplies(parentReedRef, { before: oldest.timestamp });
-      if (threadId) {
-        await reedRepliesRepository.syncFromServerList(parentReedRef, threadId, res.replies);
+      if (rootId) {
+        await reedRepliesRepository.syncFromServerList(parentReedRef, rootId, res.replies);
       }
       hasMore = res.hasMore;
       const older = await hydrateRows(res.replies);
@@ -186,7 +186,7 @@
    * keep their identity so the list doesn't jump/reset the viewer's scroll
    * position. */
   export async function onReplyArrived(reed) {
-    if (!reed?.replying || !reed.threadId) return;
+    if (!reed?.replying) return;
     await reedRepliesRepository.upsertFromReed(reed);
     const reedID = reed.id;
     pendingBodies.delete(reedID);

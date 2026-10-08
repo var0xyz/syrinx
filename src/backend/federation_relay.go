@@ -1374,7 +1374,7 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 
 type relayNewReedReply struct {
 	ParentReedID string `json:"parent_reed_id"`
-	ThreadID     string `json:"thread_id"`
+	RootID       string `json:"root_id"`
 }
 
 type relayNewReedEcho struct {
@@ -1431,8 +1431,8 @@ func (h *Handlers) NewReedFromPeer(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "a reed is a reply or an echo, not both")
 		return
 	}
-	if req.Reply != nil && (req.Reply.ParentReedID == "" || req.Reply.ThreadID == "") {
-		fail(http.StatusBadRequest, "reply needs parent_reed_id and thread_id")
+	if req.Reply != nil && (req.Reply.ParentReedID == "" || req.Reply.RootID == "") {
+		fail(http.StatusBadRequest, "reply needs parent_reed_id and root_id")
 		return
 	}
 	if req.Echo != nil && req.Echo.EchoedReedID == "" {
@@ -1487,7 +1487,7 @@ func (h *Handlers) receiveForeignNewReed(ctx context.Context, peerServerID strin
 		case !ok:
 		case parentServerID == self:
 			// Records the reply and notifies the thread's local viewers.
-			if err := h.realtimeRelay.HandleForeignReplyNotify(ctx, req.Reply.ParentReedID, req.ReedID, req.Reply.ThreadID, req.SignedAt); err != nil {
+			if err := h.realtimeRelay.HandleForeignReplyNotify(ctx, req.Reply.ParentReedID, req.ReedID, req.Reply.RootID, req.SignedAt); err != nil {
 				return err
 			}
 		default:

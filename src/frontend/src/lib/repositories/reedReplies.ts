@@ -12,7 +12,8 @@ export type ReedReplyRow = {
   userID: string;
   /** Canonical ref (authorID/reedID) of the reed this one replies to. */
   parentReedID: string;
-  threadId: string;
+  /** Root of the conversation the reply belongs to. */
+  rootId: string;
   /** Reply reed's own server-signed timestamp — sort/page key for the
    * cross-parent inbox view (replies page). */
   createdAt: string;
@@ -22,14 +23,14 @@ function rowFromFields(
   replyUserID: string,
   replyReedID: string,
   parentReedRef: string,
-  threadId: string,
+  rootId: string,
   createdAt: string,
 ): ReedReplyRow {
   return {
     reedID: replyReedID,
     userID: replyUserID,
     parentReedID: parentReedRef,
-    threadId,
+    rootId,
     createdAt,
   };
 }
@@ -42,27 +43,27 @@ export const reedRepliesRepository = {
   async upsertFromMeta(
     reply: api.ReplyMeta,
     parentReedRef: string,
-    threadId: string,
+    rootId: string,
   ): Promise<void> {
     await reedRepliesRepository.put(
-      rowFromFields(reply.userID, reply.reedID, parentReedRef, threadId, reply.timestamp),
+      rowFromFields(reply.userID, reply.reedID, parentReedRef, rootId, reply.timestamp),
     );
   },
 
-  async upsertFromReed(reed: Pick<ReedType, 'id' | 'userID' | 'threadId' | 'replying' | 'serverSignature'>): Promise<void> {
-    if (!reed.replying || !reed.threadId || !reed.serverSignature?.timestamp) return;
+  async upsertFromReed(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'serverSignature'>): Promise<void> {
+    if (!reed.replying || !reed.serverSignature?.timestamp) return;
     await reedRepliesRepository.put(
-      rowFromFields(reed.userID, reed.id, reed.replying, reed.threadId, reed.serverSignature.timestamp),
+      rowFromFields(reed.userID, reed.id, reed.replying.to, reed.replying.root, reed.serverSignature.timestamp),
     );
   },
 
   async syncFromServerList(
     parentReedRef: string,
-    threadId: string,
+    rootId: string,
     replies: api.ReplyMeta[],
   ): Promise<void> {
     for (const reply of replies) {
-      await reedRepliesRepository.upsertFromMeta(reply, parentReedRef, threadId);
+      await reedRepliesRepository.upsertFromMeta(reply, parentReedRef, rootId);
     }
   },
 

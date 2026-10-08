@@ -27,7 +27,7 @@ with or after each server step.
 | #  | Title                                                 | Status   |
 |----|-------------------------------------------------------|----------|
 | 00 | Design, data model, trust model                       | Proposed |
-| 01 | `replying` and `thread` header objects                | Proposed |
+| 01 | `replying` and `thread` header objects                | Implemented |
 | 02 | Thread record, `POST /threads`, `PUBLISH_READY`       | Implemented |
 | 03 | `REQUEST_THREAD` / `RELAY_THREAD` and the thread ACK  | Implemented |
 | 04 | Thread-removal certificate + federation notify        | Implemented |

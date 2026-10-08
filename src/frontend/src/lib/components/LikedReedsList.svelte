@@ -122,7 +122,7 @@
         </div>
         {#if likedItem.reed.replying}
           <div class="quote-container">
-            <Quote reedRef={likedItem.reed.replying} type="reply" missing={false} linked={false} />
+            <Quote reedRef={likedItem.reed.replying.to} type="reply" missing={false} linked={false} />
           </div>
         {/if}
         {#if (likedItem.reed.content || '').trim()}

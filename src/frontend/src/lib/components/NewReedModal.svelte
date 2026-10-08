@@ -13,7 +13,7 @@
   } from '$lib/utils/reedContent';
   import { notificationStore } from '$lib/stores/notifications';
   import { Reed } from '$lib/types/reed';
-  import { resolveThreadId } from '$lib/utils/identityRef';
+  import { resolveConversationRoot } from '$lib/utils/identityRef';
   import { goto } from '$app/navigation';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -245,12 +245,10 @@
         const reed = new Reed();
         reed.content = text;
         if (pinnedReply) {
-          reed.replying = pinnedReply.id;
-          reed.threadId = resolveThreadId(pinnedReply);
+          reed.replying = { to: pinnedReply.id, root: resolveConversationRoot(pinnedReply) };
         } else if (first && prev) {
           // Each later part replies to the one before it, in the first part's thread.
-          reed.replying = prev.id;
-          reed.threadId = first.id;
+          reed.replying = { to: prev.id, root: first.id };
         }
         if (pinnedEcho) {
           reed.echoing = pinnedEcho.id;

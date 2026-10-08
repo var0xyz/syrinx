@@ -311,7 +311,7 @@ SPA `test:signing` / `test:verify-binary`).
 - "Is feature Y built?" → `specs/README.md` status column + `specs/Y/README.md`.
 - "Realtime/WebSocket behavior" → `realtime.go` and `proto/websocket.proto`.
 - "Replies to a reed / to a user's reeds" → `reed_replies` (`db.go`) is a join
-  table (`reed_id` PK, `parent_reed_id`, `thread_id`, `timestamp`) — a reply is
+  table (`reed_id` PK, `parent_reed_id`, `root_id`, `timestamp`) — a reply is
   **not** a column on `reeds`. `reeds.user_id` is only populated for reeds
   local to this server, so `JOIN reeds ON reeds.id = reed_replies.parent_reed_id`
   is how you scope "replies to reeds authored by user X" (see

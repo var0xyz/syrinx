@@ -18,6 +18,7 @@
     "test:thread-payload": "node --experimental-strip-types scripts/test-thread-payload.mjs",
     "test:thread-bundle": "node --experimental-strip-types scripts/test-thread-bundle.mjs",
     "test:removal-payload": "node --experimental-strip-types scripts/test-removal-payload.mjs",
+    "test:reed-headers": "node --experimental-strip-types scripts/test-reed-headers.mjs",
     "test:trust-mark": "node --experimental-strip-types scripts/test-trust-mark.mjs",
     "test:eviction-protection": "node --experimental-strip-types scripts/test-eviction-protection.mjs",
     "test:relay-refusal": "node --experimental-strip-types scripts/test-relay-refusal.mjs",

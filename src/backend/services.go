@@ -1548,28 +1548,27 @@ type createReedParams struct {
 	ThreadIndex int
 }
 
-// ResolveThreadIDForParent returns the canonical thread id for a reply to parent P.
-// When P is the thread root (no reed_replies row for P), thread id = ref(P).
-// Otherwise thread id is inherited from P's reply row.
-func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedRef) (string, error) {
-	var threadID string
+// ResolveConversationRoot returns the conversation root for a reply to
+// parent P: P itself when it replies to nothing, else P's own root.
+func (s *DataService) ResolveConversationRoot(ctx context.Context, parent ReedRef) (string, error) {
+	var rootID string
 	err := s.db.QueryRowContext(ctx, `
-		SELECT thread_id FROM reed_replies
+		SELECT root_id FROM reed_replies
 		WHERE reed_id = $1
-	`, FormatReedRef(parent)).Scan(&threadID)
+	`, FormatReedRef(parent)).Scan(&rootID)
 	if err == sql.ErrNoRows {
 		return FormatReedRef(parent), nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return threadID, nil
+	return rootID, nil
 }
 
 // InsertReply records a direct reply in reed_replies. replyReedID is canonical.
 func (s *DataService) InsertReply(
 	ctx context.Context,
-	threadID string,
+	rootID string,
 	parent ReedRef,
 	replyReedID string,
 	ts time.Time,
@@ -1582,7 +1581,7 @@ func (s *DataService) InsertReply(
 	}
 	defer tx.Rollback()
 
-	if err = s.insertReplyTx(ctx, tx, threadID, parent, replyReedID, ts); err != nil {
+	if err = s.insertReplyTx(ctx, tx, rootID, parent, replyReedID, ts); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1594,11 +1593,11 @@ func (s *DataService) InsertReply(
 // insertReplyTx takes replyIdentity already in userID@serverID form (the
 // caller has either converted a local userID via canonicalID, or
 // is insertReedCoreTx's selfIdentity). parent's identity is built the same
-// way ResolveThreadIDForParent does, from the full ReedRef.
+// way ResolveConversationRoot does, from the full ReedRef.
 func (s *DataService) insertReplyTx(
 	ctx context.Context,
 	tx *sql.Tx,
-	threadID string,
+	rootID string,
 	parent ReedRef,
 	replyReedID string,
 	ts time.Time,
@@ -1622,12 +1621,12 @@ func (s *DataService) insertReplyTx(
 	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_replies (
-			thread_id, reed_id,
+			root_id, reed_id,
 			parent_reed_id,
 			timestamp
 		)
 		VALUES ($1, $2, $3, $4)
-	`, threadID, replyReedID,
+	`, rootID, replyReedID,
 		parentReedID,
 		ts)
 	if err != nil {
@@ -2318,7 +2317,7 @@ func (s *DataService) IsBlankEcho(ctx context.Context, reedID string) (bool, err
 func (s *DataService) CreateReedWithReply(
 	ctx context.Context,
 	p createReedParams,
-	threadID string,
+	rootID string,
 	parent ReedRef,
 ) (reed *Reed, err error) {
 	p.Timestamp = p.Timestamp.UTC().Truncate(time.Second)
@@ -2335,7 +2334,7 @@ func (s *DataService) CreateReedWithReply(
 		return nil, err
 	}
 
-	if err = s.insertReplyTx(ctx, tx, threadID, parent, p.ReedID, ts); err != nil {
+	if err = s.insertReplyTx(ctx, tx, rootID, parent, p.ReedID, ts); err != nil {
 		return nil, err
 	}
 
@@ -8454,20 +8453,20 @@ func (s *DataService) ReplyParent(ctx context.Context, reedID string) (parentRee
 // replyRecord is one reed's full reed_replies row.
 type replyRecord struct {
 	ParentReedID string
-	ThreadID     string
+	RootID       string
 	Timestamp    time.Time
 }
 
-// GetReplyRecord loads reedID's own reed_replies row (parent + thread +
+// GetReplyRecord loads reedID's own reed_replies row (parent + root +
 // timestamp in one query) — used to notify a foreign parent's home
 // server of the reply once, rather than three separate lookups.
 func (s *DataService) GetReplyRecord(ctx context.Context, reedID string) (*replyRecord, error) {
 	var rec replyRecord
 	err := s.db.QueryRowContext(ctx, `
-		SELECT parent_reed_id, thread_id, timestamp
+		SELECT parent_reed_id, root_id, timestamp
 		FROM reed_replies
 		WHERE reed_id = $1
-	`, reedID).Scan(&rec.ParentReedID, &rec.ThreadID, &rec.Timestamp)
+	`, reedID).Scan(&rec.ParentReedID, &rec.RootID, &rec.Timestamp)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -8480,7 +8479,7 @@ func (s *DataService) GetReplyRecord(ctx context.Context, reedID string) (*reply
 // InsertForeignReply records that a peer-authored reedID replies to
 // parentReedID (local to this server). Idempotent (ON CONFLICT DO NOTHING
 // on reed_id, the PK). Upserts a reed_identities row for the reply reedID first.
-func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, replyReedID, threadID string, ts time.Time) error {
+func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, replyReedID, rootID string, ts time.Time) error {
 	_, _, _, ok := parseKeyFingerprint(identityID(replyReedID))
 	if !ok {
 		return fmt.Errorf("malformed reply reed id: %s", replyReedID)
@@ -8495,10 +8494,10 @@ func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, repl
 		return fmt.Errorf("insert foreign reply reed identity: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO reed_replies (thread_id, reed_id, parent_reed_id, timestamp)
+		INSERT INTO reed_replies (root_id, reed_id, parent_reed_id, timestamp)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (reed_id) DO NOTHING
-	`, threadID, replyReedID, parentReedID, ts.UTC().Truncate(time.Second)); err != nil {
+	`, rootID, replyReedID, parentReedID, ts.UTC().Truncate(time.Second)); err != nil {
 		return fmt.Errorf("insert foreign reply: %w", err)
 	}
 	return tx.Commit()
