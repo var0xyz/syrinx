@@ -21,7 +21,10 @@ callers that hit HTTP) must speak protobuf in one cutover.
 - Replace form-urlencoded and multipart field scraping with protobuf
   request messages (SignReed content is a field on the request, not a
   multipart part).
-- Switch handlers and SPA clients together.
+- Switch handlers and SPA clients together. `api.ts` decodes each
+  response and converts it to the existing `lib/types/api.ts` shape
+  (`int64` timestamps become ISO strings), so consumers don't change
+  until [07](07_spa_types.md).
 - Keep idempotency and status-code behavior
   ([AGENTS](../../AGENTS.md) SignReed / removal / invite rules).
 

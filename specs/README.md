@@ -318,8 +318,8 @@ to Protocol Buffers; `canonicalJSON` signing input unchanged.
 | 03  | HTTP encode/decode + content type | Proposed |
 | 04  | Switch every HTTP handler/client  | Proposed |
 | 05  | Binary WS only; SPA + realtime    | Implemented |
-| 06  | SPA consumes generated types      | Proposed |
-| 07  | Federation relay + admin protos   | Proposed |
+| 06  | Federation relay + admin protos   | Proposed |
+| 07  | SPA on generated types (final)    | Proposed |
 
 **Track status: In progress.** The WebSocket channel is binary protobuf
 only (`realtime.go`, `proto/websocket.proto`). Client↔server HTTP is
@@ -469,8 +469,8 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Protobuf wire** ([`protobuf/`](protobuf/README.md)) is independent of
   recovery/invites feature work but should land as a coordinated server+SPA
   cutover; within `protobuf/`, follow that directory's depends-on column
-  (00→07). WebSocket (02, 05) is done; 04 and 07 are the remaining hard
-  cutovers.
+  (00→07). WebSocket (02, 05) is done; 04 and 06 are the remaining hard
+  cutovers, and 07 moves the SPA onto generated types last.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
 - **Likes** ([`likes/`](likes/README.md)) — independent of every other
   track; a straightforward extension of the existing coverage/echo
