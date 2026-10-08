@@ -17,6 +17,8 @@ export interface StoredUser {
   keptBytes: number;
   locked: boolean;
   removed: boolean;
+  /** They blocked the viewer: only their keys and the block are held. */
+  blockedYou: boolean;
   evicting: boolean;
   lastVisitedAt: number | null;
 }
@@ -24,7 +26,7 @@ export interface StoredUser {
 /** Walks the stores on demand, so there is no running total to drift. */
 export async function listStoredUsers(): Promise<StoredUser[]> {
   const viewerID = localStorage.getItem('userId');
-  const [reeds, profiles, keys, removed, visits, queuedReeds, queuedKeys, locked] = await Promise.all([
+  const [reeds, profiles, keys, removed, visits, queuedReeds, queuedKeys, locked, blocks] = await Promise.all([
     dbService.getAllWithMeta<ReedType>('reeds'),
     dbService.getAllWithMeta<api.User>('users'),
     dbService.getAllWithMeta<api.PublicKey>('publicKeys'),
@@ -33,6 +35,7 @@ export async function listStoredUsers(): Promise<StoredUser[]> {
     pendingEvictionsRepository.getAll(),
     pendingKeyEvictionsRepository.getAll(),
     protectedUserIDs(),
+    dbService.getAllWithMeta<api.BlockCert>('blockedBy'),
   ]);
 
   const byUser = new Map<string, StoredUser>();
@@ -47,6 +50,7 @@ export async function listStoredUsers(): Promise<StoredUser[]> {
         keptBytes: 0,
         locked: locked.has(userID),
         removed: false,
+        blockedYou: false,
         evicting: false,
         lastVisitedAt: null,
       };
@@ -73,6 +77,13 @@ export async function listStoredUsers(): Promise<StoredUser[]> {
     const row = rowFor(record.userID);
     row.bytes += meta?.bytes ?? 0;
     row.keptBytes += meta?.bytes ?? 0;
+  }
+
+  for (const { record, meta } of blocks) {
+    if (!record.userID) continue;
+    const row = rowFor(record.userID);
+    row.blockedYou = true;
+    row.bytes += meta?.bytes ?? 0;
   }
 
   // Only annotate users we hold something of; these never add a row.

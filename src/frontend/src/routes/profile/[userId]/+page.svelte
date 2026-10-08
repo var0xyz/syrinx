@@ -14,6 +14,9 @@
   import { followingRepository } from '$lib/repositories/following';
   import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
   import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
+  import { blockedByRepository } from '$lib/repositories/blockedBy';
+  import { blockedByChanged, commitBlockLocally } from '$lib/services/blockedBy';
+  import BlockedProfile from '$lib/components/BlockedProfile.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -38,8 +41,10 @@
 
   $: userId = $page.params.userId;
 
-  // 'loading' | 'tombstone' | 'notFound' | 'ready' | 'error'
+  // 'loading' | 'blocked' | 'tombstone' | 'notFound' | 'ready' | 'error'
   let status = data.status;
+  /** The verified block of the viewer, while status is 'blocked'. */
+  let blockCert: api.BlockCert | null = data.blockCert ?? null;
   let isOwner = data.isOwner;
   let isFollowing = data.isFollowing;
   let profileUser = data.profileUser;
@@ -225,8 +230,13 @@
     isFollowing = next.isFollowing;
     profileUser = next.profileUser;
     tombstoneNote = next.tombstoneNote;
+    blockCert = next.blockCert ?? null;
     accountRemoved = next.accountRemoved ?? next.status === 'tombstone';
     if (accountRemoved || next.status === 'tombstone') {
+      return;
+    }
+    if (next.status === 'blocked') {
+      void checkBlockStillStands(next.userId);
       return;
     }
     if (next.fromCache && next.status === 'ready') {
@@ -241,7 +251,7 @@
     if (accountRemoved || status === 'tombstone') return;
     const seq = ++infoFetchSeq;
     try {
-      const { status: httpStatus, info, removal } = await apiService.getUserInfoWithStatus(uid);
+      const { status: httpStatus, info, removal, block } = await apiService.getUserInfoWithStatus(uid);
       if (seq !== infoFetchSeq) return;
 
       if (httpStatus === 404) {
@@ -250,6 +260,10 @@
       }
       if (httpStatus === 410) {
         await handleGone(removal);
+        return;
+      }
+      if (httpStatus === 403 && block) {
+        await showBlocked(block);
         return;
       }
       if (httpStatus !== 200 || !info) {
@@ -392,6 +406,42 @@
     status = 'tombstone';
   }
 
+  /** Shows a block of the viewer that just arrived over HTTP. */
+  async function showBlocked(cert: api.BlockCert) {
+    if (!(await commitBlockLocally(cert))) return;
+    cleanupProfileSubscription();
+    blockCert = cert;
+    profileUser = null;
+    status = 'blocked';
+  }
+
+  /** The block shown came from this device. A 200 means it was lifted while
+   * the lift didn't reach us: drop it and show the profile. */
+  async function checkBlockStillStands(uid: string) {
+    const { status: httpStatus } = await apiService.getUserInfoWithStatus(uid);
+    if (httpStatus !== 200 || uid !== userId) return;
+    await blockedByRepository.delete(uid);
+    await invalidateAll();
+  }
+
+  /** A block pushed or lifted over WS while this profile is open. */
+  $: if ($blockedByChanged > 0) {
+    void recheckBlock();
+  }
+
+  async function recheckBlock() {
+    if (isOwner) return;
+    const cert = await blockedByRepository.get(userId);
+    if (cert && status !== 'blocked') {
+      cleanupProfileSubscription();
+      blockCert = cert;
+      profileUser = null;
+      status = 'blocked';
+    } else if (!cert && status === 'blocked') {
+      await invalidateAll();
+    }
+  }
+
   async function handleGone(removal) {
     if (removal?.type === 'account') {
       if (!(await verifyAndCommitAccountRemoval(removal))) {
@@ -495,6 +545,9 @@
         <h3>Loading...</h3>
         <p>New reeds will appear here once we receive them.</p>
       </div>
+
+    {:else if status === 'blocked' && blockCert}
+      <BlockedProfile cert={blockCert} />
 
     {:else if status === 'tombstone'}
       <div class="state-message">

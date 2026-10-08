@@ -43,6 +43,8 @@
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
+  import { receiveBlock, receiveUnblock } from '$lib/services/blockedBy';
+  import { setBlockedReporter } from '$lib/services/api';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
@@ -322,6 +324,13 @@
         serverConnection.sendDataInvalid(eventId);
       }
     });
+    serverConnection.on(ServerEvent.UserBlocked, async (data) => {
+      if (data.block) await receiveBlock(data.block);
+    });
+    serverConnection.on(ServerEvent.UserUnblocked, async (data) => {
+      if (data.userID) await receiveUnblock(data.userID);
+    });
+    setBlockedReporter((cert) => void receiveBlock(cert));
     serverConnection.on(ServerEvent.KeyRevoked, async (data) => {
       const eventId = data.id;
       if (data.data && (await applyKeyRevocation(data.data))) {

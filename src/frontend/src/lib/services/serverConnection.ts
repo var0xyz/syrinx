@@ -193,6 +193,13 @@ export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; 
         id: msg.id,
         data: { data: decodeThreadRemoval(p.value.cert, p.value.record) },
       };
+    case 'userBlocked':
+      return {
+        type: 'USER_BLOCKED',
+        data: { request_id: p.value.requestId, block: decodeBlockCert(p.value.block) },
+      };
+    case 'userUnblocked':
+      return { type: 'USER_UNBLOCKED', data: { userID: p.value.userId } };
     case 'pageAck':
       return {
         type: 'PAGE_ACK',
@@ -227,6 +234,17 @@ function decodeAccountRemovalCert(cert: { serverId: string; userId: string; note
     serverID: cert.serverId,
     userID: cert.userId,
     note: cert.note,
+    userSignature: decodeUserSignature(cert.userSignature),
+    serverSignature: decodeServerSignature(cert.serverSignature),
+  };
+}
+
+function decodeBlockCert(cert: { userId: string; blockedUserId: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
+  if (!cert) return null;
+  return {
+    type: 'block',
+    userID: cert.userId,
+    blockedUserID: cert.blockedUserId,
     userSignature: decodeUserSignature(cert.userSignature),
     serverSignature: decodeServerSignature(cert.serverSignature),
   };
@@ -318,6 +336,8 @@ export enum ServerEvent {
   /** A DATA_RESPONSE answering a REQUEST_THREAD; never on the wire. */
   ThreadResponse       = 'THREAD_RESPONSE',
   ThreadRemoved        = 'THREAD_REMOVED',
+  UserBlocked          = 'USER_BLOCKED',
+  UserUnblocked        = 'USER_UNBLOCKED',
 }
 
 class ServerConnection {
@@ -582,6 +602,18 @@ class ServerConnection {
               pending.reject(new Error(message.type === ServerEvent.ReedNotHeld ? 'reed_not_held' : 'reed_not_found'));
               this.pendingRequests.delete(requestId);
             }
+          } else if (message.type === ServerEvent.UserBlocked && message.data.request_id) {
+            // The block refused this request; the cert itself is handled by
+            // the UserBlocked listener.
+            const requestId = message.data.request_id;
+            this.rejectPendingThreadRequest(requestId, new Error('blocked'));
+            this.dispatchedReedRequests.delete(requestId);
+            void reedRequestsRepository.delete(requestId);
+            const pending = this.pendingRequests.get(requestId);
+            if (pending) {
+              pending.reject(new Error('blocked'));
+              this.pendingRequests.delete(requestId);
+            }
           } else if (message.type === ServerEvent.EvictionAck) {
             this.settleEviction(`reed:${message.data.reed_id}`);
           } else if (message.type === ServerEvent.KeyEvictionAck) {
@@ -820,6 +852,14 @@ class ServerConnection {
    * handler in +layout.svelte. */
   sendMailboxAck(id: string): void {
     this.sendMsg({ type: MessageType.MAILBOX_ACK, payload: { case: 'mailboxAck', value: { id } } });
+  }
+
+  sendUserBlockedAck(userId: string): void {
+    this.sendMsg({ type: MessageType.USER_BLOCKED_ACK, payload: { case: 'userBlockedAck', value: { userId } } });
+  }
+
+  sendUserUnblockedAck(userId: string): void {
+    this.sendMsg({ type: MessageType.USER_UNBLOCKED_ACK, payload: { case: 'userUnblockedAck', value: { userId } } });
   }
 
   /** Reports a failed key fetch needed to verify content received over this

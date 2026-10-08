@@ -8,6 +8,7 @@
   import { notificationStore } from '$lib/stores/notifications';
   import { getStorageQuota } from '$lib/services/pwa';
   import { evictUsers, syncPendingEvictions } from '$lib/services/eviction';
+  import { forgetBlock } from '$lib/services/blockedBy';
   import { freeableBytes, listStoredUsers, type StoredUser } from '$lib/services/storedUsers';
   import { federatedServersRepository } from '$lib/repositories/federatedServers';
   import { foreignServerOf } from '$lib/services/peerServers';
@@ -120,7 +121,10 @@
     rows = rows.map((row) => (chosen.has(row.userID) ? { ...row, evicting: true } : row));
     selected = new Set();
     try {
-      await evictUsers(ids);
+      // A block of the viewer goes with its keys; their profile fetches it again.
+      const blockedYou = new Set(rows.filter((row) => row.blockedYou).map((row) => row.userID));
+      for (const id of ids.filter((id) => blockedYou.has(id))) await forgetBlock(id);
+      await evictUsers(ids.filter((id) => !blockedYou.has(id)));
     } catch (error) {
       console.error('[storage] could not queue eviction', error);
       notificationStore.error('Could not delete');
@@ -203,6 +207,8 @@
                 <span class="tag">evicting…</span>
               {:else if row.removed}
                 <span class="tag">removed account</span>
+              {:else if row.blockedYou}
+                <span class="tag">blocked you</span>
               {/if}
             </td>
             {#if showServer}

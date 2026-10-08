@@ -25,6 +25,7 @@ import { userListsRepository } from './userLists';
 import { tagsRepository } from './tags';
 import { isOverThreshold } from '$lib/services/quota';
 import { freeSpace } from '$lib/services/eviction';
+import { blockedByRepository } from '$lib/repositories/blockedBy';
 import type { UserListType } from '$lib/types/userList';
 
 // Incremented each time processUnsignedReeds completes successfully
@@ -241,6 +242,9 @@ class ReedsService {
    * quota still leaves room for this reed.
    */
   async storeReed(reed: ReedType): Promise<void> {
+    // Nothing of a user who blocked the viewer is kept.
+    if (reed.userID && (await blockedByRepository.has(reed.userID))) return;
+
     if (await isOverThreshold()) {
       await freeSpace();
     }

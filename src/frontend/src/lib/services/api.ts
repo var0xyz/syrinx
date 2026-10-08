@@ -40,6 +40,24 @@ export type UserStatusProbeResult = {
 
 const BASE_URL = '/api';
 
+/** Called with every block certificate a request was refused with. Set at
+ * startup: api.ts can't import the block service without a cycle. */
+export type BlockedReporter = (cert: api.BlockCert) => void;
+let blockedReporter: BlockedReporter | null = null;
+export function setBlockedReporter(reporter: BlockedReporter): void {
+  blockedReporter = reporter;
+}
+
+/** The block certificate a 403 carries, if it carries one. */
+async function readBlockCert(res: Response): Promise<api.BlockCert | null> {
+  try {
+    const body = await res.json();
+    return body && typeof body === 'object' && body.type === 'block' ? (body as api.BlockCert) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readApiErrorMessage(res: Response): Promise<string> {
   let message =
     res.status === 401
@@ -196,6 +214,16 @@ async function requestRaw(
   }
 
   if (!res.ok) {
+    if (res.status === 403) {
+      const block = await readBlockCert(res.clone());
+      if (block) {
+        blockedReporter?.(block);
+        const err = new Error('Blocked') as Error & { status?: number; body?: unknown };
+        err.status = 403;
+        err.body = block;
+        throw err;
+      }
+    }
     if (res.status === 400 || res.status === 401 || res.status === 403) {
       const message = await readApiErrorMessage(res);
 
@@ -579,6 +607,7 @@ export const apiService = {
     status: number;
     user?: api.User;
     removal?: api.AccountRemoval;
+    block?: api.BlockCert;
   }> {
     try {
       const user = await request<api.User>(`/users/${userId}/profile`, { method: 'GET' });
@@ -586,6 +615,9 @@ export const apiService = {
     } catch (error: any) {
       if (error?.status === 410 && error.body?.type === 'account') {
         return { status: 410, removal: error.body as api.AccountRemoval };
+      }
+      if (error?.status === 403 && error.body?.type === 'block') {
+        return { status: 403, block: error.body as api.BlockCert };
       }
       if (error?.status) {
         return { status: error.status };
@@ -599,6 +631,7 @@ export const apiService = {
     status: number;
     info?: api.UserInfo;
     removal?: api.AccountRemoval;
+    block?: api.BlockCert;
   }> {
     try {
       const info = await request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
@@ -606,6 +639,9 @@ export const apiService = {
     } catch (error: any) {
       if (error?.status === 410 && error.body?.type === 'account') {
         return { status: 410, removal: error.body as api.AccountRemoval };
+      }
+      if (error?.status === 403 && error.body?.type === 'block') {
+        return { status: 403, block: error.body as api.BlockCert };
       }
       if (error?.status) {
         return { status: error.status };

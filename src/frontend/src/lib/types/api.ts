@@ -227,6 +227,16 @@ export interface AccountRemoval extends Base {
   serverSignature: ServerSignature;
 }
 
+/** A block: userID keeps blockedUserID from seeing them. Signed by userID,
+ * countersigned by userID's home server. */
+export interface BlockCert extends Base {
+  type: 'block';
+  userID: string;
+  blockedUserID: string;
+  userSignature: UserSignature;
+  serverSignature: ServerSignature;
+}
+
 /** Wire shape of a signed reed-like certificate (POST /reeds/{userID}/{reedID}/like). */
 export interface ReedLike extends Base {
   serverID: string;
