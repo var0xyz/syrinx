@@ -1,4 +1,4 @@
-# Protobuf 07 — Federation relay + admin protos
+# Protobuf 06 — Federation relay + admin protos
 
 ## Status
 

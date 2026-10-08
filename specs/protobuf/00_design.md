@@ -3,7 +3,7 @@
 ## Status
 
 Implemented (design locked). WebSocket half (02, 05) is shipped; HTTP (01, 03, 04),
-federation (07) and SPA types (06) remain.
+federation (06) and the SPA's move to generated types (07) remain.
 
 ## Depends on
 
@@ -29,7 +29,7 @@ easy drift between Go and TypeScript.
   (`federation_relay.go`'s relay RPCs and admin/handshake endpoints).
 - Lock shared resource messages and the WS envelope.
 - Lock codegen, content types, and hard cutover rules.
-- Outline implementable steps ([01](01_shared_messages.md)–[07](07_federation.md)).
+- Outline implementable steps ([01](01_shared_messages.md)–[07](07_spa_types.md)).
 
 ## Non-goals
 
@@ -97,10 +97,12 @@ discipline for docs**, and **snake_case field names in `.proto` files**
 | `Invite`          | Invite resource                                                            |
 | `Error`           | `message` (plain English) + optional machine `code` only if already needed |
 
-Timestamps that are RFC3339 strings on today’s JSON wire stay **string**
-fields in proto (do not silently switch to `google.protobuf.Timestamp`
-unless both verifiers and `canonicalJSON` payloads are updated in the same
-change — they are not).
+Timestamps are `int64` unix seconds on the wire (as the WS protos
+already send them), never `google.protobuf.Timestamp`. `int64` is used
+for nothing else — counts are `int32`/`uint32` — so a decoder can treat
+every `int64` as a timestamp. Signed `canonicalJSON` payloads keep their
+RFC3339 second-precision strings; verifiers rebuild them from the
+integer.
 
 ### HTTP
 
@@ -159,7 +161,7 @@ Server-to-server traffic (`federation_relay.go`: 25 relay calls under
 `/api/federation/relay/*` plus 19 admin/handshake endpoints, registered
 in `main.go`) is signed
 HTTP+JSON today and is **in scope**, migrating alongside HTTP in the
-same spirit as 03–04 but tracked as its own step ([07](07_federation.md))
+same spirit as 03–04 but tracked as its own step ([06](06_federation.md))
 since it has its own request/response shapes and registration surface,
 distinct from the client-facing `/api/` routes.
 
@@ -187,8 +189,9 @@ Blank slate with the deployed pair:
 1. Land protos + codegen (01–02) without flipping production traffic.
 2. Land HTTP codec + switch all routes and `api.ts` together (03–04).
 3. Land WS binary + drop the JSON WS branch together (05).
-4. Delete hand-maintained wire interfaces that duplicate protos (06).
-5. Land federation codec + switch all relay/admin endpoints together (07).
+4. Land federation codec + switch all relay/admin endpoints together (06).
+5. Move every SPA consumer onto generated types and delete the
+   hand-maintained wire interfaces and decode layers (07).
 
 No content-negotiation, no “JSON if Accept says so,” no parallel WS
 text path after 05.

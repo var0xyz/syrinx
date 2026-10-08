@@ -29,7 +29,7 @@ HTTP and WS both need the same resource shapes. Generate them once.
 ## Non-goals
 
 - WebSocket envelope (02).
-- Switching handlers or the SPA to use the generated types yet (03–06).
+- Switching handlers or the SPA to use the generated types yet (03–07).
 
 ## Work
 
