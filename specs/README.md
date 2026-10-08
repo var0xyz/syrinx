@@ -27,7 +27,7 @@ Each table below has a **Status** column per step. Values:
 | --------------------- | ----------- | ------------------------------------------------------ |
 | Server key rotation   | Implemented | —                                                      |
 | Key revocation events | Implemented | — (supersedes prerequisite 09)                         |
-| Threads               | In progress | 01–05 (02: data layer landed)                          |
+| Threads               | In progress | 01, 03–05 (02 implemented)                             |
 | Ripples               | Proposed    | 00–04                                                  |
 | Notifications         | Proposed    | 00–05                                                  |
 | Load testing          | Proposed    | 00–03                                                  |

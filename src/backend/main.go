@@ -377,6 +377,9 @@ func main() {
 	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/threads", h.CreateThread).Methods("POST")
+	api.HandleFunc("/threads", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.GetReed).Methods("GET")
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.DeleteReed).Methods("DELETE")
 	api.HandleFunc("/reeds/{userID}/{reedID}", h.noop).Methods("OPTIONS")

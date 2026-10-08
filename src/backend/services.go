@@ -80,6 +80,15 @@ func isReedUniqueViolation(err error) bool {
 	return false
 }
 
+// isThreadUniqueViolation reports a duplicate thread part or thread record.
+func isThreadUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if !errors.As(err, &pqErr) || pqErr.Code != "23505" {
+		return false
+	}
+	return isReedUniqueViolation(err) || pqErr.Constraint == "reed_threads_pkey"
+}
+
 type Services struct {
 	db     *DataService
 	crypto *cryptoService
@@ -1557,25 +1566,6 @@ func (s *DataService) ResolveThreadIDForParent(ctx context.Context, parent ReedR
 	return threadID, nil
 }
 
-// SelfReplyChainLength counts parentReedID and its ancestors up the reply
-// chain while each is authored by authorID, stopping once it reaches limit.
-func (s *DataService) SelfReplyChainLength(ctx context.Context, parentReedID, authorID string, limit int) (int, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `
-		WITH RECURSIVE chain(id, depth) AS (
-			SELECT $1::text, 1
-			UNION ALL
-			SELECT rr.parent_reed_id::text, c.depth + 1
-			FROM chain c
-			JOIN reed_replies rr ON rr.reed_id = c.id
-			WHERE left(rr.parent_reed_id, length($2) + 1) = $2 || '/'
-			  AND c.depth < $3
-		)
-		SELECT max(depth) FROM chain
-	`, parentReedID, authorID, limit).Scan(&n)
-	return n, err
-}
-
 // InsertReply records a direct reply in reed_replies. replyReedID is canonical.
 func (s *DataService) InsertReply(
 	ctx context.Context,
@@ -2437,14 +2427,16 @@ func (s *DataService) InsertMentionRow(ctx context.Context, mentioningReedID, me
 }
 
 // GetOnlineMentionedUsers returns reedID's mentioned userIDs who are
-// currently online, mirroring GetOnlineFollowers. Offline recipients are
+// currently online, mirroring GetOnlineFollowers; for a thread head, those
+// any part mentions, once each. Offline recipients are
 // covered by GetMissingMentions on reconnect instead.
 func (s *DataService) GetOnlineMentionedUsers(ctx context.Context, reedID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ou.user_id
+		SELECT DISTINCT ou.user_id
 		FROM online_users ou
 		JOIN reed_mentions rm ON ou.user_id = rm.mentioned_user_id
-		WHERE rm.mentioning_reed_id = $1
+		LEFT JOIN reeds r ON r.id = rm.mentioning_reed_id
+		WHERE (rm.mentioning_reed_id = $1 AND r.thread_head IS NULL) OR r.thread_head = $1
 	`, reedID)
 	if err != nil {
 		return nil, err
@@ -2464,21 +2456,25 @@ func (s *DataService) GetOnlineMentionedUsers(ctx context.Context, reedID string
 
 // GetMissingMentions returns all reeds that claim to mention userID which
 // are not yet present in reed_allocations for that user — the catch-up
-// counterpart to GetOnlineMentionedUsers, mirroring GetMissingOut.
+// counterpart to GetOnlineMentionedUsers. A thread is listed once, by head.
 func (s *DataService) GetMissingMentions(ctx context.Context, userID string) ([]unallocatedReed, error) {
 	selfIdentity := identityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT ri.id, ri.author_id
-		FROM reed_identities ri
-		JOIN reed_mentions ON reed_mentions.mentioning_reed_id = ri.id
-		WHERE reed_mentions.mentioned_user_id = $1
-		  AND NOT EXISTS (
+		SELECT DISTINCT m.id, m.author_id
+		FROM (
+		    SELECT COALESCE(r.thread_head, ri.id) AS id, ri.author_id
+		    FROM reed_identities ri
+		    JOIN reed_mentions ON reed_mentions.mentioning_reed_id = ri.id
+		    LEFT JOIN reeds r ON r.id = ri.id
+		    WHERE reed_mentions.mentioned_user_id = $1
+		) m
+		WHERE NOT EXISTS (
 		      SELECT 1 FROM reed_allocations
-		      WHERE reed_allocations.reed_id = ri.id AND reed_allocations.holder_user_id = $1
+		      WHERE reed_allocations.reed_id = m.id AND reed_allocations.holder_user_id = $1
 		  )
 		  AND NOT EXISTS (
 		      SELECT 1 FROM reed_removals
-		      WHERE reed_removals.reed_id = ri.id
+		      WHERE reed_removals.reed_id = m.id
 		  )
 	`, selfIdentity)
 	if err != nil {
@@ -8442,30 +8438,66 @@ func (s *DataService) GetForeignHolderServers(ctx context.Context, reedID string
 	return serverIDs, rows.Err()
 }
 
-// ClaimPendingFanout removes the pending_fanout row if present. Returns true when
-// this call claimed fanout (row deleted), plus any pipe tags stashed at SignReed.
-// Concurrent READY messages only claim once. pending_fanout.reed_id FKs to reeds(id).
+// publishUnitSQL matches the reeds one PUBLISH_READY for $1 covers: the
+// reed itself, or every part when $1 is a thread head. A later part alone
+// matches nothing; its head publishes it.
+const publishUnitSQL = `((r.id = $1 AND r.thread_head IS NULL) OR r.thread_head = $1)`
+
+// ClaimPendingFanout removes the pending_fanout rows of reedID's publish
+// unit. Returns true when this call claimed them, plus the union of their
+// stashed pipe tags. Concurrent READY messages only claim once.
 func (s *DataService) ClaimPendingFanout(ctx context.Context, reedID string) (claimed bool, tags []string, err error) {
-	var id string
-	var tagArray pq.StringArray
-	err = s.db.QueryRowContext(ctx, `
-		DELETE FROM pending_fanout
-		WHERE reed_id = $1
-		RETURNING reed_id, tags
-	`, reedID).Scan(&id, &tagArray)
-	if err == sql.ErrNoRows {
-		return false, nil, nil
-	}
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, nil, err
 	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		DELETE FROM pending_fanout pf
+		USING reeds r
+		WHERE pf.reed_id = r.id AND `+publishUnitSQL+`
+		RETURNING pf.tags
+	`, reedID)
+	if err != nil {
+		return false, nil, err
+	}
+	seen := map[string]struct{}{}
+	for rows.Next() {
+		var tagArray pq.StringArray
+		if err := rows.Scan(&tagArray); err != nil {
+			rows.Close()
+			return false, nil, err
+		}
+		claimed = true
+		for _, tag := range tagArray {
+			if _, ok := seen[tag]; !ok {
+				seen[tag] = struct{}{}
+				tags = append(tags, tag)
+			}
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, nil, err
+	}
+	if !claimed {
+		return false, nil, nil
+	}
 	// Publishing is what puts a reed in peers' delivery streams.
-	if _, err := s.db.ExecContext(ctx, `
-		UPDATE reeds SET published_at = CURRENT_TIMESTAMP WHERE id = $1 AND published_at IS NULL
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE reeds r SET published_at = CURRENT_TIMESTAMP
+		WHERE `+publishUnitSQL+` AND r.published_at IS NULL
 	`, reedID); err != nil {
 		return false, nil, err
 	}
-	return true, []string(tagArray), nil
+	if err := tx.Commit(); err != nil {
+		return false, nil, err
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	return true, tags, nil
 }
 
 // GetPendingEventsForUser returns all pending reed events for reeds held by the given user.
@@ -9338,12 +9370,13 @@ type peerStreamItem struct {
 }
 
 // peerStreamSQL defines every local author's stream. Only reeds published
-// here count, and a removal is later than its creation by construction.
+// here count, a thread crosses once as its head, and a removal is later
+// than its creation by construction.
 const peerStreamSQL = `
 	WITH stream AS (
 		SELECT r.user_id AS author_id, r.published_at AS at, 0 AS kind, r.id AS reed_id
 		FROM reeds r
-		WHERE r.published_at IS NOT NULL
+		WHERE r.published_at IS NOT NULL AND COALESCE(r.thread_index, 0) = 0
 		UNION ALL
 		SELECT r.user_id, ss.signed_at, 1, rr.reed_id
 		FROM reed_removals rr
@@ -9520,10 +9553,14 @@ func (s *DataService) GetReedAuthorAndSignedAt(ctx context.Context, reedID strin
 	return string(author), signedAt, err
 }
 
-// GetReedMentions lists everyone a reed mentions, local or foreign.
+// GetReedMentions lists everyone a reed mentions, local or foreign; for a
+// thread head, everyone any part mentions, once each.
 func (s *DataService) GetReedMentions(ctx context.Context, reedID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT mentioned_user_id FROM reed_mentions WHERE mentioning_reed_id = $1
+		SELECT DISTINCT rm.mentioned_user_id
+		FROM reed_mentions rm
+		LEFT JOIN reeds r ON r.id = rm.mentioning_reed_id
+		WHERE (rm.mentioning_reed_id = $1 AND r.thread_head IS NULL) OR r.thread_head = $1
 	`, reedID)
 	if err != nil {
 		return nil, err
