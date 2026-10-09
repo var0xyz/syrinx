@@ -2,7 +2,7 @@
   import { reedsService } from '$lib/repositories/reeds';
   import { likedReedsRepository } from '$lib/repositories/likedReeds';
   import { userRepository } from '$lib/repositories/user';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
@@ -109,7 +109,7 @@
             userID={likedItem.reed.userID}
             username={likedItem.author.username}
             nameTag="h3"
-            subtext={`Liked ${formatRelativeTime(likedItem.record.likedAt)}`}
+            subtext={`Liked ${formatRelativeTime(fromUnix(likedItem.record.likedAt))}`}
             stopPropagation
             linked={false}
           />
