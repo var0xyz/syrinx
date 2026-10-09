@@ -2140,6 +2140,7 @@ type RelaySearchUsersPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
 	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	After         string                 `protobuf:"bytes,3,opt,name=after,proto3" json:"after,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2186,6 +2187,13 @@ func (x *RelaySearchUsersPayload) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *RelaySearchUsersPayload) GetAfter() string {
+	if x != nil {
+		return x.After
+	}
+	return ""
 }
 
 type RelaySearchUsersResponse struct {
@@ -3090,10 +3098,11 @@ const file_federation_proto_rawDesc = "" +
 	"\x0fpeer_request_id\x18\x04 \x01(\tR\rpeerRequestId\"Z\n" +
 	"\x1cRelayFallbackRequestResponse\x12\"\n" +
 	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"E\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"[\n" +
 	"\x17RelaySearchUsersPayload\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"J\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x14\n" +
+	"\x05after\x18\x03 \x01(\tR\x05after\"J\n" +
 	"\x18RelaySearchUsersResponse\x12.\n" +
 	"\x05users\x18\x01 \x03(\v2\x18.syrinx.UserSearchResultR\x05users\"6\n" +
 	"\x1cRelayDisconnectNotifyPayload\x12\x16\n" +

@@ -600,9 +600,12 @@ export const apiService = {
     return request(`/users/${userId}/info`, { method: 'GET' }, UserInfoSchema);
   },
 
-  async searchUsers(query: string, limit?: number): Promise<UserSearchResponse> {
+  /** Username search across this server and its peers; after is the
+   * previous page's opaque nextCursor. */
+  async searchUsers(query: string, limit?: number, after?: string): Promise<UserSearchResponse> {
     const params = new URLSearchParams({ q: query });
     if (limit != null) params.set('limit', String(limit));
+    if (after) params.set('after', after);
     return request(`/users/search?${params}`, { method: 'GET' }, UserSearchResponseSchema);
   },
 

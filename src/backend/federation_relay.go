@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -1120,8 +1121,8 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 // searchUsersFromPeer asks one peer to run its own local user search —
 // the single-peer primitive fanoutUserSearchToPeers calls concurrently
 // for every connected peer.
-func (h *Handlers) searchUsersFromPeer(ctx context.Context, peer PeerServer, query string, limit int) ([]UserSearchResult, error) {
-	payload := &pb.RelaySearchUsersPayload{Query: query, Limit: int32(limit)}
+func (h *Handlers) searchUsersFromPeer(ctx context.Context, peer PeerServer, query, after string, limit int) ([]UserSearchResult, error) {
+	payload := &pb.RelaySearchUsersPayload{Query: query, Limit: int32(limit), After: after}
 	var respBody pb.RelaySearchUsersResponse
 	status, err := h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/search-users", payload, &respBody)
 	if err != nil {
@@ -1143,10 +1144,15 @@ func (h *Handlers) searchUsersFromPeer(ctx context.Context, peer PeerServer, que
 // this is a best-effort widening of local search results, not a
 // completeness guarantee, so one flaky peer must never hold up or fail
 // the request.
-func (h *Handlers) fanoutUserSearchToPeers(ctx context.Context, query string, limit int, perPeerTimeout time.Duration) []UserSearchResult {
+func (h *Handlers) fanoutUserSearchToPeers(ctx context.Context, query string, after *userSearchCursor, limit int, perPeerTimeout time.Duration) []UserSearchResult {
 	peers, err := h.services.db.ListConnectedPeers(ctx)
 	if err != nil || len(peers) == 0 {
 		return nil
+	}
+	// Peers only need the position; the lead is ours to skip.
+	var peerAfter string
+	if after != nil {
+		peerAfter = encodeUserSearchCursor(userSearchCursor{Username: after.Username, ID: after.ID})
 	}
 
 	var mu sync.Mutex
@@ -1158,10 +1164,16 @@ func (h *Handlers) fanoutUserSearchToPeers(ctx context.Context, query string, li
 			defer wg.Done()
 			peerCtx, cancel := context.WithTimeout(ctx, perPeerTimeout)
 			defer cancel()
-			peerResults, err := h.searchUsersFromPeer(peerCtx, peer, query, limit)
+			peerResults, err := h.searchUsersFromPeer(peerCtx, peer, query, peerAfter, limit)
 			if err != nil {
 				return
 			}
+			// A peer answers only for its own users, past the cursor.
+			peerResults = slices.DeleteFunc(peerResults, func(u UserSearchResult) bool {
+				_, serverID, ok := parseIdentityID(identityID(u.ID))
+				return !ok || serverID != peer.ID || (after != nil && !userSearchAfter(u, *after))
+			})
+			peerResults = peerResults[:min(len(peerResults), limit+1)]
 			mu.Lock()
 			results = append(results, peerResults...)
 			mu.Unlock()
@@ -1189,6 +1201,17 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Query = strings.TrimSpace(req.Query)
+	var after *userSearchCursor
+	if req.After != "" {
+		c, err := decodeUserSearchCursor(req.After)
+		if err != nil {
+			log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Invalid search-users cursor from peer")
+			h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", false)
+			writeError(w, http.StatusBadRequest, "Invalid after cursor")
+			return
+		}
+		after = c
+	}
 	if req.Query == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", true)
 		writeResponse(w, http.StatusOK, &pb.RelaySearchUsersResponse{})
@@ -1197,7 +1220,7 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 
 	// No self-exclusion here: the searching user is on the peer's own
 	// server, never a local u.id on this one.
-	results, err := h.services.db.SearchUsers(r.Context(), req.Query, "", int(req.Limit))
+	results, err := h.services.db.SearchUsers(r.Context(), req.Query, "", after, clampUserSearchLimit(int(req.Limit))+1)
 	if err != nil {
 		log.Error().Err(err).Str("query", req.Query).Str("peerServerID", peerServerID).Msg("Failed to handle foreign search-users request")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", false)

@@ -249,6 +249,7 @@ message RelayFallbackRequestResponse {
 message RelaySearchUsersPayload {
   string query = 1;
   int32 limit = 2;
+  string after = 3;
 }
 
 message RelaySearchUsersResponse {

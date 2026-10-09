@@ -109,6 +109,8 @@ message UserSearchResult {
 
 message UserSearchResponse {
   repeated UserSearchResult users = 1;
+  bool has_more = 2;
+  string next_cursor = 3;
 }
 
 // POST/DELETE /users/{id}/follow. follower_id is read only when a peer

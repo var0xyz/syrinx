@@ -2583,33 +2583,92 @@ type UserSearchResult struct {
 	ServerName string `json:"serverName"`
 }
 
-// SearchUsers returns users whose username contains query (case-insensitive
-// substring match), excluding account-removed users and excludeUserID (the
-// caller themselves — pass "" to not exclude anyone), ordered by username.
-func (s *DataService) SearchUsers(ctx context.Context, query, excludeUserID string, limit int) ([]UserSearchResult, error) {
-	if limit <= 0 {
-		limit = 20
+// userSearchCursor is the decoded form of the opaque user-search cursor:
+// the last row of the page in search order (see userSearchKey), plus the
+// ids page one led with, which later pages skip.
+type userSearchCursor struct {
+	Username string   `json:"username"`
+	ID       string   `json:"id"`
+	Lead     []string `json:"lead,omitempty"`
+}
+
+func encodeUserSearchCursor(c userSearchCursor) string {
+	b, _ := json.Marshal(c)
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+func decodeUserSearchCursor(s string) (*userSearchCursor, error) {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid cursor encoding: %w", err)
 	}
-	if limit > 100 {
-		limit = 100
+	var c userSearchCursor
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, fmt.Errorf("invalid cursor payload: %w", err)
 	}
-	// account_removals.user_id FKs to identities(id), and u.id is that same
-	// form directly now (identity_id no longer exists as a separate
-	// column) — join against u.id on both sides. identities.server_id FKs
-	// to servers.id, so join through it to servers.name for display.
+	return &c, nil
+}
+
+// userSearchKey is the search sort key: ASCII-lowercased username, then
+// id, compared bytewise. It must match SearchUsers' ORDER BY on every
+// server, so peers' pages merge into one consistent order.
+func userSearchKey(u UserSearchResult) (string, string) {
+	return asciiLower(u.Username), u.ID
+}
+
+// userSearchAfter reports whether u sorts strictly after cursor c.
+func userSearchAfter(u UserSearchResult, c userSearchCursor) bool {
+	name, id := userSearchKey(u)
+	after := asciiLower(c.Username)
+	return name > after || (name == after && id > c.ID)
+}
+
+// likeEscaper makes a LIKE pattern match its input literally, so search
+// text can't use % or _ as wildcards.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+func escapeLike(s string) string {
+	return likeEscaper.Replace(s)
+}
+
+// asciiLower lowercases A-Z only, matching Postgres lower() under the "C"
+// collation regardless of a server's locale.
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, s)
+}
+
+// SearchUsers returns up to limit users whose username contains query
+// (case-insensitive) in userSearchKey order, after cursor `after` (nil on
+// the first page), minus removed accounts and excludeUserID ("" for none).
+func (s *DataService) SearchUsers(ctx context.Context, query, excludeUserID string, after *userSearchCursor, limit int) ([]UserSearchResult, error) {
+	var afterUsername, afterID string
+	if after != nil {
+		afterUsername, afterID = after.Username, after.ID
+	}
+	// identities.server_id FKs to servers.id; join through it to
+	// servers.name for display.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT u.id, u.username, s.name
 		FROM users u
 		JOIN identities i ON i.id = u.id
 		JOIN servers s ON s.id = i.server_id
-		WHERE u.username ILIKE '%' || $1 || '%'
+		WHERE u.username ILIKE '%' || $1 || '%' ESCAPE '\'
 		  AND u.id != $2
 		  AND NOT EXISTS (
 		      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
 		  )
-		ORDER BY u.username ASC
-		LIMIT $3
-	`, query, excludeUserID, limit)
+		  AND ($4 = ''
+		       OR lower(u.username COLLATE "C") > lower($3 COLLATE "C")
+		       OR (lower(u.username COLLATE "C") = lower($3 COLLATE "C")
+		           AND u.id COLLATE "C" > $4 COLLATE "C"))
+		ORDER BY lower(u.username COLLATE "C"), u.id COLLATE "C"
+		LIMIT $5
+	`, escapeLike(query), excludeUserID, afterUsername, afterID, limit)
 	if err != nil {
 		return nil, err
 	}
