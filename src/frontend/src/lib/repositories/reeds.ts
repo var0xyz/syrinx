@@ -445,15 +445,26 @@ export function removeBroadcastReed(reedId: string): void {
 /** Latest reeds from everyone the viewer follows, queried fresh from
  * IndexedDB each call — no session caching, so it always reflects current
  * local state (new follows, newly synced reeds, etc). */
+/** A thread shows once, as its head; a part stands alone only when the
+ * head isn't held. */
+async function collapseThreads(reeds: ReedType[]): Promise<ReedType[]> {
+  const shown: ReedType[] = [];
+  for (const reed of reeds) {
+    if (reed.thread && reed.thread.index > 0 && (await dbService.get<ReedType>('reeds', reed.thread.head))) continue;
+    shown.push(reed);
+  }
+  return shown;
+}
+
 export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Record<string, User> }> {
   const following = await dbService.getAll<{ userId: string }>('following');
   const followedSet = new Set(following.map(f => f.userId));
   const reeds = followedSet.size === 0
     ? []
-    : await dbService.getLatestFromIndex<ReedType>(
+    : await collapseThreads(await dbService.getLatestFromIndex<ReedType>(
         'reeds', 'serverSignature.signedAt', FOLLOW_FEED_LIMIT,
         reed => followedSet.has(reed.userID)
-      );
+      ));
   const authors: Record<string, User> = {};
   for (const reed of reeds) {
     const authorId = reed.userID;
@@ -479,10 +490,10 @@ export async function getUserListReeds(
     return { reeds: [], authors: {}, userList };
   }
   const memberSet = new Set(userList.memberIds);
-  const reeds = await dbService.getLatestFromIndex<ReedType>(
+  const reeds = await collapseThreads(await dbService.getLatestFromIndex<ReedType>(
     'reeds', 'serverSignature.signedAt', USER_LIST_FEED_LIMIT,
     reed => memberSet.has(reed.userID)
-  );
+  ));
   const authors: Record<string, User> = {};
   for (const reed of reeds) {
     const authorId = reed.userID;

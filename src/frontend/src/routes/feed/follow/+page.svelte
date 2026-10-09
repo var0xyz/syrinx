@@ -86,7 +86,6 @@
                   linked={false}
                 />
                 <div class="item-meta">
-                  <ThreadContext reed={reed} where="chip" />
                   <ReedActionsMenu
                     reedRef={reed.id}
                     userID={reed.userID}
@@ -103,6 +102,7 @@
               {/if}
               {#if (reed.content || '').trim()}
                 <div class="reed-preview">
+                  <ThreadContext reed={reed} where="label" />
                   <MarkdownParser text={reed.content} preview={true} />
                 </div>
               {/if}
