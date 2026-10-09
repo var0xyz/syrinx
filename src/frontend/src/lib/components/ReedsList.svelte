@@ -594,6 +594,7 @@
     bind:items={reeds}
     fetchPage={fetchReedPage}
     bind:depth={pageDepth}
+    restorable
     on:ready={onFirstPageSettled}
     errorMessage="Failed to load reeds"
   >
