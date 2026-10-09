@@ -80,7 +80,7 @@
               <a class="thread-reed" href="/reed/{reed.id}">
                 <!-- Mobile only: the rail carries the position on wider screens. -->
                 <span class="thread-reed-position">{i + 1}/{total}</span>
-                <span class="thread-reed-body"><MarkdownParser text={reed.content} preview={true} /></span>
+                <span class="thread-reed-body"><MarkdownParser text={reed.content} preview={true} fullRender={false} /></span>
               </a>
             </li>
           {/each}

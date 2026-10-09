@@ -9,6 +9,10 @@
   export let preview: boolean = false;
   /** Optional userID -> username display hints (composer preview only). */
   export let usernameHints: Map<string, string> | undefined = undefined;
+  /** False for text that isn't a published reed (bios, composer preview). */
+  export let fullRender: boolean = true;
+
+  const MK = '                       _..gggggppppp.._\n                  _.gd$$$$$$$$$$$$$$$$$$bp._\n               .g$$$$$$P^^""j$$b""""^^T$$$$$$p.\n            .g$$$P^T$$b    d$P T;       ""^^T$$$p.\n          .d$$P^"  :$; `  :$;                "^T$$b.\n        .d$$P\'      T$b.   T$b                  `T$$b.\n       d$$P\'      .gg$$$$bpd$$$p.d$bpp.           `T$$b\n      d$$P      .d$$$$$$$$$$$$$$$$$$$$bp.           T$$b\n     d$$P      d$$$$$$$$$$$$$$$$$$$$$$$$$b.          T$$b\n    d$$P      d$$$$$$$$$$$$$$$$$$P^^T$$$$P            T$$b\n   d$$P    \'-\'T$$$$$$$$$$$$$$$$$$bggpd$$$$b.           T$$b\n  :$$$      .d$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$p._.g.     $$$;\n  $$$;     d$$$$$$$$$$$$$$$$$$$$$$$P^"^T$$$$P^^T$$$;    :$$$\n :$$$     :$$$$$$$$$$$$$$:$$$$$$$$$_    "^T$bpd$$$$,     $$$;\n $$$;     :$$$$$$$$$$$$$$bT$$$$$P^^T$p.    `T$$$$$$;     :$$$\n:$$$      :$$$$$$$$$$$$$$P `^^^\'    "^T$p.    lb`TP       $$$;\n:$$$      $$$$$$$$$$$$$$$              `T$$p._;$b         $$$;\n$$$;      $$$$$$$$$$$$$$;                `T$$$$:Tb        :$$$\n$$$;      $$$$$$$$$$$$$$$                        Tb    _  :$$$\n:$$$     d$$$$$$$$$$$$$$$.                        $b.__Tb $$$;\n:$$$  .g$$$$$$$$$$$$$$$$$$$p...______...gp._      :$`^^^\' $$$;\n $$$;  `^^\'T$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$p.    Tb._, :$$$\n :$$$       T$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$b.   "^"  $$$;\n  $$$;       `$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$b      :$$$\n  :$$$        $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$;     $$$;\n   T$$b    _  :$$`$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$;   d$$P\n    T$$b   T$g$$; :$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$  d$$P\n     T$$b   `^^\'  :$$ "^T$$$$$$$$$$$$$$$$$$$$$$$$$$$ d$$P\n      T$$b        $P     T$$$$$$$$$$$$$$$$$$$$$$$$$;d$$P\n       T$$b.      \'       $$$$$$$$$$$$$$$$$$$$$$$$$$$$P\n        `T$$$p.  syrinx  d$$$$$$$$$$$$$$$$$$$$$$$$$$P\'\n          `T$$$$p..__..g$$$$$$$$$$$$$$$$$$$$$$$$$$P\'\n            "^$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$^"\n               "^T$$$$$$$$$$$$$$$$$$$$$$$$$$P^"\n                   """^^^T$$$$$$$$$$P^^^"""';
 
   let pendingUrl = '';
   let modalOpen = false;
@@ -18,19 +22,24 @@
     modalOpen = true;
   }
 
+  $: easterEgg = fullRender && text === 'abacabb' ? MK : undefined;
   $: doc = parseReedMarkdown(preview ? (text ?? '').trim() : (text ?? ''));
 </script>
 
 <div class="markdown-content {className}" role="presentation">
-  {#each doc.blocks as block}
-    {#if block.type === 'pre'}
-      <pre>{block.value}</pre>
-    {:else if block.type === 'paragraph'}
-      <p>
-        <MarkdownInline nodes={block.children} {preview} {usernameHints} onExternal={openExternal} />
-      </p>
-    {/if}
-  {/each}
+  {#if easterEgg}
+    <pre class="easter-egg">{easterEgg}</pre>
+  {:else}
+    {#each doc.blocks as block}
+      {#if block.type === 'pre'}
+        <pre>{block.value}</pre>
+      {:else if block.type === 'paragraph'}
+        <p>
+          <MarkdownInline nodes={block.children} {preview} {usernameHints} onExternal={openExternal} />
+        </p>
+      {/if}
+    {/each}
+  {/if}
 </div>
 
 <ExternalLinkModal url={pendingUrl} open={modalOpen} on:close={() => { modalOpen = false; }} />
@@ -94,6 +103,12 @@
     overflow-x: auto;
     white-space: pre-wrap;
     margin: 0 0 0.5em 0;
+  }
+
+  .markdown-content pre.easter-egg {
+    white-space: pre;
+    line-height: 1.1;
+    font-size: 0.7em;
   }
 
   .markdown-content :global(p) {

@@ -259,7 +259,7 @@
   </div>
   {#if user?.bio}
     <div class="user-bio">
-      <MarkdownParser text={user.bio} />
+      <MarkdownParser text={user.bio} fullRender={false} />
     </div>
   {/if}
   <TrustSection

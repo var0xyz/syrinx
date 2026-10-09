@@ -69,7 +69,7 @@
           <span class="rail-dot small">2</span>
           {#if hidden}<span class="rail-line dotted"></span>{/if}
         </div>
-        <div class="thread-row-body clamp"><MarkdownParser text={next.content} preview={true} /></div>
+        <div class="thread-row-body clamp"><MarkdownParser text={next.content} preview={true} fullRender={false} /></div>
       </a>
     {/if}
     <div class="thread-more">

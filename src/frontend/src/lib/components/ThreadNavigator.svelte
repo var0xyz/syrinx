@@ -103,7 +103,7 @@
     {#if prev}
       <button type="button" class="neighbor prev" on:click={() => go(n - 1)}>
         <span class="neighbor-label">‹ Previous</span>
-        <span class="neighbor-text"><MarkdownParser text={prev.content} preview={true} /></span>
+        <span class="neighbor-text"><MarkdownParser text={prev.content} preview={true} fullRender={false} /></span>
       </button>
       <div class="connector" aria-hidden="true"></div>
     {:else if total}
@@ -113,7 +113,7 @@
     <div class="connector" aria-hidden="true"></div>
     <button type="button" class="neighbor next" on:click={() => go(n + 1)}>
       <span class="neighbor-label">Next ›</span>
-      <span class="neighbor-text"><MarkdownParser text={next.content} preview={true} /></span>
+      <span class="neighbor-text"><MarkdownParser text={next.content} preview={true} fullRender={false} /></span>
     </button>
   {:else if total}
     <div class="thread-edge">End of thread</div>
