@@ -5,7 +5,7 @@
   import { userRepository } from '$lib/repositories/user';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import RemotePagination from '$lib/components/RemotePagination.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   export let userId = '';
   /** 'following' | 'followers' */
@@ -13,7 +13,7 @@
 
   const dispatch = createEventDispatcher();
 
-  type Row = { userID: string; username: string; followedAt: string };
+  type Row = { userID: string; username: string; followedAt: number };
 
   let pagination: RemotePagination<Row> | undefined;
   let loadedForKey = '';
@@ -82,7 +82,7 @@
             <ReedAuthorHeader
               userID={row.userID}
               username={row.username}
-              subtext={`Since ${formatRelativeTime(row.followedAt)}`}
+              subtext={`Since ${formatRelativeTime(fromUnix(row.followedAt))}`}
               stopPropagation
             />
           </div>
