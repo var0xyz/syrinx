@@ -72,6 +72,14 @@
     }
   }
 
+  // Mirrors the /replies list: someone else's reply to a reed of mine.
+  async function isReplyToMe(reed: ReedType): Promise<boolean> {
+    const myUserID = localStorage.getItem('userId');
+    if (!myUserID || !reed.replying?.to || reed.userID === myUserID) return false;
+    const parent = await reedsService.getReed(reed.replying.to);
+    return parent?.userID === myUserID;
+  }
+
   let user = null;
   $: headerLink = user ? '/reeds' : '/welcome';
 
@@ -252,7 +260,8 @@
         removeBroadcastReed(reed.id);
         await recordActivity(reed);
         dispatchReedToQueue(reed, 'reed_reply');
-        markUnread('replies');
+        // Thread subscribers get REED_REPLY too; only flag what /replies lists.
+        if (await isReplyToMe(reed)) markUnread('replies');
         await requestReferencedReeds(reed);
       } catch (error) {
         console.warn('ServerConnection: invalid reed reply signature, rejecting:', reed.id, error);
