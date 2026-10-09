@@ -26,6 +26,7 @@ export type {
   User,
   UserInfo,
   UserInvite,
+  UserSearchResult,
   Vouch,
   VouchListResponse,
   VouchWithdrawal,

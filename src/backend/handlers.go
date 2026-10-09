@@ -841,12 +841,22 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 // that doesn't answer in time is just dropped from that request's results.
 const searchUsersFanoutTimeout = 2 * time.Second
 
-// SearchUsers handles GET /users/search?q=&limit= — the composer @-mention
-// picker's backing search. Auth required (not in signatureAuthMiddleware's
-// excludePaths); minimal fields only, no keys. Fans out to every connected
-// peer (leg 19, search-users) in parallel and merges their results with
-// this server's own local matches, so the picker can find users on any
-// server in the mesh, not just this one.
+// Page size bounds for GET /users/search and its peer leg.
+const (
+	defaultUserSearchLimit = 20
+	maxUserSearchLimit     = 100
+)
+
+func clampUserSearchLimit(n int) int {
+	if n < 1 {
+		return defaultUserSearchLimit
+	}
+	return min(n, maxUserSearchLimit)
+}
+
+// SearchUsers handles GET /users/search?q=&limit=&after= — paginated
+// username search over this server and every connected peer, merged into
+// one order (see mergeUserSearchResults). Minimal fields only, no keys.
 func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -856,22 +866,34 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 20
+	limit := defaultUserSearchLimit
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
-			limit = n
+			limit = clampUserSearchLimit(n)
 		}
 	}
 
-	localResults, err := h.services.db.SearchUsers(r.Context(), query, h.getUserID(r), limit)
+	var after *userSearchCursor
+	rawAfter := strings.TrimSpace(r.URL.Query().Get("after"))
+	if rawAfter != "" {
+		c, err := decodeUserSearchCursor(rawAfter)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid after cursor")
+			return
+		}
+		c.Lead = c.Lead[:min(len(c.Lead), maxUserSearchLimit)]
+		after = c
+	}
+
+	// limit+1 from every source tells whether the merged list goes on.
+	localResults, err := h.services.db.SearchUsers(r.Context(), query, h.getUserID(r), after, limit+1)
 	if err != nil {
 		log.Error().Str("query", query).Err(err).Msg("Error searching users")
 		internalServerError(w)
 		return
 	}
 
-	foreignResults := h.fanoutUserSearchToPeers(r.Context(), query, limit, searchUsersFanoutTimeout)
-	results := mergeUserSearchResults(query, localResults, foreignResults)
+	foreignResults := h.fanoutUserSearchToPeers(r.Context(), query, after, limit, searchUsersFanoutTimeout)
 
 	blocking, err := h.services.db.UsersBlocking(r.Context(), h.getUserID(r))
 	if err != nil {
@@ -879,42 +901,86 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	results = slices.DeleteFunc(results, func(u UserSearchResult) bool { return blocking[u.ID] })
+	isBlocking := func(u UserSearchResult) bool { return blocking[u.ID] }
+	localResults = slices.DeleteFunc(localResults, isBlocking)
+	foreignResults = slices.DeleteFunc(foreignResults, isBlocking)
 
-	writeResponse(w, http.StatusOK, pbUserSearch(results))
+	page, lead, hasMore := mergeUserSearchResults(query, localResults, foreignResults, limit, after == nil)
+	shown := page
+	if after != nil {
+		// Rows page one led with recur in sorted order; don't repeat them.
+		lead = after.Lead
+		shown = slices.DeleteFunc(slices.Clone(page), func(u UserSearchResult) bool { return slices.Contains(lead, u.ID) })
+	}
+	out := pbUserSearch(shown)
+	if hasMore {
+		last := page[len(page)-1]
+		out.HasMore = true
+		out.NextCursor = encodeUserSearchCursor(userSearchCursor{Username: last.Username, ID: last.ID, Lead: lead})
+	}
+	writeResponse(w, http.StatusOK, out)
 }
 
-// mergeUserSearchResults combines local and fanned-out foreign results.
-// If no LOCAL result is an exact (case-insensitive) username match, any
-// foreign exact matches are moved to the front — the assumption being
-// that a searcher typing a full, exact username most likely means the
-// specific person they're already looking for, and that intent shouldn't
-// get buried under partial local matches when the actual target lives on
-// another server. When a local exact match already exists, no reordering
-// happens at all — local-then-foreign order is left as-is.
-func mergeUserSearchResults(query string, local, foreign []UserSearchResult) []UserSearchResult {
-	for _, r := range local {
-		if strings.EqualFold(r.Username, query) {
-			merged := make([]UserSearchResult, 0, len(local)+len(foreign))
-			merged = append(merged, local...)
-			merged = append(merged, foreign...)
-			return merged
+// mergeUserSearchResults cuts local and foreign rows (each fetched with
+// limit+1) to one page in userSearchKey order, returning the ids it led
+// with; hasMore reports rows past it, and the last row is the next cursor.
+func mergeUserSearchResults(query string, local, foreign []UserSearchResult, limit int, firstPage bool) ([]UserSearchResult, []string, bool) {
+	seen := make(map[string]bool, len(local)+len(foreign))
+	all := make([]UserSearchResult, 0, len(local)+len(foreign))
+	for _, u := range slices.Concat(local, foreign) {
+		if !seen[u.ID] {
+			seen[u.ID] = true
+			all = append(all, u)
 		}
 	}
+	slices.SortFunc(all, compareUserSearch)
+	hasMore := len(all) > limit
 
-	var exact, rest []UserSearchResult
-	for _, r := range foreign {
-		if strings.EqualFold(r.Username, query) {
-			exact = append(exact, r)
-		} else {
-			rest = append(rest, r)
+	// On the first page an exact username match leads, preferring local
+	// ones. At most limit-1 lead so the last row stays a sorted one.
+	var lead []UserSearchResult
+	if firstPage {
+		lead = exactUserMatches(query, local)
+		if len(lead) == 0 {
+			lead = exactUserMatches(query, foreign)
+		}
+		lead = lead[:min(len(lead), max(limit-1, 0))]
+	}
+	page := make([]UserSearchResult, 0, limit)
+	leadIDs := make([]string, 0, len(lead))
+	for _, u := range lead {
+		page = append(page, u)
+		leadIDs = append(leadIDs, u.ID)
+	}
+	for _, u := range all {
+		if len(page) == limit {
+			break
+		}
+		if !slices.Contains(leadIDs, u.ID) {
+			page = append(page, u)
 		}
 	}
-	merged := make([]UserSearchResult, 0, len(local)+len(foreign))
-	merged = append(merged, exact...)
-	merged = append(merged, local...)
-	merged = append(merged, rest...)
-	return merged
+	return page, leadIDs, hasMore
+}
+
+func exactUserMatches(query string, rows []UserSearchResult) []UserSearchResult {
+	var out []UserSearchResult
+	for _, u := range rows {
+		if strings.EqualFold(u.Username, query) {
+			out = append(out, u)
+		}
+	}
+	slices.SortFunc(out, compareUserSearch)
+	return out
+}
+
+func compareUserSearch(a, b UserSearchResult) int {
+	an, aid := userSearchKey(a)
+	bn, bid := userSearchKey(b)
+	if c := strings.Compare(an, bn); c != 0 {
+		return c
+	}
+	return strings.Compare(aid, bid)
 }
 
 // proxyFollowIfForeign forwards a local end-user's follow/unfollow to the

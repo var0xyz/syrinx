@@ -9,6 +9,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { localSearchRepository } from '$lib/repositories/localSearch';
+  import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import type { ReedType } from '$lib/types/reed';
@@ -28,7 +29,7 @@
   let submittedQuery = '';
   let hasSearched = false;
   let reedsPagination: LocalPagination<ReedRow> | undefined;
-  let usersPagination: LocalPagination<api.User> | undefined;
+  let usersPagination: LocalPagination<api.UserSearchResult> | undefined;
 
   async function resolveReedRows(reeds: ReedType[]): Promise<ReedRow[]> {
     const authorIds = [...new Set(reeds.map((reed) => reed.userID))];
@@ -52,7 +53,8 @@
   }
 
   async function fetchUsersPage(after?: string) {
-    return localSearchRepository.searchUsers(submittedQuery, PAGE_SIZE, after);
+    const res = await apiService.searchUsers(submittedQuery, PAGE_SIZE, after);
+    return { items: res.users, hasMore: res.hasMore, nextCursor: res.nextCursor || undefined };
   }
 
   function submit() {
@@ -86,7 +88,7 @@
         <input
           type="text"
           bind:value={query}
-          placeholder={mode === 'reeds' ? 'Search reed content…' : 'Search username or bio…'}
+          placeholder={mode === 'reeds' ? 'Search reed content…' : 'Search username…'}
           aria-label={mode === 'reeds' ? 'Search reed content' : 'Search users'}
         />
         <div class="search-actions">
@@ -146,12 +148,12 @@
         </LocalPagination>
       {:else}
         <LocalPagination bind:this={usersPagination} fetchPage={fetchUsersPage}>
-          {#snippet item(user: api.User)}
+          {#snippet item(user: api.UserSearchResult)}
             <div class="user-item">
               <ReedAuthorHeader
                 userID={user.id}
                 username={user.username}
-                subtext={user.bio}
+                subtext={user.serverName}
                 nameTag="h3"
                 avatarSize="28px"
               />
@@ -161,7 +163,7 @@
             <div class="empty-state">
               <div class="empty-icon">🔍</div>
               <h3>No matching users</h3>
-              <p>No cached users match "{submittedQuery}".</p>
+              <p>No users match "{submittedQuery}".</p>
             </div>
           {/snippet}
         </LocalPagination>

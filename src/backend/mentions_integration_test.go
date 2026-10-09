@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"testing"
 	"time"
 
@@ -476,7 +477,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := svc.SearchUsers(ctx, "alice", "", 20)
+	results, err := svc.SearchUsers(ctx, "alice", "", nil, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +486,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatalf("results = %+v", results)
 	}
 
-	results, err = svc.SearchUsers(ctx, "bobname", "", 20)
+	results, err = svc.SearchUsers(ctx, "bobname", "", nil, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,11 +494,61 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatalf("expected account-removed user excluded, got %+v", results)
 	}
 
-	results, err = svc.SearchUsers(ctx, "alice", "alice@testserver", 20)
+	results, err = svc.SearchUsers(ctx, "alice", "alice@testserver", nil, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected excludeUserID to exclude the searcher's own match, got %+v", results)
+	}
+}
+
+func TestSearchUsers_KeysetPages(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	for _, u := range []string{"carl", "Bea", "ann"} {
+		seedMentionUser(t, db, u)
+	}
+
+	first, err := svc.SearchUsers(ctx, "NAME", "", nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := userSearchIDs(first); !reflect.DeepEqual(ids, []string{"ann@testserver", "Bea@testserver"}) {
+		t.Fatalf("first page = %v", ids)
+	}
+
+	last := first[len(first)-1]
+	rest, err := svc.SearchUsers(ctx, "name", "", &userSearchCursor{Username: last.Username, ID: last.ID}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ids := userSearchIDs(rest); !reflect.DeepEqual(ids, []string{"carl@testserver"}) {
+		t.Fatalf("second page = %v", ids)
+	}
+}
+
+func TestSearchUsers_WildcardsMatchLiterally(t *testing.T) {
+	db := openMentionsTestDB(t)
+	ctx := context.Background()
+	svc := &DataService{db: db, serverID: "testserver"}
+
+	seedMentionUser(t, db, "abc")
+	seedMentionUser(t, db, "a_c")
+
+	for query, want := range map[string][]string{
+		"%":   nil,
+		"a_c": {"a_c@testserver"},
+		`a\`:  nil,
+	} {
+		results, err := svc.SearchUsers(ctx, query, "", nil, 20)
+		if err != nil {
+			t.Fatalf("query %q: %v", query, err)
+		}
+		if ids := userSearchIDs(results); len(ids) != len(want) || (len(want) > 0 && !reflect.DeepEqual(ids, want)) {
+			t.Errorf("query %q = %v, want %v", query, ids, want)
+		}
 	}
 }

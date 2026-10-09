@@ -866,6 +866,8 @@ func (x *UserSearchResult) GetServerName() string {
 type UserSearchResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Users         []*UserSearchResult    `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	HasMore       bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -905,6 +907,20 @@ func (x *UserSearchResponse) GetUsers() []*UserSearchResult {
 		return x.Users
 	}
 	return nil
+}
+
+func (x *UserSearchResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+func (x *UserSearchResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
 }
 
 // POST/DELETE /users/{id}/follow. follower_id is read only when a peer
@@ -2063,9 +2079,12 @@ const file_identity_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x1f\n" +
 	"\vserver_name\x18\x03 \x01(\tR\n" +
-	"serverName\"D\n" +
+	"serverName\"\x80\x01\n" +
 	"\x12UserSearchResponse\x12.\n" +
-	"\x05users\x18\x01 \x03(\v2\x18.syrinx.UserSearchResultR\x05users\"0\n" +
+	"\x05users\x18\x01 \x03(\v2\x18.syrinx.UserSearchResultR\x05users\x12\x19\n" +
+	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x1f\n" +
+	"\vnext_cursor\x18\x03 \x01(\tR\n" +
+	"nextCursor\"0\n" +
 	"\rFollowRequest\x12\x1f\n" +
 	"\vfollower_id\x18\x01 \x01(\tR\n" +
 	"followerID\"J\n" +
