@@ -15,6 +15,9 @@
   /** Pages to open with, for restoring a list the user had paged into.
    * Bindable, so a caller can snapshot the current depth on navigate-away. */
   export let depth = 1;
+  /** Set when the caller changes depth after mount (a snapshot restore);
+   * otherwise the first load would be mistaken for one and run twice. */
+  export let restorable = false;
 
   const dispatch = createEventDispatcher<{ ready: void }>();
 
@@ -38,7 +41,7 @@
 
   // A snapshot restore sets depth after this component has already mounted
   // and loaded one page, so deepen to match instead of missing it.
-  $: if (mounted && depth > walkedDepth) void deepenTo(depth);
+  $: if (restorable && mounted && depth > walkedDepth) void deepenTo(depth);
 
   async function deepenTo(target: number) {
     await walkPages(target);
