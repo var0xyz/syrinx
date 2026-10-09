@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -739,17 +738,17 @@ func (h *Handlers) sendOwedBlockNotices(peerID string) {
 	}
 	for _, n := range notices {
 		var path string
-		var body any
+		var body proto.Message
 		if n.Kind == blockEventBlock {
 			cert, err := h.services.db.GetBlock(ctx, n.UserID, n.BlockedUserID)
 			if err != nil || cert == nil {
 				log.Error().Err(err).Str("userID", n.UserID).Str("blockedUserID", n.BlockedUserID).Msg("Failed to load owed block")
 				continue
 			}
-			path, body = "/api/federation/relay/block-notify", cert
+			path, body = "/api/federation/relay/block-notify", pbBlockCert(cert)
 		} else {
-			path, body = "/api/federation/relay/unblock-notify", relayUnblockPayload{
-				UserID: n.UserID, BlockedUserID: n.BlockedUserID,
+			path, body = "/api/federation/relay/unblock-notify", &pb.RelayUnblockPayload{
+				UserId: n.UserID, BlockedUserId: n.BlockedUserID,
 			}
 		}
 		status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, path, body, nil)
@@ -774,11 +773,6 @@ func (h *Handlers) notifyPeersOfOwedBlockNotices() {
 	for _, peer := range peers {
 		h.sendOwedBlockNotices(peer.ID)
 	}
-}
-
-type relayUnblockPayload struct {
-	UserID        string `json:"user_id"`
-	BlockedUserID string `json:"blocked_user_id"`
 }
 
 // acceptForeignBlock verifies a block made on peerServerID against one of
@@ -853,19 +847,20 @@ func (h *Handlers) BlockNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	var cert BlockCert
-	if err := json.NewDecoder(r.Body).Decode(&cert); err != nil {
+	var msg pb.BlockCert
+	if err := readRequest(r, &msg); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
-		writeJSON(w, http.StatusBadRequest, "Invalid request body")
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	cert := blockCertFromPB(&msg)
 	if err := h.acceptForeignBlock(r.Context(), peerServerID, cert); err != nil {
 		log.Warn().Err(err).Str("peerServerID", peerServerID).Str("userID", cert.UserID).Msg("Rejected block from peer")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
-		writeJSON(w, http.StatusBadRequest, "Block failed verification")
+		writeError(w, http.StatusBadRequest, "Block failed verification")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", true)
@@ -877,29 +872,29 @@ func (h *Handlers) UnblockNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	var req relayUnblockPayload
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var req pb.RelayUnblockPayload
+	if err := readRequest(r, &req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", false)
-		writeJSON(w, http.StatusBadRequest, "Invalid request body")
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if _, serverID, ok := parseIdentityID(identityID(req.UserID)); !ok || serverID != peerServerID {
+	if _, serverID, ok := parseIdentityID(identityID(req.UserId)); !ok || serverID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", false)
-		writeJSON(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
+		writeError(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
 		return
 	}
 
-	deleted, err := h.services.db.DeleteBlock(r.Context(), req.UserID, req.BlockedUserID)
+	deleted, err := h.services.db.DeleteBlock(r.Context(), req.UserId, req.BlockedUserId)
 	if err != nil {
-		log.Error().Err(err).Str("userID", req.UserID).Msg("Error deleting block")
+		log.Error().Err(err).Str("userID", req.UserId).Msg("Error deleting block")
 		internalServerError(w)
 		return
 	}
 	if deleted && h.realtimeRelay != nil {
-		h.realtimeRelay.pushUnblock(req.UserID, req.BlockedUserID)
+		h.realtimeRelay.pushUnblock(req.UserId, req.BlockedUserId)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", true)
 	w.WriteHeader(http.StatusNoContent)

@@ -731,12 +731,12 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 	// Same rule as creating: a foreign subject's server drops its reference
 	// first, or the withdrawal is not recorded.
 	if _, subjectServerID, ok := parseIdentityID(identityID(existing.SubjectUserID)); ok && subjectServerID != h.services.db.GetServerID() {
-		payload := relayVouchWithdrawalPayload{
-			VouchID:       existing.ID,
-			VoucherUserID: voucherID,
-			Withdrawal: VouchWithdrawal{
-				UserSignature:   UserSignature{ID: voucherKeyID, Armor: signature},
-				ServerSignature: serverSignature,
+		payload := &pb.RelayVouchWithdrawalPayload{
+			VouchId:       existing.ID,
+			VoucherUserId: voucherID,
+			Withdrawal: &pb.VouchWithdrawal{
+				UserSignature:   &pb.UserSignature{Id: voucherKeyID, Armor: signature},
+				ServerSignature: pbServerSignature(serverSignature),
 			},
 		}
 		if err := h.deliverVouchWithdrawalToSubject(r.Context(), existing.SubjectUserID, payload); err != nil {

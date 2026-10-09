@@ -3,15 +3,17 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
+
+	pb "syrinx/proto"
 )
 
 // signedForeignBlock is alice on revHomeServerID blocking blocked, signed
@@ -36,13 +38,9 @@ func signedForeignBlock(t *testing.T, s signedKeyRevocation, blocked string, sig
 	}
 }
 
-func postFromHome(t *testing.T, handler http.HandlerFunc, path string, body any) int {
+func postFromHome(t *testing.T, handler http.HandlerFunc, path string, body proto.Message) int {
 	t.Helper()
-	raw, err := json.Marshal(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := withPeer(httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw)), revHomeServerID)
+	req := withPeer(protoRequest(http.MethodPost, path, body), revHomeServerID)
 	rr := httptest.NewRecorder()
 	handler(rr, req)
 	return rr.Code
@@ -62,7 +60,7 @@ func TestBlockNotifyFromPeerStoresAndForcesUnfollow(t *testing.T) {
 
 	cert := signedForeignBlock(t, s, bob, time.Now().UTC().Truncate(time.Second))
 	for range 2 {
-		if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", cert); code != http.StatusNoContent {
+		if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", blockBody(cert)); code != http.StatusNoContent {
 			t.Fatalf("block-notify: status %d", code)
 		}
 	}
@@ -99,7 +97,7 @@ func TestBlockNotifyFromPeerRefusesBadCerts(t *testing.T) {
 		"forged countersignature": forged,
 		"blocked user elsewhere":  notOurs,
 	} {
-		if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", c); code != http.StatusBadRequest {
+		if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", blockBody(c)); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", name, code)
 		}
 	}
@@ -116,11 +114,11 @@ func TestUnblockNotifyLiftsTheBlock(t *testing.T) {
 	h, bob, _ := s.peerHandlers(t, fake)
 	ctx := context.Background()
 	cert := signedForeignBlock(t, s, bob, time.Now().UTC().Truncate(time.Second))
-	if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", cert); code != http.StatusNoContent {
+	if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", blockBody(cert)); code != http.StatusNoContent {
 		t.Fatalf("block-notify: status %d", code)
 	}
 
-	lift := relayUnblockPayload{UserID: s.userID, BlockedUserID: bob}
+	lift := &pb.RelayUnblockPayload{UserId: s.userID, BlockedUserId: bob}
 	if code := postFromHome(t, h.UnblockNotifyFromPeer, "/api/federation/relay/unblock-notify", lift); code != http.StatusNoContent {
 		t.Fatalf("unblock: status %d", code)
 	}
@@ -131,7 +129,7 @@ func TestUnblockNotifyLiftsTheBlock(t *testing.T) {
 		t.Fatalf("bob owed %+v, want one lift", events)
 	}
 
-	notOurs := relayUnblockPayload{UserID: "dave@Other999", BlockedUserID: bob}
+	notOurs := &pb.RelayUnblockPayload{UserId: "dave@Other999", BlockedUserId: bob}
 	if code := postFromHome(t, h.UnblockNotifyFromPeer, "/api/federation/relay/unblock-notify", notOurs); code != http.StatusBadRequest {
 		t.Fatalf("lift of another server's user: status %d", code)
 	}
@@ -146,7 +144,7 @@ func TestNewerForeignBlockReplacesOlder(t *testing.T) {
 	newer := older.Add(30 * time.Minute)
 
 	for _, at := range []time.Time{newer, older} {
-		if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", signedForeignBlock(t, s, bob, at)); code != http.StatusNoContent {
+		if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", blockBody(signedForeignBlock(t, s, bob, at))); code != http.StatusNoContent {
 			t.Fatalf("block-notify at %v: status %d", at, code)
 		}
 	}
@@ -223,23 +221,22 @@ func TestPeerLegsRefuseBlockedRequester(t *testing.T) {
 	reedID := f.allocate(t, f.alice, "r1", f.carol)
 	f.h.realtimeRelay = newRealtimeService(f.ds, newCryptoService(), "")
 
-	post := func(handler http.HandlerFunc, path string, body any) *httptest.ResponseRecorder {
-		raw, _ := json.Marshal(body)
-		req := withPeer(httptest.NewRequest(http.MethodPost, path, bytes.NewReader(raw)), peerID)
+	post := func(handler http.HandlerFunc, path string, body proto.Message) *httptest.ResponseRecorder {
+		req := withPeer(protoRequest(http.MethodPost, path, body), peerID)
 		rr := httptest.NewRecorder()
 		handler(rr, req)
 		return rr
 	}
 	_, _, bare, _ := parseKeyFingerprint(identityID(reedID))
-	request := relayRequestPayload{
-		ReedID: bare, AuthorID: f.alice, RequesterUserID: remote,
-		RequesterKeyID: string(appendEntity(identityID(remote), "fp")),
-		PeerRequestID:  string(appendEntity(identityID(remote), "req")),
+	request := &pb.RelayRequestPayload{
+		ReedId: bare, AuthorId: f.alice, RequesterUserId: remote,
+		RequesterKeyId: string(appendEntity(identityID(remote), "fp")),
+		PeerRequestId:  string(appendEntity(identityID(remote), "req")),
 	}
 	for name, rr := range map[string]*httptest.ResponseRecorder{
 		"request":        post(f.h.RelayRequestFromPeer, "/api/federation/relay/request", request),
-		"profile-page":   post(f.h.RelayProfilePageFromPeer, "/api/federation/relay/profile-page", relayProfilePagePayload{AuthorID: f.alice, RequesterUserID: remote, Page: 1}),
-		"subscribe-reed": post(f.h.RelaySubscribeReedFromPeer, "/api/federation/relay/subscribe-reed", relaySubscribeReedPayload{ReedID: reedID, RequesterUserID: remote}),
+		"profile-page":   post(f.h.RelayProfilePageFromPeer, "/api/federation/relay/profile-page", &pb.RelayProfilePagePayload{AuthorId: f.alice, RequesterUserId: remote, Page: 1}),
+		"subscribe-reed": post(f.h.RelaySubscribeReedFromPeer, "/api/federation/relay/subscribe-reed", &pb.RelaySubscribeReedPayload{ReedId: reedID, RequesterUserId: remote}),
 	} {
 		if cert := refusalBlock(rr.Body.Bytes()); rr.Code != http.StatusForbidden || cert == nil || cert.BlockedUserID != remote {
 			t.Errorf("%s: status %d body %s", name, rr.Code, rr.Body.String())
@@ -255,3 +252,5 @@ func TestPeerLegsRefuseBlockedRequester(t *testing.T) {
 		t.Fatalf("peer named another server's user: %q", viewer)
 	}
 }
+
+func blockBody(c BlockCert) *pb.BlockCert { return pbBlockCert(&c) }

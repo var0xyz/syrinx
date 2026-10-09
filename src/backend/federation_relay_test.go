@@ -3,13 +3,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 )
 
 // newBareRelayTestHandlers builds a *Handlers with just enough wired up to
@@ -36,7 +40,7 @@ func withPeer(r *http.Request, peerServerID string) *http.Request {
 func TestRelayRequestFromPeer_RejectsNonPeerCaller(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","peer_request_id":"r1"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body))
+	req := relayRequest("/api/federation/relay/request", &pb.RelayRequestPayload{}, body)
 	rr := httptest.NewRecorder()
 
 	h.RelayRequestFromPeer(rr, req)
@@ -52,7 +56,7 @@ func TestRelayRequestFromPeer_RejectsForeignAuthorID(t *testing.T) {
 	// server's own id nor the calling peer's -- this is exactly the
 	// chained/multi-hop relay the loop-prevention guard must reject.
 	body := `{"reed_id":"01a026d4","author_id":"alice@thirdparty","requester_user_id":"bob@peer5678","peer_request_id":"r1"}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/request", &pb.RelayRequestPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayRequestFromPeer(rr, req)
@@ -65,7 +69,7 @@ func TestRelayRequestFromPeer_RejectsForeignAuthorID(t *testing.T) {
 func TestRelayRequestFromPeer_RejectsMissingFields(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"reed_id":"","author_id":"","requester_user_id":"","peer_request_id":""}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/request", &pb.RelayRequestPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayRequestFromPeer(rr, req)
@@ -78,7 +82,7 @@ func TestRelayRequestFromPeer_RejectsMissingFields(t *testing.T) {
 func TestRelayRequestFromPeer_AcceptsAuthorLocalToThisServer(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","requester_key_id":"bob@peer5678/k1","peer_request_id":"bob@peer5678/r1"}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/request", &pb.RelayRequestPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayRequestFromPeer(rr, req)
@@ -93,8 +97,8 @@ func TestRelayRequestFromPeer_AcceptsAuthorLocalToThisServer(t *testing.T) {
 
 func TestDeliverRelayResponseFromPeer_RejectsNonPeerCaller(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	body := `{"peer_event_id":"evt1","data":{}}`
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/deliver", strings.NewReader(body))
+	body := `{"peer_event_id":"evt1"}`
+	req := relayRequest("/api/federation/relay/deliver", &pb.RelayDeliverPayload{}, body)
 	rr := httptest.NewRecorder()
 
 	h.DeliverRelayResponseFromPeer(rr, req)
@@ -106,8 +110,8 @@ func TestDeliverRelayResponseFromPeer_RejectsNonPeerCaller(t *testing.T) {
 
 func TestDeliverRelayResponseFromPeer_RejectsMissingPeerEventID(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	body := `{"peer_event_id":"","data":{}}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/deliver", strings.NewReader(body)), "peer5678")
+	body := `{"peer_event_id":""}`
+	req := withPeer(relayRequest("/api/federation/relay/deliver", &pb.RelayDeliverPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.DeliverRelayResponseFromPeer(rr, req)
@@ -120,7 +124,7 @@ func TestDeliverRelayResponseFromPeer_RejectsMissingPeerEventID(t *testing.T) {
 func TestCancelRelayRequestFromPeer_RejectsNonPeerCaller(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"peer_event_id":"evt1"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/cancel", strings.NewReader(body))
+	req := relayRequest("/api/federation/relay/cancel", &pb.RelayCancelPayload{}, body)
 	rr := httptest.NewRecorder()
 
 	h.CancelRelayRequestFromPeer(rr, req)
@@ -133,7 +137,7 @@ func TestCancelRelayRequestFromPeer_RejectsNonPeerCaller(t *testing.T) {
 func TestCancelRelayRequestFromPeer_RejectsMissingPeerEventID(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"peer_event_id":""}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/cancel", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/cancel", &pb.RelayCancelPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.CancelRelayRequestFromPeer(rr, req)
@@ -163,7 +167,7 @@ func TestRelayRequestCanonicalReedIDReconstruction(t *testing.T) {
 func TestRelayProfilePageFromPeer_RejectsNonPeerCaller(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"author_id":"alice@home1234","requester_user_id":"bob@peer5678","page":1}`
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body))
+	req := relayRequest("/api/federation/relay/profile-page", &pb.RelayProfilePagePayload{}, body)
 	rr := httptest.NewRecorder()
 
 	h.RelayProfilePageFromPeer(rr, req)
@@ -175,7 +179,7 @@ func TestRelayProfilePageFromPeer_RejectsNonPeerCaller(t *testing.T) {
 
 func TestRelayProfilePageFromPeer_RejectsMalformedBody(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader("{not json")), "peer5678")
+	req := withPeer(malformedRelayRequest("/api/federation/relay/profile-page"), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayProfilePageFromPeer(rr, req)
@@ -188,7 +192,7 @@ func TestRelayProfilePageFromPeer_RejectsMalformedBody(t *testing.T) {
 func TestRelayProfilePageFromPeer_RejectsMissingFields(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"author_id":"","requester_user_id":"","page":1}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/profile-page", &pb.RelayProfilePagePayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayProfilePageFromPeer(rr, req)
@@ -202,7 +206,7 @@ func TestRelayProfilePageFromPeer_RejectsNonLocalAuthorID(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	// Only the server hosting the author can enumerate their reeds.
 	body := `{"author_id":"alice@thirdparty","requester_user_id":"bob@peer5678","page":1}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/profile-page", &pb.RelayProfilePagePayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayProfilePageFromPeer(rr, req)
@@ -215,7 +219,7 @@ func TestRelayProfilePageFromPeer_RejectsNonLocalAuthorID(t *testing.T) {
 func TestRelayProfilePageFromPeer_NilRelayIsInternalError(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"author_id":"alice@home1234","requester_user_id":"bob@peer5678","page":1}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/profile-page", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/relay/profile-page", &pb.RelayProfilePagePayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.RelayProfilePageFromPeer(rr, req)
@@ -231,8 +235,8 @@ func TestRelayProfilePageFromPeer_NilRelayIsInternalError(t *testing.T) {
 
 func TestReedRemovalFromPeer_RejectsNonPeerCaller(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	body := `{"reed_id":"alice@peer5678/01a026d4","user_id":"alice@peer5678","user_signature":"c2ln","server_signature":"c2ln"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/reed-removal", strings.NewReader(body))
+	body := `{"cert":{"reed_id":"alice@peer5678/01a026d4","user_id":"alice@peer5678","user_signature":"c2ln","server_signature":"c2ln"}}`
+	req := relayRequest("/api/federation/relay/reed-removal", &pb.RelayReedRemovalPayload{}, body)
 	rr := httptest.NewRecorder()
 
 	h.ReedRemovalFromPeer(rr, req)
@@ -244,8 +248,8 @@ func TestReedRemovalFromPeer_RejectsNonPeerCaller(t *testing.T) {
 
 func TestReedRemovalFromPeer_RejectsMissingSignature(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
-	body := `{"reed_id":"alice@peer5678/01a026d4","user_id":"alice@peer5678","user_signature":"","server_signature":"c2ln"}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/reed-removal", strings.NewReader(body)), "peer5678")
+	body := `{"cert":{"reed_id":"alice@peer5678/01a026d4","user_id":"alice@peer5678","user_signature":"","server_signature":"c2ln"}}`
+	req := withPeer(relayRequest("/api/federation/relay/reed-removal", &pb.RelayReedRemovalPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.ReedRemovalFromPeer(rr, req)
@@ -258,8 +262,8 @@ func TestReedRemovalFromPeer_RejectsMissingSignature(t *testing.T) {
 func TestReedRemovalFromPeer_RejectsReedOfAnotherServer(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	// A peer may only report removals for reeds authored on its own server.
-	body := `{"reed_id":"alice@thirdparty/01a026d4","user_id":"alice@thirdparty","user_signature":"c2ln","server_signature":"c2ln"}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/reed-removal", strings.NewReader(body)), "peer5678")
+	body := `{"cert":{"reed_id":"alice@thirdparty/01a026d4","user_id":"alice@thirdparty","user_signature":"c2ln","server_signature":"c2ln"}}`
+	req := withPeer(relayRequest("/api/federation/relay/reed-removal", &pb.RelayReedRemovalPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.ReedRemovalFromPeer(rr, req)
@@ -272,7 +276,7 @@ func TestReedRemovalFromPeer_RejectsReedOfAnotherServer(t *testing.T) {
 func TestAccountRemovalNotifyFromPeer_RejectsNonPeerCaller(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"user_id":"alice@peer5678","user_signature":"c2ln","server_signature":"c2ln"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/removals/account", strings.NewReader(body))
+	req := relayRequest("/api/federation/removals/account", &pb.RelayAccountRemovalNotifyPayload{}, body)
 	rr := httptest.NewRecorder()
 
 	h.AccountRemovalNotifyFromPeer(rr, req)
@@ -285,7 +289,7 @@ func TestAccountRemovalNotifyFromPeer_RejectsNonPeerCaller(t *testing.T) {
 func TestAccountRemovalNotifyFromPeer_RejectsUserOfAnotherServer(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	body := `{"user_id":"alice@thirdparty","user_signature":"c2ln","server_signature":"c2ln"}`
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/removals/account", strings.NewReader(body)), "peer5678")
+	req := withPeer(relayRequest("/api/federation/removals/account", &pb.RelayAccountRemovalNotifyPayload{}, body), "peer5678")
 	rr := httptest.NewRecorder()
 
 	h.AccountRemovalNotifyFromPeer(rr, req)
@@ -301,11 +305,27 @@ func TestRelayRequestFromPeer_RejectsForeignRequesterKey(t *testing.T) {
 	h := newBareRelayTestHandlers("home1234")
 	for _, key := range []string{"", "carol@peer5678/k1", "bob@other999/k1", "bob@peer5678"} {
 		body := `{"reed_id":"01a026d4","author_id":"alice@home1234","requester_user_id":"bob@peer5678","requester_key_id":"` + key + `","peer_request_id":"bob@peer5678/r1"}`
-		req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/request", strings.NewReader(body)), "peer5678")
+		req := withPeer(relayRequest("/api/federation/relay/request", &pb.RelayRequestPayload{}, body), "peer5678")
 		rr := httptest.NewRecorder()
 		h.RelayRequestFromPeer(rr, req)
 		if rr.Code != http.StatusBadRequest {
 			t.Errorf("requester_key_id %q: status = %d, want %d", key, rr.Code, http.StatusBadRequest)
 		}
 	}
+}
+
+// relayRequest builds a relay call whose body is js, a protojson fixture,
+// encoded as msg.
+func relayRequest(path string, msg proto.Message, js string) *http.Request {
+	if err := protojson.Unmarshal([]byte(js), msg); err != nil {
+		panic(err)
+	}
+	return protoRequest(http.MethodPost, path, msg)
+}
+
+// malformedRelayRequest builds a relay call whose body doesn't decode.
+func malformedRelayRequest(path string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader([]byte{0xff, 0xff, 0xff}))
+	req.Header.Set("Content-Type", protobufContentType)
+	return req
 }

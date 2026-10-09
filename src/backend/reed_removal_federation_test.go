@@ -3,18 +3,18 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	pb "syrinx/proto"
 )
 
 // signedReedRemoval is a removal of one of the fixture user's reeds, signed
 // by them and countersigned over serverPayload by their home server.
-func signedReedRemoval(t *testing.T, s signedKeyRevocation, serverPayload func(reedID, userSig string, at time.Time) []byte) relayReedRemovalPayload {
+func signedReedRemoval(t *testing.T, s signedKeyRevocation, serverPayload func(reedID, userSig string, at time.Time) []byte) *pb.RelayReedRemovalPayload {
 	t.Helper()
 	cryptoSvc := newCryptoService()
 	sign := func(payload []byte, armor string) string {
@@ -27,21 +27,20 @@ func signedReedRemoval(t *testing.T, s signedKeyRevocation, serverPayload func(r
 	reedID := s.userID + "/" + newTestReedID(t)
 	at := time.Now().UTC().Truncate(time.Second)
 	userSig := sign(buildReedRemovalUserPayload(revHomeServerID, reedID), s.userKP.PrivateKey)
-	return relayReedRemovalPayload{relayReedRemovalCert: relayReedRemovalCert{
-		ReedID:            reedID,
-		UserID:            s.userID,
+	return &pb.RelayReedRemovalPayload{Cert: &pb.RelayReedRemovalCert{
+		ReedId:            reedID,
+		UserId:            s.userID,
 		UserSignature:     userSig,
-		UserKeyID:         s.keyID,
+		UserKeyId:         s.keyID,
 		ServerSignature:   sign(serverPayload(reedID, userSig, at), s.serverKP.PrivateKey),
 		ServerFingerprint: s.serverKeyID,
-		ServerSignedAt:    at,
+		ServerSignedAt:    at.Unix(),
 	}}
 }
 
-func postReedRemoval(t *testing.T, h *Handlers, payload relayReedRemovalPayload) int {
+func postReedRemoval(t *testing.T, h *Handlers, payload *pb.RelayReedRemovalPayload) int {
 	t.Helper()
-	body, _ := json.Marshal(payload)
-	r := httptest.NewRequest(http.MethodPost, "/api/federation/relay/reed-removal", bytes.NewReader(body))
+	r := protoRequest(http.MethodPost, "/api/federation/relay/reed-removal", payload)
 	r = r.WithContext(context.WithValue(r.Context(), peerServerIDKey, revHomeServerID))
 	rr := httptest.NewRecorder()
 	h.ReedRemovalFromPeer(rr, r)
@@ -61,13 +60,13 @@ func TestReedRemovalFromPeer_VerifiesCountersignature(t *testing.T) {
 		if code := postReedRemoval(t, h, rm); code != http.StatusNoContent {
 			t.Fatalf("status %d, want 204", code)
 		}
-		if cert, err := h.services.db.GetReedRemoval(context.Background(), rm.ReedID); err != nil || cert == nil {
+		if cert, err := h.services.db.GetReedRemoval(context.Background(), rm.Cert.ReedId); err != nil || cert == nil {
 			t.Fatalf("removal not stored: %v", err)
 		}
 	})
 
-	refused := map[string]func() relayReedRemovalPayload{
-		"countersignature without the author key": func() relayReedRemovalPayload {
+	refused := map[string]func() *pb.RelayReedRemovalPayload{
+		"countersignature without the author key": func() *pb.RelayReedRemovalPayload {
 			return signedReedRemoval(t, s, func(reedID, userSig string, at time.Time) []byte {
 				return canonicalJSON(signedFields{
 					"type": identityTypeReed, "serverID": revHomeServerID, "reedID": reedID,
@@ -76,9 +75,9 @@ func TestReedRemovalFromPeer_VerifiesCountersignature(t *testing.T) {
 				})
 			})
 		},
-		"signed with another user's key": func() relayReedRemovalPayload {
+		"signed with another user's key": func() *pb.RelayReedRemovalPayload {
 			rm := signedReedRemoval(t, s, countersigned)
-			rm.UserKeyID = string(canonicalID(revHomeServerID, "eve")) + "/" + s.userKP.Fingerprint
+			rm.Cert.UserKeyId = string(canonicalID(revHomeServerID, "eve")) + "/" + s.userKP.Fingerprint
 			return rm
 		},
 	}
@@ -89,7 +88,7 @@ func TestReedRemovalFromPeer_VerifiesCountersignature(t *testing.T) {
 			if code := postReedRemoval(t, h, rm); code != http.StatusBadRequest {
 				t.Fatalf("status %d, want 400", code)
 			}
-			if cert, _ := h.services.db.GetReedRemoval(context.Background(), rm.ReedID); cert != nil {
+			if cert, _ := h.services.db.GetReedRemoval(context.Background(), rm.Cert.ReedId); cert != nil {
 				t.Fatal("refused removal was stored")
 			}
 		})

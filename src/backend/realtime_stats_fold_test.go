@@ -4,9 +4,10 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"testing"
+
+	pb "syrinx/proto"
 )
 
 // statsFoldFixture is a home server with a local reed and two viewers on
@@ -34,7 +35,7 @@ func statsFoldFixture(t *testing.T) (*realtimeService, string) {
 func TestReedStatsPushFoldsPerPeer(t *testing.T) {
 	rs, reedID := statsFoldFixture(t)
 	pushes := 0
-	rs.SetForeignReedStatsHook(func(_ context.Context, peerServerID, gotReedID, _ string, _ json.RawMessage) (int, error) {
+	rs.SetForeignReedStatsHook(func(_ context.Context, peerServerID, gotReedID, _ string, _ *pb.WSMessage) (int, error) {
 		pushes++
 		if peerServerID != teardownPeerID || gotReedID != reedID {
 			t.Errorf("push to %s for %s", peerServerID, gotReedID)
@@ -52,7 +53,7 @@ func TestReedStatsPushFoldsPerPeer(t *testing.T) {
 // A peer with nobody watching any more loses its subscriptions.
 func TestReedStatsPushDropsGoneSubscribers(t *testing.T) {
 	rs, reedID := statsFoldFixture(t)
-	rs.SetForeignReedStatsHook(func(context.Context, string, string, string, json.RawMessage) (int, error) {
+	rs.SetForeignReedStatsHook(func(context.Context, string, string, string, *pb.WSMessage) (int, error) {
 		return http.StatusNotFound, nil
 	})
 
@@ -77,22 +78,16 @@ func TestDeliverForeignReedStatsReportsSubscribers(t *testing.T) {
 	if err := rs.db.UpsertReedIdentity(context.Background(), reedID); err != nil {
 		t.Fatalf("insert reed identity: %v", err)
 	}
-	raw, err := marshalWSMessage(newReedLikesMsg(reedID, 3))
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	payload, _ := json.Marshal(raw)
+	msg := newReedLikesMsg(reedID, 3)
 
-	delivered, err := rs.DeliverForeignReedStats(context.Background(), reedID, "", payload)
-	if err != nil || delivered {
-		t.Fatalf("with no subscribers: delivered = %v, err = %v; want false", delivered, err)
+	if rs.DeliverForeignReedStats(context.Background(), reedID, "", msg) {
+		t.Fatal("with no subscribers: delivered, want not")
 	}
 
 	if err := rs.db.CreateReedSubscription(context.Background(), "sub1", viewer, reedID); err != nil {
 		t.Fatalf("CreateReedSubscription: %v", err)
 	}
-	delivered, err = rs.DeliverForeignReedStats(context.Background(), reedID, "", payload)
-	if err != nil || !delivered {
-		t.Fatalf("with a subscriber: delivered = %v, err = %v; want true", delivered, err)
+	if !rs.DeliverForeignReedStats(context.Background(), reedID, "", msg) {
+		t.Fatal("with a subscriber: not delivered, want delivered")
 	}
 }

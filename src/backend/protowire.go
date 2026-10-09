@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -66,14 +65,6 @@ func readRequest(r *http.Request, msg proto.Message) error {
 		return errNotProtobuf
 	}
 	return proto.Unmarshal(body, msg)
-}
-
-// writeJSON is the peer-to-peer federation encoding until those calls move
-// to protobuf too.
-func writeJSON(w http.ResponseWriter, statusCode int, message any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(message)
 }
 
 // unixOrZero is t as unix seconds, 0 for the zero time.
@@ -353,11 +344,11 @@ func pbServerSignatures(sigs threadSignatures) *pb.ThreadSignatures {
 	return out
 }
 
-// peerErrorMessage reads the message out of a peer's error body.
+// peerErrorMessage reads the message out of a peer's Error body.
 func peerErrorMessage(body []byte) string {
-	var message string
-	if err := json.Unmarshal(body, &message); err == nil {
-		return message
+	var e pb.Error
+	if err := proto.Unmarshal(body, &e); err == nil && e.GetMessage() != "" {
+		return e.GetMessage()
 	}
 	return string(body)
 }
@@ -546,15 +537,8 @@ func decodePeerKeyRevocation(body []byte) (user *KeyRevocation, server *serverKe
 		return nil, nil, err
 	}
 	if u := msg.GetUser(); u != nil {
-		return &KeyRevocation{
-			ID:                 u.GetId(),
-			UserID:             u.GetUserId(),
-			Reason:             u.GetReason(),
-			Successor:          u.Successor,
-			SuccessorSignature: u.SuccessorSignature,
-			UserSignature:      userSignatureFromPB(u.GetUserSignature()),
-			ServerSignature:    serverSignatureFromPB(u.GetServerSignature()),
-		}, nil, nil
+		rev := keyRevocationFromPB(u)
+		return &rev, nil, nil
 	}
 	if s := msg.GetServer(); s != nil {
 		return nil, &serverKeyRevocationWire{
@@ -583,4 +567,67 @@ func blockCertFromPB(c *pb.BlockCert) BlockCert {
 		UserSignature:   userSignatureFromPB(c.GetUserSignature()),
 		ServerSignature: serverSignatureFromPB(c.GetServerSignature()),
 	}
+}
+
+// threadRecordFromPB is the inverse of pbThreadRecord.
+func threadRecordFromPB(r *pb.ThreadRecord) threadRecordWire {
+	return threadRecordWire{
+		Type:            identityTypeThread,
+		ServerID:        r.GetServerId(),
+		UserID:          r.GetUserId(),
+		ThreadID:        r.GetThreadId(),
+		ReedIDs:         r.GetReedIds(),
+		UserSignature:   userSignatureFromPB(r.GetUserSignature()),
+		ServerSignature: serverSignatureFromPB(r.GetServerSignature()),
+	}
+}
+
+// keyRevocationFromPB is the inverse of pbKeyRevocation.
+func keyRevocationFromPB(u *pb.KeyRevocationCert) KeyRevocation {
+	return KeyRevocation{
+		ID:                 u.GetId(),
+		UserID:             u.GetUserId(),
+		Reason:             u.GetReason(),
+		Successor:          u.Successor,
+		SuccessorSignature: u.SuccessorSignature,
+		UserSignature:      userSignatureFromPB(u.GetUserSignature()),
+		ServerSignature:    serverSignatureFromPB(u.GetServerSignature()),
+	}
+}
+
+// threadRemovalFromPB is the inverse of pbThreadRemoval.
+func threadRemovalFromPB(rm *pb.ThreadRemoval) threadRemoval {
+	c := rm.GetCert()
+	return threadRemoval{
+		Cert: threadRemovalWire{
+			Type:            identityTypeThreadRemoval,
+			ServerID:        c.GetServerId(),
+			UserID:          c.GetUserId(),
+			ThreadID:        c.GetThreadId(),
+			UserSignature:   userSignatureFromPB(c.GetUserSignature()),
+			ServerSignature: serverSignatureFromPB(c.GetServerSignature()),
+		},
+		Record: threadRecordFromPB(rm.GetRecord()),
+	}
+}
+
+// vouchFromPB is the inverse of pbVouch.
+func vouchFromPB(c *pb.Vouch) VouchCert {
+	out := VouchCert{
+		ID:              c.GetId(),
+		VoucherUserID:   c.GetVoucherUserId(),
+		VoucherKeyID:    c.GetVoucherKeyId(),
+		SubjectUserID:   c.GetSubjectUserId(),
+		SubjectKeyID:    c.GetSubjectKeyId(),
+		Note:            c.GetNote(),
+		UserSignature:   userSignatureFromPB(c.GetUserSignature()),
+		ServerSignature: serverSignatureFromPB(c.GetServerSignature()),
+	}
+	if w := c.GetWithdrawal(); w != nil {
+		out.Withdrawal = &VouchWithdrawal{
+			UserSignature:   userSignatureFromPB(w.GetUserSignature()),
+			ServerSignature: serverSignatureFromPB(w.GetServerSignature()),
+		}
+	}
+	return out
 }

@@ -3,9 +3,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -131,11 +129,7 @@ func (s signedKeyRevocation) cacheAndAllocate(t *testing.T, h *Handlers, user st
 
 func postKeyRevocation(t *testing.T, h *Handlers, rev KeyRevocation) int {
 	t.Helper()
-	body, err := json.Marshal(rev)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := withPeer(httptest.NewRequest(http.MethodPost, "/api/federation/relay/key-revocation", bytes.NewReader(body)), revHomeServerID)
+	req := withPeer(protoRequest(http.MethodPost, "/api/federation/relay/key-revocation", pbKeyRevocation(&rev)), revHomeServerID)
 	rr := httptest.NewRecorder()
 	h.KeyRevocationFromPeer(rr, req)
 	return rr.Code

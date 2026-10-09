@@ -4,14 +4,13 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 )
 
 func newReedTestHandlers(f *foreignFoldFixture) *Handlers {
@@ -23,13 +22,9 @@ func newReedTestHandlers(f *foreignFoldFixture) *Handlers {
 	}
 }
 
-func postNewReed(t *testing.T, h *Handlers, peerServerID string, payload relayNewReedPayload) int {
+func postNewReed(t *testing.T, h *Handlers, peerServerID string, payload *pb.RelayNewReedPayload) int {
 	t.Helper()
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/new-reed", strings.NewReader(string(body)))
+	req := protoRequest(http.MethodPost, "/api/federation/relay/new-reed", payload)
 	rr := httptest.NewRecorder()
 	h.NewReedFromPeer(rr, withPeer(req, peerServerID))
 	return rr.Code
@@ -57,9 +52,9 @@ func TestNewReedFromPeerRecordsAndDispatchesMention(t *testing.T) {
 		t.Fatalf("set username: %v", err)
 	}
 
-	code := postNewReed(t, h, teardownPeerID, relayNewReedPayload{
-		ReedID:   f.reedID,
-		AuthorID: string(canonicalID(teardownPeerID, "bob")),
+	code := postNewReed(t, h, teardownPeerID, &pb.RelayNewReedPayload{
+		ReedId:   f.reedID,
+		AuthorId: string(canonicalID(teardownPeerID, "bob")),
 		Mentions: []string{mentioned, string(canonicalID(teardownOtherPeerID, "dave"))},
 	})
 	if code != http.StatusNoContent {
@@ -88,7 +83,7 @@ func TestNewReedFromPeerDispatchesToFollowers(t *testing.T) {
 		t.Fatalf("follow: %v", err)
 	}
 
-	if code := postNewReed(t, h, teardownPeerID, relayNewReedPayload{ReedID: f.reedID, AuthorID: author}); code != http.StatusNoContent {
+	if code := postNewReed(t, h, teardownPeerID, &pb.RelayNewReedPayload{ReedId: f.reedID, AuthorId: author}); code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", code)
 	}
 	if name := f.eventNameFor(t, follower); name != string(followReedEvent) {
@@ -103,9 +98,9 @@ func TestNewReedFromPeerDispatchesToFollowers(t *testing.T) {
 func TestNewReedFromPeerRejectsOtherServersReed(t *testing.T) {
 	f := newForeignFoldFixture(t)
 	h := newReedTestHandlers(f)
-	code := postNewReed(t, h, teardownOtherPeerID, relayNewReedPayload{
-		ReedID:   f.reedID,
-		AuthorID: string(canonicalID(teardownPeerID, "bob")),
+	code := postNewReed(t, h, teardownOtherPeerID, &pb.RelayNewReedPayload{
+		ReedId:   f.reedID,
+		AuthorId: string(canonicalID(teardownPeerID, "bob")),
 	})
 	if code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", code)
@@ -166,7 +161,7 @@ func TestForeignReedCaughtUpOnSync(t *testing.T) {
 		}
 	}
 
-	if code := postNewReed(t, h, teardownPeerID, relayNewReedPayload{ReedID: f.reedID, AuthorID: author, Mentions: []string{mentioned}}); code != http.StatusNoContent {
+	if code := postNewReed(t, h, teardownPeerID, &pb.RelayNewReedPayload{ReedId: f.reedID, AuthorId: author, Mentions: []string{mentioned}}); code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", code)
 	}
 	if len(f.crossings) != 0 {

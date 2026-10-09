@@ -3,14 +3,14 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 	"time"
+
+	pb "syrinx/proto"
 )
 
 // TestVerifyRecoveryReedCountersig_RealSignature: AuthorID arrives canonical,
@@ -132,7 +132,7 @@ func TestReportReed_Unauthorized(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
 	rr := httptest.NewRecorder()
-	h.ReportReed(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/reeds", bytes.NewReader([]byte(`{}`))))
+	h.ReportReed(rr, protoRequest(http.MethodPost, "/api/recovery/reeds", &pb.RecoveryReedRequest{}))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d", rr.Code)
 	}
@@ -147,8 +147,12 @@ func TestReportReed_BadCountersig(t *testing.T) {
 		ReedID: "reed1", AuthorID: "author1@" + serverID, UserSignature: testReedUserSig(),
 		ServerSignature: testRecoveryServerSig(serverID, ts),
 	}
-	body, _ := json.Marshal(req)
-	httpReq := httptest.NewRequest(http.MethodPost, "/api/recovery/reeds", bytes.NewReader(body))
+	httpReq := protoRequest(http.MethodPost, "/api/recovery/reeds", &pb.RecoveryReedRequest{
+		ReedId:          req.ReedID,
+		AuthorId:        req.AuthorID,
+		UserSignature:   &pb.UserSignature{Id: req.UserSignature.KeyID, Armor: req.UserSignature.Armor},
+		ServerSignature: pbRecoveryServerSignature(req.ServerSignature),
+	})
 	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), userIDKey, "caller1"))
 	rr := httptest.NewRecorder()
 	h.ReportReed(rr, httpReq)
@@ -164,8 +168,7 @@ func TestReportFollowing_TooMany(t *testing.T) {
 	for i := range ids {
 		ids[i] = "user-" + strconv.Itoa(i)
 	}
-	body, _ := json.Marshal(recoveryFollowingRequest{UserIDs: ids})
-	httpReq := httptest.NewRequest(http.MethodPost, "/api/recovery/following", bytes.NewReader(body))
+	httpReq := protoRequest(http.MethodPost, "/api/recovery/following", &pb.RecoveryFollowingRequest{UserIds: ids})
 	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), userIDKey, "caller1"))
 	rr := httptest.NewRecorder()
 	h.ReportFollowing(rr, httpReq)
@@ -177,8 +180,7 @@ func TestReportFollowing_TooMany(t *testing.T) {
 func TestReportFollowing_Self(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
-	body, _ := json.Marshal(recoveryFollowingRequest{UserIDs: []string{"caller1"}})
-	httpReq := httptest.NewRequest(http.MethodPost, "/api/recovery/following", bytes.NewReader(body))
+	httpReq := protoRequest(http.MethodPost, "/api/recovery/following", &pb.RecoveryFollowingRequest{UserIds: []string{"caller1"}})
 	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), userIDKey, "caller1"))
 	rr := httptest.NewRecorder()
 	h.ReportFollowing(rr, httpReq)

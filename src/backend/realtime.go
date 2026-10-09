@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -96,14 +95,6 @@ func pbRipple(r RippleWire) *pb.Ripple {
 func marshalWSMessage(msg *pb.WSMessage) ([]byte, error) {
 	msg.TypeName = msg.Type.String()
 	return proto.Marshal(msg)
-}
-
-// realtimeJSONString JSON-encodes a Go string (adds quoting/escaping) — used
-// to wrap ciphertext for deliverOrForward's federation transport param,
-// which stays JSON since federation is not part of this WS binary cutover.
-func realtimeJSONString(s string) json.RawMessage {
-	raw, _ := json.Marshal(s)
-	return raw
 }
 
 // newReedRemovalWire builds the WS/HTTP wire cert from a stored removal cert.
@@ -1308,7 +1299,7 @@ func (rs *realtimeService) SetForeignRequestThreadHook(hook realtimeForeignReque
 // realtimeForeignDeliverHook delivers relayed data for peerEventID back to
 // requestingServerID over peer HTTP (leg 2), called on the home server once
 // a local holder relays content for a peer-registered request.
-type realtimeForeignDeliverHook func(ctx context.Context, requestingServerID, peerEventID string, data json.RawMessage) error
+type realtimeForeignDeliverHook func(ctx context.Context, requestingServerID, peerEventID string, data relayedThread) error
 
 // SetForeignDeliverHook installs the leg-2 (deliver-response) hook.
 func (rs *realtimeService) SetForeignDeliverHook(hook realtimeForeignDeliverHook) {
@@ -1350,7 +1341,7 @@ func (rs *realtimeService) SetForeignUnsubscribeReedHook(hook realtimeForeignUns
 // realtimeForeignReedStatsHook pushes a pre-built WS message about reedID
 // to one peer, once for all its subscribers; excludeUserID is left out.
 // It returns the peer's HTTP status.
-type realtimeForeignReedStatsHook func(ctx context.Context, peerServerID, reedID, excludeUserID string, payload json.RawMessage) (int, error)
+type realtimeForeignReedStatsHook func(ctx context.Context, peerServerID, reedID, excludeUserID string, msg *pb.WSMessage) (int, error)
 
 // SetForeignReedStatsHook installs the leg-10 (reed-stats push) hook.
 func (rs *realtimeService) SetForeignReedStatsHook(hook realtimeForeignReedStatsHook) {
@@ -3614,26 +3605,18 @@ func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentR
 
 // DeliverForeignReedStats forwards a peer's live update for reedID to this
 // server's users subscribed to it, reporting whether there were any.
-func (rs *realtimeService) DeliverForeignReedStats(ctx context.Context, reedID, excludeUserID string, payload json.RawMessage) (bool, error) {
-	var raw []byte
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		return false, fmt.Errorf("failed to decode foreign reed stats payload: %w", err)
-	}
-	var msg pb.WSMessage
-	if err := proto.Unmarshal(raw, &msg); err != nil {
-		return false, fmt.Errorf("failed to unmarshal foreign reed stats payload: %w", err)
-	}
+func (rs *realtimeService) DeliverForeignReedStats(ctx context.Context, reedID, excludeUserID string, msg *pb.WSMessage) bool {
 	delivered := false
 	for _, viewer := range rs.reedSubscriberUserIDs(reedID, excludeUserID) {
 		if foreign, _ := rs.isForeignReed(viewer); foreign {
 			continue
 		}
 		delivered = true
-		if err := rs.connManager.SendToUser(viewer, &msg); err != nil {
+		if err := rs.connManager.SendToUser(viewer, msg); err != nil {
 			log.Debug().Err(err).Str("userID", viewer).Str("reedID", reedID).Msg("Failed to forward foreign reed stats")
 		}
 	}
-	return delivered, nil
+	return delivered
 }
 
 func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID string) {
@@ -3809,18 +3792,8 @@ func (rs *realtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUse
 	if len(peers) == 0 {
 		return
 	}
-	raw, err := marshalWSMessage(msg)
-	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to marshal reed stats push payload")
-		return
-	}
-	payload, err := json.Marshal(raw)
-	if err != nil {
-		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to encode reed stats push payload")
-		return
-	}
 	for serverID := range peers {
-		status, err := rs.foreignReedStatsHook(context.Background(), serverID, reedID, excludeUserID, payload)
+		status, err := rs.foreignReedStatsHook(context.Background(), serverID, reedID, excludeUserID, msg)
 		if err == nil && status != http.StatusNotFound {
 			continue
 		}
@@ -4408,7 +4381,7 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Dropping broadcast reed: author account was either removed or never existed")
 		} else {
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 				return newBroadcastReedMsg(ciphertext, username, pe.ReedID)
 			})
 		}
@@ -4419,31 +4392,31 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 		}
 	} else if pe.EventName == string(pipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newPipeReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(followReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newFollowReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(archiveReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering archive reed to admin")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newArchiveReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(reedReplyEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(mentionEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering mention to recipient")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, realtimeJSONString(ciphertext), func() *pb.WSMessage {
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
-		data := realtimeJSONString(ciphertext)
+		data := relayedThread{Ciphertext: ciphertext}
 		if realtimeEventName(pe.EventName) == requestThreadEvent {
 			data = rs.relayedThreadData(pe.ReedID, ciphertext)
 		}
@@ -4455,17 +4428,17 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 	rs.dispatchN(client.userID, fanoutRefillBurst)
 }
 
-// relayedThread is a relayed thread as it crosses to the requester's
-// server: the ciphertext plus the thread record this server stores, which
-// that server verifies before allocating the parts.
+// relayedThread is relayed content as it crosses to the requester's
+// server: the ciphertext, plus for a thread the record this server stores,
+// which that server verifies before allocating the parts.
 type relayedThread struct {
-	Ciphertext string            `json:"ciphertext"`
-	Record     *threadRecordWire `json:"record,omitempty"`
+	Ciphertext string
+	Record     *threadRecordWire
 }
 
 // relayedThreadData packs ciphertext with threadID's stored record, if this
 // server is its home.
-func (rs *realtimeService) relayedThreadData(threadID, ciphertext string) json.RawMessage {
+func (rs *realtimeService) relayedThreadData(threadID, ciphertext string) relayedThread {
 	out := relayedThread{Ciphertext: ciphertext}
 	rec, err := rs.db.GetThreadRecord(context.Background(), threadID)
 	if err != nil {
@@ -4474,11 +4447,7 @@ func (rs *realtimeService) relayedThreadData(threadID, ciphertext string) json.R
 		w := rec.wire(rs.db.GetServerID())
 		out.Record = &w
 	}
-	data, err := json.Marshal(out)
-	if err != nil {
-		return realtimeJSONString(ciphertext)
-	}
-	return data
+	return out
 }
 
 // deliverOrForward delivers relayed data for eventID either straight to a
@@ -4489,9 +4458,7 @@ func (rs *realtimeService) relayedThreadData(threadID, ciphertext string) json.R
 // FOLLOW_REED, REED_REPLY, and the generic REQUEST_REED/profile-subscribe
 // case) needs this same check; buildLocalMsg is only invoked in the local
 // case so callers don't pay for constructing a message that's discarded.
-// data stays JSON — it crosses the (unmigrated) HTTP federation boundary,
-// not the client-facing WS wire.
-func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, requesterUserID string, data json.RawMessage, buildLocalMsg func() *pb.WSMessage) {
+func (rs *realtimeService) deliverOrForward(ctx context.Context, eventID, requesterUserID string, data relayedThread, buildLocalMsg func() *pb.WSMessage) {
 	frr, ferr := rs.db.GetForeignRelayRequest(ctx, eventID)
 	if ferr != nil {
 		log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to check foreign relay request")
@@ -5034,7 +5001,7 @@ func (rs *realtimeService) HandleForeignAck(ctx context.Context, peerEventID, ca
 // would, but does not touch dispatchNext/DeletePendingEvent — O has no
 // holder queue for this event; allocation/deletion stays deferred until
 // the requester's own DATA_ACK/DATA_INVALID.
-func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerEventID, callerServerID string, data json.RawMessage, threadReedIDs []string) (found bool, err error) {
+func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerEventID, callerServerID string, data relayedThread, threadReedIDs []string) (found bool, err error) {
 	fpe, err := rs.db.GetForeignPendingEventByPeerEventID(ctx, peerEventID, callerServerID)
 	if err != nil {
 		return false, err
@@ -5052,14 +5019,7 @@ func (rs *realtimeService) HandleForeignRelayResponse(ctx context.Context, peerE
 		return true, nil
 	}
 
-	var ciphertext string
-	if err := json.Unmarshal(data, &ciphertext); err != nil {
-		var thread relayedThread
-		if threadErr := json.Unmarshal(data, &thread); threadErr != nil {
-			return false, err
-		}
-		ciphertext = thread.Ciphertext
-	}
+	ciphertext := data.Ciphertext
 	// Only a record the caller verified names the parts the ack allocates.
 	if realtimeEventName(pe.EventName) == requestThreadEvent && len(threadReedIDs) > 0 && threadReedIDs[0] == pe.ReedID {
 		if err := rs.db.SetPendingThreadParts(ctx, pe.EventID, threadReedIDs); err != nil {

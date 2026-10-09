@@ -3,9 +3,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -185,8 +183,7 @@ func signedThreadRemoval(t *testing.T, s signedKeyRevocation, ids []string, boun
 
 func postThreadRemoval(t *testing.T, h *Handlers, rm threadRemoval) int {
 	t.Helper()
-	body, _ := json.Marshal(rm)
-	r := httptest.NewRequest(http.MethodPost, "/api/federation/relay/thread-removal", bytes.NewReader(body))
+	r := protoRequest(http.MethodPost, "/api/federation/relay/thread-removal", pbThreadRemoval(&rm))
 	r = r.WithContext(context.WithValue(r.Context(), peerServerIDKey, revHomeServerID))
 	rr := httptest.NewRecorder()
 	h.ThreadRemovalFromPeer(rr, r)

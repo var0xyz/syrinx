@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"testing"
 
 	_ "github.com/lib/pq"
@@ -66,7 +65,7 @@ func TestForeignHookSettersWireUp(t *testing.T) {
 		requestCalled = true
 		return realtimeForeignRequestOK, "peer-event-1", nil
 	})
-	rs.SetForeignDeliverHook(func(_ context.Context, _, _ string, _ json.RawMessage) error {
+	rs.SetForeignDeliverHook(func(_ context.Context, _, _ string, _ relayedThread) error {
 		deliverCalled = true
 		return nil
 	})
@@ -82,7 +81,7 @@ func TestForeignHookSettersWireUp(t *testing.T) {
 	if _, _, err := rs.foreignRequestReedHook(context.Background(), "reed", "user", "req"); err != nil {
 		t.Fatalf("foreignRequestReedHook: %v", err)
 	}
-	if err := rs.foreignDeliverHook(context.Background(), "server", "event", nil); err != nil {
+	if err := rs.foreignDeliverHook(context.Background(), "server", "event", relayedThread{}); err != nil {
 		t.Fatalf("foreignDeliverHook: %v", err)
 	}
 	if err := rs.foreignCancelHook(context.Background(), "server", "event"); err != nil {

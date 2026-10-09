@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -87,7 +86,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	b := newFederationServer(t, "server-b")
 	// Distinct display names so we can assert each side learns the OTHER's
 	// ServerName (not its own id, and not the other's id either) — see
-	// federationConnectionPayload/federationConnectRequest's ServerName field.
+	// federationConnectionPayload/pb.FederationConnectRequest's ServerName field.
 	a.h.cfg.ServerName = "Alpha"
 	b.h.cfg.ServerName = "Bravo"
 
@@ -285,16 +284,15 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	connectBody, _ := json.Marshal(federationConnectRequest{
-		ServerID:    "server-b",
-		BaseURL:     a.srv.URL,
-		FrontendURL: "https://app.server-b.example",
+	rr := httptest.NewRecorder()
+	req := protoRequest(http.MethodPost, "/api/federation/connect/"+inviteID, &pb.FederationConnectRequest{
+		ServerId:    "server-b",
+		BaseUrl:     a.srv.URL,
+		FrontendUrl: "https://app.server-b.example",
 		Fingerprint: remoteKP.Fingerprint,
 		Signature:   sigArmor,
 		Secret:      "wrong-secret",
 	})
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/connect/"+inviteID, bytes.NewReader(connectBody))
 	req = mux.SetURLVars(req, map[string]string{"id": inviteID})
 	a.h.IncomingFederationAttempt(rr, req)
 	if rr.Code != http.StatusForbidden {
@@ -323,16 +321,15 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	connectBody, _ := json.Marshal(federationConnectRequest{
-		ServerID:    "server-b",
-		BaseURL:     "https://b.example",
-		FrontendURL: "https://app.b.example",
+	rr := httptest.NewRecorder()
+	req := protoRequest(http.MethodPost, "/api/federation/connect/inv1", &pb.FederationConnectRequest{
+		ServerId:    "server-b",
+		BaseUrl:     "https://b.example",
+		FrontendUrl: "https://app.b.example",
 		Fingerprint: "fp-b",
 		Signature:   "irrelevant",
 		Secret:      "s",
 	})
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/connect/inv1", bytes.NewReader(connectBody))
 	req = mux.SetURLVars(req, map[string]string{"id": "inv1"})
 	a.h.IncomingFederationAttempt(rr, req)
 	if rr.Code != http.StatusConflict {
