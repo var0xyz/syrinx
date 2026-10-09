@@ -54,14 +54,17 @@
   {:else if where === 'after' && isHead}
     {#if next}
       <a class="thread-row next" href="/reed/{next.id}" on:click|stopPropagation>
-        <div class="rail" aria-hidden="true"><span class="rail-dot small">2</span><span class="rail-line dotted"></span></div>
+        <div class="rail" aria-hidden="true">
+          <span class="rail-dot small">2</span>
+          {#if hidden}<span class="rail-line dotted"></span>{/if}
+        </div>
         <div class="thread-row-body clamp"><MarkdownParser text={next.content} preview={true} /></div>
       </a>
     {/if}
     <div class="thread-more">
-      <div class="rail" aria-hidden="true"><span class="rail-dots">⋮</span></div>
+      <div class="rail" aria-hidden="true">{#if hidden}<span class="rail-dots">⋮</span>{/if}</div>
       <a class="thread-more-link" {href} on:click|stopPropagation>
-        Read the whole thread{hidden ? ` · ${hidden} more` : ''}
+        Read the whole thread
       </a>
     </div>
   {/if}
