@@ -5,6 +5,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Username from '$lib/components/Username.svelte';
   import StorageUsage from '$lib/components/StorageUsage.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import { notificationStore } from '$lib/stores/notifications';
   import { getStorageQuota } from '$lib/services/pwa';
   import { evictUsers, syncPendingEvictions } from '$lib/services/eviction';
@@ -26,6 +27,7 @@
   let selected = new Set<string>();
   let sortKey: SortKey = 'size';
   let descending = true;
+  let confirming = false;
   // Peer id → name; the server column only shows when there are peers.
   let serverNames = new Map<string, string>();
 
@@ -101,7 +103,15 @@
   $: showServer = serverNames.size > 0;
   $: selectable = rows.filter((row) => !row.evicting);
   $: allSelected = selectable.length > 0 && selectable.every((row) => selected.has(row.userID));
-  $: freeing = rows.filter((row) => selected.has(row.userID)).reduce((sum, row) => sum + freeableBytes(row), 0);
+  $: chosenRows = rows.filter((row) => selected.has(row.userID));
+  $: freeing = chosenRows.reduce((sum, row) => sum + freeableBytes(row), 0);
+  $: chosenReeds = chosenRows.reduce((sum, row) => sum + row.reeds, 0);
+  // A locked user keeps profile and keys, so only their reeds go.
+  $: chosenUsers = chosenRows.filter((row) => !row.locked).length;
+  $: deleting = [
+    chosenUsers ? plural(chosenUsers, 'user') : '',
+    chosenReeds ? plural(chosenReeds, 'reed') : '',
+  ].filter(Boolean).join(' and ');
 
   function toggle(userID: string) {
     const next = new Set(selected);
@@ -114,7 +124,17 @@
     selected = allSelected ? new Set() : new Set(selectable.map((row) => row.userID));
   }
 
+  function plural(count: number, word: string): string {
+    return `${count} ${word}${count === 1 ? '' : 's'}`;
+  }
+
+  function askDelete() {
+    if (deleting) confirming = true;
+    else notificationStore.info('Nothing to delete for the selected users.');
+  }
+
   async function deleteSelected() {
+    confirming = false;
     const ids = [...selected];
     if (ids.length === 0) return;
     const chosen = new Set(ids);
@@ -165,7 +185,7 @@
   {:else}
     <div class="toolbar">
       <span class="muted">{rows.length} users</span>
-      <button class="btn danger" on:click={deleteSelected} disabled={selected.size === 0}>
+      <button class="btn danger" on:click={askDelete} disabled={selected.size === 0}>
         Delete selected{selected.size > 0 ? ` (${selected.size})` : ''}
       </button>
     </div>
@@ -246,6 +266,14 @@
 </div>
 <BottomToolbar currentPage="account" />
 </div>
+{#if confirming}
+  <ConfirmDialog
+    title="Delete selected users?"
+    message="This deletes {deleting} from this device, freeing {formatBytes(freeing)}."
+    on:confirm={deleteSelected}
+    on:cancel={() => (confirming = false)}
+  />
+{/if}
 </Auth>
 
 <style>
