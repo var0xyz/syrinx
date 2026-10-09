@@ -1,4 +1,5 @@
 <script>
+  import { goto } from '$app/navigation';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { threadsRepository } from '$lib/repositories/threads';
 
@@ -31,6 +32,16 @@
   }
 
   $: hidden = Math.max(0, total - (next ? 2 : 1));
+
+  /** Keeps the card's own click off, but stopping propagation also hides the
+   * click from SvelteKit's router, so navigate here instead of reloading. */
+  /** @param {MouseEvent} event @param {string} to */
+  function follow(event, to) {
+    event.stopPropagation();
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+    event.preventDefault();
+    goto(to);
+  }
 </script>
 
 {#if thread}
@@ -53,7 +64,7 @@
     </div>
   {:else if where === 'after' && isHead}
     {#if next}
-      <a class="thread-row next" href="/reed/{next.id}" on:click|stopPropagation>
+      <a class="thread-row next" href="/reed/{next.id}" on:click={(e) => follow(e, `/reed/${next?.id}`)}>
         <div class="rail" aria-hidden="true">
           <span class="rail-dot small">2</span>
           {#if hidden}<span class="rail-line dotted"></span>{/if}
@@ -63,7 +74,7 @@
     {/if}
     <div class="thread-more">
       <div class="rail" aria-hidden="true">{#if hidden}<span class="rail-dots">⋮</span>{/if}</div>
-      <a class="thread-more-link" {href} on:click|stopPropagation>
+      <a class="thread-more-link" {href} on:click={(e) => follow(e, href)}>
         Read the whole thread
       </a>
     </div>
