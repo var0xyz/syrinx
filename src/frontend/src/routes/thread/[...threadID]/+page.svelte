@@ -33,8 +33,8 @@
       }
       // Render what this device holds at once; fetch only what's missing.
       thread = (await getLocalThread(id)) ?? (await loadThread(id));
-      const author = await userRepository.get(thread.record.userID).catch(() => null);
-      username = author?.username ?? thread.record.userID;
+      const author = await userRepository.get(thread.record.userId).catch(() => null);
+      username = author?.username ?? thread.record.userId;
     } catch {
       failure = "This thread couldn't be loaded. Nobody holding it is online right now.";
     } finally {
@@ -53,13 +53,13 @@
         <!-- Laid out like the reed detail's header, the thread size where its stats go. -->
         <div class="thread-header">
           <div class="reed-author">
-            <a href="/profile/{thread.record.userID}" class="author-avatar">
-              <Avatar userID={thread.record.userID} {username} size="69px" />
+            <a href="/profile/{thread.record.userId}" class="author-avatar">
+              <Avatar userID={thread.record.userId} {username} size="69px" />
             </a>
             <div class="author-info">
               <span class="author-line">
-                <Username userID={thread.record.userID} {username} class="author-name" />
-                <TrustMark userID={thread.record.userID} linked={false} refresh />
+                <Username userID={thread.record.userId} {username} class="author-name" />
+                <TrustMark userID={thread.record.userId} linked={false} refresh />
               </span>
               <p class="reed-date">{formatAbsoluteDateTime(fromUnix(thread.record.serverSignature.signedAt))}</p>
               <span class="thread-stats">
