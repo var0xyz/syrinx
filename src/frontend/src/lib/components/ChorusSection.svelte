@@ -5,7 +5,7 @@
   import { userRepository } from '$lib/repositories/user';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import RemotePagination from '$lib/components/RemotePagination.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
 
   /** The reed's canonical id (authorID@serverID/uuid). */
@@ -17,24 +17,24 @@
 
   /** @type {RemotePagination<{ userID: string; username: string; echoedAt: string }> | undefined} */
   let pagination;
-  /** @type {{ userID: string; username: string; echoedAt: string }[]} */
+  /** @type {{ userID: string; username: string; echoedAt: number }[]} */
   let rows = [];
 
   $: count = rows.length;
 
   async function resolveRow(u) {
-    const profile = await userRepository.getByUserId(u.userID).catch(() => null);
+    const profile = await userRepository.getByUserId(u.userId).catch(() => null);
     return {
-      userID: u.userID,
-      username: profile?.username ?? u.userID,
+      userID: u.userId,
+      username: profile?.username ?? u.userId,
       echoedAt: u.echoedAt,
     };
   }
 
   async function fetchChorusPage(cursor) {
-    const list = await apiService.listEchoers(reedID, { before: cursor });
+    const list = await apiService.listEchoers(reedID, { before: cursor ? Number(cursor) : undefined });
     const items = await Promise.all(list.users.map(resolveRow));
-    const nextCursor = list.users.length > 0 ? list.users[list.users.length - 1].echoedAt : cursor;
+    const nextCursor = list.users.length > 0 ? String(list.users[list.users.length - 1].echoedAt) : cursor;
     return { items, hasMore: list.hasMore, nextCursor };
   }
 
@@ -43,7 +43,7 @@
    * pagination the viewer had done back to the first page, same tradeoff
    * ConversationSection makes on a live reply. */
   function handleReedEchoes(msg) {
-    if (msg?.reedID !== reedID) return;
+    if (msg?.reedId !== reedID) return;
     void pagination?.loadFirstPage();
   }
 
@@ -70,7 +70,7 @@
           <ReedAuthorHeader
             userID={row.userID}
             username={row.username}
-            subtext={`Echoed ${formatRelativeTime(row.echoedAt)}`}
+            subtext={`Echoed ${formatRelativeTime(fromUnix(row.echoedAt))}`}
             stopPropagation
           />
         </div>

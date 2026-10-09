@@ -18,6 +18,11 @@
  */
 
 import type * as api from '$lib/types/api';
+import type { MessageInitShape } from '@bufbuild/protobuf';
+import type { RecoveryKeyNodeSchema, RecoveryRevocationSchema } from '$lib/proto/recovery_pb';
+
+/** One level of the nested key chain, as a recovery request carries it. */
+export type NestNode = MessageInitShape<typeof RecoveryKeyNodeSchema>;
 import { parseKeyId } from '$lib/utils/identityRef';
 
 function bareFingerprint(fingerprint: string): string {
@@ -40,7 +45,7 @@ export type KeyNestBuildLookups = KeyNestLookups & {
 };
 
 export type NestBuildResult =
-  | { ok: true; key: api.RecoveryKeyNode }
+  | { ok: true; key: NestNode }
   | { ok: false; reason: string };
 
 /**
@@ -81,7 +86,7 @@ export function buildKeyNest(
   }
   const startFp =
     lookups.getActiveKeyId(userId) ||
-    (user as api.User & { activeKeyID?: string }).activeKeyID;
+    (user as api.User & { activeKeyId?: string }).activeKeyId;
   if (!startFp) {
     return { ok: false, reason: 'missing activeKeyID' };
   }
@@ -116,18 +121,18 @@ export function buildKeyNest(
     // Built explicitly, not spread: RecoveryKeyRevocation is a narrower,
     // deliberately bare-fingerprint shape (recovery/wire.go) and has no
     // successorSignature field — that's /keys-API-only bookkeeping.
-    const wireRevocation: api.RecoveryKeyRevocation | null = revocation
+    const wireRevocation: MessageInitShape<typeof RecoveryRevocationSchema> | undefined = revocation
       ? {
           fingerprint: bareFingerprint(revocation.id),
-          userID: revocation.userID,
+          userId: revocation.userId,
           reason: revocation.reason,
           successor: revocation.successor,
           userSignature: revocation.userSignature,
           serverSignature: revocation.serverSignature,
         }
-      : null;
+      : undefined;
 
-    let predecessor: api.RecoveryKeyNode | null = null;
+    let predecessor: NestNode | undefined;
     if (key.predecessor != null) {
       // The handoff proof (predecessor's sig over this key's armor) lives
       // on the PREDECESSOR's own revocation row, not this key's.
@@ -145,9 +150,9 @@ export function buildKeyNest(
       predecessor = child.key;
     }
 
-    const node: api.RecoveryKeyNode = {
+    const node: NestNode = {
       fingerprint: bareFingerprint(key.id),
-      userID: key.userID,
+      userId: key.userId,
       armor: key.armor,
       revoked: key.revoked,
       serverSignature: key.serverSignature,

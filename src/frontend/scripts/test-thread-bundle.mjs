@@ -5,7 +5,7 @@ import { threadBundleMismatch } from '../src/lib/utils/threadBundle.ts';
 
 const author = 'alice@home';
 const ids = ['alice@home/r0', 'alice@home/r1', 'alice@home/r2'];
-const record = { threadID: ids[0], userID: author, reedIDs: ids };
+const record = { threadId: ids[0], userId: author, reedIds: ids };
 const parts = ids.map((id, index) => ({ id, userID: author, thread: { head: ids[0], index } }));
 
 assert.equal(threadBundleMismatch(ids[0], record, parts), null, 'a matching bundle passes');

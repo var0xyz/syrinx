@@ -9,7 +9,7 @@
   import { blocksChanged, reconcileBlocks } from '$lib/services/blocks';
   import { userRepository } from '$lib/repositories/user';
 
-  type Row = { userID: string; username: string; blockedAt: string | null };
+  type Row = { userID: string; username: string; blockedAt: number | null };
 
   let rows: Row[] = [];
   let loading = true;
@@ -20,9 +20,9 @@
     const confirmed = await blocksRepository.getAll();
     const pending = await pendingBlocksRepository.getAll();
     const lifting = new Set((await pendingUnblocksRepository.getAll()).map((r) => r.blockedUserID));
-    const ids = new Map<string, string | null>();
+    const ids = new Map<string, number | null>();
     for (const cert of confirmed) {
-      if (!lifting.has(cert.blockedUserID)) ids.set(cert.blockedUserID, cert.serverSignature.timestamp);
+      if (!lifting.has(cert.blockedUserId)) ids.set(cert.blockedUserId, cert.serverSignature?.signedAt ?? 0);
     }
     for (const record of pending) if (!ids.has(record.blockedUserID)) ids.set(record.blockedUserID, null);
 
@@ -31,7 +31,7 @@
       const profile = await userRepository.get(userID).catch(() => null);
       next.push({ userID, username: profile?.username ?? '', blockedAt });
     }
-    next.sort((a, b) => (b.blockedAt ?? '9').localeCompare(a.blockedAt ?? '9'));
+    next.sort((a, b) => (b.blockedAt ?? Infinity) - (a.blockedAt ?? Infinity));
     rows = next;
     loading = false;
   }
@@ -42,8 +42,8 @@
   });
   $: if ($blocksChanged > 0) void load();
 
-  function day(timestamp: string): string {
-    return new Date(timestamp).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+  function day(timestamp: number): string {
+    return new Date(timestamp * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 </script>
 

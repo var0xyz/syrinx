@@ -29,8 +29,8 @@ export async function reportRecoveryReed(reedId: string): Promise<void> {
   // from authorID + this suffix) — authorID/userSignature stay canonical.
   const bareReedID = parseKeyId(reed.id)?.fingerprint ?? reed.id;
   await apiService.reportRecoveryReed({
-    reedID: bareReedID,
-    authorID: reed.userID,
+    reedId: bareReedID,
+    authorId: reed.userID,
     userSignature: reed.userSignature,
     serverSignature: reed.serverSignature,
   });
@@ -40,7 +40,7 @@ export async function reportRecoveryReed(reedId: string): Promise<void> {
 export async function reportRecoveryFollowing(
   userIds: string[]
 ): Promise<void> {
-  await apiService.reportRecoveryFollowing({ userIDs: userIds });
+  await apiService.reportRecoveryFollowing(userIds);
 }
 
 /** POST /recovery/complete (idempotent server-side). */

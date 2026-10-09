@@ -5,6 +5,8 @@
  */
 
 import type * as api from '$lib/types/api';
+import { create, isMessage } from '@bufbuild/protobuf';
+import { PublicKeySchema, ServerKeyRevocationSchema } from '$lib/proto/identity_pb';
 import { apiService, readKeyRevocation, readPublicKey } from './api';
 import { authService } from './auth';
 import { cryptoService } from './crypto';
@@ -33,7 +35,7 @@ async function verifyRevocation(serverID: string, hop: Hop): Promise<boolean> {
 
   const payload = buildServerKeyRevocationPayload(
     serverID,
-    rev.keyID,
+    rev.keyId,
     rev.successor,
     rev.compromised,
     rev.reason,
@@ -49,30 +51,23 @@ async function verifyRevocation(serverID: string, hop: Hop): Promise<boolean> {
  * compromised-key timestamp rule; the newest successor only when adopted. */
 async function cacheKeys(hops: Hop[], adoptNewest: boolean): Promise<void> {
   const { allowUnsigned } = await import('$lib/verifiers');
-  const unsigned = { id: '', armor: '', timestamp: '' };
   for (const { rev, revokedArmor } of hops) {
-    const key: api.PublicKey = {
-      id: rev.keyID,
-      userID: '',
+    const key = create(PublicKeySchema, {
+      id: rev.keyId,
       armor: revokedArmor,
       revoked: true,
-      predecessor: null,
-      serverSignature: unsigned,
       revokedAt: rev.signedAt,
       compromised: rev.compromised,
-    };
+    });
     await dbService.put('publicKeys', key, allowUnsigned);
   }
   if (!adoptNewest) return;
   const last = hops[hops.length - 1];
-  const newest: api.PublicKey = {
+  const newest = create(PublicKeySchema, {
     id: last.rev.successor,
-    userID: '',
     armor: last.successorArmor,
-    revoked: false,
-    predecessor: last.rev.keyID,
-    serverSignature: unsigned,
-  };
+    predecessor: last.rev.keyId,
+  });
   await dbService.put('publicKeys', newest, allowUnsigned);
 }
 
@@ -80,7 +75,8 @@ async function cacheKeys(hops: Hop[], adoptNewest: boolean): Promise<void> {
 async function fetchRevocation(keyID: string): Promise<{ res: Response; rev: api.ServerKeyRevocation } | null> {
   try {
     const res = await apiService.getKeyRevocationUnverified(keyID);
-    return { res, rev: (await readKeyRevocation(res)) as api.ServerKeyRevocation };
+    const rev = await readKeyRevocation(res);
+    return isMessage(rev, ServerKeyRevocationSchema) ? { res, rev } : null;
   } catch (error) {
     if ((error as { status?: number })?.status === 404) return null;
     throw error;
@@ -109,14 +105,14 @@ export async function updateTrustedServerKey(): Promise<KeyUpdateResult> {
       const fetched = await fetchRevocation(currentID);
       if (!fetched) break;
       const { res, rev } = fetched;
-      if (rev.type !== 'server-key-revocation' || rev.serverID !== serverID || rev.keyID !== currentID) {
+      if (rev.serverId !== serverID || rev.keyId !== currentID) {
         return { status: 'failed' };
       }
       const keyRes = await apiService.getPublicKeyUnverified(rev.successor);
       const successor = await readPublicKey(keyRes);
       const hop = { rev, revokedArmor: currentArmor, successorArmor: successor.armor };
       if (!(await verifyRevocation(serverID, hop))) {
-        console.error('[serverKeyRotation] revocation failed verification', rev.keyID);
+        console.error('[serverKeyRotation] revocation failed verification', rev.keyId);
         return { status: 'failed' };
       }
       hops.push(hop);

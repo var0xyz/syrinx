@@ -1,5 +1,7 @@
 import { get } from 'svelte/store';
 import type * as api from '$lib/types/api';
+import { create } from '@bufbuild/protobuf';
+import { ThreadRecordSchema } from '$lib/proto/common_pb';
 import { Reed } from '$lib/types/reed';
 import { apiService } from './api';
 import { requestSigner } from './request-signer';
@@ -41,10 +43,10 @@ export async function publishThread(texts: string[], keyId: string): Promise<str
 
   const previousID = await previousIDForPublish();
   const response = await apiService.createThread({
-    ...(previousID ? { previousID } : {}),
+    previousId: previousID ?? '',
     threadSignature,
     reeds: parts.map((reed) => ({
-      reedID: reed.id,
+      reedId: reed.id,
       signature: reed.userSignature!.armor,
       tags: reed.tags,
       mentions: reed.mentions,
@@ -55,15 +57,14 @@ export async function publishThread(texts: string[], keyId: string): Promise<str
     reed.applyServerResponse(response.reeds[i]);
     await reedsService.storeReed(reed.asObject());
   }
-  const record: api.ThreadRecord = {
-    type: 'thread',
-    serverID,
-    userID,
-    threadID: head,
-    reedIDs: ids,
+  const record: api.ThreadRecord = create(ThreadRecordSchema, {
+    serverId: serverID,
+    userId: userID,
+    threadId: head,
+    reedIds: ids,
     userSignature: { id: keyId, armor: threadSignature },
     serverSignature: response.serverSignature,
-  };
+  });
   await threadsRepository.put(record);
   clearPublishTipOverride();
 

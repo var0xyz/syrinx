@@ -225,7 +225,7 @@ func exportRootIdentity(
 		},
 		{
 			Name:  "publicKeys",
-			Items: []interface{}{wireKey},
+			Items: []interface{}{spaRecord(pbKey(wireKey).ProtoReflect())},
 		},
 	}
 

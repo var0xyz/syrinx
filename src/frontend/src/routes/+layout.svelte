@@ -28,6 +28,8 @@
   import { ensureDeviceId } from '$lib/services/deviceId';
   import { enforceImportGate } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
+  import { create } from '@bufbuild/protobuf';
+  import { ThreadRemovalSchema } from '$lib/proto/common_pb';
   import { dbService } from '$lib/services/db';
   import { reedsService, dispatchReedToQueue, removeBroadcastReed } from '$lib/repositories/reeds';
   import { recordActivity } from '$lib/repositories/activity';
@@ -135,11 +137,11 @@
 
     // Register WS handlers unconditionally so they're in place whether the
     // connection is established now (existing user) or later (post-signup).
-    serverConnection.on(ServerEvent.PublishReadyAck, ({ reed_id }) => {
+    serverConnection.on(ServerEvent.PublishReadyAck, ({ reedId: reed_id }) => {
       if (!reed_id) return;
       void pendingPublicationRepository.delete(reed_id);
     });
-    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, reed_id, requester_key_id }) => {
+    serverConnection.on(ServerEvent.RelayRequest, async ({ id: eventId, reedId: reed_id, requesterKeyId: requester_key_id }) => {
       console.log('ServerConnection: relay request received for reed:', reed_id, 'event:', eventId);
       const reed = await dbService.get<ReedType>('reeds', reed_id);
       if (!reed) {
@@ -156,15 +158,16 @@
       console.log('ServerConnection: reed found and encrypted, fulfilling relay:', reed_id);
       serverConnection.sendRelayResponse(eventId, ciphertext);
     });
-    serverConnection.on(ServerEvent.RelayThread, ({ id: eventId, thread_id, requester_key_id }) => {
+    serverConnection.on(ServerEvent.RelayThread, ({ id: eventId, threadId: thread_id, requesterKeyId: requester_key_id }) => {
       void serveThreadRelay(eventId, thread_id, requester_key_id);
     });
     serverConnection.on(ServerEvent.ThreadRemoved, async (data) => {
       const eventId = data.id;
-      if (data.data && (await applyThreadRemoval(data.data))) {
+      const removal = data.cert && data.record ? create(ThreadRemovalSchema, { cert: data.cert, record: data.record }) : null;
+      if (removal && (await applyThreadRemoval(removal))) {
         serverConnection.sendDataAck(eventId);
       } else {
-        console.warn('ServerConnection: thread removal failed verification:', data.data?.threadID);
+        console.warn('ServerConnection: thread removal failed verification:', data.cert?.threadId);
         if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });
@@ -172,7 +175,7 @@
       void receiveThreadResponse(data);
     });
     serverConnection.onEncryptedReed(ServerEvent.DataResponse, 'relayed reed', async (reed, data) => {
-      const requestId = data.request_id as string | undefined;
+      const requestId = (data.requestId as string | undefined) || undefined;
       try {
         await reedsService.storeReed(reed);
         if (requestId) {
@@ -286,7 +289,7 @@
     serverConnection.on(ServerEvent.NewRipple, () => {
       markUnread('ripples');
     });
-    serverConnection.on(ServerEvent.NewVouch, async ({ vouchID }) => {
+    serverConnection.on(ServerEvent.NewVouch, async ({ vouchId: vouchID }) => {
       // Only the id is pushed, so fetch and verify the cert rather than
       // trusting a payload the server assembled.
       await ingestPushedVouch(vouchID);
@@ -298,31 +301,31 @@
     });
     serverConnection.on(ServerEvent.ReedRemoved, async (data) => {
       const eventId = data.id;
-      const cert = data.data;
-      if (!cert || cert.type !== 'reed') {
-        console.warn('ServerConnection: ignoring non-reed removal cert', cert?.type);
+      const cert = data.cert;
+      if (!cert) {
+        console.warn('ServerConnection: reed removal without a cert');
         if (eventId) serverConnection.sendDataInvalid(eventId);
         return;
       }
       if (await verifyAndCommitReedRemoval(cert)) {
         serverConnection.sendDataAck(eventId);
       } else {
-        console.warn('ServerConnection: reed removal cert failed verification:', cert.reedID);
+        console.warn('ServerConnection: reed removal cert failed verification:', cert.reedId);
         serverConnection.sendDataInvalid(eventId);
       }
     });
     serverConnection.on(ServerEvent.AccountRemoved, async (data) => {
       const eventId = data.id;
-      const cert = data.data;
-      if (!cert || cert.type !== 'account') {
-        console.warn('ServerConnection: ignoring non-account removal cert', cert?.type);
+      const cert = data.cert;
+      if (!cert) {
+        console.warn('ServerConnection: account removal without a cert');
         if (eventId) serverConnection.sendDataInvalid(eventId);
         return;
       }
       if (await verifyAndCommitAccountRemoval(cert)) {
         serverConnection.sendDataAck(eventId);
       } else {
-        console.warn('ServerConnection: account removal cert failed verification:', cert.userID);
+        console.warn('ServerConnection: account removal cert failed verification:', cert.userId);
         serverConnection.sendDataInvalid(eventId);
       }
     });
@@ -330,15 +333,15 @@
       if (data.block) await receiveBlock(data.block);
     });
     serverConnection.on(ServerEvent.UserUnblocked, async (data) => {
-      if (data.userID) await receiveUnblock(data.userID);
+      if (data.userId) await receiveUnblock(data.userId);
     });
     setBlockedReporter((cert) => void receiveBlock(cert));
     serverConnection.on(ServerEvent.KeyRevoked, async (data) => {
       const eventId = data.id;
-      if (data.data && (await applyKeyRevocation(data.data))) {
+      if (data.revocation && (await applyKeyRevocation(data.revocation))) {
         serverConnection.sendDataAck(eventId);
       } else {
-        console.warn('ServerConnection: key revocation failed verification:', data.data?.id);
+        console.warn('ServerConnection: key revocation failed verification:', data.revocation?.id);
         if (eventId) serverConnection.sendDataInvalid(eventId);
       }
     });

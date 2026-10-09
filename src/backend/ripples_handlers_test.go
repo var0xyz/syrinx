@@ -117,7 +117,7 @@ type rippleListResponse struct {
 	Responses      []RippleWire
 	HasMore        bool
 	NextCursor     string
-	LastActivityAt int64
+	LastActivityAt uint32
 }
 
 func decodeRippleList(t *testing.T, rr *httptest.ResponseRecorder) rippleListResponse {

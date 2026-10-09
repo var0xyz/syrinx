@@ -4,15 +4,15 @@ import { verifyReedLike } from '$lib/verifiers';
 
 export interface LikedReedRecord extends api.ReedLike {
   compositeKey: string; // reedRef (authorID@serverID/uuid)
-  likedAt: string; // server.timestamp, for newest-liked-first ordering
+  likedAt: number; // server signedAt, for newest-liked-first ordering
 }
 
 export const likedReedsRepository = {
   async put(cert: api.ReedLike): Promise<void> {
     const record: LikedReedRecord = {
       ...cert,
-      compositeKey: cert.reedID,
-      likedAt: cert.serverSignature.timestamp,
+      compositeKey: cert.reedId,
+      likedAt: cert.serverSignature.signedAt,
     };
     await dbService.put('likedReeds', record, verifyReedLike);
   },
@@ -31,7 +31,7 @@ export const likedReedsRepository = {
 
   /** Newest-liked-first page. Pass the previous page's last record's
    * likedAt as `after` to resume; omit for the first page. */
-  async getPage(limit: number, after?: string): Promise<LikedReedRecord[]> {
+  async getPage(limit: number, after?: number): Promise<LikedReedRecord[]> {
     return dbService.getLatestFromIndex<LikedReedRecord>('likedReeds', 'likedAt', limit, undefined, after);
   },
 };

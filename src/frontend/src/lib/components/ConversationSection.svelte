@@ -7,7 +7,7 @@
   import { userRepository } from '$lib/repositories/user';
   import { serverConnection } from '$lib/services/serverConnection';
   import { isOnline } from '$lib/services/pwa';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { get } from 'svelte/store';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -65,12 +65,12 @@
         if (!res.hasMore) {
           await reedRepliesRepository.pruneStale(
             parentReedRef,
-            new Set(res.replies.map((r) => r.reedID)),
+            new Set(res.replies.map((r) => r.reedId)),
           );
         }
       }
       hasMore = res.hasMore;
-      rows = await hydrateRows(res.replies);
+      rows = await hydrateRows(replyRefs(res.replies));
       errorMessage = '';
     } catch (err) {
       console.error('ConversationSection: server refresh failed', err);
@@ -92,7 +92,7 @@
             ...r,
             reed,
             username,
-            timestamp: reed.serverSignature?.timestamp,
+            timestamp: reed.serverSignature?.signedAt,
             loading: false,
           }
         : r,
@@ -132,6 +132,11 @@
     }
   }
 
+  /** Server reply items as the refs hydrateRows takes. */
+  function replyRefs(replies) {
+    return replies.map((r) => ({ userID: r.userId, reedID: r.reedId }));
+  }
+
   async function hydrateRows(refs) {
     /** @type {typeof rows} */
     const out = [];
@@ -146,13 +151,13 @@
         reedID: ref.reedID,
         reed,
         username,
-        timestamp: reed?.serverSignature?.timestamp,
+        timestamp: reed?.serverSignature?.signedAt,
         loading: get(isOnline) && !reed,
       });
     }
     out.sort((a, b) => {
-      const ta = a.timestamp ? Date.parse(a.timestamp) : 0;
-      const tb = b.timestamp ? Date.parse(b.timestamp) : 0;
+      const ta = a.timestamp ?? 0;
+      const tb = b.timestamp ?? 0;
       if (ta !== tb) return ta - tb;
       return a.reedID.localeCompare(b.reedID);
     });
@@ -171,7 +176,7 @@
         await reedRepliesRepository.syncFromServerList(parentReedRef, rootId, res.replies);
       }
       hasMore = res.hasMore;
-      const older = await hydrateRows(res.replies);
+      const older = await hydrateRows(replyRefs(res.replies));
       const seen = new Set(rows.map((r) => r.reedID));
       rows = [...older.filter((r) => !seen.has(r.reedID)), ...rows];
     } catch (err) {
@@ -197,7 +202,7 @@
       reedID,
       reed,
       username,
-      timestamp: reed.serverSignature?.timestamp,
+      timestamp: reed.serverSignature?.signedAt,
       loading: false,
     };
     if (rows.some((r) => r.reedID === reedID)) return;
@@ -239,7 +244,7 @@
             userID={row.userID}
             username={row.username}
             avatarSize="36px"
-            subtext={row.timestamp ? formatRelativeTime(row.timestamp) : 'Waiting for reed...'}
+            subtext={row.timestamp ? formatRelativeTime(fromUnix(row.timestamp)) : 'Waiting for reed...'}
             stopPropagation
             linked={false}
           />

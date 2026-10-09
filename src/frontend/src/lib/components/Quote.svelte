@@ -9,7 +9,7 @@
   import { isOnline } from '$lib/services/pwa';
   import { verifyAndCommitReedRemoval } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { getUserId } from '$lib/utils/identityRef';
   import { resolveBlankEchoChain } from '$lib/utils/emptyEcho';
   import MarkdownParser from './MarkdownParser.svelte';
@@ -66,17 +66,17 @@
         userID: authorId,
         reedID: reedRef,
         kind: 'account',
-        timestamp: accountCert.serverSignature?.timestamp,
+        timestamp: accountCert.serverSignature?.signedAt,
       };
     }
 
     const reedCert = await removedReedsRepository.get(reedRef);
-    if (reedCert && reedCert.userID === authorId) {
+    if (reedCert && reedCert.userId === authorId) {
       return {
-        userID: reedCert.userID,
-        reedID: reedCert.reedID,
+        userID: reedCert.userId,
+        reedID: reedCert.reedId,
         kind: 'reed',
-        timestamp: reedCert.serverSignature?.timestamp,
+        timestamp: reedCert.serverSignature?.signedAt,
       };
     }
 
@@ -84,22 +84,22 @@
     try {
       const result = await apiService.getReedOrRemoval(reedRef);
       if (result.kind !== 'gone' || !result.removal) return null;
-      if (result.removal.type === 'account') {
+      if (result.removal.$typeName === 'syrinx.AccountRemovalCert') {
         await verifyAndCommitAccountRemoval(result.removal);
         return {
           userID: authorId,
           reedID: reedRef,
           kind: 'account',
-          timestamp: result.removal.serverSignature?.timestamp,
+          timestamp: result.removal.serverSignature?.signedAt,
         };
       }
-      if (result.removal.type === 'reed') {
+      if (result.removal.$typeName === 'syrinx.ReedRemovalCert') {
         await verifyAndCommitReedRemoval(result.removal);
         return {
-          userID: result.removal.userID,
-          reedID: result.removal.reedID,
+          userID: result.removal.userId,
+          reedID: result.removal.reedId,
           kind: 'reed',
-          timestamp: result.removal.serverSignature?.timestamp,
+          timestamp: result.removal.serverSignature?.signedAt,
         };
       }
     } catch (error) {
@@ -268,7 +268,7 @@
       on:click={handleClick}
       on:keydown={(e) => e.key === 'Enter' && handleClick(e)}
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.signedAt}&nbsp;· {formatRelativeTime(fromUnix(displayReed.serverSignature.signedAt))}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
@@ -280,7 +280,7 @@
       class:quote--clamped={maxLines > 0}
       style="--border-color: {borderColor}; --max-lines: {maxLines}"
     >
-      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.timestamp}&nbsp;· {formatRelativeTime(displayReed.serverSignature.timestamp)}{/if}</span></div>
+      <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.signedAt}&nbsp;· {formatRelativeTime(fromUnix(displayReed.serverSignature.signedAt))}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
         <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />

@@ -141,21 +141,14 @@ class ReedsService {
         replyingTo: reed.replying?.to,
         tags: reed.tags,
         mentions: reed.mentions,
-        ...(previousID ? { previousID } : {}),
+        ...(previousID ? { previousId: previousID } : {}),
       });
       let published: ReedType;
       if (reed instanceof ReedClass) {
         reed.applyServerResponse(response);
         published = reed.asObject();
       } else {
-        published = {
-          ...reed,
-          serverSignature: {
-            id: response.id,
-            armor: response.armor,
-            timestamp: response.timestamp,
-          },
-        };
+        published = { ...reed, serverSignature: response };
       }
       await this.storeReed(published);
       clearPublishTipOverride();
@@ -168,7 +161,7 @@ class ReedsService {
       return true;
     } catch (error: any) {
       const isReedFork =
-        error?.status === 409 && typeof error?.body === 'string' && error.body.includes('current tip');
+        error?.status === 409 && !!error?.message?.includes('current tip');
       if (isReedFork) {
         // Another session (dual-device/dual-tab) published past this
         // client's believed tip. previousIDForPublish() always recomputes
@@ -316,12 +309,12 @@ class ReedsService {
   async getReedsByAuthorPage(
     authorId: string,
     limit: number,
-    after?: string
-  ): Promise<{ items: ReedType[]; hasMore: boolean; nextCursor?: string }> {
+    after?: number
+  ): Promise<{ items: ReedType[]; hasMore: boolean; nextCursor?: number }> {
     try {
       const matched = await dbService.getLatestFromIndex<ReedType>(
         'reeds',
-        'serverSignature.timestamp',
+        'serverSignature.signedAt',
         limit + 1,
         (reed) => reed.userID === authorId,
         after
@@ -329,7 +322,7 @@ class ReedsService {
       const hasMore = matched.length > limit;
       const items = matched.slice(0, limit);
       const last = items[items.length - 1];
-      return { items, hasMore, nextCursor: last?.serverSignature?.timestamp ?? after };
+      return { items, hasMore, nextCursor: last?.serverSignature?.signedAt ?? after };
     } catch (error) {
       console.error('Failed to get reeds page by author:', error);
       return { items: [], hasMore: false, nextCursor: after };
@@ -341,7 +334,7 @@ class ReedsService {
     try {
       const found = await dbService.getLatestFromIndex<ReedType>(
         'reeds',
-        'serverSignature.timestamp',
+        'serverSignature.signedAt',
         1,
         (reed) => reed.userID === authorId
       );
@@ -458,7 +451,7 @@ export async function getFollowReeds(): Promise<{ reeds: ReedType[]; authors: Re
   const reeds = followedSet.size === 0
     ? []
     : await dbService.getLatestFromIndex<ReedType>(
-        'reeds', 'serverSignature.timestamp', FOLLOW_FEED_LIMIT,
+        'reeds', 'serverSignature.signedAt', FOLLOW_FEED_LIMIT,
         reed => followedSet.has(reed.userID)
       );
   const authors: Record<string, User> = {};
@@ -487,7 +480,7 @@ export async function getUserListReeds(
   }
   const memberSet = new Set(userList.memberIds);
   const reeds = await dbService.getLatestFromIndex<ReedType>(
-    'reeds', 'serverSignature.timestamp', USER_LIST_FEED_LIMIT,
+    'reeds', 'serverSignature.signedAt', USER_LIST_FEED_LIMIT,
     reed => memberSet.has(reed.userID)
   );
   const authors: Record<string, User> = {};

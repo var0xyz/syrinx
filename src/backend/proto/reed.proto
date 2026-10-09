@@ -51,7 +51,7 @@ message EchoCountResponse {
 
 message EchoerListUser {
   string user_id = 1 [json_name = "userID"];
-  int64 echoed_at = 2;
+  uint32 echoed_at = 2;
 }
 
 message EchoerListResponse {
@@ -62,7 +62,7 @@ message EchoerListResponse {
 message ReplyListItem {
   string user_id = 1 [json_name = "userID"];
   string reed_id = 2 [json_name = "reedID"];
-  int64 timestamp = 3;
+  uint32 timestamp = 3;
 }
 
 message ReplyListResponse {
@@ -124,7 +124,7 @@ message RippleListResponse {
   bool has_more = 2;
   string next_cursor = 3;
   // When the reed's ripple thread was last posted to.
-  int64 last_activity_at = 4;
+  uint32 last_activity_at = 4;
 }
 
 // One ripple in a user's inbox, with the reed it answers.

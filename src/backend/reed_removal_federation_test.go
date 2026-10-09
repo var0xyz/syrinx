@@ -34,7 +34,7 @@ func signedReedRemoval(t *testing.T, s signedKeyRevocation, serverPayload func(r
 		UserKeyId:         s.keyID,
 		ServerSignature:   sign(serverPayload(reedID, userSig, at), s.serverKP.PrivateKey),
 		ServerFingerprint: s.serverKeyID,
-		ServerSignedAt:    at.Unix(),
+		ServerSignedAt:    unixOrZero(at),
 	}}
 }
 

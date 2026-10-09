@@ -29,7 +29,7 @@
    * whose reed isn't locally held. */
   async function resolveItems(records) {
     const resolved = await Promise.allSettled(
-      records.map((record) => reedsService.getReed(record.reedID))
+      records.map((record) => reedsService.getReed(record.reedId))
     );
 
     const withReeds = [];

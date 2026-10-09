@@ -3134,7 +3134,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 
 	var before *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
+		t, err := parseUnixCursor(raw)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
@@ -3196,7 +3196,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 
 	var before *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
+		t, err := parseUnixCursor(raw)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
@@ -3280,7 +3280,7 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 
 	var before *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
+		t, err := parseUnixCursor(raw)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
@@ -3326,7 +3326,7 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 
 	var before *time.Time
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
-		t, err := time.Parse(time.RFC3339, raw)
+		t, err := parseUnixCursor(raw)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return

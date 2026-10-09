@@ -24,11 +24,11 @@ export async function applyKeyRevocation(revocation: api.KeyRevocation): Promise
     await publicKeyRepository.setRevoked({ ...cached, revoked: true });
   }
 
-  const held = await dbService.getAllByIndex<ReedType>('reeds', 'userID', revocation.userID);
+  const held = await dbService.getAllByIndex<ReedType>('reeds', 'userID', revocation.userId);
   const dropped = reedsSignedAfterRevocation(
     held,
     revocation.id,
-    revocation.serverSignature.timestamp
+    revocation.serverSignature.signedAt
   );
   await Promise.all(dropped.map((reed) => dbService.delete('reeds', reed.id)));
   if (dropped.length > 0) reedRemovalCommitted.update((n) => n + 1);

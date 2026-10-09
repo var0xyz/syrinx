@@ -80,7 +80,7 @@ type ServerSignature struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Armor         string                 `protobuf:"bytes,2,opt,name=armor,proto3" json:"armor,omitempty"`
-	SignedAt      int64                  `protobuf:"varint,3,opt,name=signed_at,json=timestamp,proto3" json:"signed_at,omitempty"`
+	SignedAt      uint32                 `protobuf:"varint,3,opt,name=signed_at,json=timestamp,proto3" json:"signed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -129,7 +129,7 @@ func (x *ServerSignature) GetArmor() string {
 	return ""
 }
 
-func (x *ServerSignature) GetSignedAt() int64 {
+func (x *ServerSignature) GetSignedAt() uint32 {
 	if x != nil {
 		return x.SignedAt
 	}
@@ -269,7 +269,7 @@ type Ripple struct {
 	// Unset when this ripple is not a reply to another ripple.
 	ReplyingTo      *string          `protobuf:"bytes,5,opt,name=replying_to,json=replyingTo,proto3,oneof" json:"replying_to,omitempty"`
 	Deleted         bool             `protobuf:"varint,6,opt,name=deleted,proto3" json:"deleted,omitempty"`
-	PostedAt        int64            `protobuf:"varint,7,opt,name=posted_at,json=postedAt,proto3" json:"posted_at,omitempty"`
+	PostedAt        uint32           `protobuf:"varint,7,opt,name=posted_at,json=postedAt,proto3" json:"posted_at,omitempty"`
 	UserSignature   *UserSignature   `protobuf:"bytes,8,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature *ServerSignature `protobuf:"bytes,9,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -348,7 +348,7 @@ func (x *Ripple) GetDeleted() bool {
 	return false
 }
 
-func (x *Ripple) GetPostedAt() int64 {
+func (x *Ripple) GetPostedAt() uint32 {
 	if x != nil {
 		return x.PostedAt
 	}
@@ -915,7 +915,7 @@ const file_common_proto_rawDesc = "" +
 	"\x0fServerSignature\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05armor\x18\x02 \x01(\tR\x05armor\x12\x1c\n" +
-	"\tsigned_at\x18\x03 \x01(\x03R\ttimestamp\"\x9b\x02\n" +
+	"\tsigned_at\x18\x03 \x01(\rR\ttimestamp\"\x9b\x02\n" +
 	"\x05Error\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12E\n" +
 	"\x0faccount_removal\x18\x02 \x01(\v2\x1a.syrinx.AccountRemovalCertH\x00R\x0eaccountRemoval\x12<\n" +
@@ -931,7 +931,7 @@ const file_common_proto_rawDesc = "" +
 	"\vreplying_to\x18\x05 \x01(\tH\x00R\n" +
 	"replyingTo\x88\x01\x01\x12\x18\n" +
 	"\adeleted\x18\x06 \x01(\bR\adeleted\x12\x1b\n" +
-	"\tposted_at\x18\a \x01(\x03R\bpostedAt\x12<\n" +
+	"\tposted_at\x18\a \x01(\rR\bpostedAt\x12<\n" +
 	"\x0euser_signature\x18\b \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
 	"\x10server_signature\x18\t \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignatureB\x0e\n" +
 	"\f_replying_to\"\xe2\x01\n" +

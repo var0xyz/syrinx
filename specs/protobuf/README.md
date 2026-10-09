@@ -5,8 +5,7 @@ traffic speak **Protocol Buffers** end to end. Shared resource messages
 (`User`, `Reed`, signature blocks, certs) are defined once under `proto/`
 and generated for Go and the SPA.
 
-**Status:** WebSocket, client HTTP and federation (01–06) are done. The
-SPA's move to generated types (07) remains.
+**Status:** Implemented (00–07).
 
 | #  | Title | Depends on |
 |----|-------|------------|

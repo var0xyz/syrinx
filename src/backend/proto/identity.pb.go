@@ -122,7 +122,7 @@ type FederatedServerInfo struct {
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	KeyId         string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt     uint32                 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	FrontendUrl   string                 `protobuf:"bytes,5,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -179,7 +179,7 @@ func (x *FederatedServerInfo) GetKeyId() string {
 	return ""
 }
 
-func (x *FederatedServerInfo) GetCreatedAt() int64 {
+func (x *FederatedServerInfo) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -492,7 +492,7 @@ type User struct {
 	Username        string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	Role            string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
 	Bio             string                 `protobuf:"bytes,4,opt,name=bio,proto3" json:"bio,omitempty"`
-	MemberSince     int64                  `protobuf:"varint,5,opt,name=member_since,json=memberSince,proto3" json:"member_since,omitempty"`
+	MemberSince     uint32                 `protobuf:"varint,5,opt,name=member_since,json=memberSince,proto3" json:"member_since,omitempty"`
 	UserSignature   *UserSignature         `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	Invite          *UserInvite            `protobuf:"bytes,8,opt,name=invite,proto3" json:"invite,omitempty"`
@@ -558,7 +558,7 @@ func (x *User) GetBio() string {
 	return ""
 }
 
-func (x *User) GetMemberSince() int64 {
+func (x *User) GetMemberSince() uint32 {
 	if x != nil {
 		return x.MemberSince
 	}
@@ -596,7 +596,7 @@ type UserInfo struct {
 	FollowingCount int32   `protobuf:"varint,4,opt,name=following_count,json=followingCount,proto3" json:"following_count,omitempty"`
 	ActiveKeyId    string  `protobuf:"bytes,5,opt,name=active_key_id,json=activeKeyID,proto3" json:"active_key_id,omitempty"`
 	// Same instant as the profile's server_signature.signed_at.
-	ProfileTimestamp int64    `protobuf:"varint,6,opt,name=profile_timestamp,json=profileTimestamp,proto3" json:"profile_timestamp,omitempty"`
+	ProfileTimestamp uint32   `protobuf:"varint,6,opt,name=profile_timestamp,json=profileTimestamp,proto3" json:"profile_timestamp,omitempty"`
 	PinnedReedIds    []string `protobuf:"bytes,7,rep,name=pinned_reed_ids,json=pinnedReedIDs,proto3" json:"pinned_reed_ids,omitempty"`
 	VouchIds         []string `protobuf:"bytes,8,rep,name=vouch_ids,json=vouchIDs,proto3" json:"vouch_ids,omitempty"`
 	unknownFields    protoimpl.UnknownFields
@@ -668,7 +668,7 @@ func (x *UserInfo) GetActiveKeyId() string {
 	return ""
 }
 
-func (x *UserInfo) GetProfileTimestamp() int64 {
+func (x *UserInfo) GetProfileTimestamp() uint32 {
 	if x != nil {
 		return x.ProfileTimestamp
 	}
@@ -956,7 +956,7 @@ func (x *FollowRequest) GetFollowerId() string {
 type FollowListUser struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
-	FollowedAt    int64                  `protobuf:"varint,2,opt,name=followed_at,json=followedAt,proto3" json:"followed_at,omitempty"`
+	FollowedAt    uint32                 `protobuf:"varint,2,opt,name=followed_at,json=followedAt,proto3" json:"followed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -998,7 +998,7 @@ func (x *FollowListUser) GetUserId() string {
 	return ""
 }
 
-func (x *FollowListUser) GetFollowedAt() int64 {
+func (x *FollowListUser) GetFollowedAt() uint32 {
 	if x != nil {
 		return x.FollowedAt
 	}
@@ -1063,14 +1063,14 @@ type PublicKey struct {
 	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	UserId    string                 `protobuf:"bytes,2,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
 	Armor     string                 `protobuf:"bytes,3,opt,name=armor,proto3" json:"armor,omitempty"`
-	CreatedAt int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt uint32                 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Revoked   bool                   `protobuf:"varint,5,opt,name=revoked,proto3" json:"revoked,omitempty"`
 	// The replaced key's id; unset for a signup key.
 	Predecessor     *string          `protobuf:"bytes,6,opt,name=predecessor,proto3,oneof" json:"predecessor,omitempty"`
 	ServerSignature *ServerSignature `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	// Set on revoked server keys only.
-	RevokedAt     int64 `protobuf:"varint,8,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
-	Compromised   bool  `protobuf:"varint,9,opt,name=compromised,proto3" json:"compromised,omitempty"`
+	RevokedAt     uint32 `protobuf:"varint,8,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	Compromised   bool   `protobuf:"varint,9,opt,name=compromised,proto3" json:"compromised,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1126,7 +1126,7 @@ func (x *PublicKey) GetArmor() string {
 	return ""
 }
 
-func (x *PublicKey) GetCreatedAt() int64 {
+func (x *PublicKey) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -1154,7 +1154,7 @@ func (x *PublicKey) GetServerSignature() *ServerSignature {
 	return nil
 }
 
-func (x *PublicKey) GetRevokedAt() int64 {
+func (x *PublicKey) GetRevokedAt() uint32 {
 	if x != nil {
 		return x.RevokedAt
 	}
@@ -1269,7 +1269,7 @@ type ServerKeyRevocation struct {
 	Successor          string                 `protobuf:"bytes,3,opt,name=successor,proto3" json:"successor,omitempty"`
 	Compromised        bool                   `protobuf:"varint,4,opt,name=compromised,proto3" json:"compromised,omitempty"`
 	Reason             string                 `protobuf:"bytes,5,opt,name=reason,proto3" json:"reason,omitempty"`
-	SignedAt           int64                  `protobuf:"varint,6,opt,name=signed_at,json=signedAt,proto3" json:"signed_at,omitempty"`
+	SignedAt           uint32                 `protobuf:"varint,6,opt,name=signed_at,json=signedAt,proto3" json:"signed_at,omitempty"`
 	Signature          string                 `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature,omitempty"`
 	SuccessorSignature string                 `protobuf:"bytes,8,opt,name=successor_signature,json=successorSignature,proto3" json:"successor_signature,omitempty"`
 	unknownFields      protoimpl.UnknownFields
@@ -1341,7 +1341,7 @@ func (x *ServerKeyRevocation) GetReason() string {
 	return ""
 }
 
-func (x *ServerKeyRevocation) GetSignedAt() int64 {
+func (x *ServerKeyRevocation) GetSignedAt() uint32 {
 	if x != nil {
 		return x.SignedAt
 	}
@@ -2007,7 +2007,7 @@ const file_identity_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x15\n" +
 	"\x06key_id\x18\x03 \x01(\tR\x05keyId\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt\x12!\n" +
+	"created_at\x18\x04 \x01(\rR\tcreatedAt\x12!\n" +
 	"\ffrontend_url\x18\x05 \x01(\tR\vfrontendUrl\"i\n" +
 	"\x0eUserIDResponse\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1c\n" +
@@ -2038,7 +2038,7 @@ const file_identity_proto_rawDesc = "" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12\x10\n" +
 	"\x03bio\x18\x04 \x01(\tR\x03bio\x12!\n" +
-	"\fmember_since\x18\x05 \x01(\x03R\vmemberSince\x12<\n" +
+	"\fmember_since\x18\x05 \x01(\rR\vmemberSince\x12<\n" +
 	"\x0euser_signature\x18\x06 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
 	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12*\n" +
 	"\x06invite\x18\b \x01(\v2\x12.syrinx.UserInviteR\x06invite\"\xbd\x02\n" +
@@ -2048,7 +2048,7 @@ const file_identity_proto_rawDesc = "" +
 	"\x0ffollowers_count\x18\x03 \x01(\x05R\x0efollowersCount\x12'\n" +
 	"\x0ffollowing_count\x18\x04 \x01(\x05R\x0efollowingCount\x12\"\n" +
 	"\ractive_key_id\x18\x05 \x01(\tR\vactiveKeyID\x12+\n" +
-	"\x11profile_timestamp\x18\x06 \x01(\x03R\x10profileTimestamp\x12&\n" +
+	"\x11profile_timestamp\x18\x06 \x01(\rR\x10profileTimestamp\x12&\n" +
 	"\x0fpinned_reed_ids\x18\a \x03(\tR\rpinnedReedIDs\x12\x1b\n" +
 	"\tvouch_ids\x18\b \x03(\tR\bvouchIDsB\x10\n" +
 	"\x0e_first_reed_id\"h\n" +
@@ -2071,7 +2071,7 @@ const file_identity_proto_rawDesc = "" +
 	"followerID\"J\n" +
 	"\x0eFollowListUser\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1f\n" +
-	"\vfollowed_at\x18\x02 \x01(\x03R\n" +
+	"\vfollowed_at\x18\x02 \x01(\rR\n" +
 	"followedAt\"]\n" +
 	"\x12FollowListResponse\x12,\n" +
 	"\x05users\x18\x01 \x03(\v2\x16.syrinx.FollowListUserR\x05users\x12\x19\n" +
@@ -2081,12 +2081,12 @@ const file_identity_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x14\n" +
 	"\x05armor\x18\x03 \x01(\tR\x05armor\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt\x12\x18\n" +
+	"created_at\x18\x04 \x01(\rR\tcreatedAt\x12\x18\n" +
 	"\arevoked\x18\x05 \x01(\bR\arevoked\x12%\n" +
 	"\vpredecessor\x18\x06 \x01(\tH\x00R\vpredecessor\x88\x01\x01\x12B\n" +
 	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1d\n" +
 	"\n" +
-	"revoked_at\x18\b \x01(\x03R\trevokedAt\x12 \n" +
+	"revoked_at\x18\b \x01(\rR\trevokedAt\x12 \n" +
 	"\vcompromised\x18\t \x01(\bR\vcompromisedB\x0e\n" +
 	"\f_predecessor\"\xce\x02\n" +
 	"\x13AddPublicKeyRequest\x12\x17\n" +
@@ -2104,7 +2104,7 @@ const file_identity_proto_rawDesc = "" +
 	"\tsuccessor\x18\x03 \x01(\tR\tsuccessor\x12 \n" +
 	"\vcompromised\x18\x04 \x01(\bR\vcompromised\x12\x16\n" +
 	"\x06reason\x18\x05 \x01(\tR\x06reason\x12\x1b\n" +
-	"\tsigned_at\x18\x06 \x01(\x03R\bsignedAt\x12\x1c\n" +
+	"\tsigned_at\x18\x06 \x01(\rR\bsignedAt\x12\x1c\n" +
 	"\tsignature\x18\a \x01(\tR\tsignature\x12/\n" +
 	"\x13successor_signature\x18\b \x01(\tR\x12successorSignature\"\x8d\x01\n" +
 	"\x15KeyRevocationResponse\x12/\n" +

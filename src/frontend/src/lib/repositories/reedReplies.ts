@@ -16,7 +16,7 @@ export type ReedReplyRow = {
   rootId: string;
   /** Reply reed's own server-signed timestamp — sort/page key for the
    * cross-parent inbox view (replies page). */
-  createdAt: string;
+  createdAt: number;
 };
 
 function rowFromFields(
@@ -24,7 +24,7 @@ function rowFromFields(
   replyReedID: string,
   parentReedRef: string,
   rootId: string,
-  createdAt: string,
+  createdAt: number,
 ): ReedReplyRow {
   return {
     reedID: replyReedID,
@@ -46,14 +46,14 @@ export const reedRepliesRepository = {
     rootId: string,
   ): Promise<void> {
     await reedRepliesRepository.put(
-      rowFromFields(reply.userID, reply.reedID, parentReedRef, rootId, reply.timestamp),
+      rowFromFields(reply.userId, reply.reedId, parentReedRef, rootId, reply.timestamp),
     );
   },
 
   async upsertFromReed(reed: Pick<ReedType, 'id' | 'userID' | 'replying' | 'serverSignature'>): Promise<void> {
-    if (!reed.replying || !reed.serverSignature?.timestamp) return;
+    if (!reed.replying || !reed.serverSignature?.signedAt) return;
     await reedRepliesRepository.put(
-      rowFromFields(reed.userID, reed.id, reed.replying.to, reed.replying.root, reed.serverSignature.timestamp),
+      rowFromFields(reed.userID, reed.id, reed.replying.to, reed.replying.root, reed.serverSignature.signedAt),
     );
   },
 
@@ -104,7 +104,7 @@ export const reedRepliesRepository = {
     parentReedRefs: string[],
     excludeUserID: string,
     limit: number,
-    after?: string,
+    after?: number,
   ): Promise<ReedReplyRow[]> {
     const parentSet = new Set(parentReedRefs);
     return dbService.getLatestFromIndex<ReedReplyRow>(

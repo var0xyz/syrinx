@@ -53,7 +53,7 @@ func pbUserSignature(s UserSignature) *pb.UserSignature {
 }
 
 func pbServerSignature(s ServerSignature) *pb.ServerSignature {
-	return &pb.ServerSignature{Id: s.ID, Armor: s.Armor, SignedAt: s.SignedAt.UTC().Unix()}
+	return &pb.ServerSignature{Id: s.ID, Armor: s.Armor, SignedAt: unixOrZero(s.SignedAt)}
 }
 
 func pbReedRemovalCert(w reedRemovalWire) *pb.ReedRemovalCert {
@@ -84,7 +84,7 @@ func pbRipple(r RippleWire) *pb.Ripple {
 		Content:         r.Content,
 		ReplyingTo:      r.ReplyingTo,
 		Deleted:         r.Deleted,
-		PostedAt:        r.PostedAt.UTC().Unix(),
+		PostedAt:        unixOrZero(r.PostedAt),
 		UserSignature:   pbUserSignature(r.UserSignature),
 		ServerSignature: pbServerSignature(r.ServerSignature),
 	}

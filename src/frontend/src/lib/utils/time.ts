@@ -1,11 +1,21 @@
+/** A wire timestamp (unix seconds) as a Date; 0 means unset. */
+export function fromUnix(seconds: number): Date | undefined {
+  return seconds ? new Date(seconds * 1000) : undefined;
+}
+
+/** A Date as wire unix seconds. */
+export function toUnix(date: Date): number {
+  return Math.floor(date.getTime() / 1000);
+}
+
 /**
  * Format a timestamp as relative time ("just now", "3 days ago", "a year ago").
- * Accepts an ISO date string or a numeric ms-since-epoch value.
+ * Takes a Date or an ISO date string; wire timestamps go through fromUnix.
  */
-export function formatRelativeTime(timestamp: string | number): string {
+export function formatRelativeTime(timestamp: string | Date | undefined): string {
   if (!timestamp) return '';
 
-  const date = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp);
+  const date = new Date(timestamp);
   const diffSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
 
   if (diffSeconds < 15)   return 'just now';
@@ -30,7 +40,7 @@ export function formatRelativeTime(timestamp: string | number): string {
 /**
  * Format timestamp as absolute date and time (MMM DD, YYYY at HH:MM, 24h)
  */
-export function formatAbsoluteDateTime(timestamp: string): string {
+export function formatAbsoluteDateTime(timestamp: string | Date | undefined): string {
   if (!timestamp) return '';
 
   const date = new Date(timestamp);

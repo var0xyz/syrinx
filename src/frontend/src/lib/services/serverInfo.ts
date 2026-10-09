@@ -1,11 +1,12 @@
 import { derived, writable } from 'svelte/store';
 import type { FederatedServer, ServerInfo, SignupMode } from '$lib/types/server';
 import type { PublicKey } from '$lib/types/api';
+import { create } from '@bufbuild/protobuf';
+import { PublicKeySchema } from '$lib/proto/identity_pb';
 import { isOnline } from './pwa';
 import { serverKeyProofHeader, getTrustedServerKey } from './serverKeyTrust';
 import { formatServerKeyId } from '$lib/utils/identityRef';
-import { decodeShape } from './wire';
-import { ServerInfoSchema } from '$lib/proto/identity_pb';
+import { readServerInfo } from './api';
 
 export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
@@ -85,14 +86,7 @@ async function ensureServerKeyCached(serverId: string, serverKeyId: string): Pro
       throw new Error('server key armor does not match serverKeyId');
     }
 
-    const key: PublicKey = {
-      id: serverKeyId,
-      userID: '',
-      armor: trusted.armor,
-      revoked: false,
-      predecessor: null,
-      serverSignature: { id: '', armor: '', timestamp: '' },
-    };
+    const key: PublicKey = create(PublicKeySchema, { id: serverKeyId, armor: trusted.armor });
     await dbService.put('publicKeys', key, allowUnsigned);
   } catch (error) {
     console.error('serverInfo: failed to cache own server key', error);
@@ -149,7 +143,7 @@ export async function refreshServerInfo(updateServerKey = true): Promise<ServerI
     serverKeyRejected.set(false);
     serverKeyCompromise.set(null);
 
-    const data = decodeShape(ServerInfoSchema, new Uint8Array(await response.arrayBuffer()));
+    const data = await readServerInfo(response);
     const info: ServerInfo = {
       id: data.id,
       name: data.name,
@@ -195,20 +189,8 @@ export async function refreshServerInfo(updateServerKey = true): Promise<ServerI
 
 /** Keeps the local list of peers in step with what /server/info reports.
  * Malformed entries are dropped rather than failing the whole refresh. */
-async function storeFederatedServers(raw: unknown): Promise<void> {
-  if (!Array.isArray(raw)) return;
-  const servers: FederatedServer[] = raw.flatMap((entry) => {
-    const e = entry as Record<string, unknown>;
-    const ok =
-      typeof e?.id === 'string' && e.id !== '' &&
-      typeof e.name === 'string' &&
-      typeof e.keyId === 'string' &&
-      typeof e.createdAt === 'string' &&
-      typeof e.frontendUrl === 'string' && e.frontendUrl !== '';
-    return ok
-      ? [{ id: e.id as string, name: e.name as string, keyId: e.keyId as string, createdAt: e.createdAt as string, frontendUrl: e.frontendUrl as string }]
-      : [];
-  });
+async function storeFederatedServers(federation: FederatedServer[]): Promise<void> {
+  const servers = federation.filter((e) => e.id !== '' && e.frontendUrl !== '');
   try {
     const { federatedServersRepository } = await import('$lib/repositories/federatedServers');
     await federatedServersRepository.replaceAll(servers);

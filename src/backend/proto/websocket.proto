@@ -175,21 +175,21 @@ message ReedNotificationMessage {
   string user_id = 2;
   string username = 3;
   string content = 4;
-  int64 timestamp = 5;
+  uint32 timestamp = 5;
 }
 
 // User update notification
 message UserUpdateMessage {
   string user_id = 1;
   string update_type = 2;
-  int64 timestamp = 3;
+  uint32 timestamp = 3;
 }
 
 // Error message
 message ErrorMessage {
   string code = 1;
   string message = 2;
-  int64 timestamp = 3;
+  uint32 timestamp = 3;
 }
 
 // Client request for a reed's content, by id.

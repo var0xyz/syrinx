@@ -2,24 +2,25 @@
 export interface RevocableReed {
   id: string;
   userSignature?: { id?: string } | null;
-  serverSignature?: { timestamp?: string } | null;
+  serverSignature?: { signedAt?: number } | null;
 }
 
-/** A key stays valid for content it signed strictly before its revocation. */
-export function signedBeforeRevocation(atISO: string, revokedAtISO: string): boolean {
-  return Date.parse(atISO) < Date.parse(revokedAtISO);
+/** A key stays valid for content it signed strictly before its revocation.
+ * Both instants are unix seconds. */
+export function signedBeforeRevocation(at: number, revokedAt: number): boolean {
+  return at < revokedAt;
 }
 
 /** Reeds the revoked key signed at or after its revocation. */
 export function reedsSignedAfterRevocation<T extends RevocableReed>(
   reeds: T[],
   keyID: string,
-  revokedAtISO: string
+  revokedAt: number
 ): T[] {
   return reeds.filter(
     (reed) =>
       reed.userSignature?.id === keyID &&
-      !!reed.serverSignature?.timestamp &&
-      !signedBeforeRevocation(reed.serverSignature.timestamp, revokedAtISO)
+      !!reed.serverSignature?.signedAt &&
+      !signedBeforeRevocation(reed.serverSignature.signedAt, revokedAt)
   );
 }

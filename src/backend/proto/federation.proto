@@ -26,11 +26,11 @@ message FederationInvitation {
   string status = 3;
   string created_by = 4;
   string remote_fingerprint = 5;
-  int64 created_at = 6;
-  int64 accepted_at = 7;
+  uint32 created_at = 6;
+  uint32 accepted_at = 7;
   optional string server_id = 8;
   optional string reviewed_by = 9;
-  int64 reviewed_at = 10;
+  uint32 reviewed_at = 10;
   optional string connection_string = 11;
 }
 
@@ -53,14 +53,14 @@ message FederationServer {
   bool connected = 5;
   // Approved on both sides; connected alone means only on ours.
   bool established = 6;
-  int64 created_at = 7;
+  uint32 created_at = 7;
   bool revoked = 8;
-  int64 revoked_at = 9;
+  uint32 revoked_at = 9;
   optional string revoked_by = 10;
   optional string revoked_reason = 11;
   // A disconnect was requested but not yet confirmed by a second admin.
   bool disconnect_pending = 12;
-  int64 disconnect_requested_at = 13;
+  uint32 disconnect_requested_at = 13;
   optional string disconnect_requested_by = 14;
   optional string disconnect_reason = 15;
 }
@@ -79,12 +79,12 @@ message FederationAttempt {
   string fingerprint = 6;
   optional string invitation_id = 7;
   optional string server_id = 8;
-  int64 created_at = 9;
+  uint32 created_at = 9;
   string status = 10;
   optional string approved_by = 11;
-  int64 approved_at = 12;
+  uint32 approved_at = 12;
   optional string rejected_by = 13;
-  int64 rejected_at = 14;
+  uint32 rejected_at = 14;
   optional string rejected_reason = 15;
 }
 
@@ -273,7 +273,7 @@ message RelayNewReedEcho {
 message RelayNewReedPayload {
   string reed_id = 1;
   string author_id = 2;
-  int64 signed_at = 3;
+  uint32 signed_at = 3;
   repeated string mentions = 4;
   RelayNewReedReply reply = 5;
   RelayNewReedEcho echo = 6;
@@ -287,7 +287,7 @@ message RelayReedRemovalCert {
   string user_key_id = 4;
   string server_signature = 5;
   string server_fingerprint = 6;
-  int64 server_signed_at = 7;
+  uint32 server_signed_at = 7;
 }
 
 // The removal cert, plus the parent the removed reed replied to.
@@ -307,7 +307,7 @@ message RelayAccountRemovalNotifyPayload {
   string user_key_id = 4;
   string server_signature = 5;
   string server_fingerprint = 6;
-  int64 server_signed_at = 7;
+  uint32 server_signed_at = 7;
 }
 
 message RelayUnblockPayload {

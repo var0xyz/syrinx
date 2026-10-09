@@ -8,7 +8,7 @@
 
   /** @type {import('$lib/types/api').Ripple} */
   export let ripple;
-  /** Resolved username for ripple.userID, or null (removed account). */
+  /** Resolved username for ripple.userId, or null (removed account). */
   export let username = /** @type {string | null} */ (null);
   /** Resolved username for ripple.replyingTo's author, if that target is
    * loaded — null if the target isn't loaded, undefined if there's no
@@ -42,13 +42,13 @@
   style={burning ? `--burn-delay: ${burnDelayMs}ms` : undefined}
 >
   <div class="ripple-avatar">
-    <Avatar userID={ripple.userID} username={username ?? ''} size="32px" />
+    <Avatar userID={ripple.userId} username={username ?? ''} size="32px" />
   </div>
   <div class="ripple-body">
     <p class="ripple-meta">
       <span class="ripple-meta-text">
         {#if username}
-          <Username userID={ripple.userID} {username} color="var(--muted)" />
+          <Username userID={ripple.userId} {username} color="var(--muted)" />
         {:else}
           <span class="ripple-username-removed">[removed account]</span>
         {/if}
@@ -75,7 +75,7 @@
         {#if replyable}
           <button type="button" class="ripple-action ripple-reply-inline" on:click={() => dispatch('reply')}>reply</button>
         {/if}
-        {#if ripple.userID === ownUserID}
+        {#if ripple.userId === ownUserID}
           <button type="button" class="ripple-action ripple-reply-inline" on:click={() => dispatch('delete', ripple.hash)}>delete</button>
         {/if}
       </p>

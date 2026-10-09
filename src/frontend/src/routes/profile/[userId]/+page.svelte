@@ -330,7 +330,7 @@
 
   function onPinnedChange(e) {
     if (profileUser) {
-      profileUser = { ...profileUser, pinnedReedIDs: e.detail.pinnedReedIDs };
+      profileUser = { ...profileUser, pinnedReedIds: e.detail.pinnedReedIDs };
     }
   }
 
@@ -444,7 +444,7 @@
   }
 
   async function handleGone(removal) {
-    if (removal?.type === 'account') {
+    if (removal?.$typeName === 'syrinx.AccountRemovalCert') {
       if (!(await verifyAndCommitAccountRemoval(removal))) {
         console.warn('Account removal cert failed verification; retaining local data');
         return;
@@ -549,7 +549,7 @@
 
     {:else if status === 'blocked' && blockCert}
       <BlockedProfile cert={blockCert}>
-        <BlockButton slot="actions" userID={blockCert.userID} />
+        <BlockButton slot="actions" userID={blockCert.userId} />
       </BlockedProfile>
 
     {:else if status === 'tombstone'}
@@ -662,7 +662,7 @@
           {expectContent}
           firstReedId={profileUser?.firstReedId ?? null}
           {profileUser}
-          pinnedReedIds={profileUser?.pinnedReedIDs ?? []}
+          pinnedReedIds={profileUser?.pinnedReedIds ?? []}
           on:pinnedChange={onPinnedChange}
         />
       {/key}

@@ -170,8 +170,9 @@ same-named root file instead:
   WS event set — can't be `package main` (generated code needs its own
   package), so this is the only other Go code outside root. Every `/api/*`
   body, client or peer-to-peer, is `application/x-protobuf` (codec in
-  `protowire.go`; SPA side `lib/services/wire.ts`). Every `int64` is a
-  unix-seconds timestamp. Regenerate with `make proto` (needs `protoc`
+  `protowire.go`), and the SPA uses the generated protobuf-es types
+  directly (`lib/types/api.ts` only renames them). Every timestamp is
+  `uint32` unix seconds; convert with `fromUnix`/`toUnix` (`lib/utils/time.ts`). Regenerate with `make proto` (needs `protoc`
   + `protoc-gen-go` on `PATH`).
 
 ### Frontend (`src/frontend/src/`)

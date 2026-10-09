@@ -33,7 +33,7 @@ message RecoveryProfile {
   string id = 1;
   string username = 2;
   string role = 3;
-  int64 member_since = 4;
+  uint32 member_since = 4;
   string bio = 5;
   string active_key_fingerprint = 6;
   UserSignature user_signature = 7;
@@ -63,8 +63,8 @@ message RecoveryKeyNode {
   string fingerprint = 1;
   string user_id = 2 [json_name = "userID"];
   string armor = 3;
-  int64 created_at = 4;
-  int64 expires_at = 5;
+  uint32 created_at = 4;
+  uint32 expires_at = 5;
   bool revoked = 6;
   ServerSignature server_signature = 7;
   string signature = 8;

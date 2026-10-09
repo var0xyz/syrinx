@@ -3,7 +3,7 @@ export interface ProtectionInputs {
   viewerID: string | null;
   following: { userId: string }[];
   userLists: { memberIds: string[] }[];
-  vouches: { subjectUserID: string }[];
+  vouches: { subjectUserId: string }[];
 }
 
 /**
@@ -19,7 +19,7 @@ export function buildProtectedUserIDs(inputs: ProtectionInputs): Set<string> {
     for (const memberID of userList.memberIds) protectedIDs.add(memberID);
   }
   for (const vouch of inputs.vouches) {
-    protectedIDs.add(vouch.subjectUserID);
+    protectedIDs.add(vouch.subjectUserId);
   }
   return protectedIDs;
 }

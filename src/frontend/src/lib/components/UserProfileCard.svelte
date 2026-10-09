@@ -190,7 +190,7 @@
 
   function formatDate(dateString) {
     try {
-      const date = new Date(dateString);
+      const date = new Date(dateString * 1000);
       return date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     } catch {
       return dateString;
@@ -234,7 +234,7 @@
         >
           <TrustMark
             userID={user?.id ?? ''}
-            activeKeyID={user?.activeKeyID}
+            activeKeyID={user?.activeKeyId}
             linked={false}
             refresh
           />
@@ -244,7 +244,7 @@
       <p class="user-info">{user?.memberSince ? formatDate(user.memberSince) : 'Unknown'}</p>
       {#if user?.invite}
         <p class="user-info invited-by">
-          Invited by <Username userID={user.invite.userID} username={user.invite.username} at fire={false} />
+          Invited by <Username userID={user.invite.userId} username={user.invite.username} at fire={false} />
         </p>
       {/if}
       <div class="follow-stats">
@@ -264,8 +264,8 @@
   {/if}
   <TrustSection
     userID={user?.id}
-    activeKeyID={user?.activeKeyID}
-    vouchIDs={user?.vouchIDs ?? []}
+    activeKeyID={user?.activeKeyId}
+    vouchIDs={user?.vouchIds ?? []}
     bind:showDetails={showTrustDetails}
   />
   {#if isOwner}

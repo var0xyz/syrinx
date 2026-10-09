@@ -73,22 +73,22 @@ export async function listStoredUsers(): Promise<StoredUser[]> {
     row.keptBytes += meta?.bytes ?? 0;
   }
   for (const { record, meta } of keys) {
-    if (!record.userID) continue;
-    const row = rowFor(record.userID);
+    if (!record.userId) continue;
+    const row = rowFor(record.userId);
     row.bytes += meta?.bytes ?? 0;
     row.keptBytes += meta?.bytes ?? 0;
   }
 
   for (const { record, meta } of blocks) {
-    if (!record.userID) continue;
-    const row = rowFor(record.userID);
+    if (!record.userId) continue;
+    const row = rowFor(record.userId);
     row.blockedYou = true;
     row.bytes += meta?.bytes ?? 0;
   }
 
   // Only annotate users we hold something of; these never add a row.
   for (const cert of removed) {
-    const row = byUser.get(cert.userID);
+    const row = byUser.get(cert.userId);
     if (row) row.removed = true;
   }
   for (const visit of visits) {

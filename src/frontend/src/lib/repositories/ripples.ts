@@ -41,11 +41,11 @@ export class RipplesRepository {
       return true;
     }
 
-    if (ripple.userSignature?.id && ripple.userID) {
+    if (ripple.userSignature?.id && ripple.userId) {
       const fp = ripple.userSignature.id;
       if (!(await publicKeyRepository.hasPublicKey(fp))) {
         try {
-          const key = await apiService.getPublicKey(canonicalKeyId(ripple.userID, fp));
+          const key = await apiService.getPublicKey(canonicalKeyId(ripple.userId, fp));
           await publicKeyRepository.put(key);
         } catch (error) {
           console.error('Failed to cache ripple author public key:', error);
@@ -60,9 +60,9 @@ export class RipplesRepository {
       return false;
     }
 
-    if (ripple.userID) {
+    if (ripple.userId) {
       try {
-        await userRepository.getByUserId(ripple.userID);
+        await userRepository.getByUserId(ripple.userId);
       } catch (error) {
         console.error('Failed to cache ripple author profile:', error);
       }

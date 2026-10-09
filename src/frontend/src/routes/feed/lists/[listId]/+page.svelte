@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import ThreadContext from '$lib/components/ThreadContext.svelte';
@@ -88,7 +88,7 @@
               userID={reed.userID}
               username={authors[reed.userID]?.username ?? reed.userID}
               nameTag="h3"
-              subtext={formatRelativeTime(reed.serverSignature.timestamp)}
+              subtext={formatRelativeTime(fromUnix(reed.serverSignature.signedAt))}
               stopPropagation
               linked={false}
             />

@@ -3,6 +3,7 @@ import { cryptoService } from '$lib/services/crypto';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
 import { pendingRevocationRepository } from '$lib/repositories/pendingRevocation';
 import { revocationRepository } from '$lib/repositories/revocation';
+import { fromUnix } from '$lib/utils/time';
 
 export type ProfileKeyInfo = {
   keyId: string;
@@ -36,8 +37,8 @@ export async function loadProfileKeyInfo(): Promise<ProfileKeyInfo> {
     if (revocation) {
       revokedInfo = {
         reason: revocation.reason,
-        timestamp: revocation.serverSignature.timestamp,
-        successor: revocation.successor,
+        timestamp: fromUnix(revocation.serverSignature?.signedAt ?? 0)?.toISOString() ?? '',
+        successor: revocation.successor ?? null,
       };
     }
   }
@@ -49,7 +50,7 @@ export async function loadProfileKeyInfo(): Promise<ProfileKeyInfo> {
     keyId,
     identity,
     armor: publicKey.armor,
-    registeredAt: publicKey.serverSignature?.timestamp ?? null,
+    registeredAt: fromUnix(publicKey.serverSignature?.signedAt ?? 0)?.toISOString() ?? null,
     isPendingRevocation,
     isKeyRevoked,
     revokedInfo,

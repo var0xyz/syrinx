@@ -1,7 +1,10 @@
 import type * as api from '$lib/types/api';
 
+/** The unsigned hints a profile card shows next to the signed profile. */
+export type UserHints = Partial<Omit<api.UserInfo, '$typeName' | '$unknown' | 'id' | 'profileTimestamp'>>;
+
 /** Profile card / UI view: signed profile fields plus optional unsigned info. */
-export type UserView = api.User & Partial<api.UserInfo>;
+export type UserView = api.User & UserHints;
 
 export function mergeUserView(
   profile: api.User | null | undefined,
@@ -9,7 +12,7 @@ export function mergeUserView(
 ): UserView | null {
   if (!profile) return null;
   if (!info) return { ...profile };
-  const { id: _id, profileTimestamp: _ts, ...hints } = info;
+  const { id: _id, profileTimestamp: _ts, $typeName: _type, $unknown: _unknown, ...hints } = info;
   return { ...profile, ...hints };
 }
 
@@ -19,9 +22,6 @@ export function profileNeedsRefresh(
   info: api.UserInfo | null | undefined
 ): boolean {
   if (!info?.profileTimestamp) return !profile;
-  if (!profile?.serverSignature?.timestamp) return true;
-  const cached = Date.parse(profile.serverSignature.timestamp);
-  const remote = Date.parse(info.profileTimestamp);
-  if (Number.isNaN(cached) || Number.isNaN(remote)) return true;
-  return remote > cached;
+  if (!profile?.serverSignature?.signedAt) return true;
+  return info.profileTimestamp > profile.serverSignature.signedAt;
 }

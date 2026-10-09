@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed. Final step of the track.
+Implemented. `api.ts` and `serverConnection.ts` hand out generated
+messages unchanged; `lib/types/api.ts` only re-exports them under the
+names the SPA already used, plus the local-only `Invite` record.
+Certificates are told apart by `$typeName`; IndexedDB stores the
+generated shapes (key paths and indexes renamed, affected stores
+dropped on upgrade). Reed content (`ReedType`) stays a local JSON shape:
+it is relayed encrypted between clients, never an HTTP or WS message.
 
 ## Depends on
 
@@ -25,8 +31,8 @@ twice, once in `.proto` and once in TypeScript.
   directly.
 - Delete the HTTP and WS conversion layers and every wire-only interface
   in `lib/types/api.ts` that a generated message replaces.
-- Timestamps stay `bigint` unix seconds in memory; format them only at
-  display and when rebuilding a `canonicalJSON` payload.
+- Timestamps stay `uint32` unix seconds (`number`) in memory; format them
+  only at display and when rebuilding a `canonicalJSON` payload.
 - IndexedDB stores the generated shape (blank slate: recreate local
   data, no migration of stored records).
 

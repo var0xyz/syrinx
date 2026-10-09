@@ -87,7 +87,7 @@ async function dropUserRecords(userID: string): Promise<void> {
   const profile = await userRepository.get(userID);
   if (profile?.userSignature?.id) keyIDs.add(profile.userSignature.id);
   for (const key of await publicKeyRepository.listPublicKeys()) {
-    if (key.userID === userID) keyIDs.add(key.id);
+    if (key.userId === userID) keyIDs.add(key.id);
   }
 
   if (keyIDs.size === 0) {

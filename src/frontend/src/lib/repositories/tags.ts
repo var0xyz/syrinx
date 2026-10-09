@@ -9,13 +9,13 @@ const STORE = 'tags';
 export interface TagRow {
   name: string;
   reedID: string;
-  createdAt: string;
+  createdAt: number;
 }
 
 export const tagsRepository = {
   /** Index a stored reed under each of its tags, lowercased. */
   async add(reed: ReedType): Promise<void> {
-    const createdAt = reed.serverSignature?.timestamp;
+    const createdAt = reed.serverSignature?.signedAt;
     if (!createdAt) return;
     const names = new Set((reed.tags ?? []).map((tag) => tag.toLowerCase()));
     for (const name of names) {

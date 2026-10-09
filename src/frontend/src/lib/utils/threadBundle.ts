@@ -1,8 +1,8 @@
 /** What checking a thread bundle needs from a record and its parts. */
 export interface BundleRecord {
-  threadID: string;
-  userID: string;
-  reedIDs: string[];
+  threadId: string;
+  userId: string;
+  reedIds: string[];
 }
 
 export interface BundlePart {
@@ -22,12 +22,12 @@ export function threadBundleMismatch(
   record: BundleRecord,
   parts: BundlePart[]
 ): string | null {
-  if (record.threadID !== threadID) return 'record names another thread';
-  if (parts.length !== record.reedIDs.length) return 'parts missing or extra';
+  if (record.threadId !== threadID) return 'record names another thread';
+  if (parts.length !== record.reedIds.length) return 'parts missing or extra';
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i];
-    if (part.id !== record.reedIDs[i]) return `part ${i} is not the listed reed`;
-    if (part.userID !== record.userID) return `part ${i} has another author`;
+    if (part.id !== record.reedIds[i]) return `part ${i} is not the listed reed`;
+    if (part.userID !== record.userId) return `part ${i} has another author`;
     if (part.thread?.head !== threadID || part.thread?.index !== i) {
       return `part ${i} names another place`;
     }

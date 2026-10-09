@@ -26,30 +26,30 @@
   // Someone else's vouch is a claim about who this person is, and that
   // does not lapse when they rotate a key. Only the key binding does, and
   // only the verifier can act on it.
-  $: byOthers = newestPerVoucher([...live, ...stale].filter((v) => v.voucherUserID !== me));
+  $: byOthers = newestPerVoucher([...live, ...stale].filter((v) => v.voucherUserId !== me));
 
   /** One row per person: re-vouching is allowed, and only the latest counts. */
   function newestPerVoucher(vouches: VouchRecord[]): VouchRecord[] {
     const newest = new Map<string, VouchRecord>();
     for (const vouch of vouches) {
-      const held = newest.get(vouch.voucherUserID);
-      if (!held || vouch.serverSignature.timestamp > held.serverSignature.timestamp) {
-        newest.set(vouch.voucherUserID, vouch);
+      const held = newest.get(vouch.voucherUserId);
+      if (!held || vouch.serverSignature.signedAt > held.serverSignature.signedAt) {
+        newest.set(vouch.voucherUserId, vouch);
       }
     }
     return [...newest.values()];
   }
 
-  $: ownVouch = me ? live.find((v) => v.voucherUserID === me) : undefined;
+  $: ownVouch = me ? live.find((v) => v.voucherUserId === me) : undefined;
 
   // Only your own lapsed verification is actionable, and only while you
   // have not re-verified: once you have, the old one says nothing.
   $: ownStale =
     me && !ownVouch
       ? stale
-          .filter((v) => v.voucherUserID === me)
+          .filter((v) => v.voucherUserId === me)
           .sort((a, b) =>
-            b.serverSignature.timestamp.localeCompare(a.serverSignature.timestamp)
+            (b.serverSignature?.signedAt ?? 0) - (a.serverSignature?.signedAt ?? 0)
           )[0]
       : undefined;
 
@@ -60,14 +60,14 @@
   async function withdraw(vouch: VouchRecord) {
     withdrawing = vouch.id;
     try {
-      await withdrawVouch(vouch.id, vouch.subjectUserID, vouch.subjectKeyID);
+      await withdrawVouch(vouch.id, vouch.subjectUserId, vouch.subjectKeyId);
       notificationStore.success('Verification withdrawn');
       dispatch('changed');
     } catch (error) {
       console.error('[trust] withdraw failed', error);
       notificationStore.error(
-        foreignServerOf(vouch.subjectUserID)
-          ? await unreachableServerMessage(vouch.subjectUserID)
+        foreignServerOf(vouch.subjectUserId)
+          ? await unreachableServerMessage(vouch.subjectUserId)
           : 'Could not withdraw'
       );
     } finally {
@@ -75,8 +75,8 @@
     }
   }
 
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString();
+  function formatDate(unix: number): string {
+    return new Date(unix * 1000).toLocaleDateString();
   }
 </script>
 
@@ -119,7 +119,7 @@
       {#if ownVouch}
         <div class="row own">
           <p class="own-line">
-            You verified this user on {formatDate(ownVouch.serverSignature.timestamp)}.
+            You verified this user on {formatDate(ownVouch.serverSignature.signedAt)}.
           </p>
           {#if ownVouch.note}
             <p class="note">“{ownVouch.note}”</p>
@@ -138,10 +138,10 @@
             {#each byOthers as vouch (vouch.id)}
               <li>
                 <span class="voucher" on:click={close} role="presentation">
-                  <Username userID={vouch.voucherUserID} at={true} /><ServerName userID={vouch.voucherUserID} />
+                  <Username userID={vouch.voucherUserId} at={true} /><ServerName userID={vouch.voucherUserId} />
                 </span>
-                <TrustMark userID={vouch.voucherUserID} linked={false} />
-                <span class="when">{formatDate(vouch.serverSignature.timestamp)}</span>
+                <TrustMark userID={vouch.voucherUserId} linked={false} />
+                <span class="when">{formatDate(vouch.serverSignature.signedAt)}</span>
                 {#if vouch.note}
                   <span class="note">“{vouch.note}”</span>
                 {/if}
@@ -155,7 +155,7 @@
         <section class="group stale">
           <h3>Their key changed since you verified</h3>
           <p class="hint">
-            You verified them on {formatDate(ownStale.serverSignature.timestamp)}.
+            You verified them on {formatDate(ownStale.serverSignature.signedAt)}.
             That still stands — but you are no longer holding them to a
             key. Verify again next time you see them.
           </p>

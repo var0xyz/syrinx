@@ -24,10 +24,10 @@ export async function commitBlockLocally(cert: api.BlockCert): Promise<boolean> 
   try {
     await blockedByRepository.put(cert);
   } catch (error) {
-    console.warn('[blockedBy] refused block', cert?.userID, error);
+    console.warn('[blockedBy] refused block', cert?.userId, error);
     return false;
   }
-  const userID = cert.userID;
+  const userID = cert.userId;
 
   await reedsService.deleteReedsByAuthor(userID);
   for (const record of await pendingEvictionsRepository.getByUser(userID)) {
@@ -51,7 +51,7 @@ export async function commitBlockLocally(cert: api.BlockCert): Promise<boolean> 
 /** Handles a pushed or refusal USER_BLOCKED: commits it and acks it. */
 export async function receiveBlock(cert: api.BlockCert): Promise<void> {
   if (await commitBlockLocally(cert)) {
-    serverConnection.sendUserBlockedAck(cert.userID);
+    serverConnection.sendUserBlockedAck(cert.userId);
   }
 }
 
@@ -66,7 +66,7 @@ export async function receiveUnblock(userID: string): Promise<void> {
  * Stored users. Their profile fetches it again the next time it is opened. */
 export async function forgetBlock(userID: string): Promise<void> {
   for (const key of await publicKeyRepository.listPublicKeys()) {
-    if (key.userID === userID) await pendingKeyEvictionsRepository.put({ keyID: key.id, userID });
+    if (key.userId === userID) await pendingKeyEvictionsRepository.put({ keyID: key.id, userID });
   }
   await blockedByRepository.delete(userID);
   blockedByChanged.update((n) => n + 1);

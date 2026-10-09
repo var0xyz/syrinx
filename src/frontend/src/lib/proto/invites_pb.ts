@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file invites.proto.
  */
 export const file_invites: GenFile = /*@__PURE__*/
-  fileDesc("Cg1pbnZpdGVzLnByb3RvEgZzeXJpbngijgEKE0NyZWF0ZUludml0ZVJlcXVlc3QSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgDEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlIrQBCgZJbnZpdGUSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgDEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBiABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIo4BCgxJbnZpdGVTdGF0dXMSCgoCaWQYASABKAkSEgoKY3JlYXRlZF9hdBgCIAEoAxIOCgZzdGF0dXMYAyABKAkSEgoKY2xhaW1lZF9hdBgEIAEoAxIXCgpjbGFpbWVkX2J5GAUgASgJSACIAQESEgoKcmV2b2tlZF9hdBgGIAEoA0INCgtfY2xhaW1lZF9ieSIkChNJbnZpdGVDaGVja1Jlc3BvbnNlEg0KBXZhbGlkGAEgASgIQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("Cg1pbnZpdGVzLnByb3RvEgZzeXJpbngijgEKE0NyZWF0ZUludml0ZVJlcXVlc3QSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgNEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlIrQBCgZJbnZpdGUSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgNEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBiABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIo4BCgxJbnZpdGVTdGF0dXMSCgoCaWQYASABKAkSEgoKY3JlYXRlZF9hdBgCIAEoDRIOCgZzdGF0dXMYAyABKAkSEgoKY2xhaW1lZF9hdBgEIAEoDRIXCgpjbGFpbWVkX2J5GAUgASgJSACIAQESEgoKcmV2b2tlZF9hdBgGIAEoDUINCgtfY2xhaW1lZF9ieSIkChNJbnZpdGVDaGVja1Jlc3BvbnNlEg0KBXZhbGlkGAEgASgIQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
 
 /**
  * POST /invites. The client mints id and secret; only the secret's
@@ -32,9 +32,9 @@ export type CreateInviteRequest = Message<"syrinx.CreateInviteRequest"> & {
   tokenHash: string;
 
   /**
-   * @generated from field: int64 created_at = 3;
+   * @generated from field: uint32 created_at = 3;
    */
-  createdAt: bigint;
+  createdAt: number;
 
   /**
    * @generated from field: string granted_role = 4;
@@ -69,9 +69,9 @@ export type Invite = Message<"syrinx.Invite"> & {
   tokenHash: string;
 
   /**
-   * @generated from field: int64 created_at = 3;
+   * @generated from field: uint32 created_at = 3;
    */
-  createdAt: bigint;
+  createdAt: number;
 
   /**
    * @generated from field: string granted_role = 4;
@@ -108,9 +108,9 @@ export type InviteStatus = Message<"syrinx.InviteStatus"> & {
   id: string;
 
   /**
-   * @generated from field: int64 created_at = 2;
+   * @generated from field: uint32 created_at = 2;
    */
-  createdAt: bigint;
+  createdAt: number;
 
   /**
    * @generated from field: string status = 3;
@@ -118,9 +118,9 @@ export type InviteStatus = Message<"syrinx.InviteStatus"> & {
   status: string;
 
   /**
-   * @generated from field: int64 claimed_at = 4;
+   * @generated from field: uint32 claimed_at = 4;
    */
-  claimedAt: bigint;
+  claimedAt: number;
 
   /**
    * @generated from field: optional string claimed_by = 5;
@@ -128,9 +128,9 @@ export type InviteStatus = Message<"syrinx.InviteStatus"> & {
   claimedBy?: string | undefined;
 
   /**
-   * @generated from field: int64 revoked_at = 6;
+   * @generated from field: uint32 revoked_at = 6;
    */
-  revokedAt: bigint;
+  revokedAt: number;
 };
 
 /**

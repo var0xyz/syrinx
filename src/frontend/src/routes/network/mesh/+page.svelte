@@ -13,7 +13,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Username from '$lib/components/Username.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   const tabs = [
     { href: '/network/users', label: 'Users' },
@@ -243,15 +243,15 @@
   }
 
   type PeerRow =
-    | { kind: 'attempt'; key: string; createdAt: string; item: api.FederationAttempt }
-    | { kind: 'server'; key: string; createdAt: string; item: api.FederationServer };
+    | { kind: 'attempt'; key: string; createdAt: number; item: api.FederationAttempt }
+    | { kind: 'server'; key: string; createdAt: number; item: api.FederationServer };
 
   // Attempts and servers are the same lifecycle (pending/approved connection),
   // just rendered as one list instead of two separately-headed sections.
   $: peerRows = [
     ...attempts.map((item): PeerRow => ({ kind: 'attempt', key: `att-${item.attemptId}`, createdAt: item.createdAt, item })),
     ...servers.map((item): PeerRow => ({ kind: 'server', key: `srv-${item.serverId}`, createdAt: item.createdAt, item })),
-  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  ].sort((a, b) => b.createdAt - a.createdAt);
 
   function rowHref(row: PeerRow): string {
     return row.kind === 'attempt'
@@ -307,7 +307,7 @@
                     <span class="badge" data-status={inv.status}>{statusLabel(inv.status)}</span>
                   </span>
                   <span class="meta"
-                    >Created {formatRelativeTime(inv.createdAt)} by <Username
+                    >Created {formatRelativeTime(fromUnix(inv.createdAt))} by <Username
                       userID={inv.createdBy}
                       class="meta-link"
                       at
@@ -319,7 +319,7 @@
                       {reviewActionLabel(inv.status)}
                       <Username userID={inv.reviewedBy} class="meta-link" at fire={false} />
                       {#if inv.reviewedAt}
-                        · {formatRelativeTime(inv.reviewedAt)}
+                        · {formatRelativeTime(fromUnix(inv.reviewedAt))}
                       {/if}
                     </span>
                   {/if}
@@ -369,7 +369,7 @@
                         </span>
                       </span>
                       <span class="meta">{row.item.baseUrl}</span>
-                      <span class="meta">Started {formatRelativeTime(row.item.createdAt)}</span>
+                      <span class="meta">Started {formatRelativeTime(fromUnix(row.item.createdAt))}</span>
                     </div>
                   {:else}
                     <div class="invite-main">
@@ -397,7 +397,7 @@
                       {#if row.item.baseUrl}
                         <span class="meta">{row.item.baseUrl}</span>
                       {/if}
-                      <span class="meta">Added {formatRelativeTime(row.item.createdAt)}</span>
+                      <span class="meta">Added {formatRelativeTime(fromUnix(row.item.createdAt))}</span>
                     </div>
                   {/if}
                 </div>

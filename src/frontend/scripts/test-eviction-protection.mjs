@@ -19,7 +19,7 @@ assert.ok(
 const vouched = buildProtectedUserIDs({
   ...empty,
   viewerID: 'me@home',
-  vouches: [{ subjectUserID: 'bob@peer', voucherUserID: 'me@home' }],
+  vouches: [{ subjectUserId: 'bob@peer', voucherUserId: 'me@home' }],
 });
 assert.ok(vouched.has('bob@peer'), 'a user you vouched for is protected');
 
@@ -27,7 +27,7 @@ assert.ok(vouched.has('bob@peer'), 'a user you vouched for is protected');
 const inbound = buildProtectedUserIDs({
   ...empty,
   viewerID: 'me@home',
-  vouches: [{ subjectUserID: 'me@home', voucherUserID: 'carol@x' }],
+  vouches: [{ subjectUserId: 'me@home', voucherUserId: 'carol@x' }],
 });
 assert.ok(!inbound.has('carol@x'), 'someone who vouched for you is evictable');
 
@@ -36,7 +36,7 @@ const mixed = buildProtectedUserIDs({
   viewerID: 'me@home',
   following: [{ userId: 'followed@x' }],
   userLists: [{ memberIds: ['listed@x'] }],
-  vouches: [{ subjectUserID: 'bob@peer', voucherUserID: 'me@home' }],
+  vouches: [{ subjectUserId: 'bob@peer', voucherUserId: 'me@home' }],
 });
 assert.ok(!mixed.has('stranger@x'), 'an unrelated user remains evictable');
 assert.deepEqual(

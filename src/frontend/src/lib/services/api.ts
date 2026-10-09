@@ -11,8 +11,15 @@ import {
   isDeviceMismatchError,
   isFinishRecoveryForbiddenMessage,
 } from './restoreFlow';
-import type { DescMessage } from '@bufbuild/protobuf';
-import { decodeShape, encodeShape, PROTOBUF_CONTENT_TYPE } from './wire';
+import {
+  create,
+  fromBinary,
+  isMessage,
+  toBinary,
+  type DescMessage,
+  type MessageInitShape,
+  type MessageShape,
+} from '@bufbuild/protobuf';
 import {
   AccountRemovalCertSchema,
   BlockCertSchema,
@@ -34,6 +41,7 @@ import {
   KeyRevocationResponseSchema,
   PublicKeySchema,
   RecordBackupRequestSchema,
+  ServerInfoSchema,
   SignupRequestSchema,
   UpdateUserRequestSchema,
   UserIDResponseSchema,
@@ -43,6 +51,10 @@ import {
   VouchListResponseSchema,
   VouchSchema,
   WithdrawVouchRequestSchema,
+  type ServerInfo,
+  type ServerKeyRevocation,
+  type UserIDResponse,
+  type UserSearchResponse,
 } from '$lib/proto/identity_pb';
 import {
   CreateThreadRequestSchema,
@@ -66,6 +78,8 @@ import {
   InviteCheckResponseSchema,
   InviteSchema,
   InviteStatusSchema,
+  type Invite,
+  type InviteStatus,
 } from '$lib/proto/invites_pb';
 import {
   AccountRecoveryBootstrapRequestSchema,
@@ -94,23 +108,14 @@ import {
   FederationServerListSchema,
 } from '$lib/proto/federation_pb';
 
-export type SignReedResponse = {
-  id: string;
-  timestamp: string;
-  armor: string;
-};
+export const PROTOBUF_CONTENT_TYPE = 'application/x-protobuf';
 
-export type SignupInput = {
-  username: string;
-  publicKey: string;
-  signature: string;
-  userSignature?: string;
-  userID: string;
-  userIDSignature: string;
-  userIDFingerprint: string;
-  inviteID?: string;
-  inviteSecret?: string;
-};
+/** The certificate a refusal or removal is backed by: what an Error body
+ * carries as its detail. */
+export type RefusalDetail = api.AccountRemoval | api.ReedRemoval | api.ThreadRemoval | api.BlockCert;
+
+/** A failed request: status and, when the server sent one, the detail. */
+export type ApiError = Error & { status?: number; detail?: RefusalDetail; networkError?: boolean; tampered?: boolean };
 
 export type UserStatus = 'complete' | 'unknown' | 'ongoing';
 
@@ -130,29 +135,27 @@ export function setBlockedReporter(reporter: BlockedReporter): void {
   blockedReporter = reporter;
 }
 
-/** A request whose body is shape, encoded as schema. */
-function protoBody(method: string, schema: DescMessage, shape: object): RequestInit {
+/** Decodes a protobuf response body as schema. */
+export async function readMessage<Desc extends DescMessage>(res: Response, schema: Desc): Promise<MessageShape<Desc>> {
+  return fromBinary(schema, new Uint8Array(await res.clone().arrayBuffer()));
+}
+
+/** A request whose body is init, encoded as schema. */
+function protoBody<Desc extends DescMessage>(method: string, schema: Desc, init: MessageInitShape<Desc>): RequestInit {
   return {
     method,
     headers: { 'Content-Type': PROTOBUF_CONTENT_TYPE },
-    body: encodeShape(schema, shape),
+    body: toBinary(schema, create(schema, init)) as Uint8Array<ArrayBuffer>,
   };
 }
 
-async function readBytes(res: Response): Promise<Uint8Array> {
-  return new Uint8Array(await res.arrayBuffer());
-}
-
-/** A decoded Error body: its message, and the certificate it carries as
- * the detail when there is one (a removal behind a 410, a block behind a
- * 403). Null when the body is empty or not an Error. */
-async function readApiError(res: Response): Promise<{ message: string; detail: any } | null> {
+/** A decoded Error body, or null when the body is empty or not an Error. */
+async function readApiError(res: Response): Promise<{ message: string; detail?: RefusalDetail } | null> {
   try {
-    const bytes = await readBytes(res);
+    const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.length === 0) return null;
-    const error = decodeShape(ErrorSchema, bytes);
-    const detail = error.accountRemoval ?? error.reedRemoval ?? error.threadRemoval ?? error.block ?? null;
-    return { message: error.message, detail };
+    const error = fromBinary(ErrorSchema, bytes);
+    return { message: error.message, detail: error.detail.value };
   } catch {
     return null;
   }
@@ -275,10 +278,7 @@ async function requestRaw(
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw error;
     }
-    const err = new Error('Unable to reach the server. Please check your connection and try again.') as Error & {
-      status?: number;
-      networkError?: boolean;
-    };
+    const err: ApiError = new Error('Unable to reach the server. Please check your connection and try again.');
     err.networkError = true;
     throw err;
   }
@@ -286,20 +286,18 @@ async function requestRaw(
   // Every response is signed (see responseSignerMiddleware) — a missing
   // or invalid Signature is treated the same: fail closed.
   if (!opts.skipEnvelope && !(await verifyResponseEnvelope(res))) {
-    const err = new Error('Server response failed signature verification.') as Error & {
-      tampered?: boolean;
-    };
+    const err: ApiError = new Error('Server response failed signature verification.');
     err.tampered = true;
     throw err;
   }
 
   if (!res.ok) {
     const error = await readApiError(res);
-    if (res.status === 403 && error?.detail?.type === 'block') {
-      blockedReporter?.(error.detail as api.BlockCert);
-      const err = new Error('Blocked') as Error & { status?: number; body?: unknown };
+    if (res.status === 403 && isMessage(error?.detail, BlockCertSchema)) {
+      blockedReporter?.(error.detail);
+      const err: ApiError = new Error('Blocked');
       err.status = 403;
-      err.body = error.detail;
+      err.detail = error.detail;
       throw err;
     }
     const message = error?.message || fallbackErrorMessage(res);
@@ -314,22 +312,23 @@ async function requestRaw(
 
       throw new Error(message);
     }
-    const err = new Error(error?.message || `HTTP ${res.status}`) as Error & { status?: number; body?: unknown };
+    const err: ApiError = new Error(error?.message || `HTTP ${res.status}`);
     err.status = res.status;
-    err.body = error?.detail ?? error?.message;
+    err.detail = error?.detail;
     throw err;
   }
 
   return res;
 }
 
-/** Sends the request and decodes an ok response as schema; without a
- * schema, or for an empty body, it resolves undefined. */
-async function request<T>(path: string, init?: RequestInit, schema?: DescMessage): Promise<T> {
-  const res = await requestRaw(path, init);
-  if (!schema) return undefined as T;
-  const bytes = await readBytes(res);
-  return decodeShape(schema, bytes) as T;
+/** Sends the request and decodes an ok response as schema. */
+async function request<Desc extends DescMessage>(path: string, init: RequestInit | undefined, schema: Desc): Promise<MessageShape<Desc>> {
+  return readMessage(await requestRaw(path, init), schema);
+}
+
+/** Sends the request, ignoring any response body. */
+async function send(path: string, init?: RequestInit): Promise<void> {
+  await requestRaw(path, init);
 }
 
 /** Shared by both username-availability checks: same request shape, same
@@ -337,7 +336,7 @@ async function request<T>(path: string, init?: RequestInit, schema?: DescMessage
  * existing user checking a rename) vs. anonymous (signup) request path. */
 async function checkUsername(
   path: string,
-  fields: { username: string; inviteID?: string; inviteSecret?: string },
+  fields: MessageInitShape<typeof CheckUsernameRequestSchema>,
   signed: boolean,
   signal?: AbortSignal,
 ): Promise<UsernameAvailabilityResult> {
@@ -369,21 +368,33 @@ async function checkUsername(
   return { available: false, taken: false, message, status: res.status };
 }
 
-/** A key revocation response: a user key's cert, or a server key's
- * revocation (tagged type: 'server-key-revocation'). */
-function unwrapKeyRevocation(resp: { user: any; server: any }): any {
-  return resp.user ?? resp.server;
-}
+/** A key's revocation: a user key's cert or a server key's revocation. */
+export type AnyKeyRevocation = api.KeyRevocation | ServerKeyRevocation;
 
 /** Decodes a GET /keys/{id}/revocation response read without the envelope
  * check (see getKeyRevocationUnverified). */
-export async function readKeyRevocation(res: Response): Promise<any> {
-  return unwrapKeyRevocation(decodeShape(KeyRevocationResponseSchema, await readBytes(res.clone())));
+export async function readKeyRevocation(res: Response): Promise<AnyKeyRevocation | undefined> {
+  return (await readMessage(res, KeyRevocationResponseSchema)).revocation.value;
 }
 
 /** Decodes a GET /keys/{id} response read without the envelope check. */
 export async function readPublicKey(res: Response): Promise<api.PublicKey> {
-  return decodeShape(PublicKeySchema, await readBytes(res.clone()));
+  return readMessage(res, PublicKeySchema);
+}
+
+/** Decodes a GET /server/info response. */
+export async function readServerInfo(res: Response): Promise<ServerInfo> {
+  return readMessage(res, ServerInfoSchema);
+}
+
+/** limit and before as query parameters; before is a unix-seconds cursor,
+ * except for ripples, whose cursor is opaque. */
+function pageQuery(opts?: { limit?: number; before?: number | string }): string {
+  const params = new URLSearchParams();
+  if (opts?.limit != null) params.set('limit', String(opts.limit));
+  if (opts?.before) params.set('before', String(opts.before));
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
 }
 
 export const apiService = {
@@ -391,7 +402,7 @@ export const apiService = {
    * Unauthenticated probe: POST countersigned profile, branch on HTTP status.
    * Does not throw on 404/409 — those are meaningful probe outcomes.
    */
-  async probeUserStatus(profile: api.User): Promise<UserStatusProbeResult> {
+  async probeUserStatus(profile: MessageInitShape<typeof RecoveryProfileSchema>): Promise<UserStatusProbeResult> {
     const res = await fetch(`${BASE_URL}/users/status`, {
       ...protoBody('POST', RecoveryProfileSchema, profile),
       headers: { 'Content-Type': PROTOBUF_CONTENT_TYPE, ...serverKeyProofHeader() },
@@ -399,7 +410,7 @@ export const apiService = {
 
     if (res.status === 200 || res.status === 404 || res.status === 409) {
       try {
-        const status = decodeShape(UserStatusResponseSchema, await readBytes(res)).status;
+        const { status } = await readMessage(res, UserStatusResponseSchema);
         if (status === 'complete' || status === 'unknown' || status === 'ongoing') {
           return { httpStatus: res.status, status };
         }
@@ -419,16 +430,16 @@ export const apiService = {
     };
   },
 
-  async getUserID(): Promise<{ userID: string; signature: string; fingerprint: string }> {
+  async getUserID(): Promise<UserIDResponse> {
     return request('/users/id', { method: 'GET' }, UserIDResponseSchema);
   },
 
   async checkUsernameAvailability(
     username: string,
-    extraFields: { inviteID?: string; inviteSecret?: string } = {},
+    invite: { inviteId?: string; inviteSecret?: string } = {},
     signal?: AbortSignal,
   ): Promise<UsernameAvailabilityResult> {
-    return checkUsername('/check-username', { username, ...extraFields }, false, signal);
+    return checkUsername('/check-username', { username, ...invite }, false, signal);
   },
 
   /** Authenticated counterpart for the profile-edit rename checker — no
@@ -440,7 +451,7 @@ export const apiService = {
     return checkUsername('/users/me/check-username', { username }, true, signal);
   },
 
-  async signup(input: SignupInput): Promise<api.User> {
+  async signup(input: MessageInitShape<typeof SignupRequestSchema>): Promise<api.User> {
     return request('/users/signup', protoBody('POST', SignupRequestSchema, input), UserSchema);
   },
 
@@ -449,47 +460,22 @@ export const apiService = {
     return request(`/invites/check?${q}`, { method: 'GET' }, InviteCheckResponseSchema);
   },
 
-  async createInvite(body: {
-    id: string;
-    tokenHash: string;
-    createdAt: string;
-    grantedRole?: 'user' | 'admin';
-    userSignature: api.UserSignature;
-  }): Promise<{
-    id: string;
-    tokenHash: string;
-    createdAt: string;
-    grantedRole: 'user' | 'admin';
-    userSignature: api.UserSignature;
-    serverSignature: api.ServerSignature;
-  }> {
+  async createInvite(body: MessageInitShape<typeof CreateInviteRequestSchema>): Promise<Invite> {
     return request('/invites', protoBody('POST', CreateInviteRequestSchema, body), InviteSchema);
   },
 
   // id carries a literal "/" (userID@serverID/reedID) — no encodeURIComponent,
   // same convention as canonicalKeyId above, or the signed path won't match.
-  async getInviteStatus(id: string): Promise<{
-    id: string;
-    createdAt: string;
-    status: 'pending' | 'claimed' | 'revoked';
-    claimedAt: string | null;
-    claimedBy: string | null;
-    revokedAt: string | null;
-  }> {
+  async getInviteStatus(id: string): Promise<InviteStatus> {
     return request(`/invites/${id}`, { method: 'GET' }, InviteStatusSchema);
   },
 
   async revokeInvite(id: string): Promise<void> {
-    await request(`/invites/${id}`, { method: 'DELETE' });
+    await send(`/invites/${id}`, { method: 'DELETE' });
   },
 
   async listFederationInvitations(): Promise<api.FederationInvitation[]> {
-    const list = await request<{ invitations: api.FederationInvitation[] }>(
-      '/federation/invitations',
-      { method: 'GET' },
-      FederationInvitationListSchema,
-    );
-    return list.invitations;
+    return (await request('/federation/invitations', { method: 'GET' }, FederationInvitationListSchema)).invitations;
   },
 
   /** Invitations + attempts + servers together — the mesh tab's combined view. */
@@ -500,7 +486,7 @@ export const apiService = {
   async createFederationInvitation(
     name: string,
     remotePublicKeyArmor: string,
-  ): Promise<api.FederationInvitationCreateResponse> {
+  ): Promise<api.FederationCreateResponse> {
     return request(
       '/federation/invitations',
       protoBody('POST', FederationCreateRequestSchema, { name, remotePublicKeyArmor }),
@@ -508,7 +494,7 @@ export const apiService = {
     );
   },
 
-  async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'canceled' }> {
+  async revokeFederationInvitation(inviteId: string): Promise<api.FederationActionResponse> {
     return request(
       `/federation/invitations/${encodeURIComponent(inviteId)}/revoke`,
       { method: 'POST' },
@@ -519,7 +505,7 @@ export const apiService = {
   // Named "attempt", not "accept" — pasting the string only starts an
   // attempt at redeeming the invitation; nothing is confirmed until the
   // initiator's connect callback verifies it.
-  async attemptFederationConnection(connectionString: string): Promise<api.FederationAttemptResponse> {
+  async attemptFederationConnection(connectionString: string): Promise<api.FederationAttemptStatus> {
     return request(
       '/federation/attempt',
       protoBody('POST', FederationAttemptRequestSchema, { connectionString }),
@@ -528,29 +514,18 @@ export const apiService = {
   },
 
   async listFederationServers(): Promise<api.FederationServer[]> {
-    const list = await request<{ servers: api.FederationServer[] }>(
-      '/federation/servers',
-      { method: 'GET' },
-      FederationServerListSchema,
-    );
-    return list.servers;
+    return (await request('/federation/servers', { method: 'GET' }, FederationServerListSchema)).servers;
   },
 
   /** One log line per line — displayed verbatim, never parsed. */
   async getFederationServerLogs(serverId: string): Promise<string> {
-    const logs = await request<{ text: string }>(
-      `/federation/servers/${encodeURIComponent(serverId)}/logs`,
-      { method: 'GET' },
-      FederationLogsSchema,
-    );
+    const logs = await request(`/federation/servers/${encodeURIComponent(serverId)}/logs`, { method: 'GET' }, FederationLogsSchema);
     return logs.text;
   },
 
-  /** null when this server was the responder (no local invitation row). */
-  async getFederationServerInvitation(
-    serverId: string
-  ): Promise<api.FederationInvitation | null> {
-    const resp = await request<{ invitation: api.FederationInvitation | null }>(
+  /** undefined when this server was the responder (no local invitation row). */
+  async getFederationServerInvitation(serverId: string): Promise<api.FederationInvitation | undefined> {
+    const resp = await request(
       `/federation/servers/${encodeURIComponent(serverId)}/invitation`,
       { method: 'GET' },
       FederationInvitationResponseSchema,
@@ -558,9 +533,9 @@ export const apiService = {
     return resp.invitation;
   },
 
-  /** null if no attempt row is found (shouldn't happen for a real server). */
-  async getFederationServerAttempt(serverId: string): Promise<api.FederationAttempt | null> {
-    const resp = await request<{ attempt: api.FederationAttempt | null }>(
+  /** undefined if no attempt row is found (shouldn't happen for a real server). */
+  async getFederationServerAttempt(serverId: string): Promise<api.FederationAttempt | undefined> {
+    const resp = await request(
       `/federation/servers/${encodeURIComponent(serverId)}/attempt`,
       { method: 'GET' },
       FederationAttemptResponseSchema,
@@ -569,24 +544,16 @@ export const apiService = {
   },
 
   async getFederationAttempt(attemptId: string): Promise<api.FederationAttempt> {
-    return request(
-      `/federation/attempts/${encodeURIComponent(attemptId)}`,
-      { method: 'GET' },
-      FederationAttemptSchema,
-    );
+    return request(`/federation/attempts/${encodeURIComponent(attemptId)}`, { method: 'GET' }, FederationAttemptSchema);
   },
 
   /** One log line per line — displayed verbatim, never parsed. */
   async getFederationAttemptLogs(attemptId: string): Promise<string> {
-    const logs = await request<{ text: string }>(
-      `/federation/attempts/${encodeURIComponent(attemptId)}/logs`,
-      { method: 'GET' },
-      FederationLogsSchema,
-    );
+    const logs = await request(`/federation/attempts/${encodeURIComponent(attemptId)}/logs`, { method: 'GET' }, FederationLogsSchema);
     return logs.text;
   },
 
-  async approveFederationAttempt(attemptId: string): Promise<api.FederationAttemptApproveResponse> {
+  async approveFederationAttempt(attemptId: string): Promise<api.FederationActionResponse> {
     return request(
       `/federation/attempts/${encodeURIComponent(attemptId)}/approve`,
       { method: 'POST' },
@@ -595,7 +562,7 @@ export const apiService = {
   },
 
   async rejectFederationAttempt(attemptId: string, reason: string): Promise<void> {
-    await request(
+    await send(
       `/federation/attempts/${encodeURIComponent(attemptId)}/reject`,
       protoBody('POST', FederationReasonRequestSchema, { reason }),
     );
@@ -604,7 +571,7 @@ export const apiService = {
   /** Stages a disconnect — the peer stays connected until a second,
    * different admin calls confirmFederationServerDisconnect. */
   async requestFederationServerDisconnect(serverId: string, reason: string): Promise<void> {
-    await request(
+    await send(
       `/federation/servers/${encodeURIComponent(serverId)}/revoke`,
       protoBody('POST', FederationReasonRequestSchema, { reason }),
     );
@@ -613,22 +580,16 @@ export const apiService = {
   /** Finalizes a staged disconnect request. Server 403s if the confirming
    * admin is the same one who requested it (root exempt). */
   async confirmFederationServerDisconnect(serverId: string): Promise<void> {
-    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke/confirm`, {
-      method: 'POST',
-    });
+    await send(`/federation/servers/${encodeURIComponent(serverId)}/revoke/confirm`, { method: 'POST' });
   },
 
   /** Withdraws a staged disconnect request before it's confirmed. */
   async cancelFederationServerDisconnect(serverId: string): Promise<void> {
-    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke/cancel`, {
-      method: 'POST',
-    });
+    await send(`/federation/servers/${encodeURIComponent(serverId)}/revoke/cancel`, { method: 'POST' });
   },
 
   async purgeFederationServer(serverId: string): Promise<void> {
-    await request(`/federation/servers/${encodeURIComponent(serverId)}/purge`, {
-      method: 'POST',
-    });
+    await send(`/federation/servers/${encodeURIComponent(serverId)}/purge`, { method: 'POST' });
   },
 
   async getUserProfile(userId: string): Promise<api.User> {
@@ -639,7 +600,7 @@ export const apiService = {
     return request(`/users/${userId}/info`, { method: 'GET' }, UserInfoSchema);
   },
 
-  async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string; serverName: string }[] }> {
+  async searchUsers(query: string, limit?: number): Promise<UserSearchResponse> {
     const params = new URLSearchParams({ q: query });
     if (limit != null) params.set('limit', String(limit));
     return request(`/users/search?${params}`, { method: 'GET' }, UserSearchResponseSchema);
@@ -652,20 +613,10 @@ export const apiService = {
     block?: api.BlockCert;
   }> {
     try {
-      const user = await request<api.User>(`/users/${userId}/profile`, { method: 'GET' }, UserSchema);
+      const user = await request(`/users/${userId}/profile`, { method: 'GET' }, UserSchema);
       return { status: 200, user };
-    } catch (error: any) {
-      if (error?.status === 410 && error.body?.type === 'account') {
-        return { status: 410, removal: error.body as api.AccountRemoval };
-      }
-      if (error?.status === 403 && error.body?.type === 'block') {
-        return { status: 403, block: error.body as api.BlockCert };
-      }
-      if (error?.status) {
-        return { status: error.status };
-      }
-      const match = error?.message?.match(/HTTP (\d+)/);
-      return { status: match ? parseInt(match[1]) : 0 };
+    } catch (error) {
+      return statusOf(error as ApiError);
     }
   },
 
@@ -676,20 +627,10 @@ export const apiService = {
     block?: api.BlockCert;
   }> {
     try {
-      const info = await request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' }, UserInfoSchema);
+      const info = await request(`/users/${userId}/info`, { method: 'GET' }, UserInfoSchema);
       return { status: 200, info };
-    } catch (error: any) {
-      if (error?.status === 410 && error.body?.type === 'account') {
-        return { status: 410, removal: error.body as api.AccountRemoval };
-      }
-      if (error?.status === 403 && error.body?.type === 'block') {
-        return { status: 403, block: error.body as api.BlockCert };
-      }
-      if (error?.status) {
-        return { status: error.status };
-      }
-      const match = error?.message?.match(/HTTP (\d+)/);
-      return { status: match ? parseInt(match[1]) : 0 };
+    } catch (error) {
+      return statusOf(error as ApiError);
     }
   },
 
@@ -703,19 +644,11 @@ export const apiService = {
   // stored user_signature as a no-op fast path, so a caller that
   // resubmits the current identity record's signature will get a 200 back
   // with no state change.
-  async updateUser(userData: {
-    username: string;
-    bio: string;
-    userSignature: string;
-  }): Promise<api.User> {
+  async updateUser(userData: MessageInitShape<typeof UpdateUserRequestSchema>): Promise<api.User> {
     return request('/users/me', protoBody('PUT', UpdateUserRequestSchema, userData), UserSchema);
   },
   async deleteAccount(signature: string, note: string = ''): Promise<api.AccountRemoval> {
-    return request(
-      '/users/me',
-      protoBody('DELETE', DeleteAccountRequestSchema, { signature, note }),
-      AccountRemovalCertSchema,
-    );
+    return request('/users/me', protoBody('DELETE', DeleteAccountRequestSchema, { signature, note }), AccountRemovalCertSchema);
   },
 
   async createReed(
@@ -724,95 +657,50 @@ export const apiService = {
     fields: {
       echoing?: string;
       replyingTo?: string;
-      previousID?: string;
+      previousId?: string;
       tags?: string[];
       mentions?: string[];
     }
-  ): Promise<SignReedResponse> {
+  ): Promise<api.ServerSignature> {
     return request(
       '/reeds',
-      protoBody('POST', SignReedRequestSchema, { signature, reedID: reedId, ...fields }),
+      protoBody('POST', SignReedRequestSchema, { signature, reedId, ...fields }),
       ServerSignatureSchema,
     );
   },
 
   async getReedEchoCount(reedId: string): Promise<number> {
     const { userId, bareId } = splitReedId(reedId);
-    const resp = await request<{ count: number }>(
-      `/reeds/${userId}/${bareId}/echoes`,
-      { method: 'GET' },
-      EchoCountResponseSchema,
-    );
-    return resp.count;
+    return (await request(`/reeds/${userId}/${bareId}/echoes`, { method: 'GET' }, EchoCountResponseSchema)).count;
   },
 
-  async listReplies(
-    reedId: string,
-    opts?: { limit?: number; before?: string },
-  ): Promise<api.ReplyListResponse> {
+  async listReplies(reedId: string, opts?: { limit?: number; before?: number }): Promise<api.ReplyListResponse> {
     const { userId, bareId } = splitReedId(reedId);
-    const params = new URLSearchParams();
-    if (opts?.limit != null) params.set('limit', String(opts.limit));
-    if (opts?.before) params.set('before', opts.before);
-    const qs = params.toString();
-    const path = `/reeds/${userId}/${bareId}/replies${qs ? `?${qs}` : ''}`;
-    return request(path, { method: 'GET' }, ReplyListResponseSchema);
+    return request(`/reeds/${userId}/${bareId}/replies${pageQuery(opts)}`, { method: 'GET' }, ReplyListResponseSchema);
   },
 
-  async listEchoers(
-    reedId: string,
-    opts?: { limit?: number; before?: string },
-  ): Promise<api.EchoerListResponse> {
+  async listEchoers(reedId: string, opts?: { limit?: number; before?: number }): Promise<api.EchoerListResponse> {
     const { userId, bareId } = splitReedId(reedId);
-    const params = new URLSearchParams();
-    if (opts?.limit != null) params.set('limit', String(opts.limit));
-    if (opts?.before) params.set('before', opts.before);
-    const qs = params.toString();
-    const path = `/reeds/${userId}/${bareId}/chorus${qs ? `?${qs}` : ''}`;
-    return request(path, { method: 'GET' }, EchoerListResponseSchema);
+    return request(`/reeds/${userId}/${bareId}/chorus${pageQuery(opts)}`, { method: 'GET' }, EchoerListResponseSchema);
   },
 
   async deleteMention(reedID: string, reason: string): Promise<void> {
     const params = new URLSearchParams();
     if (reason) params.set('reason', reason);
     const qs = params.toString();
-    await request<void>(`/mentions/${reedID}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
+    await send(`/mentions/${reedID}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
   },
 
   /** The caller's ripples inbox: comments on their own reeds, plus replies
    * to a ripple they themselves authored — see GetReceivedRipples. */
-  async getReceivedRipples(
-    opts?: { limit?: number; before?: string },
-  ): Promise<api.ReceivedRippleListResponse> {
-    const params = new URLSearchParams();
-    if (opts?.limit != null) params.set('limit', String(opts.limit));
-    if (opts?.before) params.set('before', opts.before);
-    const qs = params.toString();
-    const list = await request<{
-      ripples: { ripple: api.Ripple; reedID: string; reedAuthorID: string }[];
-      hasMore: boolean;
-      nextCursor: string;
-    }>(`/ripples${qs ? `?${qs}` : ''}`, { method: 'GET' }, ReceivedRippleListResponseSchema);
-    return {
-      ripples: list.ripples.map(({ ripple, reedID, reedAuthorID }) => ({ ...ripple, reedID, reedAuthorID })),
-      hasMore: list.hasMore,
-      nextCursor: list.nextCursor || undefined,
-    };
+  async getReceivedRipples(opts?: { limit?: number; before?: string }): Promise<api.ReceivedRippleListResponse> {
+    return request(`/ripples${pageQuery(opts)}`, { method: 'GET' }, ReceivedRippleListResponseSchema);
   },
 
   /** Only a holder of the parent reed may list its ripples (server-side). */
-  async listRipples(
-    reedId: string,
-    opts?: { limit?: number; before?: string },
-  ): Promise<api.RippleListResponse> {
+  async listRipples(reedId: string, opts?: { limit?: number; before?: string }): Promise<api.RippleListResponse> {
     const { userId, bareId } = splitReedId(reedId);
-    const params = new URLSearchParams();
-    if (opts?.limit != null) params.set('limit', String(opts.limit));
-    if (opts?.before) params.set('before', opts.before);
-    const qs = params.toString();
-    const path = `/reeds/${userId}/${bareId}/ripples${qs ? `?${qs}` : ''}`;
-    const list = await request<api.RippleListResponse>(path, { method: 'GET' }, RippleListResponseSchema);
-    return { ...list, nextCursor: list.nextCursor || undefined, lastActivityAt: list.lastActivityAt || undefined };
+    return request(`/reeds/${userId}/${bareId}/ripples${pageQuery(opts)}`, { method: 'GET' }, RippleListResponseSchema);
   },
 
   /** Only a holder of the parent reed may post a ripple (server-side). */
@@ -823,9 +711,9 @@ export const apiService = {
     reedId: string,
     fields: {
       content: string;
-      threadID: string;
+      threadId: string;
       replyingTo?: string;
-      keyID: string;
+      keyId: string;
       userSignature: string;
     }
   ): Promise<api.Ripple> {
@@ -837,7 +725,7 @@ export const apiService = {
         // Only used server-side when this request is relayed to the
         // reed's home server (see handlers.go's resolveActingUser) — a
         // local caller's own session already provides this.
-        userID: localStorage.getItem('userId') ?? '',
+        userId: localStorage.getItem('userId') ?? '',
       }),
       RippleSchema,
     );
@@ -845,96 +733,62 @@ export const apiService = {
 
   async deleteRipple(reedId: string, rippleHash: string): Promise<void> {
     const { userId, bareId } = splitReedId(reedId);
-    await request<void>(
+    await send(
       `/reeds/${userId}/${bareId}/ripples/${rippleHash}`,
-      protoBody('DELETE', DeleteRippleRequestSchema, {
-        // Only used server-side when this request is relayed to the
-        // reed's home server (see handlers.go's resolveActingUser) — a
-        // local caller's own session already provides this.
-        userID: localStorage.getItem('userId') ?? '',
-      }),
+      // userId is only used server-side when this request is relayed to the
+      // reed's home server (see handlers.go's resolveActingUser).
+      protoBody('DELETE', DeleteRippleRequestSchema, { userId: localStorage.getItem('userId') ?? '' }),
     );
   },
 
-  async listFollowing(
-    userId: string,
-    opts?: { limit?: number; before?: string },
-  ): Promise<api.FollowListResponse> {
-    const params = new URLSearchParams();
-    if (opts?.limit != null) params.set('limit', String(opts.limit));
-    if (opts?.before) params.set('before', opts.before);
-    const qs = params.toString();
-    const path = `/users/${userId}/following${qs ? `?${qs}` : ''}`;
-    return request(path, { method: 'GET' }, FollowListResponseSchema);
+  async listFollowing(userId: string, opts?: { limit?: number; before?: number }): Promise<api.FollowListResponse> {
+    return request(`/users/${userId}/following${pageQuery(opts)}`, { method: 'GET' }, FollowListResponseSchema);
   },
 
-  async listFollowers(
-    userId: string,
-    opts?: { limit?: number; before?: string },
-  ): Promise<api.FollowListResponse> {
-    const params = new URLSearchParams();
-    if (opts?.limit != null) params.set('limit', String(opts.limit));
-    if (opts?.before) params.set('before', opts.before);
-    const qs = params.toString();
-    const path = `/users/${userId}/followers${qs ? `?${qs}` : ''}`;
-    return request(path, { method: 'GET' }, FollowListResponseSchema);
+  async listFollowers(userId: string, opts?: { limit?: number; before?: number }): Promise<api.FollowListResponse> {
+    return request(`/users/${userId}/followers${pageQuery(opts)}`, { method: 'GET' }, FollowListResponseSchema);
   },
 
   /**
    * Existence and removal state only: a live reed answers 204 with no body.
-   * Callers must switch on `removal.type` and not treat account as reed.
+   * Callers tell the removal's kind apart by its message type.
    */
   async getReedOrRemoval(
     reedId: string
   ): Promise<
     | { kind: 'reed' }
-    | { kind: 'gone'; removal: api.ReedRemoval | { type: string } }
+    | { kind: 'gone'; removal: RefusalDetail }
     | { kind: 'not_found' }
   > {
     const { userId, bareId } = splitReedId(reedId);
     try {
-      await request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
+      await send(`/reeds/${userId}/${bareId}`, { method: 'GET' });
       return { kind: 'reed' };
-    } catch (err: any) {
-      if (err?.status === 404) {
+    } catch (err) {
+      const error = err as ApiError;
+      if (error?.status === 404) {
         return { kind: 'not_found' };
       }
-      if (err?.status === 410 && err.body && typeof err.body === 'object') {
-        return { kind: 'gone', removal: err.body };
+      if (error?.status === 410 && error.detail) {
+        return { kind: 'gone', removal: error.detail };
       }
       throw err;
     }
   },
 
-  async deleteReed(
-    reedId: string,
-    signature: string
-  ): Promise<api.ReedRemoval> {
+  async deleteReed(reedId: string, signature: string): Promise<api.ReedRemoval> {
     const { userId, bareId } = splitReedId(reedId);
-    return request(
-      `/reeds/${userId}/${bareId}`,
-      protoBody('DELETE', RemovalRequestSchema, { signature }),
-      ReedRemovalCertSchema,
-    );
+    return request(`/reeds/${userId}/${bareId}`, protoBody('DELETE', RemovalRequestSchema, { signature }), ReedRemovalCertSchema);
   },
 
   /** Countersigns and stores a whole thread; parts are in index order. */
-  async createThread(body: {
-    previousID?: string;
-    threadSignature: string;
-    reeds: { reedID: string; signature: string; tags: string[]; mentions: string[] }[];
-  }): Promise<{ serverSignature: SignReedResponse; reeds: SignReedResponse[] }> {
+  async createThread(body: MessageInitShape<typeof CreateThreadRequestSchema>): Promise<api.ThreadSignatures> {
     return request('/threads', protoBody('POST', CreateThreadRequestSchema, body), ThreadSignaturesSchema);
   },
 
   /** Removes a whole thread, by its head's ID. */
   async deleteThread(threadId: string, signature: string): Promise<api.ThreadRemoval> {
-    const removal = await request<Omit<api.ThreadRemoval, 'threadID'>>(
-      `/threads/${threadId}`,
-      protoBody('DELETE', RemovalRequestSchema, { signature }),
-      ThreadRemovalSchema,
-    );
-    return { ...removal, threadID: removal.cert?.threadID } as api.ThreadRemoval;
+    return request(`/threads/${threadId}`, protoBody('DELETE', RemovalRequestSchema, { signature }), ThreadRemovalSchema);
   },
 
   async blockUser(userId: string, signature: string, keyId: string): Promise<api.BlockCert> {
@@ -946,19 +800,14 @@ export const apiService = {
   },
 
   async unblockUser(userId: string): Promise<void> {
-    await requestRaw(`/users/${userId}/block`, { method: 'DELETE' });
+    await send(`/users/${userId}/block`, { method: 'DELETE' });
   },
 
   async listBlocks(): Promise<api.BlockCert[]> {
-    const { blocks } = await request<{ blocks: api.BlockCert[] }>('/blocks', { method: 'GET' }, BlockListResponseSchema);
-    return blocks;
+    return (await request('/blocks', { method: 'GET' }, BlockListResponseSchema)).blocks;
   },
 
-  async likeReed(
-    reedId: string,
-    signature: string,
-    keyId: string
-  ): Promise<api.ReedLike> {
+  async likeReed(reedId: string, signature: string, keyId: string): Promise<api.ReedLike> {
     const { userId, bareId } = splitReedId(reedId);
     // fingerprint travels bare over the wire — the server joins it with the
     // authenticated caller's userID itself (see handlers.go's LikeReed).
@@ -969,9 +818,8 @@ export const apiService = {
         signature,
         fingerprint: bareFingerprint,
         // Only used server-side when this request is relayed to the reed's
-        // home server (see handlers.go's resolveActingUser) — a local
-        // caller's own session already provides this.
-        likerID: localStorage.getItem('userId') ?? '',
+        // home server (see handlers.go's resolveActingUser).
+        likerId: localStorage.getItem('userId') ?? '',
       }),
       LikeCertSchema,
     );
@@ -979,83 +827,64 @@ export const apiService = {
 
   async unlikeReed(reedId: string): Promise<void> {
     const { userId, bareId } = splitReedId(reedId);
-    // likerID is only used server-side when relayed to the reed's home
-    // server (see handlers.go's resolveActingUser); a local caller's own
-    // session already provides this.
-    await request<void>(
+    // likerId is only used server-side when relayed to the reed's home
+    // server (see handlers.go's resolveActingUser).
+    await send(
       `/reeds/${userId}/${bareId}/like`,
-      protoBody('DELETE', UnlikeRequestSchema, { likerID: localStorage.getItem('userId') ?? '' }),
+      protoBody('DELETE', UnlikeRequestSchema, { likerId: localStorage.getItem('userId') ?? '' }),
     );
   },
 
-  /** The subject is whoever owns `subjectKeyID`; the server derives it. */
-  async createVouch(
-    subjectKeyID: string,
-    voucherKeyID: string,
-    signature: string,
-    note: string
-  ): Promise<api.Vouch> {
+  /** The subject is whoever owns `subjectKeyId`; the server derives it. */
+  async createVouch(subjectKeyId: string, voucherKeyId: string, signature: string, note: string): Promise<api.Vouch> {
     return request(
       '/vouches',
       protoBody('POST', CreateVouchRequestSchema, {
-        subjectKeyID,
-        voucherKeyID,
+        subjectKeyId,
+        voucherKeyId,
         signature,
         note,
-        // Only read server-side when this request arrives relayed from a peer;
-        // a local caller's own session already provides it.
-        voucherID: localStorage.getItem('userId') ?? '',
+        // Only read server-side when this request arrives relayed from a peer.
+        voucherId: localStorage.getItem('userId') ?? '',
       }),
       VouchSchema,
     );
   },
 
-  async withdrawVouch(
-    subjectKeyID: string,
-    voucherKeyID: string,
-    signature: string
-  ): Promise<api.Vouch> {
+  async withdrawVouch(subjectKeyId: string, voucherKeyId: string, signature: string): Promise<api.Vouch> {
     return request(
-      `/vouches/${subjectKeyID}`,
+      `/vouches/${subjectKeyId}`,
       protoBody('DELETE', WithdrawVouchRequestSchema, {
-        voucherKeyID,
+        voucherKeyId,
         signature,
-        voucherID: localStorage.getItem('userId') ?? '',
+        voucherId: localStorage.getItem('userId') ?? '',
       }),
       VouchSchema,
     );
   },
 
   /** One vouch. Both ids are full and are sent as-is, never recomposed. */
-  async getVouch(subjectUserID: string, vouchID: string): Promise<api.Vouch> {
-    return request(`/users/${subjectUserID}/vouches/${vouchID}`, undefined, VouchSchema);
+  async getVouch(subjectUserId: string, vouchId: string): Promise<api.Vouch> {
+    return request(`/users/${subjectUserId}/vouches/${vouchId}`, undefined, VouchSchema);
   },
 
-  async getVouchesForUser(
-    userID: string,
-    cursor?: string
-  ): Promise<api.VouchListResponse> {
+  async getVouchesForUser(userId: string, cursor?: string): Promise<api.VouchListResponse> {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    const list = await request<api.VouchListResponse>(`/users/${userID}/vouches${query}`, undefined, VouchListResponseSchema);
-    return { ...list, nextCursor: list.nextCursor || undefined };
+    return request(`/users/${userId}/vouches${query}`, undefined, VouchListResponseSchema);
   },
 
   /** The caller's own vouches, withdrawn ones included, for the audit list. */
   async getMyVouches(cursor?: string): Promise<api.VouchListResponse> {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    const list = await request<api.VouchListResponse>(`/vouches${query}`, undefined, VouchListResponseSchema);
-    return { ...list, nextCursor: list.nextCursor || undefined };
+    return request(`/vouches${query}`, undefined, VouchListResponseSchema);
   },
 
   async pinReed(reedId: string): Promise<void> {
-    await request<void>(`/reeds/${reedId}/pin`, { method: 'POST' });
+    await send(`/reeds/${reedId}/pin`, { method: 'POST' });
   },
 
   async unpinReed(reedId: string): Promise<void> {
-    await request<void>(
-      `/reeds/${reedId}/pin`,
-      protoBody('DELETE', PinRequestSchema, { pinnerID: localStorage.getItem('userId') ?? '' }),
-    );
+    await send(`/reeds/${reedId}/pin`, protoBody('DELETE', PinRequestSchema, { pinnerId: localStorage.getItem('userId') ?? '' }));
   },
 
   // getKeyRevocation/getPublicKey accept either a bare fingerprint or an
@@ -1063,29 +892,22 @@ export const apiService = {
   // (userID@serverID/fingerprint) for the URL — GET /keys/{id:.+} takes
   // the whole id as one greedy path segment now, not a separate {userID}
   // plus a bare {fingerprint}. See main.go's route registration comment.
+  /** A user key's revocation; a server key's is read through the rotation path. */
   async getKeyRevocation(userId: string, keyId: string): Promise<api.KeyRevocation> {
     const id = canonicalKeyId(userId, keyId);
-    const resp = await request<{ user: any; server: any }>(
-      `/keys/${id}/revocation`,
-      { method: 'GET' },
-      KeyRevocationResponseSchema,
-    );
-    return unwrapKeyRevocation(resp);
+    const resp = await request(`/keys/${id}/revocation`, { method: 'GET' }, KeyRevocationResponseSchema);
+    if (resp.revocation.case !== 'user') throw new Error(`Not a user key revocation: ${id}`);
+    return resp.revocation.value;
   },
 
   async followUser(targetUserId: string): Promise<void> {
-    await request<void>(`/users/${targetUserId}/follow`, { method: 'POST' });
+    await send(`/users/${targetUserId}/follow`, { method: 'POST' });
   },
 
   async unfollowUser(targetUserId: string): Promise<void> {
-    await request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
+    await send(`/users/${targetUserId}/follow`, { method: 'DELETE' });
   },
 
-  /** id must already be a full canonical key id — userID@serverID/fingerprint
-   * for a user key, fingerprint@serverID for a server's own key (build with
-   * canonicalKeyId/formatServerKeyId). Authenticated: GET /keys/{id} serves
-   * any key — local or, transparently via server-side proxying, a
-   * federated peer's. */
   /** GET /keys/{id}/revocation and GET /keys/{id} without checking the
    * response signature, for following a server key rotation: the response is
    * signed by a key not trusted yet (see serverKeyRotation.ts). */
@@ -1097,6 +919,9 @@ export const apiService = {
     return requestRaw(`/keys/${id}`, { method: 'GET' }, { skipEnvelope: true });
   },
 
+  /** id must already be a full canonical key id — userID@serverID/fingerprint
+   * for a user key, fingerprint@serverID for a server's own key. GET /keys/{id}
+   * serves any key, local or a federated peer's via server-side proxying. */
   async getPublicKey(id: string): Promise<api.PublicKey> {
     return request(`/keys/${id}`, { method: 'GET' }, PublicKeySchema);
   },
@@ -1105,7 +930,7 @@ export const apiService = {
    * a separate revoke-then-add round trip leaves a window where the
    * caller has no valid key at all to sign anything with. */
   async addPublicKey(
-    userID: string,
+    userId: string,
     publicKey: string,
     revokedKeyId: string,
     revokedKeySignature: string,
@@ -1114,12 +939,12 @@ export const apiService = {
     revocationUserSignature: string
   ): Promise<api.PublicKey> {
     // revokedKeyFingerprint travels bare over the wire — the server joins
-    // it with userID itself (see handlers.go's AddPublicKey).
+    // it with userId itself (see handlers.go's AddPublicKey).
     const bareRevokedKeyFingerprint = parseKeyId(revokedKeyId)?.fingerprint ?? revokedKeyId;
     return request(
       '/keys',
       protoBody('POST', AddPublicKeyRequestSchema, {
-        userID,
+        userId,
         publicKey,
         revokedKeyFingerprint: bareRevokedKeyFingerprint,
         revokedKeySignature,
@@ -1132,13 +957,13 @@ export const apiService = {
   },
 
   /** Unauthenticated: GET a single-use account-recovery challenge nonce. */
-  async getAccountRecoveryChallenge(): Promise<api.AccountRecoveryChallenge> {
+  async getAccountRecoveryChallenge(): Promise<api.ChallengeResponse> {
     return request('/account-recovery/challenge', { method: 'GET' }, ChallengeResponseSchema);
   },
 
   /** Unauthenticated: prove active key possession; returns bootstrap payload. */
   async bootstrapAccountRecovery(
-    body: api.AccountRecoveryBootstrapRequest
+    body: MessageInitShape<typeof AccountRecoveryBootstrapRequestSchema>
   ): Promise<api.AccountRecoveryBootstrapResponse> {
     return request(
       '/account-recovery/bootstrap',
@@ -1148,51 +973,58 @@ export const apiService = {
   },
 
   /** Unauthenticated: GET a single-use recovery challenge nonce. */
-  async getIdentityClaimChallenge(): Promise<api.IdentityClaimChallenge> {
+  async getIdentityClaimChallenge(): Promise<api.ChallengeResponse> {
     return request('/recovery/identity/claim', { method: 'GET' }, ChallengeResponseSchema);
   },
 
   /** Unauthenticated: claim own identity with challenge + nested key chain. */
-  async claimOwnIdentity(body: api.IdentityClaimRequest): Promise<api.User> {
-    return request(
-      '/recovery/identity/claim',
-      protoBody('POST', ClaimIdentityRequestSchema, body),
-      RecoveryProfileSchema,
-    );
+  async claimOwnIdentity(body: MessageInitShape<typeof ClaimIdentityRequestSchema>): Promise<api.RecoveryProfile> {
+    return request('/recovery/identity/claim', protoBody('POST', ClaimIdentityRequestSchema, body), RecoveryProfileSchema);
   },
 
   /** Authenticated: report one peer identity with nested key chain. */
-  async reportPeerIdentity(body: api.PeerIdentityRequest): Promise<api.User> {
+  async reportPeerIdentity(body: MessageInitShape<typeof PeerIdentityRequestSchema>): Promise<api.RecoveryProfile> {
     return request('/recovery/identity', protoBody('POST', PeerIdentityRequestSchema, body), RecoveryProfileSchema);
   },
 
   /** Authenticated: report one reed's countersigned metadata. */
-  async reportRecoveryReed(body: api.RecoveryReedRequest): Promise<void> {
-    await request<void>('/recovery/reeds', protoBody('POST', RecoveryReedRequestSchema, body));
+  async reportRecoveryReed(body: MessageInitShape<typeof RecoveryReedRequestSchema>): Promise<void> {
+    await send('/recovery/reeds', protoBody('POST', RecoveryReedRequestSchema, body));
   },
 
   /** Authenticated: report a page of following user IDs (≤100). */
-  async reportRecoveryFollowing(
-    body: api.RecoveryFollowingRequest
-  ): Promise<void> {
-    await request<void>('/recovery/following', protoBody('POST', RecoveryFollowingRequestSchema, body));
+  async reportRecoveryFollowing(userIds: string[]): Promise<void> {
+    await send('/recovery/following', protoBody('POST', RecoveryFollowingRequestSchema, { userIds }));
   },
 
   /** Authenticated: clear ongoing_recoveries for the caller. */
   async completeRecovery(): Promise<void> {
-    await request<void>('/recovery/complete', {
-      method: 'POST',
-    });
+    await send('/recovery/complete', { method: 'POST' });
   },
 
   /** Authenticated: bind this origin as the sole active device. */
   async bindDevice(): Promise<string> {
-    const resp = await request<{ deviceId: string }>('/users/device', { method: 'POST' }, BindDeviceResponseSchema);
-    return resp.deviceId;
+    return (await request('/users/device', { method: 'POST' }, BindDeviceResponseSchema)).deviceId;
   },
 
   /** Authenticated: report a successful local keys-only or full export. */
   async recordBackup(kind: 'identity' | 'full'): Promise<void> {
-    await request('/users/me/backup', protoBody('POST', RecordBackupRequestSchema, { kind }));
+    await send('/users/me/backup', protoBody('POST', RecordBackupRequestSchema, { kind }));
   },
 };
+
+/** The status of a failed profile or info read, with the removal or block
+ * behind a 410 or 403. */
+function statusOf(error: ApiError): { status: number; removal?: api.AccountRemoval; block?: api.BlockCert } {
+  if (error?.status === 410 && isMessage(error.detail, AccountRemovalCertSchema)) {
+    return { status: 410, removal: error.detail };
+  }
+  if (error?.status === 403 && isMessage(error.detail, BlockCertSchema)) {
+    return { status: 403, block: error.detail };
+  }
+  if (error?.status) {
+    return { status: error.status };
+  }
+  const match = error?.message?.match(/HTTP (\d+)/);
+  return { status: match ? parseInt(match[1]) : 0 };
+}

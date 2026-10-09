@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -179,4 +180,28 @@ func userFromPB(u *pb.User) User {
 		out.Invite = &Invite{ID: inv.GetId(), UserID: inv.GetUserId(), Username: inv.GetUsername()}
 	}
 	return out
+}
+
+func TestSPARecordMatchesProtobufES(t *testing.T) {
+	predecessor := "u@s/old"
+	key := &pb.PublicKey{
+		Id:              "u@s/new",
+		UserId:          "u@s",
+		Armor:           "armor",
+		CreatedAt:       10,
+		Predecessor:     &predecessor,
+		ServerSignature: &pb.ServerSignature{Id: "s/fp", Armor: "sig", SignedAt: 20},
+	}
+	raw, err := json.Marshal(spaRecord(key.ProtoReflect()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"$typeName":"syrinx.PublicKey","armor":"armor","compromised":false,"createdAt":10,"id":"u@s/new","predecessor":"u@s/old","revoked":false,"revokedAt":0,"serverSignature":{"$typeName":"syrinx.ServerSignature","armor":"sig","id":"s/fp","signedAt":20},"userId":"u@s"}`
+	if string(raw) != want {
+		t.Fatalf("got %s\nwant %s", raw, want)
+	}
+	key.Predecessor = nil
+	if _, ok := spaRecord(key.ProtoReflect())["predecessor"]; ok {
+		t.Fatal("unset optional field should be absent")
+	}
 }

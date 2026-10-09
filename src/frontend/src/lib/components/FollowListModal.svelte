@@ -31,21 +31,21 @@
   async function fetchFollowPage(cursor?: string) {
     if (!userId) return { items: [], hasMore: false };
     const list = mode === 'following'
-      ? await apiService.listFollowing(userId, { before: cursor })
-      : await apiService.listFollowers(userId, { before: cursor });
+      ? await apiService.listFollowing(userId, { before: cursor ? Number(cursor) : undefined })
+      : await apiService.listFollowers(userId, { before: cursor ? Number(cursor) : undefined });
 
     const items = await Promise.all(
       list.users.map(async (u) => {
-        const profile = await userRepository.getByUserId(u.userID).catch(() => null);
+        const profile = await userRepository.getByUserId(u.userId).catch(() => null);
         return {
-          userID: u.userID,
-          username: profile?.username ?? u.userID,
+          userID: u.userId,
+          username: profile?.username ?? u.userId,
           followedAt: u.followedAt,
         };
       })
     );
 
-    const nextCursor = list.users.length > 0 ? list.users[list.users.length - 1].followedAt : cursor;
+    const nextCursor = list.users.length > 0 ? String(list.users[list.users.length - 1].followedAt) : cursor;
     return { items, hasMore: list.hasMore, nextCursor };
   }
 

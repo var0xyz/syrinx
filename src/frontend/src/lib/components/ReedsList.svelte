@@ -105,7 +105,7 @@
     if (!authorId) return null;
     if (await removedAccountsRepository.get(authorId)) return 'account';
     const reedCert = await removedReedsRepository.get(reedRef);
-    if (reedCert && reedCert.userID === authorId) return 'reed';
+    if (reedCert && reedCert.userId === authorId) return 'reed';
     return null;
   }
   /** profileReedQueue / followReedQueue items already handled (store value is sticky). */
@@ -464,7 +464,7 @@
   }
 
   function onPageAck(data) {
-    if (data?.userID !== authorId) return;
+    if (data?.userId !== authorId) return;
     // count is pre-subtraction: it counts the author's reeds on that page,
     // not the ones actually arriving here. Only hasMore is acted on.
     const wasMore = serverHasMore;

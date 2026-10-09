@@ -30,7 +30,7 @@
       return;
     }
     // Cache-only: a feed of rows must not turn into a fetch per row.
-    const key = keyID ?? (await userInfoRepository.get(id))?.activeKeyID;
+    const key = keyID ?? (await userInfoRepository.get(id))?.activeKeyId;
     if (!key) {
       mark = 'none';
       return;

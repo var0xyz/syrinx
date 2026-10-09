@@ -3,8 +3,8 @@ export type TrustMark = 'blue' | 'green' | 'grey' | 'none';
 
 /** What a mark needs from a vouch, so the ladder stays independent of storage. */
 export interface MarkableVouch {
-  voucherUserID: string;
-  subjectKeyID: string;
+  voucherUserId: string;
+  subjectKeyId: string;
   /** Present once retracted; the viewer's own withdrawn vouches are kept. */
   withdrawal?: unknown;
 }
@@ -16,7 +16,7 @@ export interface MarkableVouch {
  */
 export function countsForMark(vouch: MarkableVouch, activeKeyID: string): boolean {
   if (vouch.withdrawal) return false;
-  return vouch.subjectKeyID === activeKeyID;
+  return vouch.subjectKeyId === activeKeyID;
 }
 
 /**
@@ -31,7 +31,7 @@ export function trustMarkFrom(
 ): TrustMark {
   const live = vouches.filter((v) => countsForMark(v, activeKeyID));
   if (live.length === 0) return 'none';
-  if (me && live.some((v) => v.voucherUserID === me)) return 'blue';
-  if (live.some((v) => activeRootIDs.has(v.voucherUserID))) return 'green';
+  if (me && live.some((v) => v.voucherUserId === me)) return 'blue';
+  if (live.some((v) => activeRootIDs.has(v.voucherUserId))) return 'green';
   return 'grey';
 }

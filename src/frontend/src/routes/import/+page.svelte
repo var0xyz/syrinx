@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { get } from 'svelte/store';
   import { apiService } from '$lib/services/api';
+  import { recoveryProfileOf } from '$lib/services/recoveryProfile';
   import { authService } from '$lib/services/auth';
   import { requestSigner } from '$lib/services/request-signer';
   import {
@@ -190,7 +191,7 @@
       assertBackupIdentity(backup);
       const profile = extractProfile(backup);
 
-      const probe = await apiService.probeUserStatus(profile);
+      const probe = await apiService.probeUserStatus(recoveryProfileOf(profile));
       if (probe.httpStatus === 400) {
         throw new Error(
           probe.error

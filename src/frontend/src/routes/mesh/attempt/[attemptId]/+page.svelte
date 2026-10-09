@@ -10,7 +10,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   $: attemptId = $page.params.attemptId;
 
@@ -131,7 +131,7 @@
         </div>
         <p class="meta">API {attempt.baseUrl}</p>
         <p class="meta">Frontend {attempt.frontendUrl}</p>
-        <p class="meta">Started {formatRelativeTime(attempt.createdAt)}</p>
+        <p class="meta">Started {formatRelativeTime(fromUnix(attempt.createdAt))}</p>
 
         {#if attempt.status === 'approved' && attempt.approvedBy}
           <p class="meta"
@@ -140,7 +140,7 @@
               class="meta-link"
               at
               fire={false}
-            /> {#if attempt.approvedAt}· {formatRelativeTime(attempt.approvedAt)}{/if}</p
+            /> {#if attempt.approvedAt}· {formatRelativeTime(fromUnix(attempt.approvedAt))}{/if}</p
           >
         {/if}
         {#if attempt.status === 'rejected'}
@@ -152,7 +152,7 @@
                 at
                 fire={false}
               />
-              {#if attempt.rejectedAt}· {formatRelativeTime(attempt.rejectedAt)}{/if}
+              {#if attempt.rejectedAt}· {formatRelativeTime(fromUnix(attempt.rejectedAt))}{/if}
             {/if}
           </p>
           {#if attempt.rejectedReason}

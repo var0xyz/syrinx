@@ -30,7 +30,7 @@
       shownHead = '';
       return;
     }
-    if (held?.record.threadID === threadID) {
+    if (held?.record.threadId === threadID) {
       parts = held.reeds;
       shownHead = threadID;
       return;

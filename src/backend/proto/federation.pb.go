@@ -141,11 +141,11 @@ type FederationInvitation struct {
 	Status            string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	CreatedBy         string                 `protobuf:"bytes,4,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	RemoteFingerprint string                 `protobuf:"bytes,5,opt,name=remote_fingerprint,json=remoteFingerprint,proto3" json:"remote_fingerprint,omitempty"`
-	CreatedAt         int64                  `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	AcceptedAt        int64                  `protobuf:"varint,7,opt,name=accepted_at,json=acceptedAt,proto3" json:"accepted_at,omitempty"`
+	CreatedAt         uint32                 `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	AcceptedAt        uint32                 `protobuf:"varint,7,opt,name=accepted_at,json=acceptedAt,proto3" json:"accepted_at,omitempty"`
 	ServerId          *string                `protobuf:"bytes,8,opt,name=server_id,json=serverId,proto3,oneof" json:"server_id,omitempty"`
 	ReviewedBy        *string                `protobuf:"bytes,9,opt,name=reviewed_by,json=reviewedBy,proto3,oneof" json:"reviewed_by,omitempty"`
-	ReviewedAt        int64                  `protobuf:"varint,10,opt,name=reviewed_at,json=reviewedAt,proto3" json:"reviewed_at,omitempty"`
+	ReviewedAt        uint32                 `protobuf:"varint,10,opt,name=reviewed_at,json=reviewedAt,proto3" json:"reviewed_at,omitempty"`
 	ConnectionString  *string                `protobuf:"bytes,11,opt,name=connection_string,json=connectionString,proto3,oneof" json:"connection_string,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -216,14 +216,14 @@ func (x *FederationInvitation) GetRemoteFingerprint() string {
 	return ""
 }
 
-func (x *FederationInvitation) GetCreatedAt() int64 {
+func (x *FederationInvitation) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
 	return 0
 }
 
-func (x *FederationInvitation) GetAcceptedAt() int64 {
+func (x *FederationInvitation) GetAcceptedAt() uint32 {
 	if x != nil {
 		return x.AcceptedAt
 	}
@@ -244,7 +244,7 @@ func (x *FederationInvitation) GetReviewedBy() string {
 	return ""
 }
 
-func (x *FederationInvitation) GetReviewedAt() int64 {
+func (x *FederationInvitation) GetReviewedAt() uint32 {
 	if x != nil {
 		return x.ReviewedAt
 	}
@@ -358,14 +358,14 @@ type FederationServer struct {
 	Connected   bool                   `protobuf:"varint,5,opt,name=connected,proto3" json:"connected,omitempty"`
 	// Approved on both sides; connected alone means only on ours.
 	Established   bool    `protobuf:"varint,6,opt,name=established,proto3" json:"established,omitempty"`
-	CreatedAt     int64   `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt     uint32  `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Revoked       bool    `protobuf:"varint,8,opt,name=revoked,proto3" json:"revoked,omitempty"`
-	RevokedAt     int64   `protobuf:"varint,9,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	RevokedAt     uint32  `protobuf:"varint,9,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
 	RevokedBy     *string `protobuf:"bytes,10,opt,name=revoked_by,json=revokedBy,proto3,oneof" json:"revoked_by,omitempty"`
 	RevokedReason *string `protobuf:"bytes,11,opt,name=revoked_reason,json=revokedReason,proto3,oneof" json:"revoked_reason,omitempty"`
 	// A disconnect was requested but not yet confirmed by a second admin.
 	DisconnectPending     bool    `protobuf:"varint,12,opt,name=disconnect_pending,json=disconnectPending,proto3" json:"disconnect_pending,omitempty"`
-	DisconnectRequestedAt int64   `protobuf:"varint,13,opt,name=disconnect_requested_at,json=disconnectRequestedAt,proto3" json:"disconnect_requested_at,omitempty"`
+	DisconnectRequestedAt uint32  `protobuf:"varint,13,opt,name=disconnect_requested_at,json=disconnectRequestedAt,proto3" json:"disconnect_requested_at,omitempty"`
 	DisconnectRequestedBy *string `protobuf:"bytes,14,opt,name=disconnect_requested_by,json=disconnectRequestedBy,proto3,oneof" json:"disconnect_requested_by,omitempty"`
 	DisconnectReason      *string `protobuf:"bytes,15,opt,name=disconnect_reason,json=disconnectReason,proto3,oneof" json:"disconnect_reason,omitempty"`
 	unknownFields         protoimpl.UnknownFields
@@ -444,7 +444,7 @@ func (x *FederationServer) GetEstablished() bool {
 	return false
 }
 
-func (x *FederationServer) GetCreatedAt() int64 {
+func (x *FederationServer) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -458,7 +458,7 @@ func (x *FederationServer) GetRevoked() bool {
 	return false
 }
 
-func (x *FederationServer) GetRevokedAt() int64 {
+func (x *FederationServer) GetRevokedAt() uint32 {
 	if x != nil {
 		return x.RevokedAt
 	}
@@ -486,7 +486,7 @@ func (x *FederationServer) GetDisconnectPending() bool {
 	return false
 }
 
-func (x *FederationServer) GetDisconnectRequestedAt() int64 {
+func (x *FederationServer) GetDisconnectRequestedAt() uint32 {
 	if x != nil {
 		return x.DisconnectRequestedAt
 	}
@@ -562,12 +562,12 @@ type FederationAttempt struct {
 	Fingerprint      string                 `protobuf:"bytes,6,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	InvitationId     *string                `protobuf:"bytes,7,opt,name=invitation_id,json=invitationId,proto3,oneof" json:"invitation_id,omitempty"`
 	ServerId         *string                `protobuf:"bytes,8,opt,name=server_id,json=serverId,proto3,oneof" json:"server_id,omitempty"`
-	CreatedAt        int64                  `protobuf:"varint,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt        uint32                 `protobuf:"varint,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Status           string                 `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
 	ApprovedBy       *string                `protobuf:"bytes,11,opt,name=approved_by,json=approvedBy,proto3,oneof" json:"approved_by,omitempty"`
-	ApprovedAt       int64                  `protobuf:"varint,12,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
+	ApprovedAt       uint32                 `protobuf:"varint,12,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
 	RejectedBy       *string                `protobuf:"bytes,13,opt,name=rejected_by,json=rejectedBy,proto3,oneof" json:"rejected_by,omitempty"`
-	RejectedAt       int64                  `protobuf:"varint,14,opt,name=rejected_at,json=rejectedAt,proto3" json:"rejected_at,omitempty"`
+	RejectedAt       uint32                 `protobuf:"varint,14,opt,name=rejected_at,json=rejectedAt,proto3" json:"rejected_at,omitempty"`
 	RejectedReason   *string                `protobuf:"bytes,15,opt,name=rejected_reason,json=rejectedReason,proto3,oneof" json:"rejected_reason,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -659,7 +659,7 @@ func (x *FederationAttempt) GetServerId() string {
 	return ""
 }
 
-func (x *FederationAttempt) GetCreatedAt() int64 {
+func (x *FederationAttempt) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -680,7 +680,7 @@ func (x *FederationAttempt) GetApprovedBy() string {
 	return ""
 }
 
-func (x *FederationAttempt) GetApprovedAt() int64 {
+func (x *FederationAttempt) GetApprovedAt() uint32 {
 	if x != nil {
 		return x.ApprovedAt
 	}
@@ -694,7 +694,7 @@ func (x *FederationAttempt) GetRejectedBy() string {
 	return ""
 }
 
-func (x *FederationAttempt) GetRejectedAt() int64 {
+func (x *FederationAttempt) GetRejectedAt() uint32 {
 	if x != nil {
 		return x.RejectedAt
 	}
@@ -2385,7 +2385,7 @@ type RelayNewReedPayload struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
 	AuthorId      string                 `protobuf:"bytes,2,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`
-	SignedAt      int64                  `protobuf:"varint,3,opt,name=signed_at,json=signedAt,proto3" json:"signed_at,omitempty"`
+	SignedAt      uint32                 `protobuf:"varint,3,opt,name=signed_at,json=signedAt,proto3" json:"signed_at,omitempty"`
 	Mentions      []string               `protobuf:"bytes,4,rep,name=mentions,proto3" json:"mentions,omitempty"`
 	Reply         *RelayNewReedReply     `protobuf:"bytes,5,opt,name=reply,proto3" json:"reply,omitempty"`
 	Echo          *RelayNewReedEcho      `protobuf:"bytes,6,opt,name=echo,proto3" json:"echo,omitempty"`
@@ -2437,7 +2437,7 @@ func (x *RelayNewReedPayload) GetAuthorId() string {
 	return ""
 }
 
-func (x *RelayNewReedPayload) GetSignedAt() int64 {
+func (x *RelayNewReedPayload) GetSignedAt() uint32 {
 	if x != nil {
 		return x.SignedAt
 	}
@@ -2474,7 +2474,7 @@ type RelayReedRemovalCert struct {
 	UserKeyId         string                 `protobuf:"bytes,4,opt,name=user_key_id,json=userKeyId,proto3" json:"user_key_id,omitempty"`
 	ServerSignature   string                 `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	ServerFingerprint string                 `protobuf:"bytes,6,opt,name=server_fingerprint,json=serverFingerprint,proto3" json:"server_fingerprint,omitempty"`
-	ServerSignedAt    int64                  `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
+	ServerSignedAt    uint32                 `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2551,7 +2551,7 @@ func (x *RelayReedRemovalCert) GetServerFingerprint() string {
 	return ""
 }
 
-func (x *RelayReedRemovalCert) GetServerSignedAt() int64 {
+func (x *RelayReedRemovalCert) GetServerSignedAt() uint32 {
 	if x != nil {
 		return x.ServerSignedAt
 	}
@@ -2663,7 +2663,7 @@ type RelayAccountRemovalNotifyPayload struct {
 	UserKeyId         string                 `protobuf:"bytes,4,opt,name=user_key_id,json=userKeyId,proto3" json:"user_key_id,omitempty"`
 	ServerSignature   string                 `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	ServerFingerprint string                 `protobuf:"bytes,6,opt,name=server_fingerprint,json=serverFingerprint,proto3" json:"server_fingerprint,omitempty"`
-	ServerSignedAt    int64                  `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
+	ServerSignedAt    uint32                 `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2740,7 +2740,7 @@ func (x *RelayAccountRemovalNotifyPayload) GetServerFingerprint() string {
 	return ""
 }
 
-func (x *RelayAccountRemovalNotifyPayload) GetServerSignedAt() int64 {
+func (x *RelayAccountRemovalNotifyPayload) GetServerSignedAt() uint32 {
 	if x != nil {
 		return x.ServerSignedAt
 	}
@@ -2923,14 +2923,14 @@ const file_federation_proto_rawDesc = "" +
 	"created_by\x18\x04 \x01(\tR\tcreatedBy\x12-\n" +
 	"\x12remote_fingerprint\x18\x05 \x01(\tR\x11remoteFingerprint\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1f\n" +
-	"\vaccepted_at\x18\a \x01(\x03R\n" +
+	"created_at\x18\x06 \x01(\rR\tcreatedAt\x12\x1f\n" +
+	"\vaccepted_at\x18\a \x01(\rR\n" +
 	"acceptedAt\x12 \n" +
 	"\tserver_id\x18\b \x01(\tH\x00R\bserverId\x88\x01\x01\x12$\n" +
 	"\vreviewed_by\x18\t \x01(\tH\x01R\n" +
 	"reviewedBy\x88\x01\x01\x12\x1f\n" +
 	"\vreviewed_at\x18\n" +
-	" \x01(\x03R\n" +
+	" \x01(\rR\n" +
 	"reviewedAt\x120\n" +
 	"\x11connection_string\x18\v \x01(\tH\x02R\x10connectionString\x88\x01\x01B\f\n" +
 	"\n" +
@@ -2951,16 +2951,16 @@ const file_federation_proto_rawDesc = "" +
 	"\tconnected\x18\x05 \x01(\bR\tconnected\x12 \n" +
 	"\vestablished\x18\x06 \x01(\bR\vestablished\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\a \x01(\x03R\tcreatedAt\x12\x18\n" +
+	"created_at\x18\a \x01(\rR\tcreatedAt\x12\x18\n" +
 	"\arevoked\x18\b \x01(\bR\arevoked\x12\x1d\n" +
 	"\n" +
-	"revoked_at\x18\t \x01(\x03R\trevokedAt\x12\"\n" +
+	"revoked_at\x18\t \x01(\rR\trevokedAt\x12\"\n" +
 	"\n" +
 	"revoked_by\x18\n" +
 	" \x01(\tH\x00R\trevokedBy\x88\x01\x01\x12*\n" +
 	"\x0erevoked_reason\x18\v \x01(\tH\x01R\rrevokedReason\x88\x01\x01\x12-\n" +
 	"\x12disconnect_pending\x18\f \x01(\bR\x11disconnectPending\x126\n" +
-	"\x17disconnect_requested_at\x18\r \x01(\x03R\x15disconnectRequestedAt\x12;\n" +
+	"\x17disconnect_requested_at\x18\r \x01(\rR\x15disconnectRequestedAt\x12;\n" +
 	"\x17disconnect_requested_by\x18\x0e \x01(\tH\x02R\x15disconnectRequestedBy\x88\x01\x01\x120\n" +
 	"\x11disconnect_reason\x18\x0f \x01(\tH\x03R\x10disconnectReason\x88\x01\x01B\r\n" +
 	"\v_revoked_byB\x11\n" +
@@ -2980,16 +2980,16 @@ const file_federation_proto_rawDesc = "" +
 	"\rinvitation_id\x18\a \x01(\tH\x00R\finvitationId\x88\x01\x01\x12 \n" +
 	"\tserver_id\x18\b \x01(\tH\x01R\bserverId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\t \x01(\x03R\tcreatedAt\x12\x16\n" +
+	"created_at\x18\t \x01(\rR\tcreatedAt\x12\x16\n" +
 	"\x06status\x18\n" +
 	" \x01(\tR\x06status\x12$\n" +
 	"\vapproved_by\x18\v \x01(\tH\x02R\n" +
 	"approvedBy\x88\x01\x01\x12\x1f\n" +
-	"\vapproved_at\x18\f \x01(\x03R\n" +
+	"\vapproved_at\x18\f \x01(\rR\n" +
 	"approvedAt\x12$\n" +
 	"\vrejected_by\x18\r \x01(\tH\x03R\n" +
 	"rejectedBy\x88\x01\x01\x12\x1f\n" +
-	"\vrejected_at\x18\x0e \x01(\x03R\n" +
+	"\vrejected_at\x18\x0e \x01(\rR\n" +
 	"rejectedAt\x12,\n" +
 	"\x0frejected_reason\x18\x0f \x01(\tH\x04R\x0erejectedReason\x88\x01\x01B\x10\n" +
 	"\x0e_invitation_idB\f\n" +
@@ -3107,7 +3107,7 @@ const file_federation_proto_rawDesc = "" +
 	"\x13RelayNewReedPayload\x12\x17\n" +
 	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x1b\n" +
 	"\tauthor_id\x18\x02 \x01(\tR\bauthorId\x12\x1b\n" +
-	"\tsigned_at\x18\x03 \x01(\x03R\bsignedAt\x12\x1a\n" +
+	"\tsigned_at\x18\x03 \x01(\rR\bsignedAt\x12\x1a\n" +
 	"\bmentions\x18\x04 \x03(\tR\bmentions\x12/\n" +
 	"\x05reply\x18\x05 \x01(\v2\x19.syrinx.RelayNewReedReplyR\x05reply\x12,\n" +
 	"\x04echo\x18\x06 \x01(\v2\x18.syrinx.RelayNewReedEchoR\x04echo\"\x93\x02\n" +
@@ -3118,7 +3118,7 @@ const file_federation_proto_rawDesc = "" +
 	"\vuser_key_id\x18\x04 \x01(\tR\tuserKeyId\x12)\n" +
 	"\x10server_signature\x18\x05 \x01(\tR\x0fserverSignature\x12-\n" +
 	"\x12server_fingerprint\x18\x06 \x01(\tR\x11serverFingerprint\x12(\n" +
-	"\x10server_signed_at\x18\a \x01(\x03R\x0eserverSignedAt\"q\n" +
+	"\x10server_signed_at\x18\a \x01(\rR\x0eserverSignedAt\"q\n" +
 	"\x17RelayReedRemovalPayload\x120\n" +
 	"\x04cert\x18\x01 \x01(\v2\x1c.syrinx.RelayReedRemovalCertR\x04cert\x12$\n" +
 	"\x0eparent_reed_id\x18\x02 \x01(\tR\fparentReedId\"3\n" +
@@ -3131,7 +3131,7 @@ const file_federation_proto_rawDesc = "" +
 	"\vuser_key_id\x18\x04 \x01(\tR\tuserKeyId\x12)\n" +
 	"\x10server_signature\x18\x05 \x01(\tR\x0fserverSignature\x12-\n" +
 	"\x12server_fingerprint\x18\x06 \x01(\tR\x11serverFingerprint\x12(\n" +
-	"\x10server_signed_at\x18\a \x01(\x03R\x0eserverSignedAt\"V\n" +
+	"\x10server_signed_at\x18\a \x01(\rR\x0eserverSignedAt\"V\n" +
 	"\x13RelayUnblockPayload\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12&\n" +
 	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserId\"?\n" +

@@ -95,18 +95,18 @@ export async function syncPendingBlocks(): Promise<void> {
 /** Matches the local blocks to the server's, leaving queued actions alone. */
 export async function reconcileBlocks(): Promise<void> {
   const remote = await apiService.listBlocks();
-  const remoteIDs = new Set(remote.map((cert) => cert.blockedUserID));
+  const remoteIDs = new Set(remote.map((cert) => cert.blockedUserId));
   for (const cert of remote) {
-    if (await blocksRepository.get(cert.blockedUserID)) continue;
+    if (await blocksRepository.get(cert.blockedUserId)) continue;
     try {
       await blocksRepository.put(cert);
     } catch (error) {
-      console.warn('[blocks] refused listed block', cert.blockedUserID, error);
+      console.warn('[blocks] refused listed block', cert.blockedUserId, error);
     }
   }
   for (const cert of await blocksRepository.getAll()) {
-    if (!remoteIDs.has(cert.blockedUserID) && !(await pendingBlocksRepository.get(cert.blockedUserID))) {
-      await blocksRepository.delete(cert.blockedUserID);
+    if (!remoteIDs.has(cert.blockedUserId) && !(await pendingBlocksRepository.get(cert.blockedUserId))) {
+      await blocksRepository.delete(cert.blockedUserId);
     }
   }
   changed();

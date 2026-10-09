@@ -4,7 +4,7 @@
   import { serverConnection } from '$lib/services/serverConnection';
   import { broadcastReedQueue, removeBroadcastReed } from '$lib/repositories/reeds';
   import { followingRepository } from '$lib/repositories/following';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { isBlankEcho } from '$lib/utils/emptyEcho';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
@@ -128,7 +128,7 @@
                   userID={reed.userID}
                   username={broadcastReeds.authors[reed.userID]?.username ?? reed.userID}
                   nameTag="h3"
-                  subtext={formatRelativeTime(reed.serverSignature.timestamp)}
+                  subtext={formatRelativeTime(fromUnix(reed.serverSignature.signedAt))}
                   stopPropagation
                   linked={false}
                 />
