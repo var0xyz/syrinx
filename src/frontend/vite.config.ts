@@ -112,6 +112,8 @@ export default defineConfig({
           }),
         ],
       },
+      // app.html links /manifest.json; this is its only source.
+      manifestFilename: 'manifest.json',
       manifest: {
         name: 'Syrinx',
         short_name: 'Syrinx',
