@@ -24,7 +24,7 @@ message FederatedServerInfo {
   string id = 1;
   string name = 2;
   string key_id = 3;
-  int64 created_at = 4;
+  uint32 created_at = 4;
   string frontend_url = 5;
 }
 
@@ -68,7 +68,7 @@ message User {
   string username = 2;
   string role = 3;
   string bio = 4;
-  int64 member_since = 5;
+  uint32 member_since = 5;
   UserSignature user_signature = 6;
   ServerSignature server_signature = 7;
   UserInvite invite = 8;
@@ -83,7 +83,7 @@ message UserInfo {
   int32 following_count = 4;
   string active_key_id = 5 [json_name = "activeKeyID"];
   // Same instant as the profile's server_signature.signed_at.
-  int64 profile_timestamp = 6;
+  uint32 profile_timestamp = 6;
   repeated string pinned_reed_ids = 7 [json_name = "pinnedReedIDs"];
   repeated string vouch_ids = 8 [json_name = "vouchIDs"];
 }
@@ -119,7 +119,7 @@ message FollowRequest {
 
 message FollowListUser {
   string user_id = 1 [json_name = "userID"];
-  int64 followed_at = 2;
+  uint32 followed_at = 2;
 }
 
 message FollowListResponse {
@@ -132,13 +132,13 @@ message PublicKey {
   string id = 1;
   string user_id = 2 [json_name = "userID"];
   string armor = 3;
-  int64 created_at = 4;
+  uint32 created_at = 4;
   bool revoked = 5;
   // The replaced key's id; unset for a signup key.
   optional string predecessor = 6;
   ServerSignature server_signature = 7;
   // Set on revoked server keys only.
-  int64 revoked_at = 8;
+  uint32 revoked_at = 8;
   bool compromised = 9;
 }
 
@@ -160,7 +160,7 @@ message ServerKeyRevocation {
   string successor = 3;
   bool compromised = 4;
   string reason = 5;
-  int64 signed_at = 6;
+  uint32 signed_at = 6;
   string signature = 7;
   string successor_signature = 8;
 }

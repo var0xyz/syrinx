@@ -8,7 +8,7 @@ import { verifyVouch } from '$lib/verifiers';
  */
 export const declinedVouchesRepository = {
   async put(cert: api.Vouch): Promise<void> {
-    await dbService.put('declinedVouches', cert, (c) => verifyVouch(c, c.subjectUserID));
+    await dbService.put('declinedVouches', cert, (c) => verifyVouch(c, c.subjectUserId));
   },
 
   async delete(vouchID: string): Promise<void> {
@@ -19,11 +19,11 @@ export const declinedVouchesRepository = {
   async byVoucher(voucherUserID: string): Promise<api.Vouch[]> {
     const held = await dbService.getAllByIndex<api.Vouch>(
       'declinedVouches',
-      'voucherUserID',
+      'voucherUserId',
       voucherUserID
     );
     return held.sort((a, b) =>
-      b.serverSignature.timestamp.localeCompare(a.serverSignature.timestamp)
+      (b.serverSignature?.signedAt ?? 0) - (a.serverSignature?.signedAt ?? 0)
     );
   },
 };

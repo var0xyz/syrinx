@@ -19,14 +19,15 @@ export async function applyThreadRemoval(removal: api.ThreadRemoval): Promise<bo
   try {
     await threadsRepository.putRemoval(removal);
   } catch (error) {
-    console.error('[applyThreadRemoval] refused', removal?.threadID, error);
+    console.error('[applyThreadRemoval] refused', removal?.cert?.threadId, error);
     return false;
   }
-  const local = await threadsRepository.getParts(removal.threadID);
-  const ids = new Set([...removal.record.reedIDs, ...local.map((reed) => reed.id)]);
+  const threadId = removal.cert?.threadId ?? '';
+  const local = await threadsRepository.getParts(threadId);
+  const ids = new Set([...(removal.record?.reedIds ?? []), ...local.map((reed) => reed.id)]);
   await Promise.all([...ids].map((id) => dbService.delete('reeds', id)));
   await Promise.all([...ids].map((id) => tagsRepository.removeReed(id)));
-  await threadsRepository.delete(removal.threadID);
+  await threadsRepository.delete(threadId);
   reedRemovalCommitted.update((n) => n + 1);
   return true;
 }

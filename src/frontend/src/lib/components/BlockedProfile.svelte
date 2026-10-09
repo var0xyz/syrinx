@@ -5,7 +5,7 @@
   /** The verified block of the viewer this page is showing. */
   export let cert: api.BlockCert;
 
-  $: blockedOn = new Date(cert.serverSignature.timestamp).toLocaleDateString('en-US', {
+  $: blockedOn = new Date((cert.serverSignature?.signedAt ?? 0) * 1000).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -13,8 +13,8 @@
 </script>
 
 <div class="blocked-card">
-  <Avatar userID={cert.userID} size="4rem" />
-  <p class="blocked-id">{cert.userID}</p>
+  <Avatar userID={cert.userId} size="4rem" />
+  <p class="blocked-id">{cert.userId}</p>
   <h3>This user blocked you on {blockedOn}.</h3>
   <p class="muted">You can't see their profile or reeds.</p>
   <div class="blocked-actions">

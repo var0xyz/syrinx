@@ -6,18 +6,10 @@ import { isRecoveryInProgress } from './recoveryRun';
 import { serverConnection } from './serverConnection';
 import { refreshServerInfo, serverInfo } from './serverInfo';
 import { apiService } from './api';
+import type { MessageInitShape } from '@bufbuild/protobuf';
+import type { SignupRequestSchema } from '$lib/proto/identity_pb';
 
-interface SignupUser {
-  username: string;
-  publicKey: string;
-  signature: string;
-  userSignature: string;
-  userID: string;
-  userIDSignature: string;
-  userIDFingerprint: string;
-  inviteID?: string;
-  inviteSecret?: string;
-}
+type SignupUser = MessageInitShape<typeof SignupRequestSchema>;
 
 export class AuthService {
   private _user: api.User | null = null;

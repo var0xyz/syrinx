@@ -19,7 +19,7 @@
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
   import StorageUsage from '$lib/components/StorageUsage.svelte';
   import { notificationStore } from '$lib/stores/notifications';
-  import { formatAbsoluteDateTime, formatRelativeTime } from '$lib/utils/time';
+  import { formatAbsoluteDateTime, formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { publicKeyRepository } from '$lib/repositories/publicKey';
   import { privateKeyRepository } from '$lib/repositories/privateKey';
   import { userInfoRepository } from '$lib/repositories/userInfo';
@@ -445,7 +445,7 @@
                     ⚠️ Your key backup is outdated — back up again to protect your current key.
                   </span>
                 {:else}
-                  <span class="last-backup">Last key backup {formatRelativeTime(lastKeyBackupAt)}</span>
+                  <span class="last-backup">Last key backup {formatRelativeTime(fromUnix(lastKeyBackupAt))}</span>
                 {/if}
               </div>
               {#if isPendingRevocation && !$isOnline}
@@ -567,7 +567,7 @@
                 the app and it doesn't load your account automatically.
               </p>
               {#if lastBackupAt}
-                <span class="last-backup">Last full backup {formatRelativeTime(lastBackupAt)}</span>
+                <span class="last-backup">Last full backup {formatRelativeTime(fromUnix(lastBackupAt))}</span>
               {/if}
             </div>
             <div class="button-row">

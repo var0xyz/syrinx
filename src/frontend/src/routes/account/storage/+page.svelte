@@ -13,7 +13,7 @@
   import { federatedServersRepository } from '$lib/repositories/federatedServers';
   import { foreignServerOf } from '$lib/services/peerServers';
   import { formatBytes } from '$lib/utils/bytes';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   type SortKey = 'user' | 'server' | 'reeds' | 'visited' | 'size';
 
@@ -215,7 +215,7 @@
               <td class="server">{serverOf(row)}</td>
             {/if}
             <td class="num">{row.reeds}</td>
-            <td class="visited">{row.lastVisitedAt ? formatRelativeTime(row.lastVisitedAt) : '—'}</td>
+            <td class="visited">{row.lastVisitedAt ? formatRelativeTime(fromUnix(row.lastVisitedAt)) : '—'}</td>
             <td class="num size">
               {formatBytes(row.bytes)}
               {#if row.locked}

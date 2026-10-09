@@ -83,9 +83,9 @@
   function groupByKey(list: api.Vouch[]): [string, api.Vouch[]][] {
     const byKey = new Map<string, api.Vouch[]>();
     for (const vouch of list) {
-      const held = byKey.get(vouch.voucherKeyID);
+      const held = byKey.get(vouch.voucherKeyId);
       if (held) held.push(vouch);
-      else byKey.set(vouch.voucherKeyID, [vouch]);
+      else byKey.set(vouch.voucherKeyId, [vouch]);
     }
     return [...byKey];
   }
@@ -111,13 +111,13 @@
   async function withdrawOne(vouch: api.Vouch) {
     withdrawing = new Set([...withdrawing, vouch.id]);
     try {
-      await withdrawVouch(vouch.id, vouch.subjectUserID, vouch.subjectKeyID);
+      await withdrawVouch(vouch.id, vouch.subjectUserId, vouch.subjectKeyId);
       notificationStore.success('Verification withdrawn');
     } catch (error) {
       console.error('[audit] withdraw failed', vouch.id, error);
       notificationStore.error(
-        foreignServerOf(vouch.subjectUserID)
-          ? await unreachableServerMessage(vouch.subjectUserID)
+        foreignServerOf(vouch.subjectUserId)
+          ? await unreachableServerMessage(vouch.subjectUserId)
           : 'Could not withdraw'
       );
     } finally {
@@ -125,8 +125,8 @@
     }
   }
 
-  function formatWhen(iso: string): string {
-    return new Date(iso).toLocaleString();
+  function formatWhen(unix: number): string {
+    return new Date(unix * 1000).toLocaleString();
   }
 </script>
 
@@ -179,17 +179,17 @@
           {#each group as vouch (vouch.id)}
             <li class:withdrawn={!!vouch.withdrawal}>
               <div class="detail">
-                <span class="who"><Username userID={vouch.subjectUserID} at={true} /><ServerName userID={vouch.subjectUserID} /></span>
+                <span class="who"><Username userID={vouch.subjectUserId} at={true} /><ServerName userID={vouch.subjectUserId} /></span>
                 <span class="state {stateOf(states, vouch)}">{stateOf(states, vouch)}</span>
-                <span class="when">{formatWhen(vouch.serverSignature.timestamp)}</span>
-                <code class="key">{vouch.subjectKeyID}</code>
+                <span class="when">{formatWhen(vouch.serverSignature.signedAt)}</span>
+                <code class="key">{vouch.subjectKeyId}</code>
                 {#if vouch.note}
                   <span class="note">“{vouch.note}”</span>
                 {/if}
               </div>
               {#if !vouch.withdrawal}
                 <WithdrawVouchButton
-                  subjectUserID={vouch.subjectUserID}
+                  subjectUserID={vouch.subjectUserId}
                   busy={withdrawing.has(vouch.id)}
                   compact={true}
                   on:withdraw={() => withdrawOne(vouch).then(load)}
@@ -226,9 +226,9 @@
 
 {#snippet detail(vouch: api.Vouch)}
   <div class="detail">
-    <span class="who"><Username userID={vouch.subjectUserID} at={true} /><ServerName userID={vouch.subjectUserID} /></span>
-    <span class="when">{formatWhen(vouch.serverSignature.timestamp)}</span>
-    <code class="key">{vouch.subjectKeyID}</code>
+    <span class="who"><Username userID={vouch.subjectUserId} at={true} /><ServerName userID={vouch.subjectUserId} /></span>
+    <span class="when">{formatWhen(vouch.serverSignature.signedAt)}</span>
+    <code class="key">{vouch.subjectKeyId}</code>
     {#if vouch.note}
       <span class="note">“{vouch.note}”</span>
     {/if}

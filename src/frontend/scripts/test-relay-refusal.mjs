@@ -12,13 +12,13 @@ const OTHER = 'bob@peer/k2';
 assert.equal(findContradiction([], REPORTED), null, 'no vouches: proceed');
 
 assert.equal(
-  findContradiction([{ subjectKeyID: REPORTED }], REPORTED),
+  findContradiction([{ subjectKeyId: REPORTED }], REPORTED),
   null,
   'vouch agrees with the reported key: proceed'
 );
 
 assert.ok(
-  findContradiction([{ subjectKeyID: OTHER }], REPORTED),
+  findContradiction([{ subjectKeyId: OTHER }], REPORTED),
   'vouch names another key: refuse'
 );
 
@@ -32,14 +32,14 @@ assert.equal(
 
 // One agreeing vouch is enough, even alongside a vouch for an older key.
 assert.equal(
-  findContradiction([{ subjectKeyID: OTHER }, { subjectKeyID: REPORTED }], REPORTED),
+  findContradiction([{ subjectKeyId: OTHER }, { subjectKeyId: REPORTED }], REPORTED),
   null,
   'a vouch for the reported key clears an older one'
 );
 
 assert.ok(
   findContradiction(
-    [{ subjectKeyID: OTHER, withdrawn: true }, { subjectKeyID: OTHER }],
+    [{ subjectKeyId: OTHER, withdrawn: true }, { subjectKeyId: OTHER }],
     REPORTED
   ),
   'a live disagreement still refuses when a withdrawn one exists'

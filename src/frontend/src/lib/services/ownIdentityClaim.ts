@@ -5,6 +5,7 @@
 
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
+import { recoveryProfileOf, userOfRecoveryProfile } from './recoveryProfile';
 import { authService } from './auth';
 import { dbService } from './db';
 import { buildKeyNest } from './recoveryKeyNest';
@@ -49,8 +50,8 @@ export async function claimOwnIdentity(): Promise<api.User> {
     throw new Error('Missing restored profile for claim.');
   }
   const infoFp =
-    infoByUserId.get(userId)?.activeKeyID ||
-    (profile as api.User & { activeKeyID?: string }).activeKeyID;
+    infoByUserId.get(userId)?.activeKeyId ||
+    (profile as api.User & { activeKeyId?: string }).activeKeyId;
   if (!infoFp || keyId.toLowerCase() !== infoFp.toLowerCase()) {
     throw new Error(
       'Active key id does not match the restored profile.'
@@ -60,9 +61,9 @@ export async function claimOwnIdentity(): Promise<api.User> {
   const nest = buildKeyNest(userId, {
     getUser: (id) => usersById.get(id),
     getActiveKeyId: (id) =>
-      infoByUserId.get(id)?.activeKeyID ||
-      (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
-        ?.activeKeyID,
+      infoByUserId.get(id)?.activeKeyId ||
+      (usersById.get(id) as api.User & { activeKeyId?: string } | undefined)
+        ?.activeKeyId,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });
@@ -92,11 +93,12 @@ export async function claimOwnIdentity(): Promise<api.User> {
   const claimed = await apiService.claimOwnIdentity({
     challenge,
     signature,
-    profile,
+    profile: recoveryProfileOf(profile),
     key: nest.key,
   });
+  const user = userOfRecoveryProfile(claimed);
 
-  await authService.saveUserToStorage(claimed);
+  await authService.saveUserToStorage(user);
 
-  return claimed;
+  return user;
 }

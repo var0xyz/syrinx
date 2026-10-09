@@ -11,9 +11,9 @@ const trustMarkFor = trustMarkFrom;
 const KEY = 'bob@peer/k1';
 const OLD = 'bob@peer/k0';
 const me = 'me@home';
-const vouch = (voucherUserID, extra = {}) => ({
-  voucherUserID,
-  subjectKeyID: KEY,
+const vouch = (voucherUserId, extra = {}) => ({
+  voucherUserId,
+  subjectKeyId: KEY,
   withdrawn: false,
   ...extra,
 });
@@ -66,12 +66,12 @@ assert.equal(
 // A vouch on a superseded key is stale: otherwise a substituted key would
 // inherit the mark, which is the exact failure this feature prevents.
 assert.equal(
-  trustMarkFor([vouch(me, { subjectKeyID: OLD })], KEY, me, new Set()),
+  trustMarkFor([vouch(me, { subjectKeyId: OLD })], KEY, me, new Set()),
   'none',
   'own vouch on an older key'
 );
 assert.equal(
-  trustMarkFor([vouch('carol@x', { subjectKeyID: OLD })], KEY, me, new Set(['carol@x'])),
+  trustMarkFor([vouch('carol@x', { subjectKeyId: OLD })], KEY, me, new Set(['carol@x'])),
   'none',
   'root vouch on an older key'
 );

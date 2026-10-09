@@ -8,10 +8,12 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	pb "syrinx/proto"
 )
@@ -68,15 +70,15 @@ func readRequest(r *http.Request, msg proto.Message) error {
 }
 
 // unixOrZero is t as unix seconds, 0 for the zero time.
-func unixOrZero(t time.Time) int64 {
+func unixOrZero(t time.Time) uint32 {
 	if t.IsZero() {
 		return 0
 	}
-	return t.UTC().Unix()
+	return uint32(t.UTC().Unix())
 }
 
 // unixPtr is t as unix seconds, 0 when unset.
-func unixPtr(t *time.Time) int64 {
+func unixPtr(t *time.Time) uint32 {
 	if t == nil {
 		return 0
 	}
@@ -84,11 +86,11 @@ func unixPtr(t *time.Time) int64 {
 }
 
 // timeFromUnix is the inverse of unixOrZero.
-func timeFromUnix(s int64) time.Time {
+func timeFromUnix(s uint32) time.Time {
 	if s == 0 {
 		return time.Time{}
 	}
-	return time.Unix(s, 0).UTC()
+	return time.Unix(int64(s), 0).UTC()
 }
 
 // userSignatureFromPB/serverSignatureFromPB read signature blocks off a
@@ -630,4 +632,67 @@ func vouchFromPB(c *pb.Vouch) VouchCert {
 		}
 	}
 	return out
+}
+
+// parseUnixCursor reads a pagination cursor given as unix seconds.
+func parseUnixCursor(raw string) (time.Time, error) {
+	seconds, err := strconv.ParseUint(raw, 10, 32)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return timeFromUnix(uint32(seconds)), nil
+}
+
+// spaRecord renders m the way the SPA keeps a generated message in IndexedDB
+// (protobuf-es field names, $typeName, defaults present), for files it restores.
+func spaRecord(m protoreflect.Message) map[string]any {
+	out := map[string]any{"$typeName": string(m.Descriptor().FullName())}
+	fields := m.Descriptor().Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if (fd.HasPresence() || fd.IsList()) && !m.Has(fd) {
+			continue
+		}
+		v := m.Get(fd)
+		if fd.IsList() {
+			list := make([]any, v.List().Len())
+			for j := range list {
+				list[j] = spaValue(fd, v.List().Get(j))
+			}
+			out[spaFieldName(fd)] = list
+			continue
+		}
+		out[spaFieldName(fd)] = spaValue(fd, v)
+	}
+	return out
+}
+
+func spaValue(fd protoreflect.FieldDescriptor, v protoreflect.Value) any {
+	if fd.Kind() == protoreflect.MessageKind {
+		return spaRecord(v.Message())
+	}
+	if fd.Kind() == protoreflect.EnumKind {
+		return int32(v.Enum())
+	}
+	return v.Interface()
+}
+
+// spaFieldName is protobuf-es's local name: snake_case to lowerCamelCase.
+func spaFieldName(fd protoreflect.FieldDescriptor) string {
+	name := string(fd.Name())
+	var b []byte
+	upper := false
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c == '_' {
+			upper = true
+			continue
+		}
+		if upper && c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		upper = false
+		b = append(b, c)
+	}
+	return string(b)
 }

@@ -8,6 +8,7 @@ import { signedAtHeader } from './verify';
 import { get } from 'svelte/store';
 import { serverInfo } from './serverInfo';
 import { generateReedId } from '$lib/utils/id';
+import { toUnix } from '$lib/utils/time';
 
 function newInviteSecret(): string {
   const buf = new Uint8Array(32);
@@ -60,7 +61,8 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
   const id = `${user.id}/${generateReedId()}`;
   const secret = newInviteSecret();
   const tokenHash = await hashInviteSecret(secret);
-  const createdAt = signedAtHeader(new Date());
+  const now = new Date();
+  const createdAt = signedAtHeader(now);
   const grantedRole = grantAdmin ? 'admin' : 'user';
   const userPayload = buildInviteUserPayload(
     serverID,
@@ -78,24 +80,12 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
   const created = await apiService.createInvite({
     id,
     tokenHash,
-    createdAt,
+    createdAt: toUnix(now),
     grantedRole,
     userSignature,
   });
 
-  const invite: api.Invite = {
-    id: created.id,
-    tokenHash: created.tokenHash,
-    grantedRole: created.grantedRole,
-    secret,
-    createdAt: created.createdAt,
-    status: 'pending',
-    claimedAt: null,
-    claimedBy: null,
-    revokedAt: null,
-    userSignature: created.userSignature,
-    serverSignature: created.serverSignature,
-  };
+  const invite: api.Invite = { ...created, secret, status: 'pending' };
   await invitesRepository.put(invite);
   return invite;
 }
@@ -117,7 +107,7 @@ export async function refreshPendingInviteStatuses(
         const status = await apiService.getInviteStatus(invite.id);
         const next: api.Invite = {
           ...invite,
-          status: status.status,
+          status: status.status as api.Invite['status'],
           claimedAt: status.claimedAt,
           claimedBy: status.claimedBy,
           revokedAt: status.revokedAt,
@@ -137,7 +127,7 @@ export async function refreshPendingInviteStatuses(
   );
 
   return [...terminal, ...refreshed].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => b.createdAt - a.createdAt
   );
 }
 
@@ -148,7 +138,7 @@ export async function revokeLocalInvite(id: string): Promise<api.Invite | null> 
   const next: api.Invite = {
     ...existing,
     status: 'revoked',
-    revokedAt: signedAtHeader(new Date()),
+    revokedAt: toUnix(new Date()),
   };
   delete next.secret;
   await invitesRepository.putStatus(next);

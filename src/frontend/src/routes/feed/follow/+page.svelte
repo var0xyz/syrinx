@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { followReedQueue, getFollowReeds } from '$lib/repositories/reeds';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Auth from '$lib/components/Auth.svelte';
@@ -81,7 +81,7 @@
                   userID={reed.userID}
                   username={followReeds.authors[reed.userID]?.username ?? reed.userID}
                   nameTag="h3"
-                  subtext={formatRelativeTime(reed.serverSignature.timestamp)}
+                  subtext={formatRelativeTime(fromUnix(reed.serverSignature.signedAt))}
                   stopPropagation
                   linked={false}
                 />

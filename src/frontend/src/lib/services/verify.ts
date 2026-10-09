@@ -22,9 +22,10 @@ export type VerifyResult =
   | { ok: true }
   | { ok: false; reason: string; detail?: string };
 
-/** RFC3339 UTC whole-seconds, matching what the server puts in signed headers. */
-export function signedAtHeader(timestamp: string | Date): string {
-  const d = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
+/** RFC3339 UTC whole-seconds, matching what the server puts in signed
+ * headers. A number is wire unix seconds. */
+export function signedAtHeader(timestamp: string | Date | number): string {
+  const d = typeof timestamp === 'number' ? new Date(timestamp * 1000) : typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
   const ms = d.getTime();
   return new Date(ms - (ms % 1000)).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
@@ -45,9 +46,9 @@ async function resolveServerKey(id: string): Promise<PublicKey | null> {
 
 /** A compromised server key only counts for what it signed before its
  * revocation. The key signs its own timestamps, so this can be backdated. */
-function signedWhileTrusted(key: PublicKey, signedAt: string): boolean {
+function signedWhileTrusted(key: PublicKey, signedAt: number): boolean {
   if (!key.compromised || !key.revokedAt) return true;
-  return Date.parse(signedAt) < Date.parse(key.revokedAt);
+  return signedAt < key.revokedAt;
 }
 
 export async function verify(
@@ -57,7 +58,7 @@ export async function verify(
   if (
     !serverSignature?.id ||
     !serverSignature.armor ||
-    !serverSignature.timestamp
+    !serverSignature.signedAt
   ) {
     return { ok: false, reason: 'missing_fields' };
   }
@@ -70,7 +71,7 @@ export async function verify(
     if (!key) {
       return { ok: false, reason: 'server_key_unavailable', detail: serverSignature.id };
     }
-    if (!signedWhileTrusted(key, serverSignature.timestamp)) {
+    if (!signedWhileTrusted(key, serverSignature.signedAt)) {
       return { ok: false, reason: 'server_key_compromised', detail: serverSignature.id };
     }
 

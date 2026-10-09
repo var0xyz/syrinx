@@ -1377,7 +1377,7 @@ type ReedNotificationMessage struct {
 	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Username      string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
 	Content       string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     uint32                 `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1440,7 +1440,7 @@ func (x *ReedNotificationMessage) GetContent() string {
 	return ""
 }
 
-func (x *ReedNotificationMessage) GetTimestamp() int64 {
+func (x *ReedNotificationMessage) GetTimestamp() uint32 {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -1452,7 +1452,7 @@ type UserUpdateMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	UpdateType    string                 `protobuf:"bytes,2,opt,name=update_type,json=updateType,proto3" json:"update_type,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     uint32                 `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1501,7 +1501,7 @@ func (x *UserUpdateMessage) GetUpdateType() string {
 	return ""
 }
 
-func (x *UserUpdateMessage) GetTimestamp() int64 {
+func (x *UserUpdateMessage) GetTimestamp() uint32 {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -1513,7 +1513,7 @@ type ErrorMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     uint32                 `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1562,7 +1562,7 @@ func (x *ErrorMessage) GetMessage() string {
 	return ""
 }
 
-func (x *ErrorMessage) GetTimestamp() int64 {
+func (x *ErrorMessage) GetTimestamp() uint32 {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -4168,16 +4168,16 @@ const file_websocket_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x1a\n" +
 	"\busername\x18\x03 \x01(\tR\busername\x12\x18\n" +
 	"\acontent\x18\x04 \x01(\tR\acontent\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"k\n" +
+	"\ttimestamp\x18\x05 \x01(\rR\ttimestamp\"k\n" +
 	"\x11UserUpdateMessage\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1f\n" +
 	"\vupdate_type\x18\x02 \x01(\tR\n" +
 	"updateType\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"Z\n" +
+	"\ttimestamp\x18\x03 \x01(\rR\ttimestamp\"Z\n" +
 	"\fErrorMessage\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"L\n" +
+	"\ttimestamp\x18\x03 \x01(\rR\ttimestamp\"L\n" +
 	"\x12RequestReedMessage\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +

@@ -101,7 +101,7 @@ export async function refreshVouches(subjectUserID: string): Promise<void> {
   try {
     const info = await apiService.getUserInfo(subjectUserID);
     await userInfoRepository.put(info);
-    await reconcileVouches(subjectUserID, info.vouchIDs ?? []);
+    await reconcileVouches(subjectUserID, info.vouchIds ?? []);
   } catch (error) {
     console.error('[vouches] background refresh failed', subjectUserID, error);
   } finally {
@@ -124,7 +124,7 @@ export async function staleVouchesFor(
   activeKeyID: string
 ): Promise<VouchRecord[]> {
   const vouches = await vouchesRepository.forSubject(subjectUserID);
-  return vouches.filter((v) => !v.withdrawal && v.subjectKeyID !== activeKeyID);
+  return vouches.filter((v) => !v.withdrawal && v.subjectKeyId !== activeKeyID);
 }
 
 /** Stores a vouch the server pushed by id. The cert is fetched and verified
@@ -154,14 +154,14 @@ export async function keyChangeFor(
   const me = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
   if (!me) return null;
   const mine = (await vouchesRepository.forSubject(subjectUserID)).find(
-    (v) => v.voucherUserID === me
+    (v) => v.voucherUserId === me
   );
   if (!mine) return null;
 
   const current = await dbService.get<api.PublicKey>('publicKeys', currentKeyID);
-  const vouched = await dbService.get<api.PublicKey>('publicKeys', mine.subjectKeyID);
+  const vouched = await dbService.get<api.PublicKey>('publicKeys', mine.subjectKeyId);
   return classifyKeyChange({
-    vouchedKeyID: mine.subjectKeyID,
+    vouchedKeyID: mine.subjectKeyId,
     currentKeyID,
     predecessorID: current?.predecessor ?? null,
     // verifyPublicKey refuses a key whose handoff does not check out, so a
@@ -245,9 +245,9 @@ export async function unreviewedVouches(): Promise<api.Vouch[]> {
   do {
     const page = await apiService.getMyVouches(cursor);
     for (const cert of page.vouches ?? []) {
-      if (cert.voucherUserID !== id || declined.has(cert.id)) continue;
+      if (cert.voucherUserId !== id || declined.has(cert.id)) continue;
       if (await vouchesRepository.has(cert.id)) continue;
-      if (await verifyVouch(cert, cert.subjectUserID)) found.push(cert);
+      if (await verifyVouch(cert, cert.subjectUserId)) found.push(cert);
     }
     cursor = page.nextCursor;
   } while (cursor);
@@ -256,7 +256,7 @@ export async function unreviewedVouches(): Promise<api.Vouch[]> {
 
 /** Adds a server-held vouch to the caller's own list, undoing a decline. */
 export async function acceptVouch(cert: api.Vouch): Promise<void> {
-  await vouchesRepository.put(cert, cert.subjectUserID);
+  await vouchesRepository.put(cert, cert.subjectUserId);
   await declinedVouchesRepository.delete(cert.id);
 }
 
@@ -283,12 +283,12 @@ export async function auditStateFor(vouch: api.Vouch): Promise<AuditState> {
 
   // Only set for keys this device revoked itself, so it is a bonus signal
   // rather than the check: the key comparison below is what catches the rest.
-  const vouched = await dbService.get<api.PublicKey>('publicKeys', vouch.subjectKeyID);
+  const vouched = await dbService.get<api.PublicKey>('publicKeys', vouch.subjectKeyId);
   if (vouched?.revoked) return 'revoked key';
 
-  const currentKeyID = await currentKeyIDFor(vouch.subjectUserID);
+  const currentKeyID = await currentKeyIDFor(vouch.subjectUserId);
   if (!currentKeyID) return 'live';
-  return vouch.subjectKeyID === currentKeyID ? 'live' : 'previous key';
+  return vouch.subjectKeyId === currentKeyID ? 'live' : 'previous key';
 }
 
 /** Refetched, not cached: a rotation is what this audit must notice.
@@ -297,11 +297,11 @@ async function currentKeyIDFor(subjectUserID: string): Promise<string | null> {
   try {
     const info = await apiService.getUserInfo(subjectUserID);
     await userInfoRepository.put(info);
-    return info.activeKeyID ?? null;
+    return info.activeKeyId ?? null;
   } catch (error) {
     console.error('[vouches] could not resolve current key', subjectUserID, error);
     const cached = await userInfoRepository.get(subjectUserID);
-    return cached?.activeKeyID ?? null;
+    return cached?.activeKeyId ?? null;
   }
 }
 

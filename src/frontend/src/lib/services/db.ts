@@ -77,7 +77,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 31;
+  private readonly version = 32;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -87,7 +87,7 @@ export class IndexedDbService implements DbService {
     ['usersInfo',   'id'         ],
     ['invites',     'id'         ],
     ['reedReplies', 'reedID', 'parentReedID', 'createdAt'],
-    ['ripples',     'hash', 'threadID'],
+    ['ripples',     'hash', 'threadId'],
     ['mailbox',     'id', 'createdAt'],
 
     // Offline-first
@@ -99,25 +99,25 @@ export class IndexedDbService implements DbService {
     ['pendingPublication', 'reedID'     ],
     ['pendingBackups',     'id'         ],
     ['reedRequests',       'requestId'  ],
-    ['removedReeds',       'reedID'     ],
-    ['removedAccounts',    'userID'     ],
-    ['removedThreads',     'threadID'   ],
+    ['removedReeds',       'reedId'     ],
+    ['removedAccounts',    'userId'     ],
+    ['removedThreads',     'cert.threadId'],
     // Blocks of the viewer, keyed by the blocking user.
-    ['blockedBy',          'userID'     ],
+    ['blockedBy',          'userId'     ],
     // The viewer's own blocks, and the outboxes that make and lift them.
-    ['blocks',             'blockedUserID'],
+    ['blocks',             'blockedUserId'],
     ['pendingBlocks',      'blockedUserID'],
     ['pendingUnblocks',    'blockedUserID'],
-    ['threads',            'threadID'   ],
+    ['threads',            'threadId'   ],
     ['pendingLikes',       'compositeKey'],
     ['pendingUnlike',      'compositeKey'],
     ['likedReeds',         'compositeKey', 'likedAt'],
     ['mentions',           'reedID', 'createdAt'],
     ['pendingEvictions',   'reedID'     ],
     ['pendingKeyEvictions', 'keyID'     ],
-    ['vouches',            'id', 'subjectUserID', 'voucherUserID'],
+    ['vouches',            'id', 'subjectUserId', 'voucherUserId'],
     ['pendingVouches',     'compositeKey'],
-    ['declinedVouches',    'id', 'voucherUserID'],
+    ['declinedVouches',    'id', 'voucherUserId'],
 
     // Local-only (not signed, not synced to the server)
     ['userLists',          'id'],
@@ -169,8 +169,14 @@ export class IndexedDbService implements DbService {
         // that already exists (see the NOTE below). Pre-launch project, no
         // production data to preserve, so dropped stores are just cleared,
         // not migrated in place — including privateKeys/pendingRevocation
-        // here for the fingerprint -> keyId rename.
-        for (const storeName of ['publicKeys', 'revocations', 'reeds', 'tags', 'privateKeys', 'pendingRevocation']) {
+        // here for the fingerprint -> keyId rename, and every store whose
+        // records became generated protobuf messages.
+        for (const storeName of [
+          'publicKeys', 'revocations', 'reeds', 'tags', 'privateKeys', 'pendingRevocation',
+          'users', 'usersInfo', 'invites', 'ripples', 'removedReeds', 'removedAccounts',
+          'removedThreads', 'blockedBy', 'blocks', 'threads', 'vouches', 'declinedVouches',
+          'likedReeds', 'reedReplies',
+        ]) {
           if (db.objectStoreNames.contains(storeName)) {
             db.deleteObjectStore(storeName);
           }
@@ -203,7 +209,7 @@ export class IndexedDbService implements DbService {
         }
 
         // Reed ids are canonical (globally unique) as of v12 — dropped above.
-        ensureStore('reeds', 'id', ['userID', 'serverSignature.timestamp']);
+        ensureStore('reeds', 'id', ['userID', 'serverSignature.signedAt']);
         // One row per (tag, reed); byTime pages a tag newest first.
         ensureStore('tags', ['name', 'reedID'], ['name', 'reedID']);
         const tags = tx.objectStore('tags');

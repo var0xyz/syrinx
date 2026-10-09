@@ -22,7 +22,7 @@ async function togglePin(
     }
     const cached = await userInfoRepository.get(ownerId);
     if (cached) {
-      await userInfoRepository.put({ ...cached, pinnedReedIDs: after });
+      await userInfoRepository.put({ ...cached, pinnedReedIds: after });
     }
     return after;
   } catch (error) {

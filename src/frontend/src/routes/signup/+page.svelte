@@ -43,7 +43,7 @@
   $: inviteID = ($page.url.searchParams.get("id") || "").trim();
 
   $: usernameCheckFields =
-    inviteID && inviteSecret ? { inviteID, inviteSecret } : {};
+    inviteID && inviteSecret ? { inviteId: inviteID, inviteSecret } : {};
 
   onMount(async () => {
     if (authService.isLoggedIn()) {
@@ -164,7 +164,7 @@
       const serverName = localStorage.getItem('serverName') || '';
       // This user's own canonical id, minted here for the first time.
       // Computed once; every use below passes it through as-is.
-      const canonicalUserId = `${reserved.userID}@${serverId}`;
+      const canonicalUserId = `${reserved.userId}@${serverId}`;
       const keyPair = await cryptoService.generateKeyPair({
         name: canonicalUserId,
         email,
@@ -199,10 +199,10 @@
         publicKey: keyPair.publicKey,
         signature,
         userSignature,
-        userID: reserved.userID,
-        userIDSignature: reserved.signature,
-        userIDFingerprint: reserved.fingerprint,
-        ...(inviteID && inviteSecret ? { inviteID, inviteSecret } : {}),
+        userId: reserved.userId,
+        userIdSignature: reserved.signature,
+        userIdFingerprint: reserved.fingerprint,
+        ...(inviteID && inviteSecret ? { inviteId: inviteID, inviteSecret } : {}),
       };
       // Signup burns the invite and the username, so confirm the signer is
       // usable first — failing after the POST leaves both unrecoverable.

@@ -10,7 +10,7 @@
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   $: serverId = $page.params.serverId;
 
@@ -205,7 +205,7 @@
                 class="meta-link"
                 at
                 fire={false}
-              /> {formatRelativeTime(invitation.createdAt)}</p
+              /> {formatRelativeTime(fromUnix(invitation.createdAt))}</p
             >
           {/if}
           {#if attempt?.approvedBy}
@@ -215,7 +215,7 @@
                 class="meta-link"
                 at
                 fire={false}
-              /> {#if attempt.approvedAt}{formatRelativeTime(attempt.approvedAt)}{/if}</p
+              /> {#if attempt.approvedAt}{formatRelativeTime(fromUnix(attempt.approvedAt))}{/if}</p
             >
           {/if}
           {#if server.revoked}
@@ -227,9 +227,9 @@
                   at
                   fire={false}
                 />
-                {#if server.revokedAt}· {formatRelativeTime(server.revokedAt)}{/if}
+                {#if server.revokedAt}· {formatRelativeTime(fromUnix(server.revokedAt))}{/if}
               {:else if server.revokedAt}
-                Disconnected {formatRelativeTime(server.revokedAt)}
+                Disconnected {formatRelativeTime(fromUnix(server.revokedAt))}
               {/if}
             </p>
             {#if server.revokedReason}
@@ -246,9 +246,9 @@
                   at
                   fire={false}
                 />
-                {#if server.disconnectRequestedAt}· {formatRelativeTime(server.disconnectRequestedAt)}{/if}
+                {#if server.disconnectRequestedAt}· {formatRelativeTime(fromUnix(server.disconnectRequestedAt))}{/if}
               {:else if server.disconnectRequestedAt}
-                Disconnect requested {formatRelativeTime(server.disconnectRequestedAt)}
+                Disconnect requested {formatRelativeTime(fromUnix(server.disconnectRequestedAt))}
               {/if}
             </p>
             {#if server.disconnectReason}

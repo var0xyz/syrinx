@@ -19,7 +19,7 @@ export const invitesRepository = {
   async getAll(): Promise<api.Invite[]> {
     const all = await dbService.getAll<api.Invite>('invites');
     return all.sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) => b.createdAt - a.createdAt
     );
   },
 

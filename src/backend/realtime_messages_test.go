@@ -190,7 +190,7 @@ func TestNewReedRemovedMsgCarriesCert(t *testing.T) {
 	if cert.GetServerSignature().GetId() != "server-key-1" || cert.GetServerSignature().GetArmor() != "server-sig-armor" {
 		t.Fatalf("unexpected server signature: %+v", cert.GetServerSignature())
 	}
-	if cert.GetServerSignature().GetSignedAt() != signedAt.Unix() {
+	if cert.GetServerSignature().GetSignedAt() != unixOrZero(signedAt) {
 		t.Fatalf("SignedAt = %d, want %d", cert.GetServerSignature().GetSignedAt(), signedAt.Unix())
 	}
 }
@@ -239,7 +239,7 @@ func TestNewRipplePostedMsgCarriesRipple(t *testing.T) {
 	if gotRipple.GetHash() != "hash-1" || gotRipple.GetReplyingTo() != "hash-parent" {
 		t.Fatalf("unexpected ripple fields: %+v", gotRipple)
 	}
-	if gotRipple.GetPostedAt() != postedAt.Unix() {
+	if gotRipple.GetPostedAt() != unixOrZero(postedAt) {
 		t.Fatalf("PostedAt = %d, want %d", gotRipple.GetPostedAt(), postedAt.Unix())
 	}
 }

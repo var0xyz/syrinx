@@ -5,7 +5,7 @@ package syrinx;
 option go_package = "github.com/alvaro/syrinx/proto";
 
 // Messages shared by HTTP, the WebSocket channel and federation. Every
-// int64 field is a unix-seconds timestamp; counts are int32/uint32.
+// timestamp is uint32 unix seconds.
 
 // A user's cryptographic signature over content, and the id of the key
 // that produced it.
@@ -18,7 +18,7 @@ message UserSignature {
 message ServerSignature {
   string id = 1;
   string armor = 2;
-  int64 signed_at = 3 [json_name = "timestamp"];
+  uint32 signed_at = 3 [json_name = "timestamp"];
 }
 
 // Every non-2xx HTTP body. detail carries the certificate a refusal or a
@@ -41,7 +41,7 @@ message Ripple {
   // Unset when this ripple is not a reply to another ripple.
   optional string replying_to = 5;
   bool deleted = 6;
-  int64 posted_at = 7;
+  uint32 posted_at = 7;
   UserSignature user_signature = 8;
   ServerSignature server_signature = 9;
 }

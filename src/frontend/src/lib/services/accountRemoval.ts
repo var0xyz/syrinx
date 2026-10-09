@@ -29,12 +29,12 @@ export const accountRemovalCommitted = writable(0);
  */
 export async function commitAccountRemovalLocally(cert: api.AccountRemoval): Promise<void> {
   await removedAccountsRepository.put(cert);
-  await reedsService.deleteReedsByAuthor(cert.userID);
-  await dbService.delete('following', cert.userID);
-  await userListsRepository.removeMember(cert.userID);
-  await dbService.delete('pendingFollows', cert.userID);
-  await dbService.delete('unfollow', cert.userID);
-  await userRepository.writeTombstone(cert.userID);
+  await reedsService.deleteReedsByAuthor(cert.userId);
+  await dbService.delete('following', cert.userId);
+  await userListsRepository.removeMember(cert.userId);
+  await dbService.delete('pendingFollows', cert.userId);
+  await dbService.delete('unfollow', cert.userId);
+  await userRepository.writeTombstone(cert.userId);
 }
 
 export async function verifyAndCommitAccountRemoval(
@@ -45,7 +45,7 @@ export async function verifyAndCommitAccountRemoval(
     accountRemovalCommitted.update((n) => n + 1);
     return true;
   } catch (error) {
-    console.error('[verifyAndCommitAccountRemoval] refused', cert?.userID, error);
+    console.error('[verifyAndCommitAccountRemoval] refused', cert?.userId, error);
     return false;
   }
 }

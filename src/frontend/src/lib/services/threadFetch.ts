@@ -1,4 +1,5 @@
 import { serverConnection } from './serverConnection';
+import type { DataResponseMessage } from '$lib/proto/websocket_pb';
 import { decryptThreadBundle, encryptThreadForRequester, type ThreadBundle } from './relayDecrypt';
 import { reedsService } from '$lib/repositories/reeds';
 import { threadsRepository } from '$lib/repositories/threads';
@@ -47,38 +48,33 @@ async function bundleVerifies(threadId: string, bundle: ThreadBundle): Promise<b
  * Requester side: a DATA_RESPONSE to REQUEST_THREAD. Stores the thread only
  * once the record and every part verify and agree, then acks it whole.
  */
-export async function receiveThreadResponse(data: {
-  id: string;
-  request_id: string;
-  reed_id: string;
-  ciphertext: string;
-}): Promise<void> {
+export async function receiveThreadResponse(data: DataResponseMessage & { id: string }): Promise<void> {
   let bundle: ThreadBundle;
   try {
     bundle = await decryptThreadBundle(data.ciphertext);
   } catch (error) {
-    console.warn('Thread response failed to decrypt:', data.reed_id, error);
+    console.warn('Thread response failed to decrypt:', data.reedId, error);
     serverConnection.sendContentRejected('threads', 'decrypt_failed');
     serverConnection.sendDataInvalid(data.id);
-    serverConnection.rejectPendingThreadRequest(data.request_id, error);
+    serverConnection.rejectPendingThreadRequest(data.requestId, error);
     return;
   }
-  if (!(await bundleVerifies(data.reed_id, bundle))) {
+  if (!(await bundleVerifies(data.reedId, bundle))) {
     serverConnection.sendDataInvalid(data.id);
-    serverConnection.rejectPendingThreadRequest(data.request_id, new Error('thread_invalid'));
+    serverConnection.rejectPendingThreadRequest(data.requestId, new Error('thread_invalid'));
     return;
   }
   try {
     for (const reed of bundle.reeds) await reedsService.storeReed(reed);
     await threadsRepository.put(bundle.record);
   } catch (error) {
-    console.warn('Thread failed to store:', data.reed_id, error);
+    console.warn('Thread failed to store:', data.reedId, error);
     serverConnection.sendDataInvalid(data.id);
-    serverConnection.rejectPendingThreadRequest(data.request_id, error);
+    serverConnection.rejectPendingThreadRequest(data.requestId, error);
     return;
   }
   serverConnection.sendDataAck(data.id);
-  serverConnection.resolvePendingThreadRequest(data.request_id, bundle.reeds);
+  serverConnection.resolvePendingThreadRequest(data.requestId, bundle.reeds);
 }
 
 /** A thread held whole: its record and every part, in order. */

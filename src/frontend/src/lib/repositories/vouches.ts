@@ -38,7 +38,7 @@ export const vouchesRepository = {
 
   /** Every verified vouch naming this user, withdrawn ones included. */
   async forSubject(subjectUserID: string): Promise<VouchRecord[]> {
-    return dbService.getAllByIndex<VouchRecord>('vouches', 'subjectUserID', subjectUserID);
+    return dbService.getAllByIndex<VouchRecord>('vouches', 'subjectUserId', subjectUserID);
   },
 
   /** The audit list's source, newest first by countersignature time.
@@ -46,11 +46,11 @@ export const vouchesRepository = {
   async byVoucher(voucherUserID: string): Promise<VouchRecord[]> {
     const held = await dbService.getAllByIndex<VouchRecord>(
       'vouches',
-      'voucherUserID',
+      'voucherUserId',
       voucherUserID
     );
     return held.sort((a, b) =>
-      b.serverSignature.timestamp.localeCompare(a.serverSignature.timestamp)
+      (b.serverSignature?.signedAt ?? 0) - (a.serverSignature?.signedAt ?? 0)
     );
   },
 };

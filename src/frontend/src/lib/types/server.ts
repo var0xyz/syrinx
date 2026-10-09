@@ -13,13 +13,7 @@ export interface ServerInfo {
 
 /** An established peer, as /server/info lists it. `frontendUrl` is the origin its
  * users open links on. */
-export interface FederatedServer {
-  id: string;
-  name: string;
-  keyId: string;
-  createdAt: string;
-  frontendUrl: string;
-}
+export type { FederatedServerInfo as FederatedServer } from '$lib/proto/identity_pb';
 
 /** A server a verification link can open on. */
 export interface VouchServerChoice {

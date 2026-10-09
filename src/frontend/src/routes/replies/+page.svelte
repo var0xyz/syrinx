@@ -14,7 +14,7 @@
   import { userRepository } from '$lib/repositories/user';
   import { removedReedsRepository } from '$lib/repositories/removedReeds';
   import { serverConnection } from '$lib/services/serverConnection';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { clearUnread, unreadInteractions } from '$lib/stores/unreadInteractions';
   import type { ReedType } from '$lib/types/reed';
 
@@ -46,7 +46,7 @@
     return { reedID, authorID: reed.userID, parentReedID, reed, username };
   }
 
-  async function fetchRepliesPage(after?: string) {
+  async function fetchRepliesPage(after?: number) {
     const myUserID = localStorage.getItem('userId') ?? '';
     const myReeds = await reedsService.getReedsByAuthor(myUserID);
     // Fetch one extra row to detect whether another page exists.
@@ -94,8 +94,8 @@
                   userID={row.authorID}
                   username={row.username}
                   avatarSize="36px"
-                  subtext={row.reed.serverSignature?.timestamp
-                    ? formatRelativeTime(row.reed.serverSignature.timestamp)
+                  subtext={row.reed.serverSignature?.signedAt
+                    ? formatRelativeTime(fromUnix(row.reed.serverSignature.signedAt))
                     : ''}
                   stopPropagation
                   linked={false}

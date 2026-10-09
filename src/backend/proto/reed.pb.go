@@ -391,7 +391,7 @@ func (x *EchoCountResponse) GetCount() int32 {
 type EchoerListUser struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
-	EchoedAt      int64                  `protobuf:"varint,2,opt,name=echoed_at,json=echoedAt,proto3" json:"echoed_at,omitempty"`
+	EchoedAt      uint32                 `protobuf:"varint,2,opt,name=echoed_at,json=echoedAt,proto3" json:"echoed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -433,7 +433,7 @@ func (x *EchoerListUser) GetUserId() string {
 	return ""
 }
 
-func (x *EchoerListUser) GetEchoedAt() int64 {
+func (x *EchoerListUser) GetEchoedAt() uint32 {
 	if x != nil {
 		return x.EchoedAt
 	}
@@ -496,7 +496,7 @@ type ReplyListItem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
 	ReedId        string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     uint32                 `protobuf:"varint,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -545,7 +545,7 @@ func (x *ReplyListItem) GetReedId() string {
 	return ""
 }
 
-func (x *ReplyListItem) GetTimestamp() int64 {
+func (x *ReplyListItem) GetTimestamp() uint32 {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -1016,7 +1016,7 @@ type RippleListResponse struct {
 	HasMore    bool                   `protobuf:"varint,2,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
 	NextCursor string                 `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	// When the reed's ripple thread was last posted to.
-	LastActivityAt int64 `protobuf:"varint,4,opt,name=last_activity_at,json=lastActivityAt,proto3" json:"last_activity_at,omitempty"`
+	LastActivityAt uint32 `protobuf:"varint,4,opt,name=last_activity_at,json=lastActivityAt,proto3" json:"last_activity_at,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1072,7 +1072,7 @@ func (x *RippleListResponse) GetNextCursor() string {
 	return ""
 }
 
-func (x *RippleListResponse) GetLastActivityAt() int64 {
+func (x *RippleListResponse) GetLastActivityAt() uint32 {
 	if x != nil {
 		return x.LastActivityAt
 	}
@@ -1235,14 +1235,14 @@ const file_reed_proto_rawDesc = "" +
 	"\x05count\x18\x01 \x01(\x05R\x05count\"F\n" +
 	"\x0eEchoerListUser\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1b\n" +
-	"\techoed_at\x18\x02 \x01(\x03R\bechoedAt\"]\n" +
+	"\techoed_at\x18\x02 \x01(\rR\bechoedAt\"]\n" +
 	"\x12EchoerListResponse\x12,\n" +
 	"\x05users\x18\x01 \x03(\v2\x16.syrinx.EchoerListUserR\x05users\x12\x19\n" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"_\n" +
 	"\rReplyListItem\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x17\n" +
 	"\areed_id\x18\x02 \x01(\tR\x06reedID\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"_\n" +
+	"\ttimestamp\x18\x03 \x01(\rR\ttimestamp\"_\n" +
 	"\x11ReplyListResponse\x12/\n" +
 	"\areplies\x18\x01 \x03(\v2\x15.syrinx.ReplyListItemR\areplies\x12\x19\n" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"1\n" +
@@ -1279,7 +1279,7 @@ const file_reed_proto_rawDesc = "" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x1f\n" +
 	"\vnext_cursor\x18\x03 \x01(\tR\n" +
 	"nextCursor\x12(\n" +
-	"\x10last_activity_at\x18\x04 \x01(\x03R\x0elastActivityAt\"w\n" +
+	"\x10last_activity_at\x18\x04 \x01(\rR\x0elastActivityAt\"w\n" +
 	"\x0eReceivedRipple\x12&\n" +
 	"\x06ripple\x18\x01 \x01(\v2\x0e.syrinx.RippleR\x06ripple\x12\x17\n" +
 	"\areed_id\x18\x02 \x01(\tR\x06reedID\x12$\n" +

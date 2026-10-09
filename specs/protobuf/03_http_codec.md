@@ -4,8 +4,8 @@
 
 Implemented. Go: `protowire.go` (`writeResponse` takes a `proto.Message`,
 `writeError`, `readRequest`, which rejects a non-protobuf body and
-accepts an empty one). SPA: `lib/services/wire.ts` (`encodeShape`/
-`decodeShape`) and the `protoBody`/`request` helpers in `api.ts`. Request
+accepts an empty one). SPA: the `protoBody`/`request`/`readMessage` helpers in `api.ts`
+(the interim `wire.ts` decode layer was removed in 07). Request
 and response signatures now cover raw body bytes on both sides
 (`request-signer.ts`, `service-worker.ts`, `responseVerifier.ts`).
 

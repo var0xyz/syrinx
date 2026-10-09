@@ -5,6 +5,7 @@ import { parseKeyId, formatKeyId, appendFingerprint } from '$lib/utils/identityR
 import { vouchesRepository } from '$lib/repositories/vouches';
 import { foreignServerOf, unreachableServerMessage } from './peerServers';
 import type * as api from '$lib/types/api';
+import { fromUnix } from '$lib/utils/time';
 
 /**
  * Outcome of comparing a scanned key id against the key we resolved. There
@@ -63,8 +64,8 @@ async function resolveServedKeyID(
   let key: api.PublicKey | null = null;
   try {
     const info = await apiService.getUserInfo(subjectUserID);
-    if (!info?.activeKeyID) return { keyID: null, unreachable: false };
-    key = await apiService.getPublicKey(info.activeKeyID);
+    if (!info?.activeKeyId) return { keyID: null, unreachable: false };
+    key = await apiService.getPublicKey(info.activeKeyId);
   } catch (error) {
     console.error('[vouchVerify] could not resolve served key', subjectUserID, error);
     return { keyID: null, unreachable: true };
@@ -93,7 +94,7 @@ async function existingVouchFor(
   const held = await vouchesRepository.forSubject(subjectUserID);
   return (
     held.find(
-      (v) => !v.withdrawal && v.voucherUserID === me && v.subjectKeyID === scannedKeyID
+      (v) => !v.withdrawal && v.voucherUserId === me && v.subjectKeyId === scannedKeyID
     ) ?? null
   );
 }
@@ -125,7 +126,7 @@ export async function compareScannedKey(
       outcome: 'already-verified',
       scannedKeyID,
       servedKeyID: scannedKeyID,
-      verifiedAt: held.serverSignature.timestamp,
+      verifiedAt: fromUnix(held.serverSignature?.signedAt ?? 0)?.toISOString(),
     };
   }
 

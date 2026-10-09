@@ -27,19 +27,19 @@ export const reedRemovalCommittedID = writable('');
  */
 export async function commitReedRemovalLocally(cert: api.ReedRemoval): Promise<void> {
   await removedReedsRepository.put(cert);
-  await dbService.delete('reeds', cert.reedID);
-  await tagsRepository.removeReed(cert.reedID);
+  await dbService.delete('reeds', cert.reedId);
+  await tagsRepository.removeReed(cert.reedId);
 }
 
 /** Put-then-side-effects. Returns false if verification fails (reed retained). */
 export async function verifyAndCommitReedRemoval(cert: api.ReedRemoval): Promise<boolean> {
   try {
     await commitReedRemovalLocally(cert);
-    reedRemovalCommittedID.set(cert.reedID);
+    reedRemovalCommittedID.set(cert.reedId);
     reedRemovalCommitted.update((n) => n + 1);
     return true;
   } catch (error) {
-    console.error('[verifyAndCommitReedRemoval] refused', cert?.reedID, error);
+    console.error('[verifyAndCommitReedRemoval] refused', cert?.reedId, error);
     return false;
   }
 }

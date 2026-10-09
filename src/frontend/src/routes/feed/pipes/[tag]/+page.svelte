@@ -5,7 +5,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import LocalPagination from '$lib/components/LocalPagination.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { pipeReedQueue, reedsService } from '$lib/repositories/reeds';
   import { serverConnection } from '$lib/services/serverConnection';
   import { userRepository } from '$lib/repositories/user';
@@ -128,7 +128,7 @@
               <ReedAuthorHeader
                 userID={reed.userID}
                 username={authors[reed.userID]?.username ?? reed.userID}
-                subtext={formatRelativeTime(reed.serverSignature?.timestamp)}
+                subtext={formatRelativeTime(fromUnix(reed.serverSignature?.signedAt))}
                 stopPropagation
                 linked={false}
               />

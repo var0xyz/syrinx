@@ -27,7 +27,7 @@ type CreateInviteRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	TokenHash     string                 `protobuf:"bytes,2,opt,name=token_hash,json=tokenHash,proto3" json:"token_hash,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt     uint32                 `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	GrantedRole   string                 `protobuf:"bytes,4,opt,name=granted_role,json=grantedRole,proto3" json:"granted_role,omitempty"`
 	UserSignature *UserSignature         `protobuf:"bytes,5,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -78,7 +78,7 @@ func (x *CreateInviteRequest) GetTokenHash() string {
 	return ""
 }
 
-func (x *CreateInviteRequest) GetCreatedAt() int64 {
+func (x *CreateInviteRequest) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -103,7 +103,7 @@ type Invite struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	TokenHash       string                 `protobuf:"bytes,2,opt,name=token_hash,json=tokenHash,proto3" json:"token_hash,omitempty"`
-	CreatedAt       int64                  `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt       uint32                 `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	GrantedRole     string                 `protobuf:"bytes,4,opt,name=granted_role,json=grantedRole,proto3" json:"granted_role,omitempty"`
 	UserSignature   *UserSignature         `protobuf:"bytes,5,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,6,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
@@ -155,7 +155,7 @@ func (x *Invite) GetTokenHash() string {
 	return ""
 }
 
-func (x *Invite) GetCreatedAt() int64 {
+func (x *Invite) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -187,11 +187,11 @@ func (x *Invite) GetServerSignature() *ServerSignature {
 type InviteStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt     uint32                 `protobuf:"varint,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	ClaimedAt     int64                  `protobuf:"varint,4,opt,name=claimed_at,json=claimedAt,proto3" json:"claimed_at,omitempty"`
+	ClaimedAt     uint32                 `protobuf:"varint,4,opt,name=claimed_at,json=claimedAt,proto3" json:"claimed_at,omitempty"`
 	ClaimedBy     *string                `protobuf:"bytes,5,opt,name=claimed_by,json=claimedBy,proto3,oneof" json:"claimed_by,omitempty"`
-	RevokedAt     int64                  `protobuf:"varint,6,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	RevokedAt     uint32                 `protobuf:"varint,6,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -233,7 +233,7 @@ func (x *InviteStatus) GetId() string {
 	return ""
 }
 
-func (x *InviteStatus) GetCreatedAt() int64 {
+func (x *InviteStatus) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
@@ -247,7 +247,7 @@ func (x *InviteStatus) GetStatus() string {
 	return ""
 }
 
-func (x *InviteStatus) GetClaimedAt() int64 {
+func (x *InviteStatus) GetClaimedAt() uint32 {
 	if x != nil {
 		return x.ClaimedAt
 	}
@@ -261,7 +261,7 @@ func (x *InviteStatus) GetClaimedBy() string {
 	return ""
 }
 
-func (x *InviteStatus) GetRevokedAt() int64 {
+func (x *InviteStatus) GetRevokedAt() uint32 {
 	if x != nil {
 		return x.RevokedAt
 	}
@@ -323,7 +323,7 @@ const file_invites_proto_rawDesc = "" +
 	"\n" +
 	"token_hash\x18\x02 \x01(\tR\ttokenHash\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\x03R\tcreatedAt\x12!\n" +
+	"created_at\x18\x03 \x01(\rR\tcreatedAt\x12!\n" +
 	"\fgranted_role\x18\x04 \x01(\tR\vgrantedRole\x12<\n" +
 	"\x0euser_signature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\"\xfb\x01\n" +
 	"\x06Invite\x12\x0e\n" +
@@ -331,21 +331,21 @@ const file_invites_proto_rawDesc = "" +
 	"\n" +
 	"token_hash\x18\x02 \x01(\tR\ttokenHash\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\x03R\tcreatedAt\x12!\n" +
+	"created_at\x18\x03 \x01(\rR\tcreatedAt\x12!\n" +
 	"\fgranted_role\x18\x04 \x01(\tR\vgrantedRole\x12<\n" +
 	"\x0euser_signature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
 	"\x10server_signature\x18\x06 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xc6\x01\n" +
 	"\fInviteStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x02 \x01(\x03R\tcreatedAt\x12\x16\n" +
+	"created_at\x18\x02 \x01(\rR\tcreatedAt\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"claimed_at\x18\x04 \x01(\x03R\tclaimedAt\x12\"\n" +
+	"claimed_at\x18\x04 \x01(\rR\tclaimedAt\x12\"\n" +
 	"\n" +
 	"claimed_by\x18\x05 \x01(\tH\x00R\tclaimedBy\x88\x01\x01\x12\x1d\n" +
 	"\n" +
-	"revoked_at\x18\x06 \x01(\x03R\trevokedAtB\r\n" +
+	"revoked_at\x18\x06 \x01(\rR\trevokedAtB\r\n" +
 	"\v_claimed_by\"+\n" +
 	"\x13InviteCheckResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05validB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"

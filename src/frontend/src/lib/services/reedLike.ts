@@ -38,7 +38,7 @@ export async function verifyAndCommitReedLike(cert: api.ReedLike): Promise<boole
     await commitReedLikeLocally(cert);
     return true;
   } catch (error) {
-    console.error('[verifyAndCommitReedLike] refused', cert?.reedID, error);
+    console.error('[verifyAndCommitReedLike] refused', cert?.reedId, error);
     return false;
   }
 }

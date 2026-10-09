@@ -24,7 +24,7 @@
   import QRButton from '$lib/components/QRButton.svelte';
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   let user = null;
   let invites: api.Invite[] = [];
@@ -288,7 +288,7 @@
               {/if}
             </span>
             <span class="meta"
-              >Created {formatRelativeTime(invite.createdAt)}</span
+              >Created {formatRelativeTime(fromUnix(invite.createdAt))}</span
             >
             {#if invite.status === 'claimed' && invite.claimedBy}
               <span class="meta">

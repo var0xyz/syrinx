@@ -69,8 +69,8 @@ async function fetchBootstrap(
   try {
     return await apiService.bootstrapAccountRecovery({
       challenge,
-      userID: userId,
-      keyID: keyId,
+      userId,
+      keyId,
       signature,
     });
   } catch (err) {
@@ -117,8 +117,8 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
     await followingRepository.recordLocalFollow(followId);
   }
 
-  if (bootstrap.tipReedID) {
-    localStorage.setItem('publishTipReedID', bootstrap.tipReedID);
+  if (bootstrap.tipReedId) {
+    localStorage.setItem('publishTipReedID', bootstrap.tipReedId);
   } else {
     localStorage.removeItem('publishTipReedID');
   }
@@ -127,12 +127,12 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
 
   if (get(serverInfo)?.id ?? localStorage.getItem('serverId')) {
     const skip = new Set<string>();
-    for (const reedId of bootstrap.reedIDs) {
+    for (const reedId of bootstrap.reedIds) {
       if (await reedsService.getReed(reedId)) {
         skip.add(reedId);
       }
     }
-    await reedRequestsRepository.seedReedIDs(bootstrap.reedIDs, skip);
+    await reedRequestsRepository.seedReedIDs(bootstrap.reedIds, skip);
   }
 
   await serverConnection.connect();

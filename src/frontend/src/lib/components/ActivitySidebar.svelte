@@ -3,7 +3,7 @@
   import { getActivity } from '$lib/repositories/activity';
   import { followReedQueue, pipeReedQueue, reedReplyQueue, profileReedQueue } from '$lib/repositories/reeds';
   import { dbService } from '$lib/services/db';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { stripMarkdown } from '$lib/utils/reedContent';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
 
@@ -75,7 +75,7 @@
             {#if reed.content}
               <p class="activity-preview">{stripMarkdown(reed.content)}</p>
             {/if}
-            <p class="activity-timestamp">{formatRelativeTime(reed.serverSignature?.timestamp)}</p>
+            <p class="activity-timestamp">{formatRelativeTime(fromUnix(reed.serverSignature?.signedAt))}</p>
           </button>
         </li>
       {/each}

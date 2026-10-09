@@ -5,6 +5,7 @@
 
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
+import { recoveryProfileOf, userOfRecoveryProfile } from './recoveryProfile';
 import { dbService } from './db';
 import { buildKeyNest } from './recoveryKeyNest';
 
@@ -53,9 +54,9 @@ export async function reportPeerIdentity(
   const nest = buildKeyNest(peerUserId, {
     getUser: (id) => usersById.get(id),
     getActiveKeyId: (id) =>
-      infoByUserId.get(id)?.activeKeyID ||
-      (usersById.get(id) as api.User & { activeKeyID?: string } | undefined)
-        ?.activeKeyID,
+      infoByUserId.get(id)?.activeKeyId ||
+      (usersById.get(id) as api.User & { activeKeyId?: string } | undefined)
+        ?.activeKeyId,
     getPublicKey: (fp) => keysByFp.get(fp.toLowerCase()),
     getRevocation: (fp) => revocationsByFp.get(fp.toLowerCase()) ?? null,
   });
@@ -64,8 +65,8 @@ export async function reportPeerIdentity(
   }
 
   const user = await apiService.reportPeerIdentity({
-    profile,
+    profile: recoveryProfileOf(profile),
     key: nest.key,
   });
-  return { status: 'reported', user };
+  return { status: 'reported', user: userOfRecoveryProfile(user) };
 }

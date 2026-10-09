@@ -37,7 +37,7 @@
   let loading = true;
   /** Local deadline in performance.now() units. Derived ONCE per fetch
    * from the server's `lastActivityAt`: `performance.now() +
-   * (Date.parse(lastActivityAt) + RIPPLE_TTL - Date.now())`. That one conversion is the
+   * (lastActivityAt * 1000 + RIPPLE_TTL - Date.now())`. That one conversion is the
    * only place a wall-clock read (Date.now()) enters the picture — every
    * tick after that compares against performance.now() (monotonic,
    * immune to system clock adjustments mid-session), so the animation
@@ -151,12 +151,10 @@
     return performance.now() + (deadlineMs - Date.now());
   }
 
-  /** Epoch-ms deadline from the server's lastActivityAt, or null if the
-   * field is absent or unparseable. */
-  function deadlineFrom(lastActivityAtISO) {
-    if (lastActivityAtISO == null) return null;
-    const parsed = Date.parse(lastActivityAtISO);
-    return Number.isNaN(parsed) ? null : parsed + RIPPLE_TTL;
+  /** Epoch-ms deadline from the server's lastActivityAt (unix seconds),
+   * or null when the thread has no activity yet. */
+  function deadlineFrom(lastActivityAt) {
+    return lastActivityAt ? lastActivityAt * 1000 + RIPPLE_TTL : null;
   }
 
   async function loadPage(before) {
@@ -177,11 +175,11 @@
       if (ok) kept.push(ripple);
     }
     for (const ripple of kept) {
-      await resolveUsername(ripple.userID);
+      await resolveUsername(ripple.userId);
     }
     ripples = before ? [...ripples, ...kept] : kept;
     hasMore = res.hasMore;
-    nextCursor = res.nextCursor;
+    nextCursor = res.nextCursor || undefined;
     if (deadline != null) {
       expiresAtMonotonic = toMonotonicDeadline(deadline);
     }
@@ -306,12 +304,12 @@
    * insert if not already present — guards against the optimistic-insert-
    * then-echo double-add for the poster's own just-submitted ripple. */
   async function handleRipplePosted(msg) {
-    if (expired || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.reedId !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
     if (ripples.some((r) => r.hash === ripple.hash)) return;
     const ok = await ripplesRepository.storeRipple(ripple, reedID);
     if (!ok) return;
-    await resolveUsername(ripple.userID);
+    await resolveUsername(ripple.userId);
     routeIncomingRipple(ripple);
   }
 
@@ -319,7 +317,7 @@
    * never remove it. Does not re-verify (verifyRipple's tombstone
    * short-circuit already trusts the deleted flag). */
   async function handleRippleUpdated(msg) {
-    if (expired || msg?.reedID !== reedID || !msg?.ripple) return;
+    if (expired || msg?.reedId !== reedID || !msg?.ripple) return;
     const ripple = msg.ripple;
     await ripplesRepository.storeRipple(ripple, reedID);
     ripples = ripples.map((r) => (r.hash === ripple.hash ? ripple : r));
@@ -404,7 +402,7 @@
       closeTopComposer();
     }
     if (ok) {
-      await resolveUsername(posted.userID);
+      await resolveUsername(posted.userId);
       routeIncomingRipple(posted);
     }
   }
@@ -456,9 +454,9 @@
       {#each ripples as ripple, i (ripple.hash)}
         <RippleRow
           {ripple}
-          username={usernames[ripple.userID] ?? null}
+          username={usernames[ripple.userId] ?? null}
           replyingToLoaded={!!findByHash(ripple.replyingTo)}
-          replyingToUsername={ripple.replyingTo ? (usernames[findByHash(ripple.replyingTo)?.userID] ?? null) : undefined}
+          replyingToUsername={ripple.replyingTo ? (usernames[findByHash(ripple.replyingTo)?.userId] ?? null) : undefined}
           {ownUserID}
           {burning}
           burnDelayMs={Math.min(i * BURN_STAGGER_MS, MAX_BURN_STAGGER_MS)}
@@ -470,7 +468,7 @@
             <RippleComposer
               {reedID}
               replyingTo={ripple}
-              replyingToUsername={usernames[ripple.userID] ?? null}
+              replyingToUsername={usernames[ripple.userId] ?? null}
               autofocus
               on:posted={(e) => handleComposerPosted(e, ripple.hash)}
               on:cancel={() => cancelReply(ripple.hash)}
@@ -479,9 +477,9 @@
           {#each liveExtras[ripple.hash] ?? [] as extra (extra.hash)}
             <RippleRow
               ripple={extra}
-              username={usernames[extra.userID] ?? null}
+              username={usernames[extra.userId] ?? null}
               replyingToLoaded={true}
-              replyingToUsername={usernames[ripple.userID] ?? null}
+              replyingToUsername={usernames[ripple.userId] ?? null}
               {ownUserID}
               replyable={false}
               on:delete={(e) => requestDeleteRipple(e.detail)}
@@ -509,7 +507,7 @@
         {#each topLevelLiveExtras as ripple (ripple.hash)}
           <RippleRow
             {ripple}
-            username={usernames[ripple.userID] ?? null}
+            username={usernames[ripple.userId] ?? null}
             replyingToLoaded={false}
             {ownUserID}
             replyable={false}

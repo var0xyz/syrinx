@@ -17,11 +17,6 @@ import { decryptRelayPayload } from './relayDecrypt';
 import type { ReedType } from '$lib/types/reed';
 import { create, toBinary, fromBinary, type MessageInitShape } from '@bufbuild/protobuf';
 import { WSMessageSchema, MessageType } from '$lib/proto/websocket_pb';
-import {
-  type UserSignature as PbUserSignature,
-  type ServerSignature as PbServerSignature,
-  type Ripple as PbRipple,
-} from '$lib/proto/common_pb';
 
 // Every WS frame, both directions, is exactly one binary-encoded WSMessage;
 // there is no JSON text-frame path anymore.
@@ -48,245 +43,12 @@ function encodeRequestThread(requestId: string, threadId: string): Uint8Array {
   return toBinary(WSMessageSchema, msg);
 }
 
-/** Converts a protobuf UserSignature to the camelCase wire shape every
- * verifier (HTTP-fed or WS-fed) already expects — see lib/types/api.ts. */
-function decodeUserSignature(s: PbUserSignature | undefined) {
-  return { id: s?.id ?? '', armor: s?.armor ?? '' };
-}
-
-/** Converts a protobuf ServerSignature, including signedAt (unix seconds)
- * back to an ISO timestamp string, matching ServerSignature.timestamp. */
-function decodeServerSignature(s: PbServerSignature | undefined) {
-  return {
-    id: s?.id ?? '',
-    armor: s?.armor ?? '',
-    timestamp: new Date(Number(s?.signedAt ?? 0) * 1000).toISOString(),
-  };
-}
-
-function decodeRipple(r: PbRipple | undefined) {
-  if (!r) return null;
-  return {
-    hash: r.hash,
-    threadID: r.threadId,
-    userID: r.userId,
-    content: r.content,
-    replyingTo: r.replyingTo || null,
-    deleted: r.deleted,
-    postedAt: new Date(Number(r.postedAt) * 1000).toISOString(),
-    userSignature: decodeUserSignature(r.userSignature),
-    serverSignature: decodeServerSignature(r.serverSignature),
-  };
-}
-
-/** Decodes one inbound binary WSMessage into the {type, id?, data} shape
- * every ServerConnection consumer already expects — the same camelCase/
- * snake_case field mix the old JSON wire used, so no downstream file
- * (handlers registered via .on()) needs to change. */
+/** Decodes one inbound binary WSMessage: its event type (the MessageType
+ * name), its event id, and its generated payload message as data. */
 export function decodeMessage(bytes: ArrayBuffer): { type: string; id?: string; data: any } | null {
   const msg = fromBinary(WSMessageSchema, new Uint8Array(bytes));
-  const p = msg.payload;
-  switch (p.case) {
-    case 'pong':
-      return { type: 'pong', data: p.value.data };
-    case 'shutdown':
-      return { type: 'SIGTERM', data: undefined };
-    case 'requestAck':
-      return { type: 'REQUEST_ACK', id: msg.id, data: { request_id: p.value.requestId, reed_id: p.value.reedId } };
-    case 'relayRequest':
-      return {
-        type: 'RELAY_REQUEST',
-        id: msg.id,
-        data: { reed_id: p.value.reedId, requester_key_id: p.value.requesterKeyId },
-      };
-    case 'relayThread':
-      return {
-        type: 'RELAY_THREAD',
-        id: msg.id,
-        data: { thread_id: p.value.threadId, requester_key_id: p.value.requesterKeyId },
-      };
-    case 'dataResponse': {
-      // typeName mirrors the MessageType enum name (e.g. "BROADCAST_REED")
-      // — every DATA_RESPONSE-family type shares this payload shape.
-      return {
-        type: msg.typeName,
-        id: msg.id,
-        data: {
-          request_id: p.value.requestId,
-          ciphertext: p.value.ciphertext,
-          username: p.value.username,
-          reed_id: p.value.reedId,
-        },
-      };
-    }
-    case 'mailbox':
-      return { type: 'MAILBOX', data: { id: p.value.id, ciphertext: p.value.ciphertext } };
-    case 'reedNotFound':
-      return { type: 'REED_NOT_FOUND', data: { request_id: p.value.requestId, reed_id: p.value.reedId } };
-    case 'reedNotHeld':
-      return { type: 'REED_NOT_HELD', data: { request_id: p.value.requestId, reed_id: p.value.reedId } };
-    case 'invalidRequestIdError':
-      return { type: 'INVALID_REQUEST_ID_ERROR', data: { request_id: p.value.requestId } };
-    case 'publishReadyAck':
-      return { type: 'PUBLISH_READY_ACK', data: { reed_id: p.value.reedId } };
-    case 'evictionAck':
-      return { type: 'EVICTION_ACK', data: { reed_id: p.value.reedId } };
-    case 'keyEvictionAck':
-      return { type: 'KEY_EVICTION_ACK', data: { key_id: p.value.keyId } };
-    case 'reedStats':
-      return {
-        type: 'REED_STATS',
-        data: {
-          reedID: p.value.reedId,
-          echoes: p.value.echoes,
-          coveragePercent: p.value.coveragePercent,
-          replies: p.value.replies,
-          likes: p.value.likes,
-        },
-      };
-    case 'reedCoverage':
-      return { type: 'REED_COVERAGE', data: { reedID: p.value.reedId, coveragePercent: p.value.coveragePercent } };
-    case 'reedEchoes':
-      return { type: 'REED_ECHOES', data: { reedID: p.value.reedId, echoes: p.value.echoes } };
-    case 'reedReplies':
-      return { type: 'REED_REPLIES', data: { reedID: p.value.reedId, replies: p.value.replies } };
-    case 'reedLikes':
-      return { type: 'REED_LIKES', data: { reedID: p.value.reedId, likes: p.value.likes } };
-    case 'newVouch':
-      return { type: 'NEW_VOUCH', data: { vouchID: p.value.vouchId } };
-    case 'newRipple':
-      return { type: 'NEW_RIPPLE', data: {} };
-    case 'peerServerLost':
-      return { type: 'PEER_SERVER_LOST', data: { serverID: p.value.serverId, serverName: p.value.serverName } };
-    case 'ripplePosted':
-      return {
-        type: 'RIPPLE_POSTED',
-        data: { userID: p.value.userId, reedID: p.value.reedId, ripple: decodeRipple(p.value.ripple) },
-      };
-    case 'rippleUpdated':
-      return {
-        type: 'RIPPLE_UPDATED',
-        data: { userID: p.value.userId, reedID: p.value.reedId, ripple: decodeRipple(p.value.ripple) },
-      };
-    case 'reedRemoved':
-      return {
-        type: 'REED_REMOVED',
-        id: msg.id,
-        data: { data: decodeReedRemovalCert(p.value.cert) },
-      };
-    case 'accountRemoved':
-      return {
-        type: 'ACCOUNT_REMOVED',
-        id: msg.id,
-        data: { data: decodeAccountRemovalCert(p.value.cert) },
-      };
-    case 'keyRevoked':
-      return {
-        type: 'KEY_REVOKED',
-        id: msg.id,
-        data: { data: decodeKeyRevocationCert(p.value.revocation) },
-      };
-    case 'threadRemoved':
-      return {
-        type: 'THREAD_REMOVED',
-        id: msg.id,
-        data: { data: decodeThreadRemoval(p.value.cert, p.value.record) },
-      };
-    case 'userBlocked':
-      return {
-        type: 'USER_BLOCKED',
-        data: { request_id: p.value.requestId, block: decodeBlockCert(p.value.block) },
-      };
-    case 'userUnblocked':
-      return { type: 'USER_UNBLOCKED', data: { userID: p.value.userId } };
-    case 'pageAck':
-      return {
-        type: 'PAGE_ACK',
-        data: {
-          userID: p.value.userId,
-          page: p.value.page,
-          count: p.value.count,
-          hasMore: p.value.hasMore,
-        },
-      };
-    default:
-      return null;
-  }
-}
-
-function decodeReedRemovalCert(cert: { serverId: string; userId: string; reedId: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
-  if (!cert) return null;
-  return {
-    type: 'reed',
-    serverID: cert.serverId,
-    userID: cert.userId,
-    reedID: cert.reedId,
-    userSignature: decodeUserSignature(cert.userSignature),
-    serverSignature: decodeServerSignature(cert.serverSignature),
-  };
-}
-
-function decodeAccountRemovalCert(cert: { serverId: string; userId: string; note: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
-  if (!cert) return null;
-  return {
-    type: 'account',
-    serverID: cert.serverId,
-    userID: cert.userId,
-    note: cert.note,
-    userSignature: decodeUserSignature(cert.userSignature),
-    serverSignature: decodeServerSignature(cert.serverSignature),
-  };
-}
-
-function decodeBlockCert(cert: { userId: string; blockedUserId: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
-  if (!cert) return null;
-  return {
-    type: 'block',
-    userID: cert.userId,
-    blockedUserID: cert.blockedUserId,
-    userSignature: decodeUserSignature(cert.userSignature),
-    serverSignature: decodeServerSignature(cert.serverSignature),
-  };
-}
-
-function decodeKeyRevocationCert(cert: { id: string; userId: string; reason: string; successor?: string; successorSignature?: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
-  if (!cert) return null;
-  return {
-    id: cert.id,
-    userID: cert.userId,
-    reason: cert.reason,
-    successor: cert.successor || null,
-    successorSignature: cert.successorSignature || null,
-    userSignature: decodeUserSignature(cert.userSignature),
-    serverSignature: decodeServerSignature(cert.serverSignature),
-  };
-}
-
-function decodeThreadRemoval(
-  cert: { serverId: string; userId: string; threadId: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined,
-  record: { serverId: string; userId: string; threadId: string; reedIds: string[]; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined
-) {
-  if (!cert || !record) return null;
-  return {
-    threadID: cert.threadId,
-    cert: {
-      type: 'thread_removal',
-      serverID: cert.serverId,
-      userID: cert.userId,
-      threadID: cert.threadId,
-      userSignature: decodeUserSignature(cert.userSignature),
-      serverSignature: decodeServerSignature(cert.serverSignature),
-    },
-    record: {
-      type: 'thread',
-      serverID: record.serverId,
-      userID: record.userId,
-      threadID: record.threadId,
-      reedIDs: record.reedIds,
-      userSignature: decodeUserSignature(record.userSignature),
-      serverSignature: decodeServerSignature(record.serverSignature),
-    },
-  };
+  if (msg.payload.case === undefined) return null;
+  return { type: MessageType[msg.type], id: msg.id || undefined, data: msg.payload.value };
 }
 
 export type ServerEventHandler = (data: any) => void;
@@ -572,11 +334,11 @@ class ServerConnection {
           }
 
           if (message.type === ServerEvent.RequestAck) {
-            void reedRequestsRepository.get(message.data.request_id).then((record) => {
+            void reedRequestsRepository.get(message.data.requestId).then((record) => {
               if (!record) {
                 console.warn(
                   `ServerConnection: ${ServerEvent.RequestAck} for unknown request, discarding:`,
-                  message.data.request_id
+                  message.data.requestId
                 );
               }
             });
@@ -584,12 +346,12 @@ class ServerConnection {
             // Resolution happens in resolve/rejectPendingReedRequest, called
             // by +layout.svelte's DataResponse listener once it has decrypted
             // and verified — never the raw payload straight from here.
-            this.dispatchedReedRequests.delete(message.data.request_id);
-            if (this.pendingThreadRequests.has(message.data.request_id)) {
+            this.dispatchedReedRequests.delete(message.data.requestId);
+            if (this.pendingThreadRequests.has(message.data.requestId)) {
               message.type = ServerEvent.ThreadResponse;
             }
           } else if (message.type === ServerEvent.ReedNotFound || message.type === ServerEvent.ReedNotHeld) {
-            const requestId = message.data.request_id;
+            const requestId = message.data.requestId;
             this.rejectPendingThreadRequest(
               requestId,
               new Error(message.type === ServerEvent.ReedNotHeld ? 'thread_not_held' : 'thread_not_found')
@@ -601,10 +363,10 @@ class ServerConnection {
               pending.reject(new Error(message.type === ServerEvent.ReedNotHeld ? 'reed_not_held' : 'reed_not_found'));
               this.pendingRequests.delete(requestId);
             }
-          } else if (message.type === ServerEvent.UserBlocked && message.data.request_id) {
+          } else if (message.type === ServerEvent.UserBlocked && message.data.requestId) {
             // The block refused this request; the cert itself is handled by
             // the UserBlocked listener.
-            const requestId = message.data.request_id;
+            const requestId = message.data.requestId;
             this.rejectPendingThreadRequest(requestId, new Error('blocked'));
             this.dispatchedReedRequests.delete(requestId);
             void reedRequestsRepository.delete(requestId);
@@ -614,15 +376,15 @@ class ServerConnection {
               this.pendingRequests.delete(requestId);
             }
           } else if (message.type === ServerEvent.EvictionAck) {
-            this.settleEviction(`reed:${message.data.reed_id}`);
+            this.settleEviction(`reed:${message.data.reedId}`);
           } else if (message.type === ServerEvent.KeyEvictionAck) {
-            this.settleEviction(`key:${message.data.key_id}`);
+            this.settleEviction(`key:${message.data.keyId}`);
           } else if (message.type === ServerEvent.InvalidRequestIdError) {
             // The server rejected a request_id we minted (malformed, or
             // its identity doesn't match this connection) — the server
             // never created any pending state for it, so just discard our
             // own local record rather than retry it.
-            const requestId = message.data.request_id;
+            const requestId = message.data.requestId;
             console.warn('ServerConnection: request_id rejected by server, discarding:', requestId);
             this.rejectPendingThreadRequest(requestId, new Error('invalid_request_id'));
             this.dispatchedReedRequests.delete(requestId);
@@ -745,8 +507,8 @@ class ServerConnection {
         return;
       }
 
-      if (!data.reed_id || reed.id !== data.reed_id) {
-        console.warn(`ServerConnection: ${label} id does not match server-asserted reed_id, rejecting:`, data.reed_id, 'got', reed.id);
+      if (!data.reedId || reed.id !== data.reedId) {
+        console.warn(`ServerConnection: ${label} id does not match server-asserted reed_id, rejecting:`, data.reedId, 'got', reed.id);
         if (data.id) this.sendDataInvalid(data.id);
         return;
       }

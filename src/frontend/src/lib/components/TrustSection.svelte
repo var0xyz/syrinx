@@ -62,7 +62,7 @@
     if (!userID) return;
     // On a first visit the profile has no key yet; the info cache usually
     // does, and waiting for the network would leave the section blank.
-    const keyID = activeKeyID ?? (await userInfoRepository.get(userID))?.activeKeyID;
+    const keyID = activeKeyID ?? (await userInfoRepository.get(userID))?.activeKeyId;
     if (!keyID) return;
     live = await liveVouchesFor(userID, keyID);
     stale = await staleVouchesFor(userID, keyID);

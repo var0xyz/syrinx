@@ -17,7 +17,7 @@
   export let reedID;
   /** The ripple being replied to, or null for a top-level post. */
   export let replyingTo = /** @type {import('$lib/types/api').Ripple | null} */ (null);
-  /** Resolved username for replyingTo.userID, or null (removed account) —
+  /** Resolved username for replyingTo.userId, or null (removed account) —
    * parent already has this cached, no need to refetch here. */
   export let replyingToUsername = /** @type {string | null} */ (null);
   export let autofocus = false;
@@ -56,7 +56,7 @@
       const keyId = authService.getActiveKeyId();
       if (!keyId) throw new Error('No active key id found.');
 
-      const threadID = replyingTo ? replyingTo.threadID : crypto.randomUUID();
+      const threadID = replyingTo ? replyingTo.threadId : crypto.randomUUID();
       const replyingToHash = replyingTo?.hash;
 
       const userPayload = buildRippleUserPayload(
@@ -71,9 +71,9 @@
 
       const posted = await apiService.postRipple(reedID, {
         content,
-        threadID,
+        threadId: threadID,
         replyingTo: replyingToHash,
-        keyID: keyId,
+        keyId,
         userSignature,
       });
 

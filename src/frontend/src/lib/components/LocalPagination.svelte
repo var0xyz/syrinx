@@ -7,7 +7,7 @@
    * resume. hasMore has no native signal from IndexedDB — the caller's
    * function is expected to do its own limit+1-fetch-and-slice trick
    * (see likedReedsRepository.getPage) and report the result here. */
-  export let fetchPage: (after?: string) => Promise<{ items: T[]; hasMore: boolean; nextCursor?: string }>;
+  export let fetchPage: (after?: string | number) => Promise<{ items: T[]; hasMore: boolean; nextCursor?: string | number }>;
   export let item: Snippet<[T]>;
   export let empty: Snippet | undefined = undefined;
   export let errorMessage = 'Unable to load this list right now.';
@@ -24,7 +24,7 @@
   let loading = true;
   let loadingMore = false;
   let hasMore = false;
-  let cursor: string | undefined;
+  let cursor: string | number | undefined;
   let error = '';
   /** Pages actually walked, so a restored depth can be told apart from the
    * depth this component itself just reported. */
@@ -69,7 +69,7 @@
   async function walkPages(count: number) {
     const want = Math.max(1, count);
     let acc: T[] = [];
-    let next: string | undefined;
+    let next: string | number | undefined;
     let more = false;
     let walked = 0;
     for (let i = 0; i < want; i++) {

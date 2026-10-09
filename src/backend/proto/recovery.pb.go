@@ -210,7 +210,7 @@ type RecoveryProfile struct {
 	Id                   string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Username             string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	Role                 string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
-	MemberSince          int64                  `protobuf:"varint,4,opt,name=member_since,json=memberSince,proto3" json:"member_since,omitempty"`
+	MemberSince          uint32                 `protobuf:"varint,4,opt,name=member_since,json=memberSince,proto3" json:"member_since,omitempty"`
 	Bio                  string                 `protobuf:"bytes,5,opt,name=bio,proto3" json:"bio,omitempty"`
 	ActiveKeyFingerprint string                 `protobuf:"bytes,6,opt,name=active_key_fingerprint,json=activeKeyFingerprint,proto3" json:"active_key_fingerprint,omitempty"`
 	UserSignature        *UserSignature         `protobuf:"bytes,7,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
@@ -272,7 +272,7 @@ func (x *RecoveryProfile) GetRole() string {
 	return ""
 }
 
-func (x *RecoveryProfile) GetMemberSince() int64 {
+func (x *RecoveryProfile) GetMemberSince() uint32 {
 	if x != nil {
 		return x.MemberSince
 	}
@@ -458,8 +458,8 @@ type RecoveryKeyNode struct {
 	Fingerprint     string                 `protobuf:"bytes,1,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	UserId          string                 `protobuf:"bytes,2,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
 	Armor           string                 `protobuf:"bytes,3,opt,name=armor,proto3" json:"armor,omitempty"`
-	CreatedAt       int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	ExpiresAt       int64                  `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	CreatedAt       uint32                 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	ExpiresAt       uint32                 `protobuf:"varint,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	Revoked         bool                   `protobuf:"varint,6,opt,name=revoked,proto3" json:"revoked,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	Signature       string                 `protobuf:"bytes,8,opt,name=signature,proto3" json:"signature,omitempty"`
@@ -520,14 +520,14 @@ func (x *RecoveryKeyNode) GetArmor() string {
 	return ""
 }
 
-func (x *RecoveryKeyNode) GetCreatedAt() int64 {
+func (x *RecoveryKeyNode) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
 	}
 	return 0
 }
 
-func (x *RecoveryKeyNode) GetExpiresAt() int64 {
+func (x *RecoveryKeyNode) GetExpiresAt() uint32 {
 	if x != nil {
 		return x.ExpiresAt
 	}
@@ -827,7 +827,7 @@ const file_recovery_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
 	"\x04role\x18\x03 \x01(\tR\x04role\x12!\n" +
-	"\fmember_since\x18\x04 \x01(\x03R\vmemberSince\x12\x10\n" +
+	"\fmember_since\x18\x04 \x01(\rR\vmemberSince\x12\x10\n" +
 	"\x03bio\x18\x05 \x01(\tR\x03bio\x124\n" +
 	"\x16active_key_fingerprint\x18\x06 \x01(\tR\x14activeKeyFingerprint\x12<\n" +
 	"\x0euser_signature\x18\a \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
@@ -851,9 +851,9 @@ const file_recovery_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x14\n" +
 	"\x05armor\x18\x03 \x01(\tR\x05armor\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt\x12\x1d\n" +
+	"created_at\x18\x04 \x01(\rR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\x03R\texpiresAt\x12\x18\n" +
+	"expires_at\x18\x05 \x01(\rR\texpiresAt\x12\x18\n" +
 	"\arevoked\x18\x06 \x01(\bR\arevoked\x12B\n" +
 	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1c\n" +
 	"\tsignature\x18\b \x01(\tR\tsignature\x12:\n" +

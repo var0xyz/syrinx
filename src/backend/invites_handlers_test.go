@@ -83,7 +83,7 @@ func inviteCreateBody(t *testing.T, h *Handlers, creatorID string, kp cryptoKeyP
 	b, err := proto.Marshal(&pb.CreateInviteRequest{
 		Id:          id,
 		TokenHash:   tokenHashHex,
-		CreatedAt:   createdAt.Unix(),
+		CreatedAt:   unixOrZero(createdAt),
 		GrantedRole: grantedRole,
 		UserSignature: &pb.UserSignature{
 			Id:    canonicalFingerprint,

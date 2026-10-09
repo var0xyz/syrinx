@@ -32,7 +32,7 @@ Each table below has a **Status** column per step. Values:
 | Notifications         | Proposed    | 00–05                                                  |
 | Load testing          | Proposed    | 00–03                                                  |
 | Federation            | In progress | 00, 02–05 (depends on roles)                           |
-| Protobuf wire         | In progress | 07 (SPA on generated types)                            |
+| Protobuf wire         | Implemented | —                                                      |
 | Depackaging           | Proposed    | 00–10 (fold 11 packages into root)                     |
 | Publish ready         | Implemented | —                                                      |
 | Pipes                 | Implemented | —                                                      |
@@ -319,11 +319,11 @@ to Protocol Buffers; `canonicalJSON` signing input unchanged.
 | 04  | Switch every HTTP handler/client  | Implemented |
 | 05  | Binary WS only; SPA + realtime    | Implemented |
 | 06  | Federation relay + admin protos   | Implemented |
-| 07  | SPA on generated types (final)    | Proposed |
+| 07  | SPA on generated types (final)    | Implemented |
 
-**Track status: In progress.** WebSocket frames and every HTTP body,
-client and peer-to-peer, are protobuf. The SPA still converts decoded
-messages back to its hand-written shapes (07).
+**Track status: Implemented.** WebSocket frames and every HTTP body,
+client and peer-to-peer, are protobuf, and the SPA uses the generated
+types directly. Timestamps are `uint32` unix seconds.
 
 ## Signed deletions (reeds + accounts)
 
@@ -468,7 +468,7 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Protobuf wire** ([`protobuf/`](protobuf/README.md)) is independent of
   recovery/invites feature work but should land as a coordinated server+SPA
   cutover; within `protobuf/`, follow that directory's depends-on column
-  (00→07). Only 07, moving the SPA onto generated types, remains.
+  (00→07); every step is implemented.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
 - **Likes** ([`likes/`](likes/README.md)) — independent of every other
   track; a straightforward extension of the existing coverage/echo

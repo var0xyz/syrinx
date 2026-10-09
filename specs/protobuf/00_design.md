@@ -2,8 +2,7 @@
 
 ## Status
 
-Implemented (design locked). Steps 01–06 are shipped; the SPA's move to
-generated types (07) remains.
+Implemented (design locked). Every step, 01–07, is shipped.
 
 ## Depends on
 
@@ -97,12 +96,13 @@ discipline for docs**, and **snake_case field names in `.proto` files**
 | `Invite`          | Invite resource                                                            |
 | `Error`           | `message` (plain English) + optional machine `code` only if already needed |
 
-Timestamps are `int64` unix seconds on the wire (as the WS protos
-already send them), never `google.protobuf.Timestamp`. `int64` is used
-for nothing else — counts are `int32`/`uint32` — so a decoder can treat
-every `int64` as a timestamp. Signed `canonicalJSON` payloads keep their
-RFC3339 second-precision strings; verifiers rebuild them from the
-integer.
+Timestamps are `uint32` unix seconds on the wire (valid until 2106),
+never `google.protobuf.Timestamp`. `uint32` rather than `int64` because
+protobuf-es maps 64-bit fields to `bigint`, which IndexedDB can't index
+and `JSON.stringify` can't serialize; `uint32` is a plain `number` in
+TypeScript. Pagination cursors in query strings (`before`) are unix
+seconds too. Signed `canonicalJSON` payloads keep their RFC3339
+second-precision strings; verifiers rebuild them from the integer.
 
 ### HTTP
 

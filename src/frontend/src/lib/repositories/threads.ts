@@ -31,7 +31,7 @@ export const threadsRepository = {
     const record = await threadsRepository.get(threadID);
     const parts = await threadsRepository.getParts(threadID);
     return {
-      total: record?.reedIDs.length ?? 0,
+      total: record?.reedIds.length ?? 0,
       head: parts.find((reed) => reed.thread?.index === 0) ?? null,
       next: parts.find((reed) => reed.thread?.index === 1) ?? null,
     };

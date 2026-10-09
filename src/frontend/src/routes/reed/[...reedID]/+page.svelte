@@ -4,7 +4,7 @@
   import ThreadContext from '$lib/components/ThreadContext.svelte';
   import { page } from '$app/stores';
   import { reedsService, unsignedReedsProcessed } from '$lib/repositories/reeds';
-  import { formatAbsoluteDateTime } from '$lib/utils/time';
+  import { formatAbsoluteDateTime, fromUnix } from '$lib/utils/time';
   import { apiService } from '$lib/services/api';
   import { verifyAndCommitReedRemoval, reedRemovalCommitted, reedRemovalCommittedID } from '$lib/services/reedRemoval';
   import { verifyAndCommitAccountRemoval, accountRemovalCommitted } from '$lib/services/accountRemoval';
@@ -118,14 +118,14 @@
   $: conversationRootId = reed && reedMatchesRoute
     ? resolveConversationRoot(reed)
     : removedReedCert
-      ? removedReedCert.reedID
+      ? removedReedCert.reedId
       : removedAccountCert
         ? routeReedRef
         : '';
 
   // Deleted accounts leave no username behind — show the raw identity.
   $: authorDisplayName = removedAccountCert
-    ? removedAccountCert.userID
+    ? removedAccountCert.userId
     : (authorUser?.username ?? userID);
 
   $: followArrived = $followReedQueue?.reed;
@@ -259,7 +259,7 @@
   }
 
   function handleReedStats(msg) {
-    if (msg?.reedID === routeReedRef) {
+    if (msg?.reedId === routeReedRef) {
       clearStatsTimeout();
       statsStatus = 'loaded';
       echoCount = msg.echoes ?? echoCount;
@@ -274,7 +274,7 @@
   }
 
   function handleReedEchoes(msg) {
-    if (msg?.reedID === routeReedRef) {
+    if (msg?.reedId === routeReedRef) {
       if (typeof msg.echoes === 'number') {
         echoCount = msg.echoes;
       }
@@ -282,7 +282,7 @@
   }
 
   function handleReedReplies(msg) {
-    if (msg?.reedID === routeReedRef) {
+    if (msg?.reedId === routeReedRef) {
       if (typeof msg.replies === 'number') {
         replyCount = msg.replies;
       }
@@ -290,7 +290,7 @@
   }
 
   function handleReedLikes(msg) {
-    if (msg?.reedID === routeReedRef) {
+    if (msg?.reedId === routeReedRef) {
       if (typeof msg.likes === 'number') {
         likeCount = msg.likes;
       }
@@ -328,14 +328,14 @@
       return;
     }
     const reedCert = await removedReedsRepository.get(routeReedRef);
-    if (reedCert && reedCert.userID === userID) {
+    if (reedCert && reedCert.userId === userID) {
       removedReedCert = reedCert;
       reed = null;
     }
   }
 
   function handleReedCoverage(msg) {
-    if (msg?.reedID === routeReedRef) {
+    if (msg?.reedId === routeReedRef) {
       coveragePercent = msg.coveragePercent ?? coveragePercent;
     }
   }
@@ -421,12 +421,12 @@
           return;
         }
         if (result.kind === 'gone') {
-          if (result.removal.type === 'reed') {
+          if (result.removal.$typeName === 'syrinx.ReedRemovalCert') {
             await verifyAndCommitReedRemoval(result.removal);
             removedReedCert = result.removal;
             loadingReed = false;
             await loadAuthorProfile();
-          } else if (result.removal.type === 'account') {
+          } else if (result.removal.$typeName === 'syrinx.AccountRemovalCert') {
             await verifyAndCommitAccountRemoval(result.removal);
             removedAccountCert = result.removal;
             removedReedCert = null;
@@ -599,12 +599,12 @@
             </div>
             <div class="reed-body tombstone">
               <p class="tombstone-text">
-                {#if removedReedCert?.serverSignature?.timestamp}
-                  On {formatAbsoluteDateTime(removedReedCert.serverSignature.timestamp)} the author removed this reed.
+                {#if removedReedCert?.serverSignature?.signedAt}
+                  On {formatAbsoluteDateTime(fromUnix(removedReedCert.serverSignature.signedAt))} the author removed this reed.
                 {:else if removedReedCert}
                   The author removed this reed.
-                {:else if removedAccountCert?.serverSignature?.timestamp}
-                  On {formatAbsoluteDateTime(removedAccountCert.serverSignature.timestamp)} the author deleted their account.
+                {:else if removedAccountCert?.serverSignature?.signedAt}
+                  On {formatAbsoluteDateTime(fromUnix(removedAccountCert.serverSignature.signedAt))} the author deleted their account.
                 {:else}
                   The author deleted their account.
                 {/if}
@@ -653,7 +653,7 @@
                     />
                     <TrustMark userID={reed.userID} linked={false} refresh />
                   </span>
-                  <p class="reed-date">{isPending ? 'Pending…' : formatAbsoluteDateTime(reed.serverSignature?.timestamp)}</p>
+                  <p class="reed-date">{isPending ? 'Pending…' : formatAbsoluteDateTime(fromUnix(reed.serverSignature?.signedAt))}</p>
                   <button
                     type="button"
                     class="reed-stats"

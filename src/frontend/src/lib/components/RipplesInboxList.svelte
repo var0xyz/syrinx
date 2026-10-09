@@ -9,9 +9,10 @@
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
   import { ripplesRepository } from '$lib/repositories/ripples';
-  import { formatRelativeTime, formatAbsoluteDateTime } from '$lib/utils/time';
+  import { formatRelativeTime, formatAbsoluteDateTime, fromUnix } from '$lib/utils/time';
 
-  /** @type {import('$lib/types/api').ReceivedRipple[]} */
+  /** Each received ripple with the reed it answers.
+   * @type {(import('$lib/types/api').Ripple & { reedId: string })[]} */
   let ripples = [];
   /** username resolved per userID (commenter or reed author), null if
    * unresolvable (removed account). */
@@ -33,16 +34,17 @@
     const res = await apiService.getReceivedRipples({ limit: 50, before });
 
     const kept = [];
-    for (const ripple of res.ripples) {
-      const ok = await ripplesRepository.storeRipple(ripple, ripple.reedID);
-      if (ok) kept.push(ripple);
+    for (const item of res.ripples) {
+      if (!item.ripple) continue;
+      const ok = await ripplesRepository.storeRipple(item.ripple, item.reedId);
+      if (ok) kept.push({ ...item.ripple, reedId: item.reedId });
     }
     for (const ripple of kept) {
-      await resolveUsername(ripple.userID);
+      await resolveUsername(ripple.userId);
     }
     ripples = before ? [...ripples, ...kept] : kept;
     hasMore = res.hasMore;
-    nextCursor = res.nextCursor;
+    nextCursor = res.nextCursor || undefined;
   }
 
   async function loadMore() {
@@ -92,21 +94,21 @@
             class="inbox-row"
             role="button"
             tabindex="0"
-            on:click={() => openReed(ripple.reedID)}
-            on:keydown={(e) => e.key === 'Enter' && openReed(ripple.reedID)}
+            on:click={() => openReed(ripple.reedId)}
+            on:keydown={(e) => e.key === 'Enter' && openReed(ripple.reedId)}
           >
             <div class="inbox-avatar">
-              <Avatar userID={ripple.userID} username={usernames[ripple.userID] ?? ''} size="32px" />
+              <Avatar userID={ripple.userId} username={usernames[ripple.userId] ?? ''} size="32px" />
             </div>
             <div class="inbox-body">
               <p class="inbox-meta">
-                {#if usernames[ripple.userID]}
-                  <Username userID={ripple.userID} username={usernames[ripple.userID]} stopPropagation />
+                {#if usernames[ripple.userId]}
+                  <Username userID={ripple.userId} username={usernames[ripple.userId]} stopPropagation />
                 {:else}
                   <span class="inbox-username-removed">[removed account]</span>
                 {/if}
                 <span class="inbox-meta-sep">&middot;</span>
-                <span class="inbox-meta-text">{formatRelativeTime(ripple.postedAt)}</span>
+                <span class="inbox-meta-text">{formatRelativeTime(fromUnix(ripple.postedAt))}</span>
               </p>
               {#if ripple.deleted}
                 <p class="inbox-content inbox-content-deleted">[DELETED]</p>
@@ -114,8 +116,8 @@
                 <p class="inbox-content">{ripple.content}</p>
               {/if}
             </div>
-            {#if usernames[ripple.userID]}
-              <ReedActionsMenu userID={ripple.userID} username={usernames[ripple.userID]} />
+            {#if usernames[ripple.userId]}
+              <ReedActionsMenu userID={ripple.userId} username={usernames[ripple.userId]} />
             {/if}
           </div>
         </li>

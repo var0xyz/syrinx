@@ -7,7 +7,7 @@
   import Username from '$lib/components/Username.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import TrustMark from '$lib/components/TrustMark.svelte';
-  import { formatAbsoluteDateTime } from '$lib/utils/time';
+  import { formatAbsoluteDateTime, fromUnix } from '$lib/utils/time';
   import { getLocalThread, loadThread } from '$lib/services/threadFetch';
   import { threadsRepository } from '$lib/repositories/threads';
   import { userRepository } from '$lib/repositories/user';
@@ -61,7 +61,7 @@
                 <Username userID={thread.record.userID} {username} class="author-name" />
                 <TrustMark userID={thread.record.userID} linked={false} refresh />
               </span>
-              <p class="reed-date">{formatAbsoluteDateTime(thread.record.serverSignature.timestamp)}</p>
+              <p class="reed-date">{formatAbsoluteDateTime(fromUnix(thread.record.serverSignature.signedAt))}</p>
               <span class="thread-stats">
                 <span class="thread-icon" aria-hidden="true"></span>
                 Thread · {total} reeds

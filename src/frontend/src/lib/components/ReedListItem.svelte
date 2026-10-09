@@ -1,5 +1,5 @@
 <script>
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { isBlankEcho, resolveBlankEchoFromMap } from '$lib/utils/emptyEcho';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -41,7 +41,7 @@
       userID={displayReed.userID}
       username={displayUser.username}
       nameTag="h3"
-      subtext={formatRelativeTime((awaitingOriginal ? reed : displayReed).serverSignature?.timestamp ?? reed.serverSignature?.timestamp)}
+      subtext={formatRelativeTime(fromUnix((awaitingOriginal ? reed : displayReed).serverSignature?.signedAt ?? reed.serverSignature?.signedAt))}
       stopPropagation
       linked={false}
     />

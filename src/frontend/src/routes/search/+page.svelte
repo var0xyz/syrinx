@@ -10,7 +10,7 @@
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import { localSearchRepository } from '$lib/repositories/localSearch';
   import { userRepository } from '$lib/repositories/user';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import type { ReedType } from '$lib/types/reed';
   import type * as api from '$lib/types/api';
 
@@ -45,7 +45,7 @@
     return reeds.map((reed) => ({ reed, username: authorMap.get(reed.userID) ?? reed.userID }));
   }
 
-  async function fetchReedsPage(after?: string) {
+  async function fetchReedsPage(after?: number) {
     const page = await localSearchRepository.searchReeds(submittedQuery, PAGE_SIZE, after);
     const items = await resolveReedRows(page.items);
     return { items, hasMore: page.hasMore, nextCursor: page.nextCursor };
@@ -116,8 +116,8 @@
                   userID={row.reed.userID}
                   username={row.username}
                   nameTag="h3"
-                  subtext={row.reed.serverSignature?.timestamp
-                    ? formatRelativeTime(row.reed.serverSignature.timestamp)
+                  subtext={row.reed.serverSignature?.signedAt
+                    ? formatRelativeTime(fromUnix(row.reed.serverSignature.signedAt))
                     : ''}
                   stopPropagation
                   linked={false}

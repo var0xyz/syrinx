@@ -4,6 +4,8 @@
  */
 
 import type { ServerSignature, UserSignature } from '$lib/types/api';
+import { create } from '@bufbuild/protobuf';
+import { UserSignatureSchema } from '$lib/proto/common_pb';
 import { generateReedId } from '$lib/utils/id';
 import { canonicalReedId } from '$lib/utils/identityRef';
 import { buildReedUserPayload } from '$lib/services/signing';
@@ -138,18 +140,14 @@ export class Reed {
 
   /** Record the user's detached signature over signedPayload(). */
   setUserSignature(keyId: string, detachedArmor: string): void {
-    this._userSignature = {
+    this._userSignature = create(UserSignatureSchema, {
       id: keyId,
       armor: detachedArmor.trim(),
-    };
+    });
   }
 
-  applyServerResponse(r: { id: string; timestamp: string; armor: string }): void {
-    this._serverSignature = {
-      id: r.id,
-      armor: r.armor,
-      timestamp: r.timestamp,
-    };
+  applyServerResponse(r: ServerSignature): void {
+    this._serverSignature = r;
   }
 
   set replying(value: ReedReplying | undefined) {

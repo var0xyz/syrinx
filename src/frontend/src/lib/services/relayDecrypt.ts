@@ -56,7 +56,7 @@ async function encryptForRequester(payload: unknown, keyID: string): Promise<str
     console.error(
       'Relay: refusing to encrypt, a vouch names a different key',
       requesterID,
-      { vouched: contradiction.subjectKeyID, named: keyID }
+      { vouched: contradiction.subjectKeyId, named: keyID }
     );
     return null;
   }
