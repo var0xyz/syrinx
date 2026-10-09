@@ -282,9 +282,6 @@
         <p>Your backup has been restored. You can now access your account.</p>
         <div class="success-actions">
           <button type="button" class="btn btn-primary" on:click={() => (window.location.href = '/reeds')}>
-            Go to reeds
-          </button>
-          <button type="button" class="btn btn-secondary" on:click={() => (window.location.href = '/account')}>
             Go to profile
           </button>
         </div>
