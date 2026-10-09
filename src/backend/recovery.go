@@ -10,21 +10,10 @@ import (
 	"unicode"
 )
 
-// recoveryUserStatusResponse is the POST /api/users/status JSON body.
-type recoveryUserStatusResponse struct {
-	Status string `json:"status"` // complete | unknown | ongoing
-}
-
 const (
 	recoveryUserStatusComplete = "complete"
 	recoveryUserStatusUnknown  = "unknown"
 	recoveryUserStatusOngoing  = "ongoing"
-)
-
-var (
-	recoveryUserStatusCompleteResponse = recoveryUserStatusResponse{Status: recoveryUserStatusComplete}
-	recoveryUserStatusUnknownResponse  = recoveryUserStatusResponse{Status: recoveryUserStatusUnknown}
-	recoveryUserStatusOngoingResponse  = recoveryUserStatusResponse{Status: recoveryUserStatusOngoing}
 )
 
 // errRecoveryNoIdentityFound is returned when RECOVERY_MODE is on but no
@@ -750,11 +739,6 @@ type recoveryClaimRequest struct {
 type recoveryPeerIdentityRequest struct {
 	Profile recoveryProfile `json:"profile"`
 	Key     recoveryKeyNode `json:"key"`
-}
-
-// recoveryChallengeResponse is the GET /api/recovery/identity/claim body.
-type recoveryChallengeResponse struct {
-	Challenge string `json:"challenge"`
 }
 
 // recoveryReedRequest is the POST /api/recovery/reeds body.

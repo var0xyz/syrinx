@@ -81,9 +81,9 @@ func (s signedKeyRevocation) fakeHome(t *testing.T) (*httptest.Server, *int32) {
 		atomic.AddInt32(&requests, 1)
 		switch strings.TrimPrefix(r.URL.Path, "/api/keys/") {
 		case s.serverKeyID:
-			_ = json.NewEncoder(w).Encode(Key{ID: s.serverKeyID, Armor: s.serverKP.PublicKey})
+			writeResponse(w, http.StatusOK, pbKey(&Key{ID: s.serverKeyID, Armor: s.serverKP.PublicKey}))
 		case s.keyID:
-			_ = json.NewEncoder(w).Encode(Key{ID: s.keyID, UserID: s.userID, Armor: s.userKP.PublicKey, ServerSignature: s.keyCountersig})
+			writeResponse(w, http.StatusOK, pbKey(&Key{ID: s.keyID, UserID: s.userID, Armor: s.userKP.PublicKey, ServerSignature: s.keyCountersig}))
 		default:
 			http.NotFound(w, r)
 		}

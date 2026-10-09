@@ -6,13 +6,15 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/protobuf/proto"
+
+	pb "syrinx/proto"
 )
 
 // newInviteTestHandlers builds *Handlers against openSignupTestDB's schema
@@ -78,13 +80,13 @@ func inviteCreateBody(t *testing.T, h *Handlers, creatorID string, kp cryptoKeyP
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := json.Marshal(inviteCreateRequest{
-		ID:          id,
+	b, err := proto.Marshal(&pb.CreateInviteRequest{
+		Id:          id,
 		TokenHash:   tokenHashHex,
-		CreatedAt:   createdAt,
+		CreatedAt:   createdAt.Unix(),
 		GrantedRole: grantedRole,
-		UserSignature: inviteUserSignatureWire{
-			ID:    canonicalFingerprint,
+		UserSignature: &pb.UserSignature{
+			Id:    canonicalFingerprint,
 			Armor: sigArmor,
 		},
 	})
@@ -97,6 +99,7 @@ func inviteCreateBody(t *testing.T, h *Handlers, creatorID string, kp cryptoKeyP
 func postCreateInvite(h *Handlers, uid string, body *bytes.Buffer) *httptest.ResponseRecorder {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/invites", body)
+	req.Header.Set("Content-Type", protobufContentType)
 	if uid != "" {
 		req = withInviteUID(req, uid)
 	}
@@ -114,12 +117,10 @@ func TestCreateInvite_Open(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	var body inviteCreateResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.ID == "" || body.TokenHash == "" || body.ServerSignature.Armor == "" || body.ServerSignature.ID == "" {
-		t.Fatalf("empty fields: %+v", body)
+	var body pb.Invite
+	decodeProto(t, rr.Body.Bytes(), &body)
+	if body.Id == "" || body.TokenHash == "" || body.ServerSignature.GetArmor() == "" || body.ServerSignature.GetId() == "" {
+		t.Fatalf("empty fields: %+v", &body)
 	}
 	if len(body.TokenHash) != cryptoHashSize*2 {
 		t.Fatalf("tokenHash len = %d", len(body.TokenHash))
@@ -249,13 +250,11 @@ func TestInviteStatus_ClaimedBy(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	var body inviteStatusResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
+	var body pb.InviteStatus
+	decodeProto(t, rr.Body.Bytes(), &body)
 	wantClaimedBy := string(canonicalID(h.services.db.GetServerID(), "invitee"))
-	if body.Status != "claimed" || body.ClaimedBy == nil || *body.ClaimedBy != wantClaimedBy {
-		t.Fatalf("unexpected status body: %+v", body)
+	if body.Status != "claimed" || body.GetClaimedBy() != wantClaimedBy {
+		t.Fatalf("unexpected status body: %+v", &body)
 	}
 }
 
@@ -279,7 +278,7 @@ func TestRevokeAndCheckInvite(t *testing.T) {
 
 	rrCheck := httptest.NewRecorder()
 	h.CheckInvite(rrCheck, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
-	if rrCheck.Code != http.StatusOK || !bytes.Contains(rrCheck.Body.Bytes(), []byte(`"valid":true`)) {
+	if rrCheck.Code != http.StatusOK || !inviteValid(t, rrCheck) {
 		t.Fatalf("check pending: %d %s", rrCheck.Code, rrCheck.Body.String())
 	}
 
@@ -293,7 +292,7 @@ func TestRevokeAndCheckInvite(t *testing.T) {
 
 	rrCheck2 := httptest.NewRecorder()
 	h.CheckInvite(rrCheck2, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
-	if rrCheck2.Code != http.StatusOK || !bytes.Contains(rrCheck2.Body.Bytes(), []byte(`"valid":false`)) {
+	if rrCheck2.Code != http.StatusOK || inviteValid(t, rrCheck2) {
 		t.Fatalf("check revoked: %d %s", rrCheck2.Code, rrCheck2.Body.String())
 	}
 }
@@ -312,7 +311,7 @@ func TestCheckInvite_Variants(t *testing.T) {
 
 	rrUnknown := httptest.NewRecorder()
 	h.CheckInvite(rrUnknown, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+creator+"/abcdefgh&secret=nope", nil))
-	if rrUnknown.Code != http.StatusOK || !bytes.Contains(rrUnknown.Body.Bytes(), []byte(`"valid":false`)) {
+	if rrUnknown.Code != http.StatusOK || inviteValid(t, rrUnknown) {
 		t.Fatalf("unknown: %s", rrUnknown.Body.String())
 	}
 
@@ -325,14 +324,14 @@ func TestCheckInvite_Variants(t *testing.T) {
 	}
 	rrOk := httptest.NewRecorder()
 	h.CheckInvite(rrOk, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+id+"&secret="+secret, nil))
-	if rrOk.Code != http.StatusOK || !bytes.Contains(rrOk.Body.Bytes(), []byte(`"valid":true`)) {
+	if rrOk.Code != http.StatusOK || !inviteValid(t, rrOk) {
 		t.Fatalf("pending check: %s", rrOk.Body.String())
 	}
 
 	// Wrong id for valid secret → invalid
 	rrWrongID := httptest.NewRecorder()
 	h.CheckInvite(rrWrongID, httptest.NewRequest(http.MethodGet, "/api/invites/check?id="+creator+"/zzzzzzzz&secret="+secret, nil))
-	if !bytes.Contains(rrWrongID.Body.Bytes(), []byte(`"valid":false`)) {
+	if inviteValid(t, rrWrongID) {
 		t.Fatalf("wrong id: %s", rrWrongID.Body.String())
 	}
 }
@@ -363,11 +362,17 @@ func TestCreateInvite_AdminCanGrantAdmin(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	var body inviteCreateResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
+	var body pb.Invite
+	decodeProto(t, rr.Body.Bytes(), &body)
 	if body.GrantedRole != roleAdmin {
 		t.Fatalf("grantedRole = %q want admin", body.GrantedRole)
 	}
+}
+
+// inviteValid reads a CheckInvite response.
+func inviteValid(t *testing.T, rr *httptest.ResponseRecorder) bool {
+	t.Helper()
+	var resp pb.InviteCheckResponse
+	decodeProto(t, rr.Body.Bytes(), &resp)
+	return resp.Valid
 }

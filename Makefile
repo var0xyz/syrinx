@@ -20,7 +20,7 @@ help:
 # Proto codegen
 proto:
 	@echo "Generating Go protobuf code..."
-	protoc --go_out=src/backend --go_opt=paths=source_relative -I src/backend src/backend/proto/websocket.proto
+	protoc --go_out=src/backend/proto --go_opt=paths=source_relative -I src/backend/proto src/backend/proto/*.proto
 	@echo "Generating TypeScript protobuf code..."
 	cd src/frontend && npm run proto:gen
 

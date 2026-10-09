@@ -14,6 +14,8 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/tooxie/env"
+
+	pb "syrinx/proto"
 )
 
 // federationServer bundles a Handlers instance behind an httptest.Server so
@@ -66,21 +68,18 @@ func newFederationServer(t *testing.T, name string) *federationServer {
 // resulting connection string (as an admin on fs would receive it).
 func createInvitationEncryptedTo(t *testing.T, fs *federationServer, adminID string, remoteKP *cryptoKeyPair) (inviteID, connectionString string) {
 	t.Helper()
-	body, _ := json.Marshal(federationCreateRequest{
+	rr := httptest.NewRecorder()
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/invitations", &pb.FederationCreateRequest{
 		Name:                 "peer",
 		RemotePublicKeyArmor: remoteKP.PublicKey,
-	})
-	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/invitations", bytes.NewReader(body)), adminID)
+	}), adminID)
 	fs.h.CreateFederationInvitation(rr, req)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("create invitation status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var resp federationCreateResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	return resp.InviteID, resp.ConnectionString
+	var resp pb.FederationCreateResponse
+	decodeProto(t, rr.Body.Bytes(), &resp)
+	return resp.InviteId, resp.ConnectionString
 }
 
 func TestFederationHandshake_FullRoundTrip(t *testing.T) {
@@ -108,19 +107,16 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	inviteID, connectionString := createInvitationEncryptedTo(t, a, aAdmin, b.kp)
 
 	// b's admin pastes the connection string.
-	attemptBody, _ := json.Marshal(federationAttemptRequest{ConnectionString: connectionString})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/attempt", bytes.NewReader(attemptBody)), bAdmin)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/attempt", &pb.FederationAttemptRequest{ConnectionString: connectionString}), bAdmin)
 	b.h.OutgoingFederationAttempt(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("attempt status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var attemptResp federationAttemptResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &attemptResp); err != nil {
-		t.Fatal(err)
-	}
-	if attemptResp.Status != federationStatusAccepted || attemptResp.ServerID == "" {
-		t.Fatalf("attemptResp=%+v", attemptResp)
+	var attemptResp pb.FederationAttemptStatus
+	decodeProto(t, rr.Body.Bytes(), &attemptResp)
+	if attemptResp.Status != federationStatusAccepted || attemptResp.ServerId == "" {
+		t.Fatalf("attemptResp=%+v", &attemptResp)
 	}
 
 	// a's invitation should now be accepted — but server_id stays NULL until
@@ -371,9 +367,8 @@ func TestOutgoingFederationAttempt_InvalidInitiatorSignature(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	attemptBody, _ := json.Marshal(federationAttemptRequest{ConnectionString: connectionString})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/attempt", bytes.NewReader(attemptBody)), bAdmin)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/attempt", &pb.FederationAttemptRequest{ConnectionString: connectionString}), bAdmin)
 	b.h.OutgoingFederationAttempt(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())

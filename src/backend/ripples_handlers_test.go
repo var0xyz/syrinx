@@ -3,10 +3,8 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -14,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+
+	pb "syrinx/proto"
 )
 
 func withRippleUID(r *http.Request, uid string) *http.Request {
@@ -73,10 +73,15 @@ func postRippleRequestBody(t *testing.T, db *DataService, key rippleTestKey, ree
 	}
 }
 
-func postRipple(h *Handlers, uid, userID, reedID string, body any) *httptest.ResponseRecorder {
-	var buf bytes.Buffer
-	_ = json.NewEncoder(&buf).Encode(body)
-	req := httptest.NewRequest(http.MethodPost, "/api/reeds/"+userID+"/"+reedID+"/ripples", &buf)
+func postRipple(h *Handlers, uid, userID, reedID string, body postRippleRequest) *httptest.ResponseRecorder {
+	req := protoRequest(http.MethodPost, "/api/reeds/"+userID+"/"+reedID+"/ripples", &pb.PostRippleRequest{
+		Content:       body.Content,
+		ThreadId:      body.ThreadID,
+		ReplyingTo:    body.ReplyingTo,
+		KeyId:         body.KeyID,
+		UserSignature: body.UserSignature,
+		UserId:        body.UserID,
+	})
 	req = withRippleVars(req, map[string]string{"userID": userID, "reedID": reedID})
 	if uid != "" {
 		req = withRippleUID(req, uid)
@@ -88,11 +93,42 @@ func postRipple(h *Handlers, uid, userID, reedID string, body any) *httptest.Res
 
 func decodeRippleWire(t *testing.T, rr *httptest.ResponseRecorder) RippleWire {
 	t.Helper()
-	var w RippleWire
-	if err := json.Unmarshal(rr.Body.Bytes(), &w); err != nil {
-		t.Fatalf("decode response wire: %v (body: %s)", err, rr.Body.String())
+	var msg pb.Ripple
+	decodeProto(t, rr.Body.Bytes(), &msg)
+	return rippleWireFromPB(&msg)
+}
+
+func rippleWireFromPB(r *pb.Ripple) RippleWire {
+	return RippleWire{
+		Hash:            r.GetHash(),
+		ThreadID:        r.GetThreadId(),
+		UserID:          r.GetUserId(),
+		Content:         r.GetContent(),
+		ReplyingTo:      r.ReplyingTo,
+		Deleted:         r.GetDeleted(),
+		PostedAt:        timeFromUnix(r.GetPostedAt()),
+		UserSignature:   userSignatureFromPB(r.GetUserSignature()),
+		ServerSignature: serverSignatureFromPB(r.GetServerSignature()),
 	}
-	return w
+}
+
+// rippleListResponse is GET .../ripples decoded back into Go wire types.
+type rippleListResponse struct {
+	Responses      []RippleWire
+	HasMore        bool
+	NextCursor     string
+	LastActivityAt int64
+}
+
+func decodeRippleList(t *testing.T, rr *httptest.ResponseRecorder) rippleListResponse {
+	t.Helper()
+	var msg pb.RippleListResponse
+	decodeProto(t, rr.Body.Bytes(), &msg)
+	out := rippleListResponse{HasMore: msg.HasMore, NextCursor: msg.NextCursor, LastActivityAt: msg.LastActivityAt}
+	for _, r := range msg.Responses {
+		out.Responses = append(out.Responses, rippleWireFromPB(r))
+	}
+	return out
 }
 
 func TestPostRipple_Handler_Success(t *testing.T) {
@@ -483,10 +519,7 @@ func TestGetRipples_Handler_Empty(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	var body rippleListResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	body := decodeRippleList(t, rr)
 	if len(body.Responses) != 0 || body.HasMore {
 		t.Errorf("unexpected non-empty list: %+v", body)
 	}
@@ -516,10 +549,7 @@ func TestGetRipples_Handler_IncludesTombstonesAndRemovedAccounts(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	var body rippleListResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	body := decodeRippleList(t, rr)
 	if len(body.Responses) != 2 {
 		t.Fatalf("got %d responses, want 2", len(body.Responses))
 	}
@@ -563,10 +593,7 @@ func TestGetRipples_Handler_Pagination(t *testing.T) {
 	}
 
 	rr1 := getRipples(h, canonicalCommenter1, canonicalAuthor1, "reed1", "limit=2")
-	var page1 rippleListResponse
-	if err := json.Unmarshal(rr1.Body.Bytes(), &page1); err != nil {
-		t.Fatalf("decode page1: %v", err)
-	}
+	page1 := decodeRippleList(t, rr1)
 	if len(page1.Responses) != 2 || !page1.HasMore || page1.NextCursor == "" {
 		t.Fatalf("page1 = %+v, want 2 items/hasMore=true/non-empty cursor", page1)
 	}
@@ -575,10 +602,7 @@ func TestGetRipples_Handler_Pagination(t *testing.T) {
 	if rr2.Code != http.StatusOK {
 		t.Fatalf("page2 status = %d (body: %s)", rr2.Code, rr2.Body.String())
 	}
-	var page2 rippleListResponse
-	if err := json.Unmarshal(rr2.Body.Bytes(), &page2); err != nil {
-		t.Fatalf("decode page2: %v", err)
-	}
+	page2 := decodeRippleList(t, rr2)
 	if len(page2.Responses) != 1 || page2.HasMore {
 		t.Fatalf("page2 = %+v, want 1 item/hasMore=false", page2)
 	}

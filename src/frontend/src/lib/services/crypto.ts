@@ -125,7 +125,7 @@ export class CryptoService {
    * `verified` as a Promise that rejects on failure — always await it.
    */
   async verifySignature(
-    message: string,
+    message: string | Uint8Array,
     signature: string,
     publicKeyArmored: string
   ): Promise<boolean> {
@@ -136,7 +136,9 @@ export class CryptoService {
         return false;
       }
       const verificationResult = await openpgp.verify({
-        message: await openpgp.createMessage({ binary: new TextEncoder().encode(message) }),
+        message: await openpgp.createMessage({
+          binary: typeof message === 'string' ? new TextEncoder().encode(message) : message,
+        }),
         signature: signatureObj,
         verificationKeys: publicKey,
         date: verificationDate()
@@ -158,7 +160,7 @@ export class CryptoService {
    * middlewares.go). Rewraps it, then delegates to verifySignature.
    */
   async verifyStrippedSignature(
-    message: string,
+    message: string | Uint8Array,
     strippedSignature: string,
     publicKeyArmored: string
   ): Promise<boolean> {

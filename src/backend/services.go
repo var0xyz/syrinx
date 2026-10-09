@@ -7365,11 +7365,6 @@ func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, fol
 	return tx.Commit()
 }
 
-// recoveryErrorMessage is the JSON shape of a generic recovery error body.
-type recoveryErrorMessage struct {
-	Error string `json:"error"`
-}
-
 // recoveryAllowedDuringImport reports whether path may be used while the
 // caller is in ongoing_recoveries. path is the request URL path (e.g.
 // /api/server/info).
@@ -7414,11 +7409,11 @@ func recoveryImportGateMiddleware(userIDKey any, isOngoing func(context.Context,
 
 			ongoing, err := isOngoing(r.Context(), userID)
 			if err != nil {
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				internalServerError(w)
 				return
 			}
 			if ongoing {
-				writeResponse(w, http.StatusForbidden, recoveryErrorMessage{Error: "Finish recovery import first."})
+				writeError(w, http.StatusForbidden, "Finish recovery import first.")
 				return
 			}
 

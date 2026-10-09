@@ -11,6 +11,88 @@ import {
   isDeviceMismatchError,
   isFinishRecoveryForbiddenMessage,
 } from './restoreFlow';
+import type { DescMessage } from '@bufbuild/protobuf';
+import { decodeShape, encodeShape, PROTOBUF_CONTENT_TYPE } from './wire';
+import {
+  AccountRemovalCertSchema,
+  BlockCertSchema,
+  ErrorSchema,
+  ReedRemovalCertSchema,
+  RippleSchema,
+  ServerSignatureSchema,
+  ThreadRemovalSchema,
+} from '$lib/proto/common_pb';
+import {
+  AddPublicKeyRequestSchema,
+  BindDeviceResponseSchema,
+  BlockListResponseSchema,
+  BlockRequestSchema,
+  CheckUsernameRequestSchema,
+  CreateVouchRequestSchema,
+  DeleteAccountRequestSchema,
+  FollowListResponseSchema,
+  KeyRevocationResponseSchema,
+  PublicKeySchema,
+  RecordBackupRequestSchema,
+  SignupRequestSchema,
+  UpdateUserRequestSchema,
+  UserIDResponseSchema,
+  UserInfoSchema,
+  UserSchema,
+  UserSearchResponseSchema,
+  VouchListResponseSchema,
+  VouchSchema,
+  WithdrawVouchRequestSchema,
+} from '$lib/proto/identity_pb';
+import {
+  CreateThreadRequestSchema,
+  DeleteRippleRequestSchema,
+  EchoCountResponseSchema,
+  EchoerListResponseSchema,
+  LikeCertSchema,
+  LikeRequestSchema,
+  PinRequestSchema,
+  PostRippleRequestSchema,
+  ReceivedRippleListResponseSchema,
+  RemovalRequestSchema,
+  ReplyListResponseSchema,
+  RippleListResponseSchema,
+  SignReedRequestSchema,
+  ThreadSignaturesSchema,
+  UnlikeRequestSchema,
+} from '$lib/proto/reed_pb';
+import {
+  CreateInviteRequestSchema,
+  InviteCheckResponseSchema,
+  InviteSchema,
+  InviteStatusSchema,
+} from '$lib/proto/invites_pb';
+import {
+  AccountRecoveryBootstrapRequestSchema,
+  AccountRecoveryBootstrapResponseSchema,
+  ChallengeResponseSchema,
+  ClaimIdentityRequestSchema,
+  PeerIdentityRequestSchema,
+  RecoveryFollowingRequestSchema,
+  RecoveryProfileSchema,
+  RecoveryReedRequestSchema,
+  UserStatusResponseSchema,
+} from '$lib/proto/recovery_pb';
+import {
+  FederationActionResponseSchema,
+  FederationAttemptRequestSchema,
+  FederationAttemptResponseSchema,
+  FederationAttemptSchema,
+  FederationAttemptStatusSchema,
+  FederationCreateRequestSchema,
+  FederationCreateResponseSchema,
+  FederationInvitationListSchema,
+  FederationInvitationResponseSchema,
+  FederationListSchema,
+  FederationLogsSchema,
+  FederationReasonRequestSchema,
+  FederationServerListSchema,
+} from '$lib/proto/federation_pb';
 
 export type SignReedResponse = {
   id: string;
@@ -48,48 +130,47 @@ export function setBlockedReporter(reporter: BlockedReporter): void {
   blockedReporter = reporter;
 }
 
-/** The block certificate a 403 carries, if it carries one. */
-async function readBlockCert(res: Response): Promise<api.BlockCert | null> {
+/** A request whose body is shape, encoded as schema. */
+function protoBody(method: string, schema: DescMessage, shape: object): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': PROTOBUF_CONTENT_TYPE },
+    body: encodeShape(schema, shape),
+  };
+}
+
+async function readBytes(res: Response): Promise<Uint8Array> {
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/** A decoded Error body: its message, and the certificate it carries as
+ * the detail when there is one (a removal behind a 410, a block behind a
+ * 403). Null when the body is empty or not an Error. */
+async function readApiError(res: Response): Promise<{ message: string; detail: any } | null> {
   try {
-    const body = await res.json();
-    return body && typeof body === 'object' && body.type === 'block' ? (body as api.BlockCert) : null;
+    const bytes = await readBytes(res);
+    if (bytes.length === 0) return null;
+    const error = decodeShape(ErrorSchema, bytes);
+    const detail = error.accountRemoval ?? error.reedRemoval ?? error.threadRemoval ?? error.block ?? null;
+    return { message: error.message, detail };
   } catch {
     return null;
   }
 }
 
+function fallbackErrorMessage(res: Response): string {
+  return res.status === 401
+    ? 'Authentication failed. Please check your credentials.'
+    : res.status === 403
+      ? 'Forbidden'
+      : res.status === 409
+        ? 'Username is taken'
+        : res.statusText || `HTTP ${res.status}`;
+}
+
 async function readApiErrorMessage(res: Response): Promise<string> {
-  let message =
-    res.status === 401
-      ? 'Authentication failed. Please check your credentials.'
-      : res.status === 403
-        ? 'Forbidden'
-        : res.status === 409
-          ? 'Username is taken'
-          : res.statusText || `HTTP ${res.status}`;
-  try {
-    const raw = await res.text();
-    if (!raw.trim()) {
-      return message;
-    }
-    try {
-      const errorData = JSON.parse(raw);
-      if (typeof errorData === 'string' && errorData) {
-        return errorData;
-      }
-      if (typeof errorData === 'object' && errorData !== null) {
-        if (typeof errorData.error === 'string') {
-          return errorData.error;
-        }
-        return raw.trim();
-      }
-      return raw.trim();
-    } catch {
-      return raw.trim();
-    }
-  } catch {
-    return message;
-  }
+  const error = await readApiError(res);
+  return error?.message || fallbackErrorMessage(res);
 }
 
 export type UsernameAvailabilityResult =
@@ -133,9 +214,8 @@ const UNAUTHENTICATED_ENDPOINTS = [
 ];
 const UNAUTHENTICATED_EXACT_PATHS = ['/keys'];
 
-/** Signs (if needed), sends, and validates the response — shared by request()
- * (JSON body) and requestText() (plain text body); each only differs in how
- * it reads the body once this returns an ok Response. */
+/** Signs (if needed), sends, and validates the response; request() then
+ * decodes the body of an ok Response. */
 async function requestRaw(
   path: string,
   init?: RequestInit,
@@ -214,19 +294,16 @@ async function requestRaw(
   }
 
   if (!res.ok) {
-    if (res.status === 403) {
-      const block = await readBlockCert(res.clone());
-      if (block) {
-        blockedReporter?.(block);
-        const err = new Error('Blocked') as Error & { status?: number; body?: unknown };
-        err.status = 403;
-        err.body = block;
-        throw err;
-      }
+    const error = await readApiError(res);
+    if (res.status === 403 && error?.detail?.type === 'block') {
+      blockedReporter?.(error.detail as api.BlockCert);
+      const err = new Error('Blocked') as Error & { status?: number; body?: unknown };
+      err.status = 403;
+      err.body = error.detail;
+      throw err;
     }
+    const message = error?.message || fallbackErrorMessage(res);
     if (res.status === 400 || res.status === 401 || res.status === 403) {
-      const message = await readApiErrorMessage(res);
-
       if (res.status === 403) {
         if (isFinishRecoveryForbiddenMessage(message)) {
           handleFinishRecoveryForbidden();
@@ -237,37 +314,22 @@ async function requestRaw(
 
       throw new Error(message);
     }
-    const raw = await res.text();
-    let body: unknown;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      body = raw || undefined;
-    }
-    const message = typeof body === 'string' && body ? body : `HTTP ${res.status}`;
-    const err = new Error(message) as Error & { status?: number; body?: unknown };
+    const err = new Error(error?.message || `HTTP ${res.status}`) as Error & { status?: number; body?: unknown };
     err.status = res.status;
-    err.body = body;
+    err.body = error?.detail ?? error?.message;
     throw err;
   }
 
   return res;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Sends the request and decodes an ok response as schema; without a
+ * schema, or for an empty body, it resolves undefined. */
+async function request<T>(path: string, init?: RequestInit, schema?: DescMessage): Promise<T> {
   const res = await requestRaw(path, init);
-  try {
-    return (await res.json()) as T;
-  } catch {
-    return undefined as T;
-  }
-}
-
-/** Like request(), but reads the body as plain text instead of JSON —
- * for endpoints whose response is displayed verbatim, never parsed. */
-async function requestText(path: string, init?: RequestInit): Promise<string> {
-  const res = await requestRaw(path, init);
-  return res.text();
+  if (!schema) return undefined as T;
+  const bytes = await readBytes(res);
+  return decodeShape(schema, bytes) as T;
 }
 
 /** Shared by both username-availability checks: same request shape, same
@@ -275,29 +337,16 @@ async function requestText(path: string, init?: RequestInit): Promise<string> {
  * existing user checking a rename) vs. anonymous (signup) request path. */
 async function checkUsername(
   path: string,
-  formFields: Record<string, string>,
+  fields: { username: string; inviteID?: string; inviteSecret?: string },
   signed: boolean,
   signal?: AbortSignal,
 ): Promise<UsernameAvailabilityResult> {
-  const body = new URLSearchParams();
-  for (const [key, value] of Object.entries(formFields)) {
-    if (value) {
-      body.append(key, value);
-    }
-  }
-
-  let init: RequestInit = {
-    method: 'POST',
-    body,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    signal,
-  };
+  let init: RequestInit = { ...protoBody('POST', CheckUsernameRequestSchema, fields), signal };
   if (signed) {
     init = await requestSigner.signRequest(`${BASE_URL}${path}`, init);
   }
 
   const headers = new Headers(init.headers);
-  headers.set('Accept', 'application/json');
   for (const [key, value] of Object.entries(deviceIdHeader())) {
     headers.set(key, value);
   }
@@ -320,6 +369,23 @@ async function checkUsername(
   return { available: false, taken: false, message, status: res.status };
 }
 
+/** A key revocation response: a user key's cert, or a server key's
+ * revocation (tagged type: 'server-key-revocation'). */
+function unwrapKeyRevocation(resp: { user: any; server: any }): any {
+  return resp.user ?? resp.server;
+}
+
+/** Decodes a GET /keys/{id}/revocation response read without the envelope
+ * check (see getKeyRevocationUnverified). */
+export async function readKeyRevocation(res: Response): Promise<any> {
+  return unwrapKeyRevocation(decodeShape(KeyRevocationResponseSchema, await readBytes(res.clone())));
+}
+
+/** Decodes a GET /keys/{id} response read without the envelope check. */
+export async function readPublicKey(res: Response): Promise<api.PublicKey> {
+  return decodeShape(PublicKeySchema, await readBytes(res.clone()));
+}
+
 export const apiService = {
   /**
    * Unauthenticated probe: POST countersigned profile, branch on HTTP status.
@@ -327,15 +393,13 @@ export const apiService = {
    */
   async probeUserStatus(profile: api.User): Promise<UserStatusProbeResult> {
     const res = await fetch(`${BASE_URL}/users/status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...serverKeyProofHeader() },
-      body: JSON.stringify(profile),
+      ...protoBody('POST', RecoveryProfileSchema, profile),
+      headers: { 'Content-Type': PROTOBUF_CONTENT_TYPE, ...serverKeyProofHeader() },
     });
 
     if (res.status === 200 || res.status === 404 || res.status === 409) {
       try {
-        const body = (await res.json()) as { status?: string };
-        const status = body?.status;
+        const status = decodeShape(UserStatusResponseSchema, await readBytes(res)).status;
         if (status === 'complete' || status === 'unknown' || status === 'ongoing') {
           return { httpStatus: res.status, status };
         }
@@ -346,16 +410,7 @@ export const apiService = {
     }
 
     if (res.status === 400) {
-      let message = res.statusText || 'Bad Request';
-      try {
-        const errorData = await res.json();
-        if (typeof errorData === 'string' && errorData) {
-          message = errorData;
-        }
-      } catch {
-        // Non-JSON body — keep default.
-      }
-      return { httpStatus: 400, error: message };
+      return { httpStatus: 400, error: (await readApiError(res))?.message || res.statusText || 'Bad Request' };
     }
 
     return {
@@ -365,17 +420,15 @@ export const apiService = {
   },
 
   async getUserID(): Promise<{ userID: string; signature: string; fingerprint: string }> {
-    return request<{ userID: string; signature: string; fingerprint: string }>('/users/id', {
-      method: 'GET',
-    });
+    return request('/users/id', { method: 'GET' }, UserIDResponseSchema);
   },
 
   async checkUsernameAvailability(
     username: string,
-    extraFormFields: Record<string, string> = {},
+    extraFields: { inviteID?: string; inviteSecret?: string } = {},
     signal?: AbortSignal,
   ): Promise<UsernameAvailabilityResult> {
-    return checkUsername('/check-username', { username, ...extraFormFields }, false, signal);
+    return checkUsername('/check-username', { username, ...extraFields }, false, signal);
   },
 
   /** Authenticated counterpart for the profile-edit rename checker — no
@@ -388,35 +441,12 @@ export const apiService = {
   },
 
   async signup(input: SignupInput): Promise<api.User> {
-    const formData = new URLSearchParams();
-    formData.append('username', input.username);
-    formData.append('publicKey', input.publicKey);
-    formData.append('signature', input.signature);
-    formData.append('userID', input.userID);
-    formData.append('userIDSignature', input.userIDSignature);
-    formData.append('userIDFingerprint', input.userIDFingerprint);
-    if (input.userSignature) {
-      formData.append('userSignature', input.userSignature);
-    }
-    if (input.inviteID) {
-      formData.append('inviteID', input.inviteID);
-    }
-    if (input.inviteSecret) {
-      formData.append('inviteSecret', input.inviteSecret);
-    }
-
-    return request<api.User>('/users/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
+    return request('/users/signup', protoBody('POST', SignupRequestSchema, input), UserSchema);
   },
 
   async checkInvite(id: string, secret: string): Promise<{ valid: boolean }> {
     const q = new URLSearchParams({ id, secret });
-    return request<{ valid: boolean }>(`/invites/check?${q}`, {
-      method: 'GET'
-    });
+    return request(`/invites/check?${q}`, { method: 'GET' }, InviteCheckResponseSchema);
   },
 
   async createInvite(body: {
@@ -433,11 +463,7 @@ export const apiService = {
     userSignature: api.UserSignature;
     serverSignature: api.ServerSignature;
   }> {
-    return request('/invites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return request('/invites', protoBody('POST', CreateInviteRequestSchema, body), InviteSchema);
   },
 
   // id carries a literal "/" (userID@serverID/reedID) — no encodeURIComponent,
@@ -450,7 +476,7 @@ export const apiService = {
     claimedBy: string | null;
     revokedAt: string | null;
   }> {
-    return request(`/invites/${id}`, { method: 'GET' });
+    return request(`/invites/${id}`, { method: 'GET' }, InviteStatusSchema);
   },
 
   async revokeInvite(id: string): Promise<void> {
@@ -458,107 +484,130 @@ export const apiService = {
   },
 
   async listFederationInvitations(): Promise<api.FederationInvitation[]> {
-    return request<api.FederationInvitation[]>('/federation/invitations', { method: 'GET' });
+    const list = await request<{ invitations: api.FederationInvitation[] }>(
+      '/federation/invitations',
+      { method: 'GET' },
+      FederationInvitationListSchema,
+    );
+    return list.invitations;
   },
 
   /** Invitations + attempts + servers together — the mesh tab's combined view. */
   async listFederation(): Promise<api.FederationList> {
-    return request<api.FederationList>('/federation/list', { method: 'GET' });
+    return request('/federation/list', { method: 'GET' }, FederationListSchema);
   },
 
   async createFederationInvitation(
     name: string,
     remotePublicKeyArmor: string,
   ): Promise<api.FederationInvitationCreateResponse> {
-    return request<api.FederationInvitationCreateResponse>('/federation/invitations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, remotePublicKeyArmor }),
-    });
+    return request(
+      '/federation/invitations',
+      protoBody('POST', FederationCreateRequestSchema, { name, remotePublicKeyArmor }),
+      FederationCreateResponseSchema,
+    );
   },
 
   async revokeFederationInvitation(inviteId: string): Promise<{ inviteId: string; status: 'canceled' }> {
-    return request(`/federation/invitations/${encodeURIComponent(inviteId)}/revoke`, {
-      method: 'POST',
-    });
+    return request(
+      `/federation/invitations/${encodeURIComponent(inviteId)}/revoke`,
+      { method: 'POST' },
+      FederationActionResponseSchema,
+    );
   },
 
   // Named "attempt", not "accept" — pasting the string only starts an
   // attempt at redeeming the invitation; nothing is confirmed until the
   // initiator's connect callback verifies it.
   async attemptFederationConnection(connectionString: string): Promise<api.FederationAttemptResponse> {
-    return request<api.FederationAttemptResponse>('/federation/attempt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ connectionString }),
-    });
+    return request(
+      '/federation/attempt',
+      protoBody('POST', FederationAttemptRequestSchema, { connectionString }),
+      FederationAttemptStatusSchema,
+    );
   },
 
   async listFederationServers(): Promise<api.FederationServer[]> {
-    return request<api.FederationServer[]>('/federation/servers', { method: 'GET' });
+    const list = await request<{ servers: api.FederationServer[] }>(
+      '/federation/servers',
+      { method: 'GET' },
+      FederationServerListSchema,
+    );
+    return list.servers;
   },
 
-  /** Plain text, one log line per line — displayed verbatim, never parsed. */
+  /** One log line per line — displayed verbatim, never parsed. */
   async getFederationServerLogs(serverId: string): Promise<string> {
-    return requestText(`/federation/servers/${encodeURIComponent(serverId)}/logs`, {
-      method: 'GET',
-    });
+    const logs = await request<{ text: string }>(
+      `/federation/servers/${encodeURIComponent(serverId)}/logs`,
+      { method: 'GET' },
+      FederationLogsSchema,
+    );
+    return logs.text;
   },
 
   /** null when this server was the responder (no local invitation row). */
   async getFederationServerInvitation(
     serverId: string
   ): Promise<api.FederationInvitation | null> {
-    return request<api.FederationInvitation | null>(
+    const resp = await request<{ invitation: api.FederationInvitation | null }>(
       `/federation/servers/${encodeURIComponent(serverId)}/invitation`,
-      { method: 'GET' }
+      { method: 'GET' },
+      FederationInvitationResponseSchema,
     );
+    return resp.invitation;
   },
 
   /** null if no attempt row is found (shouldn't happen for a real server). */
   async getFederationServerAttempt(serverId: string): Promise<api.FederationAttempt | null> {
-    return request<api.FederationAttempt | null>(
+    const resp = await request<{ attempt: api.FederationAttempt | null }>(
       `/federation/servers/${encodeURIComponent(serverId)}/attempt`,
-      { method: 'GET' }
+      { method: 'GET' },
+      FederationAttemptResponseSchema,
     );
+    return resp.attempt;
   },
 
   async getFederationAttempt(attemptId: string): Promise<api.FederationAttempt> {
-    return request<api.FederationAttempt>(
+    return request(
       `/federation/attempts/${encodeURIComponent(attemptId)}`,
-      { method: 'GET' }
+      { method: 'GET' },
+      FederationAttemptSchema,
     );
   },
 
-  /** Plain text, one log line per line — displayed verbatim, never parsed. */
+  /** One log line per line — displayed verbatim, never parsed. */
   async getFederationAttemptLogs(attemptId: string): Promise<string> {
-    return requestText(`/federation/attempts/${encodeURIComponent(attemptId)}/logs`, {
-      method: 'GET',
-    });
+    const logs = await request<{ text: string }>(
+      `/federation/attempts/${encodeURIComponent(attemptId)}/logs`,
+      { method: 'GET' },
+      FederationLogsSchema,
+    );
+    return logs.text;
   },
 
   async approveFederationAttempt(attemptId: string): Promise<api.FederationAttemptApproveResponse> {
-    return request<api.FederationAttemptApproveResponse>(`/federation/attempts/${encodeURIComponent(attemptId)}/approve`, {
-      method: 'POST',
-    });
+    return request(
+      `/federation/attempts/${encodeURIComponent(attemptId)}/approve`,
+      { method: 'POST' },
+      FederationActionResponseSchema,
+    );
   },
 
   async rejectFederationAttempt(attemptId: string, reason: string): Promise<void> {
-    await request(`/federation/attempts/${encodeURIComponent(attemptId)}/reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    });
+    await request(
+      `/federation/attempts/${encodeURIComponent(attemptId)}/reject`,
+      protoBody('POST', FederationReasonRequestSchema, { reason }),
+    );
   },
 
   /** Stages a disconnect — the peer stays connected until a second,
    * different admin calls confirmFederationServerDisconnect. */
   async requestFederationServerDisconnect(serverId: string, reason: string): Promise<void> {
-    await request(`/federation/servers/${encodeURIComponent(serverId)}/revoke`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason }),
-    });
+    await request(
+      `/federation/servers/${encodeURIComponent(serverId)}/revoke`,
+      protoBody('POST', FederationReasonRequestSchema, { reason }),
+    );
   },
 
   /** Finalizes a staged disconnect request. Server 403s if the confirming
@@ -582,25 +631,18 @@ export const apiService = {
     });
   },
 
-  async whoami() {
-    return request<{ id: string; username: string }>('/users/me', { method: 'GET' });
-  },
-
   async getUserProfile(userId: string): Promise<api.User> {
-    return request<api.User>(`/users/${userId}/profile`, { method: 'GET' });
+    return request(`/users/${userId}/profile`, { method: 'GET' }, UserSchema);
   },
 
   async getUserInfo(userId: string): Promise<api.UserInfo> {
-    return request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
+    return request(`/users/${userId}/info`, { method: 'GET' }, UserInfoSchema);
   },
 
   async searchUsers(query: string, limit?: number): Promise<{ users: { id: string; username: string; serverName: string }[] }> {
     const params = new URLSearchParams({ q: query });
     if (limit != null) params.set('limit', String(limit));
-    return request<{ users: { id: string; username: string; serverName: string }[] }>(
-      `/users/search?${params}`,
-      { method: 'GET' },
-    );
+    return request(`/users/search?${params}`, { method: 'GET' }, UserSearchResponseSchema);
   },
 
   async getUserProfileWithStatus(userId: string): Promise<{
@@ -610,7 +652,7 @@ export const apiService = {
     block?: api.BlockCert;
   }> {
     try {
-      const user = await request<api.User>(`/users/${userId}/profile`, { method: 'GET' });
+      const user = await request<api.User>(`/users/${userId}/profile`, { method: 'GET' }, UserSchema);
       return { status: 200, user };
     } catch (error: any) {
       if (error?.status === 410 && error.body?.type === 'account') {
@@ -634,7 +676,7 @@ export const apiService = {
     block?: api.BlockCert;
   }> {
     try {
-      const info = await request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' });
+      const info = await request<api.UserInfo>(`/users/${userId}/info`, { method: 'GET' }, UserInfoSchema);
       return { status: 200, info };
     } catch (error: any) {
       if (error?.status === 410 && error.body?.type === 'account') {
@@ -666,36 +708,14 @@ export const apiService = {
     bio: string;
     userSignature: string;
   }): Promise<api.User> {
-    const formData = new URLSearchParams();
-    formData.append('username', userData.username);
-    formData.append('bio', userData.bio);
-    formData.append('userSignature', userData.userSignature);
-
-    return request<api.User>('/users/me', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
+    return request('/users/me', protoBody('PUT', UpdateUserRequestSchema, userData), UserSchema);
   },
   async deleteAccount(signature: string, note: string = ''): Promise<api.AccountRemoval> {
-    const formData = new URLSearchParams();
-    formData.append('signature', signature);
-    formData.append('note', note);
-    return request<api.AccountRemoval>('/users/me', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
-  },
-  async createUserKeys(userId: string, email: string): Promise<{ success: boolean }> {
-    const formData = new URLSearchParams();
-    formData.append('email', email);
-
-    return request<{ success: boolean }>(`/users/${userId}/keys`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
+    return request(
+      '/users/me',
+      protoBody('DELETE', DeleteAccountRequestSchema, { signature, note }),
+      AccountRemovalCertSchema,
+    );
   },
 
   async createReed(
@@ -709,25 +729,21 @@ export const apiService = {
       mentions?: string[];
     }
   ): Promise<SignReedResponse> {
-    const formData = new URLSearchParams();
-    formData.append('signature', signature);
-    formData.append('reedID', reedId);
-    if (fields.echoing) formData.append('echoing', fields.echoing);
-    if (fields.replyingTo) formData.append('replyingTo', fields.replyingTo);
-    if (fields.previousID) formData.append('previousID', fields.previousID);
-    for (const tag of fields.tags ?? []) formData.append('tags', tag);
-    for (const mention of fields.mentions ?? []) formData.append('mentions', mention);
-
-    return request('/reeds', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
+    return request(
+      '/reeds',
+      protoBody('POST', SignReedRequestSchema, { signature, reedID: reedId, ...fields }),
+      ServerSignatureSchema,
+    );
   },
 
   async getReedEchoCount(reedId: string): Promise<number> {
     const { userId, bareId } = splitReedId(reedId);
-    return request(`/reeds/${userId}/${bareId}/echoes`, { method: 'GET' });
+    const resp = await request<{ count: number }>(
+      `/reeds/${userId}/${bareId}/echoes`,
+      { method: 'GET' },
+      EchoCountResponseSchema,
+    );
+    return resp.count;
   },
 
   async listReplies(
@@ -740,12 +756,7 @@ export const apiService = {
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
     const path = `/reeds/${userId}/${bareId}/replies${qs ? `?${qs}` : ''}`;
-    return request<api.ReplyListResponse>(path, { method: 'GET' });
-  },
-
-  async getReed(reedId: string): Promise<any> {
-    const { userId, bareId } = splitReedId(reedId);
-    return request(`/reeds/${userId}/${bareId}`, { method: 'GET' });
+    return request(path, { method: 'GET' }, ReplyListResponseSchema);
   },
 
   async listEchoers(
@@ -758,14 +769,14 @@ export const apiService = {
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
     const path = `/reeds/${userId}/${bareId}/chorus${qs ? `?${qs}` : ''}`;
-    return request<api.EchoerListResponse>(path, { method: 'GET' });
+    return request(path, { method: 'GET' }, EchoerListResponseSchema);
   },
 
   async deleteMention(reedID: string, reason: string): Promise<void> {
     const params = new URLSearchParams();
     if (reason) params.set('reason', reason);
     const qs = params.toString();
-    return request<void>(`/mentions/${reedID}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
+    await request<void>(`/mentions/${reedID}${qs ? `?${qs}` : ''}`, { method: 'DELETE' });
   },
 
   /** The caller's ripples inbox: comments on their own reeds, plus replies
@@ -777,7 +788,16 @@ export const apiService = {
     if (opts?.limit != null) params.set('limit', String(opts.limit));
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
-    return request<api.ReceivedRippleListResponse>(`/ripples${qs ? `?${qs}` : ''}`, { method: 'GET' });
+    const list = await request<{
+      ripples: { ripple: api.Ripple; reedID: string; reedAuthorID: string }[];
+      hasMore: boolean;
+      nextCursor: string;
+    }>(`/ripples${qs ? `?${qs}` : ''}`, { method: 'GET' }, ReceivedRippleListResponseSchema);
+    return {
+      ripples: list.ripples.map(({ ripple, reedID, reedAuthorID }) => ({ ...ripple, reedID, reedAuthorID })),
+      hasMore: list.hasMore,
+      nextCursor: list.nextCursor || undefined,
+    };
   },
 
   /** Only a holder of the parent reed may list its ripples (server-side). */
@@ -791,7 +811,8 @@ export const apiService = {
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
     const path = `/reeds/${userId}/${bareId}/ripples${qs ? `?${qs}` : ''}`;
-    return request<api.RippleListResponse>(path, { method: 'GET' });
+    const list = await request<api.RippleListResponse>(path, { method: 'GET' }, RippleListResponseSchema);
+    return { ...list, nextCursor: list.nextCursor || undefined, lastActivityAt: list.lastActivityAt || undefined };
   },
 
   /** Only a holder of the parent reed may post a ripple (server-side). */
@@ -809,35 +830,30 @@ export const apiService = {
     }
   ): Promise<api.Ripple> {
     const { userId, bareId } = splitReedId(reedId);
-    return request<api.Ripple>(`/reeds/${userId}/${bareId}/ripples`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: fields.content,
-        threadID: fields.threadID,
-        replyingTo: fields.replyingTo ?? null,
-        keyID: fields.keyID,
-        userSignature: fields.userSignature,
+    return request(
+      `/reeds/${userId}/${bareId}/ripples`,
+      protoBody('POST', PostRippleRequestSchema, {
+        ...fields,
         // Only used server-side when this request is relayed to the
         // reed's home server (see handlers.go's resolveActingUser) — a
         // local caller's own session already provides this.
         userID: localStorage.getItem('userId') ?? '',
       }),
-    });
+      RippleSchema,
+    );
   },
 
   async deleteRipple(reedId: string, rippleHash: string): Promise<void> {
     const { userId, bareId } = splitReedId(reedId);
-    return request<void>(`/reeds/${userId}/${bareId}/ripples/${rippleHash}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await request<void>(
+      `/reeds/${userId}/${bareId}/ripples/${rippleHash}`,
+      protoBody('DELETE', DeleteRippleRequestSchema, {
         // Only used server-side when this request is relayed to the
         // reed's home server (see handlers.go's resolveActingUser) — a
         // local caller's own session already provides this.
         userID: localStorage.getItem('userId') ?? '',
       }),
-    });
+    );
   },
 
   async listFollowing(
@@ -849,7 +865,7 @@ export const apiService = {
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
     const path = `/users/${userId}/following${qs ? `?${qs}` : ''}`;
-    return request<api.FollowListResponse>(path, { method: 'GET' });
+    return request(path, { method: 'GET' }, FollowListResponseSchema);
   },
 
   async listFollowers(
@@ -861,7 +877,7 @@ export const apiService = {
     if (opts?.before) params.set('before', opts.before);
     const qs = params.toString();
     const path = `/users/${userId}/followers${qs ? `?${qs}` : ''}`;
-    return request<api.FollowListResponse>(path, { method: 'GET' });
+    return request(path, { method: 'GET' }, FollowListResponseSchema);
   },
 
   /**
@@ -895,13 +911,11 @@ export const apiService = {
     signature: string
   ): Promise<api.ReedRemoval> {
     const { userId, bareId } = splitReedId(reedId);
-    const formData = new URLSearchParams();
-    formData.append('signature', signature);
-    return request<api.ReedRemoval>(`/reeds/${userId}/${bareId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    return request(
+      `/reeds/${userId}/${bareId}`,
+      protoBody('DELETE', RemovalRequestSchema, { signature }),
+      ReedRemovalCertSchema,
+    );
   },
 
   /** Countersigns and stores a whole thread; parts are in index order. */
@@ -910,34 +924,25 @@ export const apiService = {
     threadSignature: string;
     reeds: { reedID: string; signature: string; tags: string[]; mentions: string[] }[];
   }): Promise<{ serverSignature: SignReedResponse; reeds: SignReedResponse[] }> {
-    return request('/threads', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return request('/threads', protoBody('POST', CreateThreadRequestSchema, body), ThreadSignaturesSchema);
   },
 
   /** Removes a whole thread, by its head's ID. */
   async deleteThread(threadId: string, signature: string): Promise<api.ThreadRemoval> {
-    const formData = new URLSearchParams();
-    formData.append('signature', signature);
-    const removal = await request<Omit<api.ThreadRemoval, 'threadID'>>(`/threads/${threadId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    const removal = await request<Omit<api.ThreadRemoval, 'threadID'>>(
+      `/threads/${threadId}`,
+      protoBody('DELETE', RemovalRequestSchema, { signature }),
+      ThreadRemovalSchema,
+    );
     return { ...removal, threadID: removal.cert?.threadID } as api.ThreadRemoval;
   },
 
   async blockUser(userId: string, signature: string, keyId: string): Promise<api.BlockCert> {
-    const formData = new URLSearchParams();
-    formData.append('signature', signature);
-    formData.append('fingerprint', parseKeyId(keyId)?.fingerprint ?? keyId);
-    return request<api.BlockCert>(`/users/${userId}/block`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    return request(
+      `/users/${userId}/block`,
+      protoBody('POST', BlockRequestSchema, { signature, fingerprint: parseKeyId(keyId)?.fingerprint ?? keyId }),
+      BlockCertSchema,
+    );
   },
 
   async unblockUser(userId: string): Promise<void> {
@@ -945,8 +950,8 @@ export const apiService = {
   },
 
   async listBlocks(): Promise<api.BlockCert[]> {
-    const { blocks } = await request<{ blocks: api.BlockCert[] }>('/blocks', { method: 'GET' });
-    return blocks ?? [];
+    const { blocks } = await request<{ blocks: api.BlockCert[] }>('/blocks', { method: 'GET' }, BlockListResponseSchema);
+    return blocks;
   },
 
   async likeReed(
@@ -958,18 +963,18 @@ export const apiService = {
     // fingerprint travels bare over the wire — the server joins it with the
     // authenticated caller's userID itself (see handlers.go's LikeReed).
     const bareFingerprint = parseKeyId(keyId)?.fingerprint ?? keyId;
-    const formData = new URLSearchParams();
-    formData.append('signature', signature);
-    formData.append('fingerprint', bareFingerprint);
-    // Only used server-side when this request is relayed to the reed's
-    // home server (see handlers.go's resolveActingUser) — a local
-    // caller's own session already provides this.
-    formData.append('likerID', localStorage.getItem('userId') ?? '');
-    return request<api.ReedLike>(`/reeds/${userId}/${bareId}/like`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    return request(
+      `/reeds/${userId}/${bareId}/like`,
+      protoBody('POST', LikeRequestSchema, {
+        signature,
+        fingerprint: bareFingerprint,
+        // Only used server-side when this request is relayed to the reed's
+        // home server (see handlers.go's resolveActingUser) — a local
+        // caller's own session already provides this.
+        likerID: localStorage.getItem('userId') ?? '',
+      }),
+      LikeCertSchema,
+    );
   },
 
   async unlikeReed(reedId: string): Promise<void> {
@@ -977,13 +982,10 @@ export const apiService = {
     // likerID is only used server-side when relayed to the reed's home
     // server (see handlers.go's resolveActingUser); a local caller's own
     // session already provides this.
-    const formData = new URLSearchParams();
-    formData.append('likerID', localStorage.getItem('userId') ?? '');
-    return request<void>(`/reeds/${userId}/${bareId}/like`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    await request<void>(
+      `/reeds/${userId}/${bareId}/like`,
+      protoBody('DELETE', UnlikeRequestSchema, { likerID: localStorage.getItem('userId') ?? '' }),
+    );
   },
 
   /** The subject is whoever owns `subjectKeyID`; the server derives it. */
@@ -993,19 +995,19 @@ export const apiService = {
     signature: string,
     note: string
   ): Promise<api.Vouch> {
-    const formData = new URLSearchParams();
-    formData.append('subjectKeyID', subjectKeyID);
-    formData.append('voucherKeyID', voucherKeyID);
-    formData.append('signature', signature);
-    formData.append('note', note);
-    // Only read server-side when this request arrives relayed from a peer;
-    // a local caller's own session already provides it.
-    formData.append('voucherID', localStorage.getItem('userId') ?? '');
-    return request<api.Vouch>('/vouches', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    return request(
+      '/vouches',
+      protoBody('POST', CreateVouchRequestSchema, {
+        subjectKeyID,
+        voucherKeyID,
+        signature,
+        note,
+        // Only read server-side when this request arrives relayed from a peer;
+        // a local caller's own session already provides it.
+        voucherID: localStorage.getItem('userId') ?? '',
+      }),
+      VouchSchema,
+    );
   },
 
   async withdrawVouch(
@@ -1013,20 +1015,20 @@ export const apiService = {
     voucherKeyID: string,
     signature: string
   ): Promise<api.Vouch> {
-    const formData = new URLSearchParams();
-    formData.append('voucherKeyID', voucherKeyID);
-    formData.append('signature', signature);
-    formData.append('voucherID', localStorage.getItem('userId') ?? '');
-    return request<api.Vouch>(`/vouches/${subjectKeyID}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    return request(
+      `/vouches/${subjectKeyID}`,
+      protoBody('DELETE', WithdrawVouchRequestSchema, {
+        voucherKeyID,
+        signature,
+        voucherID: localStorage.getItem('userId') ?? '',
+      }),
+      VouchSchema,
+    );
   },
 
   /** One vouch. Both ids are full and are sent as-is, never recomposed. */
   async getVouch(subjectUserID: string, vouchID: string): Promise<api.Vouch> {
-    return request<api.Vouch>(`/users/${subjectUserID}/vouches/${vouchID}`);
+    return request(`/users/${subjectUserID}/vouches/${vouchID}`, undefined, VouchSchema);
   },
 
   async getVouchesForUser(
@@ -1034,27 +1036,26 @@ export const apiService = {
     cursor?: string
   ): Promise<api.VouchListResponse> {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    return request<api.VouchListResponse>(`/users/${userID}/vouches${query}`);
+    const list = await request<api.VouchListResponse>(`/users/${userID}/vouches${query}`, undefined, VouchListResponseSchema);
+    return { ...list, nextCursor: list.nextCursor || undefined };
   },
 
   /** The caller's own vouches, withdrawn ones included, for the audit list. */
   async getMyVouches(cursor?: string): Promise<api.VouchListResponse> {
     const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    return request<api.VouchListResponse>(`/vouches${query}`);
+    const list = await request<api.VouchListResponse>(`/vouches${query}`, undefined, VouchListResponseSchema);
+    return { ...list, nextCursor: list.nextCursor || undefined };
   },
 
   async pinReed(reedId: string): Promise<void> {
-    return request<void>(`/reeds/${reedId}/pin`, { method: 'POST' });
+    await request<void>(`/reeds/${reedId}/pin`, { method: 'POST' });
   },
 
   async unpinReed(reedId: string): Promise<void> {
-    const formData = new URLSearchParams();
-    formData.append('pinnerID', localStorage.getItem('userId') ?? '');
-    return request<void>(`/reeds/${reedId}/pin`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    });
+    await request<void>(
+      `/reeds/${reedId}/pin`,
+      protoBody('DELETE', PinRequestSchema, { pinnerID: localStorage.getItem('userId') ?? '' }),
+    );
   },
 
   // getKeyRevocation/getPublicKey accept either a bare fingerprint or an
@@ -1064,15 +1065,20 @@ export const apiService = {
   // plus a bare {fingerprint}. See main.go's route registration comment.
   async getKeyRevocation(userId: string, keyId: string): Promise<api.KeyRevocation> {
     const id = canonicalKeyId(userId, keyId);
-    return request<api.KeyRevocation>(`/keys/${id}/revocation`, { method: 'GET' });
+    const resp = await request<{ user: any; server: any }>(
+      `/keys/${id}/revocation`,
+      { method: 'GET' },
+      KeyRevocationResponseSchema,
+    );
+    return unwrapKeyRevocation(resp);
   },
 
   async followUser(targetUserId: string): Promise<void> {
-    return request<void>(`/users/${targetUserId}/follow`, { method: 'POST' });
+    await request<void>(`/users/${targetUserId}/follow`, { method: 'POST' });
   },
 
   async unfollowUser(targetUserId: string): Promise<void> {
-    return request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
+    await request<void>(`/users/${targetUserId}/follow`, { method: 'DELETE' });
   },
 
   /** id must already be a full canonical key id — userID@serverID/fingerprint
@@ -1092,8 +1098,7 @@ export const apiService = {
   },
 
   async getPublicKey(id: string): Promise<api.PublicKey> {
-    const key = await request<api.PublicKey>(`/keys/${id}`, { method: 'GET' });
-    return key;
+    return request(`/keys/${id}`, { method: 'GET' }, PublicKeySchema);
   },
 
   /** Atomically revokes the predecessor key and registers the new one —
@@ -1108,87 +1113,69 @@ export const apiService = {
     revocationReason: string,
     revocationUserSignature: string
   ): Promise<api.PublicKey> {
-    // revokedKeyFingerprint travels bare over the wire (form field) — the
-    // server joins it with userID itself (see handlers.go's AddPublicKey).
+    // revokedKeyFingerprint travels bare over the wire — the server joins
+    // it with userID itself (see handlers.go's AddPublicKey).
     const bareRevokedKeyFingerprint = parseKeyId(revokedKeyId)?.fingerprint ?? revokedKeyId;
-    const formData = new URLSearchParams();
-    formData.append('userID', userID);
-    formData.append('publicKey', publicKey);
-    formData.append('revokedKeyFingerprint', bareRevokedKeyFingerprint);
-    formData.append('revokedKeySignature', revokedKeySignature);
-    formData.append('newKeySignature', newKeySignature);
-    formData.append('revocationReason', revocationReason);
-    formData.append('revocationUserSignature', revocationUserSignature);
-
-    const key = await request<api.PublicKey>('/keys', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
-    return key;
+    return request(
+      '/keys',
+      protoBody('POST', AddPublicKeyRequestSchema, {
+        userID,
+        publicKey,
+        revokedKeyFingerprint: bareRevokedKeyFingerprint,
+        revokedKeySignature,
+        newKeySignature,
+        revocationReason,
+        revocationUserSignature,
+      }),
+      PublicKeySchema,
+    );
   },
 
   /** Unauthenticated: GET a single-use account-recovery challenge nonce. */
   async getAccountRecoveryChallenge(): Promise<api.AccountRecoveryChallenge> {
-    return request<api.AccountRecoveryChallenge>('/account-recovery/challenge', {
-      method: 'GET',
-    });
+    return request('/account-recovery/challenge', { method: 'GET' }, ChallengeResponseSchema);
   },
 
   /** Unauthenticated: prove active key possession; returns bootstrap payload. */
   async bootstrapAccountRecovery(
     body: api.AccountRecoveryBootstrapRequest
   ): Promise<api.AccountRecoveryBootstrapResponse> {
-    return request<api.AccountRecoveryBootstrapResponse>('/account-recovery/bootstrap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return request(
+      '/account-recovery/bootstrap',
+      protoBody('POST', AccountRecoveryBootstrapRequestSchema, body),
+      AccountRecoveryBootstrapResponseSchema,
+    );
   },
 
   /** Unauthenticated: GET a single-use recovery challenge nonce. */
   async getIdentityClaimChallenge(): Promise<api.IdentityClaimChallenge> {
-    return request<api.IdentityClaimChallenge>('/recovery/identity/claim', {
-      method: 'GET',
-    });
+    return request('/recovery/identity/claim', { method: 'GET' }, ChallengeResponseSchema);
   },
 
   /** Unauthenticated: claim own identity with challenge + nested key chain. */
   async claimOwnIdentity(body: api.IdentityClaimRequest): Promise<api.User> {
-    return request<api.User>('/recovery/identity/claim', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return request(
+      '/recovery/identity/claim',
+      protoBody('POST', ClaimIdentityRequestSchema, body),
+      RecoveryProfileSchema,
+    );
   },
 
   /** Authenticated: report one peer identity with nested key chain. */
   async reportPeerIdentity(body: api.PeerIdentityRequest): Promise<api.User> {
-    return request<api.User>('/recovery/identity', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    return request('/recovery/identity', protoBody('POST', PeerIdentityRequestSchema, body), RecoveryProfileSchema);
   },
 
   /** Authenticated: report one reed's countersigned metadata. */
   async reportRecoveryReed(body: api.RecoveryReedRequest): Promise<void> {
-    await request<void>('/recovery/reeds', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    await request<void>('/recovery/reeds', protoBody('POST', RecoveryReedRequestSchema, body));
   },
 
   /** Authenticated: report a page of following user IDs (≤100). */
   async reportRecoveryFollowing(
     body: api.RecoveryFollowingRequest
   ): Promise<void> {
-    await request<void>('/recovery/following', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    await request<void>('/recovery/following', protoBody('POST', RecoveryFollowingRequestSchema, body));
   },
 
   /** Authenticated: clear ongoing_recoveries for the caller. */
@@ -1200,17 +1187,12 @@ export const apiService = {
 
   /** Authenticated: bind this origin as the sole active device. */
   async bindDevice(): Promise<string> {
-    return request<string>('/users/device', {
-      method: 'POST',
-    });
+    const resp = await request<{ deviceId: string }>('/users/device', { method: 'POST' }, BindDeviceResponseSchema);
+    return resp.deviceId;
   },
 
   /** Authenticated: report a successful local keys-only or full export. */
   async recordBackup(kind: 'identity' | 'full'): Promise<void> {
-    await request('/users/me/backup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind }),
-    });
+    await request('/users/me/backup', protoBody('POST', RecordBackupRequestSchema, { kind }));
   },
 };

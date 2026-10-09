@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package syrinx;
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// Messages shared by HTTP, the WebSocket channel and federation. Every
+// int64 field is a unix-seconds timestamp; counts are int32/uint32.
+
+// A user's cryptographic signature over content, and the id of the key
+// that produced it.
+message UserSignature {
+  string id = 1;
+  string armor = 2;
+}
+
+// The home server's countersignature, and when it was produced.
+message ServerSignature {
+  string id = 1;
+  string armor = 2;
+  int64 signed_at = 3 [json_name = "timestamp"];
+}
+
+// Every non-2xx HTTP body. detail carries the certificate a refusal or a
+// 410 is backed by, when there is one.
+message Error {
+  string message = 1;
+  oneof detail {
+    AccountRemovalCert account_removal = 2;
+    ReedRemovalCert reed_removal = 3;
+    ThreadRemoval thread_removal = 4;
+    BlockCert block = 5;
+  }
+}
+
+message Ripple {
+  string hash = 1;
+  string thread_id = 2 [json_name = "threadID"];
+  string user_id = 3 [json_name = "userID"];
+  string content = 4;
+  // Unset when this ripple is not a reply to another ripple.
+  optional string replying_to = 5;
+  bool deleted = 6;
+  int64 posted_at = 7;
+  UserSignature user_signature = 8;
+  ServerSignature server_signature = 9;
+}
+
+// Cryptographic certificate proving a reed's removal, signed by both
+// the removing user and their home server.
+message ReedRemovalCert {
+  string server_id = 1 [json_name = "serverID"];
+  string user_id = 2 [json_name = "userID"];
+  string reed_id = 3 [json_name = "reedID"];
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+// Cryptographic certificate proving an account's removal, signed by
+// both the removed user and their home server.
+message AccountRemovalCert {
+  string server_id = 1 [json_name = "serverID"];
+  string user_id = 2 [json_name = "userID"];
+  string note = 3;
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+// A user key's signed revocation: the revoked key's signature and its home
+// server's countersignature. successor fields are set once a replacement
+// key is uploaded and are covered by neither signature.
+message KeyRevocationCert {
+  string id = 1;
+  string user_id = 2 [json_name = "userID"];
+  string reason = 3;
+  optional string successor = 4;
+  optional string successor_signature = 5;
+  UserSignature user_signature = 6;
+  ServerSignature server_signature = 7;
+}
+
+// A thread record: the author's ordered list of a thread's reeds.
+message ThreadRecord {
+  string server_id = 1 [json_name = "serverID"];
+  string user_id = 2 [json_name = "userID"];
+  string thread_id = 3 [json_name = "threadID"];
+  repeated string reed_ids = 4 [json_name = "reedIDs"];
+  UserSignature user_signature = 5;
+  ServerSignature server_signature = 6;
+}
+
+message ThreadRemovalCert {
+  string server_id = 1 [json_name = "serverID"];
+  string user_id = 2 [json_name = "userID"];
+  string thread_id = 3 [json_name = "threadID"];
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+// A thread-removal certificate with the record it removes.
+message ThreadRemoval {
+  ThreadRemovalCert cert = 1;
+  ThreadRecord record = 2;
+}
+
+// A block: the blocking user's signature and their home server's
+// countersignature.
+message BlockCert {
+  string user_id = 1 [json_name = "userID"];
+  string blocked_user_id = 2 [json_name = "blockedUserID"];
+  UserSignature user_signature = 3;
+  ServerSignature server_signature = 4;
+}

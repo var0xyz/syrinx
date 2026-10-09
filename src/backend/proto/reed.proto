@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package syrinx;
+
+import "common.proto";
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// POST /reeds: the author's signature and the reed's routing fields. The
+// server never sees content.
+message SignReedRequest {
+  string signature = 1;
+  string reed_id = 2 [json_name = "reedID"];
+  string echoing = 3;
+  string replying_to = 4;
+  string previous_id = 5 [json_name = "previousID"];
+  repeated string tags = 6;
+  repeated string mentions = 7;
+}
+
+// One part of a POST /threads body; its position in the list is its index.
+message ThreadPartRequest {
+  string reed_id = 1 [json_name = "reedID"];
+  string signature = 2;
+  repeated string tags = 3;
+  repeated string mentions = 4;
+}
+
+message CreateThreadRequest {
+  string previous_id = 1 [json_name = "previousID"];
+  string thread_signature = 2;
+  repeated ThreadPartRequest reeds = 3;
+}
+
+// The server's countersignature on a thread record and on each part, in
+// index order.
+message ThreadSignatures {
+  ServerSignature server_signature = 1;
+  repeated ServerSignature reeds = 2;
+}
+
+// DELETE /reeds/{userID}/{reedID} and DELETE /threads/{threadID}.
+message RemovalRequest {
+  string signature = 1;
+}
+
+// GET /reeds/{userID}/{reedID}/echoes.
+message EchoCountResponse {
+  int32 count = 1;
+}
+
+message EchoerListUser {
+  string user_id = 1 [json_name = "userID"];
+  int64 echoed_at = 2;
+}
+
+message EchoerListResponse {
+  repeated EchoerListUser users = 1;
+  bool has_more = 2;
+}
+
+message ReplyListItem {
+  string user_id = 1 [json_name = "userID"];
+  string reed_id = 2 [json_name = "reedID"];
+  int64 timestamp = 3;
+}
+
+message ReplyListResponse {
+  repeated ReplyListItem replies = 1;
+  bool has_more = 2;
+}
+
+// DELETE /mentions/{reedID}.
+message DeleteMentionResponse {
+  bool removed = 1;
+}
+
+// POST /reeds/{userID}/{reedID}/like. liker_id is read only when a peer
+// relays the like for one of its users.
+message LikeRequest {
+  string signature = 1;
+  string fingerprint = 2;
+  string liker_id = 3 [json_name = "likerID"];
+}
+
+// DELETE /reeds/{userID}/{reedID}/like.
+message UnlikeRequest {
+  string liker_id = 1 [json_name = "likerID"];
+}
+
+// A signed reed-like certificate.
+message LikeCert {
+  string server_id = 1 [json_name = "serverID"];
+  string author_id = 2 [json_name = "authorID"];
+  string reed_id = 3 [json_name = "reedID"];
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
+// POST/DELETE /reeds/{reedID}/pin. pinner_id is read only when a peer
+// relays the request.
+message PinRequest {
+  string pinner_id = 1 [json_name = "pinnerID"];
+}
+
+// POST /reeds/{userID}/{reedID}/ripples. user_id is read only when a peer
+// relays the request.
+message PostRippleRequest {
+  string content = 1;
+  string thread_id = 2 [json_name = "threadID"];
+  optional string replying_to = 3;
+  string key_id = 4 [json_name = "keyID"];
+  string user_signature = 5;
+  string user_id = 6 [json_name = "userID"];
+}
+
+// DELETE /reeds/{reedID}/ripples/{rippleID}.
+message DeleteRippleRequest {
+  string user_id = 1 [json_name = "userID"];
+}
+
+message RippleListResponse {
+  repeated Ripple responses = 1;
+  bool has_more = 2;
+  string next_cursor = 3;
+  // When the reed's ripple thread was last posted to.
+  int64 last_activity_at = 4;
+}
+
+// One ripple in a user's inbox, with the reed it answers.
+message ReceivedRipple {
+  Ripple ripple = 1;
+  string reed_id = 2 [json_name = "reedID"];
+  string reed_author_id = 3 [json_name = "reedAuthorID"];
+}
+
+message ReceivedRippleListResponse {
+  repeated ReceivedRipple ripples = 1;
+  bool has_more = 2;
+  string next_cursor = 3;
+}

@@ -17,9 +17,11 @@ unsubscribe-reed, reed-stats, holder-notify, fallback-request,
 search-users, approved-notify, disconnect-notify, realtime-reset,
 new-reed, block-notify, unblock-notify, key-revocation, server-key,
 reed-removal, thread-removal, vouch-reference, vouch-withdrawal,
-account-removal-notify) plus 19 admin/handshake endpoints (list,
-invitations, servers, attempts, attempt, connect, users/{id}/identity),
-all registered under `/api/federation/*` in `main.go`. The reed-stats
+account-removal-notify) plus two handshake endpoints peers call
+(`connect/{id}`, `users/{id}/identity`), all registered under
+`/api/federation/*` in `main.go`. The SPA-facing admin endpoints (list,
+invitations, servers, attempts, attempt) moved in
+[04](04_http_endpoints.md). The reed-stats
 push wraps a base64 protobuf `WSMessage` in its JSON body today. Each leg has its own ad hoc JSON
 request/response struct pair in `federation_relay.go` (e.g.
 `relayRequestPayload`, `relayRequestResponse`), marshaled and sent by
@@ -35,7 +37,7 @@ constraint this step must honor).
 ## Scope
 
 - Define per-call `*Request`/`*Response` proto messages for all 25
-  relay calls and the 19 admin/handshake endpoints, mirroring today's
+  relay calls and the two handshake endpoints, mirroring today's
   structs in `federation_relay.go` field-for-field.
 - Reuse shared resource messages from [01](01_shared_messages.md)
   (`Reed`, `ReedRemoval`, `AccountRemoval`, certs) inside federation

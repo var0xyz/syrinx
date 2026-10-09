@@ -3,13 +3,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sort"
 	"testing"
+
+	pb "syrinx/proto"
 )
 
 // threadFixture is a server with one signed-up author whose key signs
@@ -55,12 +55,17 @@ func (f *threadFixture) request(t *testing.T, ids, signed []string) createThread
 
 func (f *threadFixture) post(t *testing.T, req createThreadRequest) *httptest.ResponseRecorder {
 	t.Helper()
-	b, err := json.Marshal(req)
-	if err != nil {
-		t.Fatal(err)
+	body := &pb.CreateThreadRequest{PreviousId: req.PreviousID, ThreadSignature: req.ThreadSignature}
+	for _, part := range req.Reeds {
+		body.Reeds = append(body.Reeds, &pb.ThreadPartRequest{
+			ReedId:    part.ReedID,
+			Signature: part.Signature,
+			Tags:      part.Tags,
+			Mentions:  part.Mentions,
+		})
 	}
 	rr := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/api/threads", bytes.NewReader(b))
+	r := protoRequest(http.MethodPost, "/api/threads", body)
 	f.h.CreateThread(rr, withInviteUID(r, f.author))
 	return rr
 }
@@ -72,12 +77,10 @@ func TestCreateThreadHandler_StoresThread(t *testing.T) {
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	var sigs threadSignatures
-	if err := json.Unmarshal(rr.Body.Bytes(), &sigs); err != nil {
-		t.Fatal(err)
-	}
-	if sigs.ServerSignature.Armor == "" || len(sigs.Reeds) != 3 {
-		t.Fatalf("unexpected signatures: %+v", sigs)
+	var sigs pb.ThreadSignatures
+	decodeProto(t, rr.Body.Bytes(), &sigs)
+	if sigs.GetServerSignature().GetArmor() == "" || len(sigs.Reeds) != 3 {
+		t.Fatalf("unexpected signatures: %v", &sigs)
 	}
 	rec, err := f.h.services.db.GetThreadRecord(context.Background(), ids[0])
 	if err != nil || rec == nil || len(rec.ReedIDs) != 3 {
@@ -132,10 +135,10 @@ func TestCreateThreadHandler_Replay(t *testing.T) {
 	if again.Code != http.StatusOK {
 		t.Fatalf("replay status %d: %s", again.Code, again.Body.String())
 	}
-	var a, b threadSignatures
-	_ = json.Unmarshal(first.Body.Bytes(), &a)
-	_ = json.Unmarshal(again.Body.Bytes(), &b)
-	if a.ServerSignature.Armor != b.ServerSignature.Armor || a.Reeds[1].Armor != b.Reeds[1].Armor {
+	var a, b pb.ThreadSignatures
+	decodeProto(t, first.Body.Bytes(), &a)
+	decodeProto(t, again.Body.Bytes(), &b)
+	if a.GetServerSignature().GetArmor() != b.GetServerSignature().GetArmor() || a.Reeds[1].GetArmor() != b.Reeds[1].GetArmor() {
 		t.Fatal("replay returned different signatures")
 	}
 

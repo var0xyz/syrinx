@@ -3,13 +3,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	pb "syrinx/proto"
 )
 
 func TestAccountRecoveryChallenge(t *testing.T) {
@@ -20,10 +20,8 @@ func TestAccountRecoveryChallenge(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d", rr.Code)
 	}
-	var resp accountRecoveryChallengeResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
+	var resp pb.ChallengeResponse
+	decodeProto(t, rr.Body.Bytes(), &resp)
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM account_recovery_challenges WHERE nonce = $1`, resp.Challenge).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("challenge not stored: n=%d err=%v", n, err)
@@ -34,14 +32,13 @@ func TestAccountRecoveryChallenge(t *testing.T) {
 }
 
 func bootstrapWithChallenge(h *Handlers, challenge string) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(bootstrapAccountRecoveryRequest{
+	rr := httptest.NewRecorder()
+	req := protoRequest(http.MethodPost, "/api/account-recovery/bootstrap", &pb.AccountRecoveryBootstrapRequest{
 		Challenge: challenge,
-		UserID:    "u1@nowhere",
-		KeyID:     "AAA",
+		UserId:    "u1@nowhere",
+		KeyId:     "AAA",
 		Signature: "c2ln",
 	})
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body))
 	req.Header.Set("X-Syrinx-Device-Id", "550e8400-e29b-41d4-a716-446655440000")
 	h.BootstrapAccountRecovery(rr, req)
 	return rr
@@ -100,14 +97,13 @@ func TestBootstrapAccountRecovery_serverRecoveryNonceRejected(t *testing.T) {
 
 func TestBootstrapAccountRecovery_missingDeviceHeader(t *testing.T) {
 	h := &Handlers{services: &Services{}}
-	body, _ := json.Marshal(bootstrapAccountRecoveryRequest{
-		Challenge: "nonce",
-		UserID:    "u1",
-		KeyID:     "AAA",
-		Signature: "c2ln",
-	})
 	rr := httptest.NewRecorder()
-	h.BootstrapAccountRecovery(rr, httptest.NewRequest(http.MethodPost, "/api/account-recovery/bootstrap", bytes.NewReader(body)))
+	h.BootstrapAccountRecovery(rr, protoRequest(http.MethodPost, "/api/account-recovery/bootstrap", &pb.AccountRecoveryBootstrapRequest{
+		Challenge: "nonce",
+		UserId:    "u1",
+		KeyId:     "AAA",
+		Signature: "c2ln",
+	}))
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}

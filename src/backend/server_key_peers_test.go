@@ -5,13 +5,14 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	pb "syrinx/proto"
 )
 
 // rotatedPeer is a peer server ("Ab3xY9pQ") that replaced its key twice: its
@@ -118,7 +119,7 @@ func pinnedPeerHandlers(t *testing.T, peer rotatedPeer) (*Handlers, *int32) {
 				http.NotFound(w, r)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(wire)
+			writeResponse(w, http.StatusOK, &pb.KeyRevocationResponse{Revocation: &pb.KeyRevocationResponse_Server{Server: pbServerKeyRevocation(wire)}})
 			return
 		}
 		key, err := peerDS.GetPublicKey(r.Context(), rest)
@@ -126,7 +127,7 @@ func pinnedPeerHandlers(t *testing.T, peer rotatedPeer) (*Handlers, *int32) {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(key)
+		writeResponse(w, http.StatusOK, pbKey(key))
 	}))
 	t.Cleanup(fake.Close)
 	h.federationHTTPClientOverride = fake.Client()

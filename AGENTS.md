@@ -165,12 +165,16 @@ same-named root file instead:
 - `observability/`, `observability/metrics/` — the one still-independent
   subpackage with a real DI interface (`metrics.Recorder`, `Noop`/`OTEL`
   implementations).
-- `proto/` — `websocket.proto` + generated `websocket.pb.go`, covering the
-  full live WS event set — can't be `package main` (generated code needs
-  its own package), so this is the only other Go code outside root. HTTP
-  (`/api/*`) and federation are still JSON/form-encoded; that migration is
-  spec'd but not implemented — see `specs/protobuf/`. Regenerate with
-  `make proto` (needs `protoc` + `protoc-gen-go` on `PATH`).
+- `proto/` — every wire message: `common.proto` (signature blocks,
+  certificates, `Error`), `identity`/`reed`/`invites`/`recovery`/
+  `federation.proto` for `/api/*` bodies, and `websocket.proto` for the
+  WS event set — can't be `package main` (generated code needs its own
+  package), so this is the only other Go code outside root. Every client
+  `/api/*` body is `application/x-protobuf` (codec in `protowire.go`;
+  SPA side `lib/services/wire.ts`); peer-to-peer federation calls are
+  still JSON until `specs/protobuf/` step 06. Every `int64` is a
+  unix-seconds timestamp. Regenerate with `make proto` (needs `protoc`
+  + `protoc-gen-go` on `PATH`).
 
 ### Frontend (`src/frontend/src/`)
 

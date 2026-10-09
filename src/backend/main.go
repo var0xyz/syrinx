@@ -621,7 +621,7 @@ func main() {
 	// Unmatched /api/* must not fall through to the SPA catch-all (which
 	// would return index.html and look like a successful page load).
 	api.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeResponse(w, http.StatusNotFound, "Not found")
+		writeError(w, http.StatusNotFound, "Not found")
 	})
 
 	log.Info().Msg("[OK] Router configured successfully")

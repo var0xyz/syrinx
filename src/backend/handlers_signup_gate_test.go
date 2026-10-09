@@ -6,14 +6,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"google.golang.org/protobuf/proto"
+
+	pb "syrinx/proto"
 )
 
 func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
@@ -48,21 +50,17 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	)
 }
 
-func postCheckUsername(t *testing.T, h *Handlers, form url.Values) *httptest.ResponseRecorder {
+func postCheckUsername(t *testing.T, h *Handlers, body *pb.CheckUsernameRequest) *httptest.ResponseRecorder {
 	t.Helper()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/check-username", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.CheckUsername(rr, req)
+	h.CheckUsername(rr, protoRequest(http.MethodPost, "/api/check-username", body))
 	return rr
 }
 
-func postSignup(t *testing.T, h *Handlers, form url.Values) *httptest.ResponseRecorder {
+func postSignup(t *testing.T, h *Handlers, body *pb.SignupRequest) *httptest.ResponseRecorder {
 	t.Helper()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/signup", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	h.Signup(rr, req)
+	h.Signup(rr, protoRequest(http.MethodPost, "/api/signup", body))
 	return rr
 }
 
@@ -71,7 +69,7 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 	ctx := t.Context()
 	h := newInviteModeHandlers(t, db)
 
-	rr := postCheckUsername(t, h, url.Values{"username": {"bob"}})
+	rr := postCheckUsername(t, h, &pb.CheckUsernameRequest{Username: "bob"})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("no invite: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -99,10 +97,10 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rrBad := postCheckUsername(t, h, url.Values{
-		"username":     {"bob"},
-		"inviteID":     {id},
-		"inviteSecret": {"wrong-secret"},
+	rrBad := postCheckUsername(t, h, &pb.CheckUsernameRequest{
+		Username:     "bob",
+		InviteId:     id,
+		InviteSecret: "wrong-secret",
 	})
 	if rrBad.Code != http.StatusForbidden {
 		t.Fatalf("bad secret: status=%d body=%s", rrBad.Code, rrBad.Body.String())
@@ -111,12 +109,12 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 		t.Fatalf("body=%q", rrBad.Body.String())
 	}
 
-	rrOk := postCheckUsername(t, h, url.Values{
-		"username":     {"bob"},
-		"inviteID":     {id},
-		"inviteSecret": {secret},
+	rrOk := postCheckUsername(t, h, &pb.CheckUsernameRequest{
+		Username:     "bob",
+		InviteId:     id,
+		InviteSecret: secret,
 	})
-	if rrOk.Code != http.StatusOK {
+	if rrOk.Code != http.StatusNoContent {
 		t.Fatalf("valid invite: status=%d body=%s", rrOk.Code, rrOk.Body.String())
 	}
 }
@@ -129,7 +127,7 @@ func TestCheckUsername_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: true})
 
-	rr := postCheckUsername(t, h, url.Values{"username": {"bob"}})
+	rr := postCheckUsername(t, h, &pb.CheckUsernameRequest{Username: "bob"})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("recovery mode: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -144,7 +142,7 @@ func TestSignup_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: true})
 
-	rr := postSignup(t, h, url.Values{"username": {"bob"}})
+	rr := postSignup(t, h, &pb.SignupRequest{Username: "bob"})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("recovery mode: status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -157,9 +155,16 @@ func TestSignup_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 // signatureAuthMiddleware verifies: method + path + body + timestamp,
 // signed with the given private key, base64-encoded into the X-Syrinx-*
 // headers.
-func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint, privateKeyArmor string, form url.Values) *http.Request {
+func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint, privateKeyArmor string, msg proto.Message) *http.Request {
 	t.Helper()
-	body := form.Encode()
+	var body string
+	if msg != nil {
+		encoded, err := proto.Marshal(msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body = string(encoded)
+	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 	canonical := method + " " + path + "\n\n" + body + "\n\n" + timestamp
@@ -170,7 +175,7 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 	sig := base64.StdEncoding.EncodeToString([]byte(sigArmor))
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", protobufContentType)
 	req.Header.Set("X-Syrinx-Public-Key-Id", string(appendEntity(identityID(userID), fingerprint)))
 	req.Header.Set("X-Syrinx-Signature", sig)
 	req.Header.Set("X-Syrinx-Signature-Scope", "body")
@@ -224,9 +229,9 @@ func TestCheckUsernameForRename_NoInviteGate(t *testing.T) {
 	h := newInviteModeHandlers(t, db)
 	kp := signedUpUser(t, h, "alice", "alice")
 
-	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
+	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, &pb.CheckUsernameRequest{Username: "bob"})
 	rr := postCheckUsernameForRename(t, h, req)
-	if rr.Code != http.StatusOK {
+	if rr.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
@@ -239,7 +244,7 @@ func TestCheckUsernameForRename_TakenUsername(t *testing.T) {
 	kp := signedUpUser(t, h, "alice", "alice")
 	signedUpUser(t, h, "bob", "bob")
 
-	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, url.Values{"username": {"bob"}})
+	req := signedRequest(t, h, http.MethodPost, "/api/users/me/check-username", "alice@"+h.services.db.GetServerID(), kp.Fingerprint, kp.PrivateKey, &pb.CheckUsernameRequest{Username: "bob"})
 	rr := postCheckUsernameForRename(t, h, req)
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -254,8 +259,7 @@ func TestCheckUsernameForRename_RequiresAuthentication(t *testing.T) {
 	h := newInviteModeHandlers(t, db)
 	signedUpUser(t, h, "alice", "alice")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/users/me/check-username", strings.NewReader("username=bob"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := protoRequest(http.MethodPost, "/api/users/me/check-username", &pb.CheckUsernameRequest{Username: "bob"})
 	rr := postCheckUsernameForRename(t, h, req)
 	if rr.Code == http.StatusOK {
 		t.Fatalf("unauthenticated request succeeded: status=%d body=%s", rr.Code, rr.Body.String())
@@ -335,27 +339,24 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	form := url.Values{
-		"username":          {"bob"},
-		"publicKey":         {pubKeyArmor},
-		"signature":         {keySelfSig},
-		"userSignature":     {userSigArmor},
-		"userID":            {userID},
-		"userIDSignature":   {userIDSig},
-		"userIDFingerprint": {h.signingKey.Fingerprint},
-	}
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/signup", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := protoRequest(http.MethodPost, "/api/signup", &pb.SignupRequest{
+		Username:          "bob",
+		PublicKey:         pubKeyArmor,
+		Signature:         keySelfSig,
+		UserSignature:     userSigArmor,
+		UserId:            userID,
+		UserIdSignature:   userIDSig,
+		UserIdFingerprint: h.signingKey.Fingerprint,
+	})
 	req.Header.Set("X-Syrinx-Device-Id", "550e8400-e29b-41d4-a716-446655440000")
 	h.Signup(rr, req)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("signup status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var user User
-	if err := json.Unmarshal(rr.Body.Bytes(), &user); err != nil {
-		t.Fatal(err)
-	}
+	var msg pb.User
+	decodeProto(t, rr.Body.Bytes(), &msg)
+	user := userFromPB(&msg)
 	wantID := userID + "@" + h.services.db.GetServerID()
 	if user.ID != wantID {
 		t.Fatalf("signup response id = %q, want %q", user.ID, wantID)

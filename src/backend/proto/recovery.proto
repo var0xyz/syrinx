@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package syrinx;
+
+import "common.proto";
+import "identity.proto";
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// A single-use challenge nonce, for account recovery and identity claims.
+message ChallengeResponse {
+  string challenge = 1;
+}
+
+// POST /account-recovery/bootstrap.
+message AccountRecoveryBootstrapRequest {
+  string challenge = 1;
+  string user_id = 2 [json_name = "userID"];
+  string key_id = 3 [json_name = "keyID"];
+  string signature = 4;
+}
+
+message AccountRecoveryBootstrapResponse {
+  User profile = 1;
+  repeated string following = 2;
+  optional string tip_reed_id = 3 [json_name = "tipReedID"];
+  repeated string reed_ids = 4 [json_name = "reedIDs"];
+}
+
+// A countersigned identity record as recovery's claim, peer and status
+// flows carry it: User plus the active key and whether reeds exist.
+message RecoveryProfile {
+  string id = 1;
+  string username = 2;
+  string role = 3;
+  int64 member_since = 4;
+  string bio = 5;
+  string active_key_fingerprint = 6;
+  UserSignature user_signature = 7;
+  ServerSignature server_signature = 8;
+  bool has_reeds = 9;
+  UserInvite invite = 10;
+}
+
+// POST /users/status: complete, unknown or ongoing, also on 404 and 409.
+message UserStatusResponse {
+  string status = 1;
+}
+
+message RecoveryRevocation {
+  string fingerprint = 1;
+  string user_id = 2 [json_name = "userID"];
+  string reason = 3;
+  optional string successor = 4;
+  UserSignature user_signature = 5;
+  ServerSignature server_signature = 6;
+}
+
+// One level of the nested key chain. The outermost node is the active
+// key; predecessor walks back to the signup key. signature is set only on
+// predecessor links: the older key's signature over the newer key's armor.
+message RecoveryKeyNode {
+  string fingerprint = 1;
+  string user_id = 2 [json_name = "userID"];
+  string armor = 3;
+  int64 created_at = 4;
+  int64 expires_at = 5;
+  bool revoked = 6;
+  ServerSignature server_signature = 7;
+  string signature = 8;
+  RecoveryRevocation revocation = 9;
+  RecoveryKeyNode predecessor = 10;
+}
+
+// POST /recovery/identity/claim.
+message ClaimIdentityRequest {
+  string challenge = 1;
+  string signature = 2;
+  RecoveryProfile profile = 3;
+  RecoveryKeyNode key = 4;
+}
+
+// POST /recovery/identity.
+message PeerIdentityRequest {
+  RecoveryProfile profile = 1;
+  RecoveryKeyNode key = 2;
+}
+
+// POST /recovery/reeds.
+message RecoveryReedRequest {
+  string reed_id = 1 [json_name = "reedID"];
+  string author_id = 2 [json_name = "authorID"];
+  UserSignature user_signature = 3;
+  ServerSignature server_signature = 4;
+}
+
+// POST /recovery/following.
+message RecoveryFollowingRequest {
+  repeated string user_ids = 1 [json_name = "userIDs"];
+}

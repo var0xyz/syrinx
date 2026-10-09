@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+
+	pb "syrinx/proto"
 )
 
 func federationWithUID(r *http.Request, uid string) *http.Request {
@@ -336,25 +337,22 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 	h, ds, serverKP, remoteKP := testFederationHandlers(t)
 	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
 
-	body, _ := json.Marshal(federationCreateRequest{
+	rr := httptest.NewRecorder()
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/invitations", &pb.FederationCreateRequest{
 		Name:                 "Acme staging",
 		RemotePublicKeyArmor: remoteKP.PublicKey,
-	})
-	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/invitations", bytes.NewReader(body)), admin1)
+	}), admin1)
 	h.CreateFederationInvitation(rr, req)
 	if rr.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var resp federationCreateResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.InviteID == "" || resp.Status != federationStatusNew || resp.ConnectionString == "" {
-		t.Fatalf("resp=%+v", resp)
+	var resp pb.FederationCreateResponse
+	decodeProto(t, rr.Body.Bytes(), &resp)
+	if resp.InviteId == "" || resp.Status != federationStatusNew || resp.ConnectionString == "" {
+		t.Fatalf("resp=%+v", &resp)
 	}
 
-	inv, err := ds.GetFederationInvitation(context.Background(), resp.InviteID)
+	inv, err := ds.GetFederationInvitation(context.Background(), resp.InviteId)
 	if err != nil || inv == nil {
 		t.Fatalf("inv=%v err=%v", inv, err)
 	}
@@ -364,7 +362,7 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 
 	var storedCiphertext string
 	if err := ds.db.QueryRowContext(context.Background(),
-		`SELECT COALESCE(connection_ciphertext, '') FROM federation_invitation WHERE id = $1`, resp.InviteID,
+		`SELECT COALESCE(connection_ciphertext, '') FROM federation_invitation WHERE id = $1`, resp.InviteId,
 	).Scan(&storedCiphertext); err != nil {
 		t.Fatal(err)
 	}
@@ -389,9 +387,8 @@ func TestCreateFederationInvitation_MissingName(t *testing.T) {
 	h, _, _, remoteKP := testFederationHandlers(t)
 	admin1 := seedFederationUser(t, h.services.db, "admin1", "admin", roleAdmin)
 
-	body, _ := json.Marshal(federationCreateRequest{RemotePublicKeyArmor: remoteKP.PublicKey})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/invitations", bytes.NewReader(body)), admin1)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/invitations", &pb.FederationCreateRequest{RemotePublicKeyArmor: remoteKP.PublicKey}), admin1)
 	h.CreateFederationInvitation(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
@@ -402,12 +399,11 @@ func TestCreateFederationInvitation_UserForbidden(t *testing.T) {
 	h, _, _, remoteKP := testFederationHandlers(t)
 	user1 := seedFederationUser(t, h.services.db, "user1", "alice", roleUser)
 
-	body, _ := json.Marshal(federationCreateRequest{
+	rr := httptest.NewRecorder()
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/invitations", &pb.FederationCreateRequest{
 		Name:                 "other",
 		RemotePublicKeyArmor: remoteKP.PublicKey,
-	})
-	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/invitations", bytes.NewReader(body)), user1)
+	}), user1)
 	h.CreateFederationInvitation(rr, req)
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status=%d", rr.Code)
@@ -430,14 +426,13 @@ func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
-	var list []federationListItemWire
-	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
-		t.Fatal(err)
-	}
+	var listResp pb.FederationInvitationList
+	decodeProto(t, rr.Body.Bytes(), &listResp)
+	list := listResp.Invitations
 	if len(list) != 1 || list[0].CreatedBy != admin1 || list[0].Name != "Partner prod" {
 		t.Fatalf("list=%+v", list)
 	}
-	if list[0].ConnectionString == nil || *list[0].ConnectionString != "cipher-armor" {
+	if list[0].GetConnectionString() != "cipher-armor" {
 		t.Fatalf("connectionString=%v", list[0].ConnectionString)
 	}
 }
@@ -498,12 +493,11 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	rr3 := httptest.NewRecorder()
 	req3 := federationWithUID(httptest.NewRequest(http.MethodGet, "/api/federation/invitations", nil), admin1)
 	h.ListFederationInvitations(rr3, req3)
-	var list []federationListItemWire
-	if err := json.Unmarshal(rr3.Body.Bytes(), &list); err != nil {
-		t.Fatal(err)
-	}
-	if len(list) != 1 || list[0].ReviewedBy == nil || *list[0].ReviewedBy != admin1 ||
-		list[0].ReviewedAt == nil {
+	var listResp pb.FederationInvitationList
+	decodeProto(t, rr3.Body.Bytes(), &listResp)
+	list := listResp.Invitations
+	if len(list) != 1 || list[0].GetReviewedBy() != admin1 ||
+		list[0].ReviewedAt == 0 {
 		t.Fatalf("list=%+v", list)
 	}
 }
@@ -559,10 +553,9 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := federationWithUID(httptest.NewRequest(http.MethodGet, "/api/federation/invitations", nil), admin1)
 	h.ListFederationInvitations(rr, req)
-	var list []federationListItemWire
-	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil {
-		t.Fatal(err)
-	}
+	var listResp pb.FederationInvitationList
+	decodeProto(t, rr.Body.Bytes(), &listResp)
+	list := listResp.Invitations
 	if len(list) != 0 {
 		t.Fatalf("list=%+v, want empty (accepted invitations are excluded)", list)
 	}
@@ -709,9 +702,8 @@ func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
 	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
 	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods(http.MethodPost)
 
-	body, _ := json.Marshal(map[string]string{"reason": "no longer needed"})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", bytes.NewReader(body)), admin1)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", &pb.FederationReasonRequest{Reason: "no longer needed"}), admin1)
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("request disconnect status=%d body=%s", rr.Code, rr.Body.String())
@@ -763,9 +755,8 @@ func TestFederationServerDisconnect_RootBypassesSelfConfirm(t *testing.T) {
 	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
 	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods(http.MethodPost)
 
-	body, _ := json.Marshal(map[string]string{"reason": "cleanup"})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", bytes.NewReader(body)), root)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", &pb.FederationReasonRequest{Reason: "cleanup"}), root)
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("request disconnect status=%d body=%s", rr.Code, rr.Body.String())
@@ -792,9 +783,8 @@ func TestFederationServerDisconnect_CancelClearsRequest(t *testing.T) {
 	api.HandleFunc("/federation/servers/{id}/revoke/cancel", h.CancelFederationServerDisconnect).Methods(http.MethodPost)
 	api.HandleFunc("/federation/servers/{id}/revoke/confirm", h.ConfirmFederationServerDisconnect).Methods(http.MethodPost)
 
-	body, _ := json.Marshal(map[string]string{"reason": "testing"})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", bytes.NewReader(body)), admin1)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/servers/"+serverID+"/revoke", &pb.FederationReasonRequest{Reason: "testing"}), admin1)
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("request disconnect status=%d", rr.Code)
@@ -832,9 +822,8 @@ func TestFederationServerSelfRowProtected(t *testing.T) {
 	api.HandleFunc("/federation/servers/{id}/revoke", h.RequestFederationServerDisconnect).Methods(http.MethodPost)
 	api.HandleFunc("/federation/servers/{id}/purge", h.PurgeFederationServer).Methods(http.MethodPost)
 
-	body, _ := json.Marshal(map[string]string{"reason": "testing"})
 	rr := httptest.NewRecorder()
-	req := federationWithUID(httptest.NewRequest(http.MethodPost, "/api/federation/servers/"+selfID+"/revoke", bytes.NewReader(body)), admin1)
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/servers/"+selfID+"/revoke", &pb.FederationReasonRequest{Reason: "testing"}), admin1)
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("disconnect-request against self server status=%d body=%s, want 404", rr.Code, rr.Body.String())

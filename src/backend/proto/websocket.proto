@@ -1,6 +1,8 @@
 syntax = "proto3";
 
-package syrinx.websocket;
+package syrinx;
+
+import "common.proto";
 
 option go_package = "github.com/alvaro/syrinx/proto";
 
@@ -403,33 +405,6 @@ message ReedLikesMessage {
   int32 likes = 2;
 }
 
-// A user's cryptographic signature over content, and the id of the key
-// that produced it.
-message UserSignature {
-  string id = 1;
-  string armor = 2;
-}
-
-// The home server's countersignature, and when it was produced.
-message ServerSignature {
-  string id = 1;
-  string armor = 2;
-  int64 signed_at = 3;
-}
-
-message Ripple {
-  string hash = 1;
-  string thread_id = 2;
-  string user_id = 3;
-  string content = 4;
-  // Empty when this ripple is not a reply to another ripple.
-  string replying_to = 5;
-  bool deleted = 6;
-  int64 posted_at = 7;
-  UserSignature user_signature = 8;
-  ServerSignature server_signature = 9;
-}
-
 message RipplePostedMessage {
   // The reed's author.
   string user_id = 1;
@@ -446,41 +421,9 @@ message RippleUpdatedMessage {
   Ripple ripple = 3;
 }
 
-// Cryptographic certificate proving a reed's removal, signed by both
-// the removing user and their home server.
-message ReedRemovalCert {
-  string server_id = 1;
-  string user_id = 2;
-  string reed_id = 3;
-  UserSignature user_signature = 4;
-  ServerSignature server_signature = 5;
-}
-
-// Cryptographic certificate proving an account's removal, signed by
-// both the removed user and their home server.
-message AccountRemovalCert {
-  string server_id = 1;
-  string user_id = 2;
-  string note = 3;
-  UserSignature user_signature = 4;
-  ServerSignature server_signature = 5;
-}
-
 message ReedRemovedMessage {
   string request_id = 1;
   ReedRemovalCert cert = 2;
-}
-
-// A user key's signed revocation, as GET /keys/{id}/revocation serves it:
-// the revoked key's signature and its home server's countersignature.
-message KeyRevocationCert {
-  string id = 1;
-  string user_id = 2;
-  string reason = 3;
-  string successor = 4;
-  string successor_signature = 5;
-  UserSignature user_signature = 6;
-  ServerSignature server_signature = 7;
 }
 
 // Pushed to users holding content signed by a revoked key; they drop what
@@ -490,39 +433,12 @@ message KeyRevokedMessage {
   KeyRevocationCert revocation = 2;
 }
 
-// A thread record: the author's ordered list of a thread's reeds.
-message ThreadRecord {
-  string server_id = 1;
-  string user_id = 2;
-  string thread_id = 3;
-  repeated string reed_ids = 4;
-  UserSignature user_signature = 5;
-  ServerSignature server_signature = 6;
-}
-
-message ThreadRemovalCert {
-  string server_id = 1;
-  string user_id = 2;
-  string thread_id = 3;
-  UserSignature user_signature = 4;
-  ServerSignature server_signature = 5;
-}
-
 // Pushed to users who hold or follow any part of a removed thread; they
 // drop every part the record lists and answer DATA_ACK.
 message ThreadRemovedMessage {
   string request_id = 1;
   ThreadRemovalCert cert = 2;
   ThreadRecord record = 3;
-}
-
-// A block: the blocking user's signature and their home server's
-// countersignature.
-message BlockCert {
-  string user_id = 1;
-  string blocked_user_id = 2;
-  UserSignature user_signature = 3;
-  ServerSignature server_signature = 4;
 }
 
 // Tells a blocked user they were blocked. With request_id it answers a

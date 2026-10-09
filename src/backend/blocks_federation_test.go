@@ -241,8 +241,7 @@ func TestPeerLegsRefuseBlockedRequester(t *testing.T) {
 		"profile-page":   post(f.h.RelayProfilePageFromPeer, "/api/federation/relay/profile-page", relayProfilePagePayload{AuthorID: f.alice, RequesterUserID: remote, Page: 1}),
 		"subscribe-reed": post(f.h.RelaySubscribeReedFromPeer, "/api/federation/relay/subscribe-reed", relaySubscribeReedPayload{ReedID: reedID, RequesterUserID: remote}),
 	} {
-		var cert BlockCert
-		if rr.Code != http.StatusForbidden || json.Unmarshal(rr.Body.Bytes(), &cert) != nil || cert.BlockedUserID != remote {
+		if cert := refusalBlock(rr.Body.Bytes()); rr.Code != http.StatusForbidden || cert == nil || cert.BlockedUserID != remote {
 			t.Errorf("%s: status %d body %s", name, rr.Code, rr.Body.String())
 		}
 	}

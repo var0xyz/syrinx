@@ -5,15 +5,16 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
 	"time"
 
 	"github.com/gorilla/mux"
+	"google.golang.org/protobuf/proto"
+
+	pb "syrinx/proto"
 )
 
 // blockFixture is alice (the blocking user), bob (blocked) and carol, all local
@@ -123,9 +124,9 @@ func TestInsertBlockRefusesSelf(t *testing.T) {
 }
 
 // serve drives handler through the real auth middleware as userID.
-func (f blockFixture) serve(t *testing.T, handler http.HandlerFunc, method, path, userID string, kp cryptoKeyPair, form url.Values, vars map[string]string) *httptest.ResponseRecorder {
+func (f blockFixture) serve(t *testing.T, handler http.HandlerFunc, method, path, userID string, kp cryptoKeyPair, msg proto.Message, vars map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := signedRequest(t, f.h, method, path, userID, kp.Fingerprint, kp.PrivateKey, form)
+	req := signedRequest(t, f.h, method, path, userID, kp.Fingerprint, kp.PrivateKey, msg)
 	req = mux.SetURLVars(req, vars)
 	rr := httptest.NewRecorder()
 	f.h.signatureAuthMiddleware("/api")(handler).ServeHTTP(rr, req)
@@ -136,8 +137,8 @@ func (f blockFixture) serve(t *testing.T, handler http.HandlerFunc, method, path
 func (f blockFixture) postBlock(t *testing.T, user string, kp cryptoKeyPair, blocked string) *httptest.ResponseRecorder {
 	t.Helper()
 	_, sig := f.signedBlock(t, user, kp, blocked)
-	form := url.Values{"signature": {sig}, "fingerprint": {kp.Fingerprint}}
-	return f.serve(t, f.h.BlockUser, http.MethodPost, "/api/users/"+blocked+"/block", user, kp, form, map[string]string{"userID": blocked})
+	body := &pb.BlockRequest{Signature: sig, Fingerprint: kp.Fingerprint}
+	return f.serve(t, f.h.BlockUser, http.MethodPost, "/api/users/"+blocked+"/block", user, kp, body, map[string]string{"userID": blocked})
 }
 
 // allocate records holder holding a reed authored by author.
@@ -178,10 +179,9 @@ func TestBlockUserForcesUnfollowAndDropsAllocations(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("block: status %d %s", rr.Code, rr.Body.String())
 	}
-	var cert BlockCert
-	if err := json.Unmarshal(rr.Body.Bytes(), &cert); err != nil {
-		t.Fatal(err)
-	}
+	var msg pb.BlockCert
+	decodeProto(t, rr.Body.Bytes(), &msg)
+	cert := blockCertFromPB(&msg)
 	if cert.Type != identityTypeBlock || cert.UserID != f.alice || cert.BlockedUserID != f.bob {
 		t.Fatalf("cert = %+v", cert)
 	}
@@ -226,8 +226,8 @@ func TestBlockUserRefusals(t *testing.T) {
 	}
 
 	_, sig := f.signedBlock(t, f.alice, f.aliceKP, f.carol)
-	form := url.Values{"signature": {sig}, "fingerprint": {f.aliceKP.Fingerprint}}
-	rr := f.serve(t, f.h.BlockUser, http.MethodPost, "/api/users/"+f.bob+"/block", f.alice, f.aliceKP, form, map[string]string{"userID": f.bob})
+	body := &pb.BlockRequest{Signature: sig, Fingerprint: f.aliceKP.Fingerprint}
+	rr := f.serve(t, f.h.BlockUser, http.MethodPost, "/api/users/"+f.bob+"/block", f.alice, f.aliceKP, body, map[string]string{"userID": f.bob})
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("signature over another user: status %d", rr.Code)
 	}
@@ -243,12 +243,12 @@ func TestUnblockAndList(t *testing.T) {
 	}
 
 	rr := f.serve(t, f.h.ListMyBlocks, http.MethodGet, "/api/blocks", f.alice, f.aliceKP, nil, nil)
-	var list struct{ Blocks []BlockCert }
-	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil || len(list.Blocks) != 2 {
+	var list pb.BlockListResponse
+	if err := proto.Unmarshal(rr.Body.Bytes(), &list); err != nil || len(list.Blocks) != 2 {
 		t.Fatalf("list: %d %s", rr.Code, rr.Body.String())
 	}
 	rr = f.serve(t, f.h.ListMyBlocks, http.MethodGet, "/api/blocks", f.bob, f.bobKP, nil, nil)
-	if err := json.Unmarshal(rr.Body.Bytes(), &list); err != nil || len(list.Blocks) != 0 {
+	if err := proto.Unmarshal(rr.Body.Bytes(), &list); err != nil || len(list.Blocks) != 0 {
 		t.Fatalf("bob's list: %s", rr.Body.String())
 	}
 

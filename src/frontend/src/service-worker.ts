@@ -85,9 +85,11 @@ async function ensureDecryptedKey(): Promise<openpgp.PrivateKey> {
   throw new Error('Private key not initialized');
 }
 
-async function signText(text: string): Promise<string> {
+async function signText(text: string | Uint8Array): Promise<string> {
   const key = await ensureDecryptedKey();
-  const message = await openpgp.createMessage({ binary: new TextEncoder().encode(text) });
+  const message = await openpgp.createMessage({
+    binary: typeof text === 'string' ? new TextEncoder().encode(text) : text,
+  });
   const signature = await openpgp.sign({
     message,
     signingKeys: key,
@@ -105,13 +107,16 @@ async function decryptOwn(armored: string): Promise<string> {
   return data as string;
 }
 
-function buildCanonicalRequestString(method: string, path: string, body = '', timestamp = ''): string {
-  const builder = [`${method} ${path}`, '', body];
-  if (timestamp) {
-    builder.push('');
-    builder.push(timestamp);
-  }
-  return builder.join('\n');
+/** method + path, the body bytes and the timestamp, as middlewares.go's
+ * buildCanonicalRequestString joins them. */
+function buildCanonicalRequestBytes(method: string, path: string, body: Uint8Array, timestamp: string): Uint8Array {
+  const head = new TextEncoder().encode(`${method} ${path}\n\n`);
+  const tail = new TextEncoder().encode(`\n\n${timestamp}`);
+  const out = new Uint8Array(head.length + body.length + tail.length);
+  out.set(head, 0);
+  out.set(body, head.length);
+  out.set(tail, head.length + body.length);
+  return out;
 }
 
 function escapeSignature(signature: string): string {
@@ -124,23 +129,13 @@ async function signRequest(request: Request): Promise<Request> {
   const url = new URL(clone.url);
   const path = url.pathname + (url.search || '');
 
-  let body = '';
+  let body = new Uint8Array();
   if (method !== 'GET' && method !== 'HEAD') {
-    const contentType = clone.headers.get('content-type') || '';
-    if (contentType.includes('multipart/form-data')) {
-      const formData = await clone.formData();
-      const formDataEntries: string[] = [];
-      for (const [key, value] of formData.entries()) {
-        formDataEntries.push(`${key}=${value}`);
-      }
-      body = formDataEntries.join('&');
-    } else {
-      body = await clone.text();
-    }
+    body = new Uint8Array(await clone.arrayBuffer());
   }
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const canonicalRequest = buildCanonicalRequestString(method, path, body, timestamp);
+  const canonicalRequest = buildCanonicalRequestBytes(method, path, body, timestamp);
   const signature = await signText(canonicalRequest);
 
   return new Request(request, {
@@ -179,7 +174,7 @@ self.addEventListener('message', async (event) => {
     port.postMessage({ success: true, hasKey: !!privateKey });
   } else if (type === 'SIGN_TEXT') {
     try {
-      const signature = await signText(data.text);
+      const signature = await signText(data.bytes ?? data.text);
       port.postMessage({ success: true, signature });
     } catch (error) {
       port.postMessage({

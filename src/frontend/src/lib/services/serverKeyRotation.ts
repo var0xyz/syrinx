@@ -5,7 +5,7 @@
  */
 
 import type * as api from '$lib/types/api';
-import { apiService } from './api';
+import { apiService, readKeyRevocation, readPublicKey } from './api';
 import { authService } from './auth';
 import { cryptoService } from './crypto';
 import { dbService } from './db';
@@ -80,7 +80,7 @@ async function cacheKeys(hops: Hop[], adoptNewest: boolean): Promise<void> {
 async function fetchRevocation(keyID: string): Promise<{ res: Response; rev: api.ServerKeyRevocation } | null> {
   try {
     const res = await apiService.getKeyRevocationUnverified(keyID);
-    return { res, rev: (await res.clone().json()) as api.ServerKeyRevocation };
+    return { res, rev: (await readKeyRevocation(res)) as api.ServerKeyRevocation };
   } catch (error) {
     if ((error as { status?: number })?.status === 404) return null;
     throw error;
@@ -113,7 +113,7 @@ export async function updateTrustedServerKey(): Promise<KeyUpdateResult> {
         return { status: 'failed' };
       }
       const keyRes = await apiService.getPublicKeyUnverified(rev.successor);
-      const successor = (await keyRes.clone().json()) as api.PublicKey;
+      const successor = await readPublicKey(keyRes);
       const hop = { rev, revokedArmor: currentArmor, successorArmor: successor.armor };
       if (!(await verifyRevocation(serverID, hop))) {
         console.error('[serverKeyRotation] revocation failed verification', rev.keyID);

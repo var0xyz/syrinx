@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package syrinx;
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// POST /federation/invitations.
+message FederationCreateRequest {
+  string name = 1;
+  string remote_public_key_armor = 2;
+}
+
+message FederationCreateResponse {
+  string invite_id = 1;
+  string connection_string = 2;
+  string status = 3;
+}
+
+message FederationInvitation {
+  string invite_id = 1;
+  string name = 2;
+  string status = 3;
+  string created_by = 4;
+  string remote_fingerprint = 5;
+  int64 created_at = 6;
+  int64 accepted_at = 7;
+  optional string server_id = 8;
+  optional string reviewed_by = 9;
+  int64 reviewed_at = 10;
+  optional string connection_string = 11;
+}
+
+message FederationInvitationList {
+  repeated FederationInvitation invitations = 1;
+}
+
+// GET /federation/servers/{id}/invitation: unset when this server was the
+// responder.
+message FederationInvitationResponse {
+  FederationInvitation invitation = 1;
+}
+
+// An approved peer.
+message FederationServer {
+  string server_id = 1;
+  string name = 2;
+  string base_url = 3;
+  string frontend_url = 4;
+  bool connected = 5;
+  // Approved on both sides; connected alone means only on ours.
+  bool established = 6;
+  int64 created_at = 7;
+  bool revoked = 8;
+  int64 revoked_at = 9;
+  optional string revoked_by = 10;
+  optional string revoked_reason = 11;
+  // A disconnect was requested but not yet confirmed by a second admin.
+  bool disconnect_pending = 12;
+  int64 disconnect_requested_at = 13;
+  optional string disconnect_requested_by = 14;
+  optional string disconnect_reason = 15;
+}
+
+message FederationServerList {
+  repeated FederationServer servers = 1;
+}
+
+// A handshake attempt against a peer, at any stage.
+message FederationAttempt {
+  string attempt_id = 1;
+  string remote_server_id = 2;
+  string remote_server_name = 3;
+  string base_url = 4;
+  string frontend_url = 5;
+  string fingerprint = 6;
+  optional string invitation_id = 7;
+  optional string server_id = 8;
+  int64 created_at = 9;
+  string status = 10;
+  optional string approved_by = 11;
+  int64 approved_at = 12;
+  optional string rejected_by = 13;
+  int64 rejected_at = 14;
+  optional string rejected_reason = 15;
+}
+
+// GET /federation/servers/{id}/attempt: unset if no attempt row exists.
+message FederationAttemptResponse {
+  FederationAttempt attempt = 1;
+}
+
+// GET /federation/list: the mesh tab's combined view.
+message FederationList {
+  repeated FederationInvitation invitations = 1;
+  repeated FederationAttempt attempts = 2;
+  repeated FederationServer servers = 3;
+}
+
+// GET /federation/servers/{id}/logs and /federation/attempts/{id}/logs:
+// one log line per line, displayed verbatim.
+message FederationLogs {
+  string text = 1;
+}
+
+// POST /federation/attempt: the connection string pasted by an admin.
+message FederationAttemptRequest {
+  string connection_string = 1;
+}
+
+message FederationAttemptStatus {
+  string status = 1;
+  string server_id = 2;
+}
+
+// POST /federation/attempts/{id}/reject and /federation/servers/{id}/revoke.
+message FederationReasonRequest {
+  string reason = 1;
+}
+
+// The outcome of an admin action on an invitation, attempt or server.
+message FederationActionResponse {
+  string invite_id = 1;
+  string attempt_id = 2;
+  string server_id = 3;
+  string status = 4;
+  // Approval only: the other server had already approved us.
+  bool established = 5;
+}

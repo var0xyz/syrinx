@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { create, toBinary } from '@bufbuild/protobuf';
+import { ServerInfoSchema } from '../src/lib/proto/identity_pb';
+import { InviteCheckResponseSchema } from '../src/lib/proto/invites_pb';
+
+const PROTOBUF = 'application/x-protobuf';
 
 async function mockServerInfo(
   page,
@@ -8,14 +13,19 @@ async function mockServerInfo(
   await page.route('**/api/server/info', async (route) => {
     await route.fulfill({
       status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        id: 'testsrv',
-        name: 'Test',
-        recoveryMode,
-        signupMode,
-        maxInvitesPerUser: 3,
-      }),
+      contentType: PROTOBUF,
+      body: Buffer.from(
+        toBinary(
+          ServerInfoSchema,
+          create(ServerInfoSchema, {
+            id: 'testsrv',
+            name: 'Test',
+            recoveryMode,
+            signupMode,
+            maxInvitesPerUser: 3,
+          }),
+        ),
+      ),
     });
   });
 }
@@ -73,8 +83,8 @@ test.describe('Signup mode gating', () => {
     await page.route('**/api/invites/check**', async (route) => {
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ valid: true }),
+        contentType: PROTOBUF,
+        body: Buffer.from(toBinary(InviteCheckResponseSchema, create(InviteCheckResponseSchema, { valid: true }))),
       });
     });
     await page.goto('/signup?id=inviter1%2Fabcdefghijkl#test-secret-abc');
@@ -87,8 +97,8 @@ test.describe('Signup mode gating', () => {
     await page.route('**/api/invites/check**', async (route) => {
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ valid: true }),
+        contentType: PROTOBUF,
+        body: Buffer.from(toBinary(InviteCheckResponseSchema, create(InviteCheckResponseSchema, { valid: true }))),
       });
     });
     await page.goto('/signup?id=inviter1%2Fabcdefghijkl#test-secret-abc');

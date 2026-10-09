@@ -16,13 +16,12 @@ import { notificationStore } from '$lib/stores/notifications';
 import { decryptRelayPayload } from './relayDecrypt';
 import type { ReedType } from '$lib/types/reed';
 import { create, toBinary, fromBinary, type MessageInitShape } from '@bufbuild/protobuf';
+import { WSMessageSchema, MessageType } from '$lib/proto/websocket_pb';
 import {
-  WSMessageSchema,
-  MessageType,
   type UserSignature as PbUserSignature,
   type ServerSignature as PbServerSignature,
   type Ripple as PbRipple,
-} from '$lib/proto/websocket_pb';
+} from '$lib/proto/common_pb';
 
 // Every WS frame, both directions, is exactly one binary-encoded WSMessage;
 // there is no JSON text-frame path anymore.
@@ -250,7 +249,7 @@ function decodeBlockCert(cert: { userId: string; blockedUserId: string; userSign
   };
 }
 
-function decodeKeyRevocationCert(cert: { id: string; userId: string; reason: string; successor: string; successorSignature: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
+function decodeKeyRevocationCert(cert: { id: string; userId: string; reason: string; successor?: string; successorSignature?: string; userSignature?: PbUserSignature; serverSignature?: PbServerSignature } | undefined) {
   if (!cert) return null;
   return {
     id: cert.id,

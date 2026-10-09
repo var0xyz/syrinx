@@ -78,16 +78,12 @@ func pbAccountRemovalCert(w accountRemovalWire) *pb.AccountRemovalCert {
 }
 
 func pbRipple(r RippleWire) *pb.Ripple {
-	replyingTo := ""
-	if r.ReplyingTo != nil {
-		replyingTo = *r.ReplyingTo
-	}
 	return &pb.Ripple{
 		Hash:            r.Hash,
 		ThreadId:        r.ThreadID,
 		UserId:          r.UserID,
 		Content:         r.Content,
-		ReplyingTo:      replyingTo,
+		ReplyingTo:      r.ReplyingTo,
 		Deleted:         r.Deleted,
 		PostedAt:        r.PostedAt.UTC().Unix(),
 		UserSignature:   pbUserSignature(r.UserSignature),
@@ -362,13 +358,6 @@ func newAccountRemovedMsg(eventID, requestID string, cert accountRemovalWire) *p
 
 // newKeyRevokedMsg builds a KEY_REVOKED delivery with the signed revocation.
 func newKeyRevokedMsg(eventID, requestID string, rev KeyRevocation) *pb.WSMessage {
-	successor, successorSignature := "", ""
-	if rev.Successor != nil {
-		successor = *rev.Successor
-	}
-	if rev.SuccessorSignature != nil {
-		successorSignature = *rev.SuccessorSignature
-	}
 	return &pb.WSMessage{
 		Type: pb.MessageType_KEY_REVOKED,
 		Id:   eventID,
@@ -377,8 +366,8 @@ func newKeyRevokedMsg(eventID, requestID string, rev KeyRevocation) *pb.WSMessag
 				Id:                 rev.ID,
 				UserId:             rev.UserID,
 				Reason:             rev.Reason,
-				Successor:          successor,
-				SuccessorSignature: successorSignature,
+				Successor:          rev.Successor,
+				SuccessorSignature: rev.SuccessorSignature,
 				UserSignature:      pbUserSignature(rev.UserSignature),
 				ServerSignature:    pbServerSignature(rev.ServerSignature),
 			}},
@@ -1203,14 +1192,8 @@ func getRealtimeAuthPublicKey(ctx context.Context, db *DataService, fingerprint 
 	return armor, revoked, nil
 }
 
-type realtimeErrorMessage struct {
-	Error string `json:"error"`
-}
-
 func rejectRealtimeConnection(w http.ResponseWriter, reason string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(realtimeErrorMessage{Error: reason})
+	writeError(w, http.StatusForbidden, reason)
 }
 
 // realtimeService represents the main realtime service.

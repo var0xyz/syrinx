@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -163,9 +162,9 @@ func TestGetKeyRevocationServesServerKeys(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rr.Code, rr.Body.String())
 	}
-	var wire serverKeyRevocationWire
-	if err := json.Unmarshal(rr.Body.Bytes(), &wire); err != nil {
-		t.Fatal(err)
+	_, wire, err := decodePeerKeyRevocation(rr.Body.Bytes())
+	if err != nil || wire == nil {
+		t.Fatalf("decode: %v", err)
 	}
 	if wire.Type != identityTypeServerKeyRevocation || wire.KeyID != keys[1] || wire.Successor != keys[2] || !wire.Compromised {
 		t.Fatalf("revocation = %+v", wire)

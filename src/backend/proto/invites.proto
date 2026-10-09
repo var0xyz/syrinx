@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package syrinx;
+
+import "common.proto";
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// POST /invites. The client mints id and secret; only the secret's
+// SHA-256 (token_hash) is sent.
+message CreateInviteRequest {
+  string id = 1;
+  string token_hash = 2;
+  int64 created_at = 3;
+  string granted_role = 4;
+  UserSignature user_signature = 5;
+}
+
+message Invite {
+  string id = 1;
+  string token_hash = 2;
+  int64 created_at = 3;
+  string granted_role = 4;
+  UserSignature user_signature = 5;
+  ServerSignature server_signature = 6;
+}
+
+// GET /invites/{id}.
+message InviteStatus {
+  string id = 1;
+  int64 created_at = 2;
+  string status = 3;
+  int64 claimed_at = 4;
+  optional string claimed_by = 5;
+  int64 revoked_at = 6;
+}
+
+// GET /invites/check.
+message InviteCheckResponse {
+  bool valid = 1;
+}

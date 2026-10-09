@@ -1,0 +1,235 @@
+syntax = "proto3";
+
+package syrinx;
+
+import "common.proto";
+
+option go_package = "github.com/alvaro/syrinx/proto";
+
+// GET /server/info.
+message ServerInfo {
+  string id = 1;
+  string name = 2;
+  bool recovery_mode = 3;
+  string signup_mode = 4;
+  // -1 = unlimited.
+  int32 max_invites_per_user = 5;
+  // This server's current signing key id (fingerprint@serverID).
+  string server_key_id = 6;
+  repeated FederatedServerInfo federation = 7;
+}
+
+// One established peer, for picking which server a verification link opens on.
+message FederatedServerInfo {
+  string id = 1;
+  string name = 2;
+  string key_id = 3;
+  int64 created_at = 4;
+  string frontend_url = 5;
+}
+
+// GET /users/id: a fresh user id and this server's signature over it.
+message UserIDResponse {
+  string user_id = 1 [json_name = "userID"];
+  string signature = 2;
+  string fingerprint = 3;
+}
+
+// POST /check-username and /users/me/check-username.
+message CheckUsernameRequest {
+  string username = 1;
+  string invite_id = 2 [json_name = "inviteID"];
+  string invite_secret = 3;
+}
+
+message SignupRequest {
+  string username = 1;
+  string public_key = 2;
+  string signature = 3;
+  string user_signature = 4;
+  string user_id = 5 [json_name = "userID"];
+  string user_id_signature = 6 [json_name = "userIDSignature"];
+  string user_id_fingerprint = 7 [json_name = "userIDFingerprint"];
+  string invite_id = 8 [json_name = "inviteID"];
+  string invite_secret = 9;
+}
+
+// The invite a user redeemed, nested on their identity record. id is the
+// invite's id; user_id/username identify the inviter for display.
+message UserInvite {
+  string id = 1;
+  string user_id = 2 [json_name = "userID"];
+  string username = 3;
+}
+
+// A signed identity record (GET /users/{id}/profile).
+message User {
+  string id = 1;
+  string username = 2;
+  string role = 3;
+  string bio = 4;
+  int64 member_since = 5;
+  UserSignature user_signature = 6;
+  ServerSignature server_signature = 7;
+  UserInvite invite = 8;
+}
+
+// The unsigned, frequently changing view of a user (GET /users/{id}/info).
+message UserInfo {
+  string id = 1;
+  // Oldest surviving reed by this user; unset when they have none.
+  optional string first_reed_id = 2;
+  int32 followers_count = 3;
+  int32 following_count = 4;
+  string active_key_id = 5 [json_name = "activeKeyID"];
+  // Same instant as the profile's server_signature.signed_at.
+  int64 profile_timestamp = 6;
+  repeated string pinned_reed_ids = 7 [json_name = "pinnedReedIDs"];
+  repeated string vouch_ids = 8 [json_name = "vouchIDs"];
+}
+
+// PUT /users/me: a full replacement of the user-authored fields.
+message UpdateUserRequest {
+  string username = 1;
+  string bio = 2;
+  string user_signature = 3;
+}
+
+// DELETE /users/me.
+message DeleteAccountRequest {
+  string signature = 1;
+  string note = 2;
+}
+
+message UserSearchResult {
+  string id = 1;
+  string username = 2;
+  string server_name = 3;
+}
+
+message UserSearchResponse {
+  repeated UserSearchResult users = 1;
+}
+
+// POST/DELETE /users/{id}/follow. follower_id is read only when a peer
+// relays the follow for one of its users.
+message FollowRequest {
+  string follower_id = 1 [json_name = "followerID"];
+}
+
+message FollowListUser {
+  string user_id = 1 [json_name = "userID"];
+  int64 followed_at = 2;
+}
+
+message FollowListResponse {
+  repeated FollowListUser users = 1;
+  bool has_more = 2;
+}
+
+// A distributed user or server public key.
+message PublicKey {
+  string id = 1;
+  string user_id = 2 [json_name = "userID"];
+  string armor = 3;
+  int64 created_at = 4;
+  bool revoked = 5;
+  // The replaced key's id; unset for a signup key.
+  optional string predecessor = 6;
+  ServerSignature server_signature = 7;
+  // Set on revoked server keys only.
+  int64 revoked_at = 8;
+  bool compromised = 9;
+}
+
+// POST /keys: revokes the predecessor key and registers the new one.
+message AddPublicKeyRequest {
+  string user_id = 1 [json_name = "userID"];
+  string public_key = 2;
+  string revoked_key_fingerprint = 3;
+  string revoked_key_signature = 4;
+  string new_key_signature = 5;
+  string revocation_reason = 6;
+  string revocation_user_signature = 7;
+}
+
+// A server key's retirement in favour of its successor, signed by both.
+message ServerKeyRevocation {
+  string server_id = 1 [json_name = "serverID"];
+  string key_id = 2 [json_name = "keyID"];
+  string successor = 3;
+  bool compromised = 4;
+  string reason = 5;
+  int64 signed_at = 6;
+  string signature = 7;
+  string successor_signature = 8;
+}
+
+// GET /keys/{id}/revocation: a user key's or a server key's revocation.
+message KeyRevocationResponse {
+  oneof revocation {
+    KeyRevocationCert user = 1;
+    ServerKeyRevocation server = 2;
+  }
+}
+
+// POST /users/me/backup.
+message RecordBackupRequest {
+  string kind = 1;
+}
+
+// POST /users/device: the device id now bound.
+message BindDeviceResponse {
+  string device_id = 1;
+}
+
+// POST /users/{id}/block.
+message BlockRequest {
+  string signature = 1;
+  string fingerprint = 2;
+}
+
+message BlockListResponse {
+  repeated BlockCert blocks = 1;
+}
+
+// A signed vouch: one user attesting they compared fingerprints and the
+// subject holds that exact key.
+message Vouch {
+  string id = 1;
+  string voucher_user_id = 2 [json_name = "voucherUserID"];
+  string voucher_key_id = 3 [json_name = "voucherKeyID"];
+  string subject_user_id = 4 [json_name = "subjectUserID"];
+  string subject_key_id = 5 [json_name = "subjectKeyID"];
+  string note = 6;
+  UserSignature user_signature = 7;
+  ServerSignature server_signature = 8;
+  // Set only on a retracted vouch; its presence is the withdrawal.
+  VouchWithdrawal withdrawal = 9;
+}
+
+message VouchWithdrawal {
+  UserSignature user_signature = 1;
+  ServerSignature server_signature = 2;
+}
+
+message VouchListResponse {
+  repeated Vouch vouches = 1;
+  string next_cursor = 2;
+}
+
+// POST /vouches. voucher_id is read only when a peer relays the request.
+message CreateVouchRequest {
+  string subject_key_id = 1 [json_name = "subjectKeyID"];
+  string voucher_key_id = 2 [json_name = "voucherKeyID"];
+  string signature = 3;
+  string note = 4;
+  string voucher_id = 5 [json_name = "voucherID"];
+}
+
+// DELETE /vouches/{subjectKeyID}.
+message WithdrawVouchRequest {
+  string voucher_key_id = 1 [json_name = "voucherKeyID"];
+  string signature = 2;
+  string voucher_id = 3 [json_name = "voucherID"];
+}

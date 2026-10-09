@@ -3,15 +3,15 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	pb "syrinx/proto"
 )
 
 func TestIssueChallenge(t *testing.T) {
@@ -22,10 +22,8 @@ func TestIssueChallenge(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d", rr.Code)
 	}
-	var resp recoveryChallengeResponse
-	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
+	var resp pb.ChallengeResponse
+	decodeProto(t, rr.Body.Bytes(), &resp)
 	if resp.Challenge == "" {
 		t.Fatal("empty challenge")
 	}
@@ -36,9 +34,8 @@ func TestIssueChallenge(t *testing.T) {
 }
 
 func claimWithChallenge(h *Handlers, challenge string) *httptest.ResponseRecorder {
-	body, _ := json.Marshal(map[string]string{"challenge": challenge})
 	rr := httptest.NewRecorder()
-	h.ClaimIdentity(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity/claim", bytes.NewReader(body)))
+	h.ClaimIdentity(rr, protoRequest(http.MethodPost, "/api/recovery/identity/claim", &pb.ClaimIdentityRequest{Challenge: challenge}))
 	return rr
 }
 
@@ -105,14 +102,13 @@ func TestClaimIdentity_BadChallengeSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := json.Marshal(recoveryClaimRequest{
+	rr := httptest.NewRecorder()
+	h.ClaimIdentity(rr, protoRequest(http.MethodPost, "/api/recovery/identity/claim", &pb.ClaimIdentityRequest{
 		Challenge: nonce,
 		Signature: "Y2hhbGxlbmdl",
-		Profile:   profile,
-		Key:       root,
-	})
-	rr := httptest.NewRecorder()
-	h.ClaimIdentity(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity/claim", bytes.NewReader(body)))
+		Profile:   pbRecoveryProfile(profile),
+		Key:       pbRecoveryKeyNode(root),
+	}))
 	if rr.Code != http.StatusBadRequest && rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -122,7 +118,7 @@ func TestReportPeerIdentity_Unauthenticated(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
 	rr := httptest.NewRecorder()
-	h.ReportPeerIdentity(rr, httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader([]byte(`{}`))))
+	h.ReportPeerIdentity(rr, protoRequest(http.MethodPost, "/api/recovery/identity", &pb.PeerIdentityRequest{}))
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
 	}
@@ -131,10 +127,9 @@ func TestReportPeerIdentity_Unauthenticated(t *testing.T) {
 func TestReportPeerIdentity_SelfSubmit(t *testing.T) {
 	db := openSignupTestDB(t)
 	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
-	body, _ := json.Marshal(recoveryPeerIdentityRequest{
-		Profile: recoveryProfile{ID: "caller1"},
+	req := protoRequest(http.MethodPost, "/api/recovery/identity", &pb.PeerIdentityRequest{
+		Profile: &pb.RecoveryProfile{Id: "caller1"},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader(body))
 	req = req.WithContext(context.WithValue(req.Context(), userIDKey, "caller1"))
 	rr := httptest.NewRecorder()
 	h.ReportPeerIdentity(rr, req)
@@ -169,8 +164,10 @@ func TestReportPeerIdentity_BrokenNest(t *testing.T) {
 			},
 		},
 	}
-	body, _ := json.Marshal(recoveryPeerIdentityRequest{Profile: profile, Key: root})
-	req := httptest.NewRequest(http.MethodPost, "/api/recovery/identity", bytes.NewReader(body))
+	req := protoRequest(http.MethodPost, "/api/recovery/identity", &pb.PeerIdentityRequest{
+		Profile: pbRecoveryProfile(profile),
+		Key:     pbRecoveryKeyNode(root),
+	})
 	req = req.WithContext(context.WithValue(req.Context(), userIDKey, "caller1"))
 	rr := httptest.NewRecorder()
 	h.ReportPeerIdentity(rr, req)

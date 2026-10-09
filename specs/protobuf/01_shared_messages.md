@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed.
+Implemented. `common.proto` holds the signature blocks, every
+certificate (moved out of `websocket.proto`) and `Error`;
+`identity.proto`, `reed.proto`, `invites.proto`, `recovery.proto` and
+`federation.proto` hold the `/api/*` request and response messages.
+`make proto` regenerates Go and TypeScript for all of them; goldens for
+`User` and `ReedRemovalCert` live in `protowire_test.go`.
 
 ## Depends on
 

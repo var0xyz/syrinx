@@ -4,11 +4,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	pb "syrinx/proto"
 )
 
 func TestListReceivedRipples_OwnReedIncluded(t *testing.T) {
@@ -240,18 +241,16 @@ func TestGetReceivedRipples_Handler_Success(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	var body receivedRippleListResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
+	var body pb.ReceivedRippleListResponse
+	decodeProto(t, rr.Body.Bytes(), &body)
+	if len(body.Ripples) != 1 || body.Ripples[0].GetRipple().GetHash() != posted.ID {
+		t.Fatalf("got %+v, want exactly the one ripple posted on author1's reed", &body)
 	}
-	if len(body.Ripples) != 1 || body.Ripples[0].Hash != posted.ID {
-		t.Fatalf("got %+v, want exactly the one ripple posted on author1's reed", body)
+	if body.Ripples[0].ReedId != reed1ID {
+		t.Errorf("ReedID = %q, want %q", body.Ripples[0].ReedId, reed1ID)
 	}
-	if body.Ripples[0].ReedID != reed1ID {
-		t.Errorf("ReedID = %q, want %q", body.Ripples[0].ReedID, reed1ID)
-	}
-	if body.Ripples[0].ReedAuthorID != canonicalAuthor1 {
-		t.Errorf("ReedAuthorID = %q, want %q", body.Ripples[0].ReedAuthorID, canonicalAuthor1)
+	if body.Ripples[0].ReedAuthorId != canonicalAuthor1 {
+		t.Errorf("ReedAuthorID = %q, want %q", body.Ripples[0].ReedAuthorId, canonicalAuthor1)
 	}
 }
 
@@ -265,12 +264,10 @@ func TestGetReceivedRipples_Handler_Empty(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
 	}
-	var body receivedRippleListResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	var body pb.ReceivedRippleListResponse
+	decodeProto(t, rr.Body.Bytes(), &body)
 	if len(body.Ripples) != 0 || body.HasMore {
-		t.Errorf("unexpected non-empty list: %+v", body)
+		t.Errorf("unexpected non-empty list: %+v", &body)
 	}
 }
 

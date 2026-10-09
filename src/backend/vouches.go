@@ -9,9 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +17,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
+
+	pb "syrinx/proto"
 )
 
 // ErrVouchConflict is returned when an existing live vouch differs from
@@ -423,38 +423,38 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CreateVouch request received")
 
-	values, err := parseFormData(r)
-	if err != nil {
+	req := &pb.CreateVouchRequest{}
+	if err := readRequest(r, req); err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
 
-	voucherID, ok := h.resolveActingUser(r, values.Get("voucherID"))
+	voucherID, ok := h.resolveActingUser(r, req.GetVoucherId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
-	subjectKeyID := strings.TrimSpace(values.Get("subjectKeyID"))
-	voucherKeyID := strings.TrimSpace(values.Get("voucherKeyID"))
-	userSignature := strings.TrimSpace(values.Get("signature"))
-	note := values.Get("note")
+	subjectKeyID := strings.TrimSpace(req.GetSubjectKeyId())
+	voucherKeyID := strings.TrimSpace(req.GetVoucherKeyId())
+	userSignature := strings.TrimSpace(req.GetSignature())
+	note := req.GetNote()
 
 	switch {
 	case subjectKeyID == "":
-		writeResponse(w, http.StatusBadRequest, "Argument `subjectKeyID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `subjectKeyID` is required")
 		return
 	case voucherKeyID == "":
-		writeResponse(w, http.StatusBadRequest, "Argument `voucherKeyID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `voucherKeyID` is required")
 		return
 	case userSignature == "":
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
 
 	if utf8.RuneCountInString(note) > MaxVouchNoteChars {
 		log.Error().Str("voucherID", voucherID).Msg("Vouch note too long")
-		writeResponse(w, http.StatusBadRequest, "Note cannot exceed 140 characters")
+		writeError(w, http.StatusBadRequest, "Note cannot exceed 140 characters")
 		return
 	}
 
@@ -462,7 +462,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	// the request names them separately.
 	subjectIdentity, ok := authorOf(identityID(subjectKeyID))
 	if !ok {
-		writeResponse(w, http.StatusBadRequest, "`subjectKeyID` is not a canonical key id")
+		writeError(w, http.StatusBadRequest, "`subjectKeyID` is not a canonical key id")
 		return
 	}
 	subjectUserID := string(subjectIdentity)
@@ -470,7 +470,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	// Self-vouching asserts nothing: the caller would be attesting to a key
 	// they already control.
 	if subjectUserID == voucherID {
-		writeResponse(w, http.StatusBadRequest, "Cannot vouch for yourself")
+		writeError(w, http.StatusBadRequest, "Cannot vouch for yourself")
 		return
 	}
 
@@ -481,12 +481,12 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if subjectKey == nil {
-		writeResponse(w, http.StatusNotFound, "Subject key not found")
+		writeError(w, http.StatusNotFound, "Subject key not found")
 		return
 	}
 	// A vouch for an already-revoked key would be stale on arrival.
 	if subjectKey.Revoked {
-		writeResponse(w, http.StatusConflict, "Subject key is revoked")
+		writeError(w, http.StatusConflict, "Subject key is revoked")
 		return
 	}
 
@@ -501,14 +501,14 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		// the offline queue resending the signature it stored, which is a
 		// retry rather than a second verification.
 		if existing.UserSignature.Armor == userSignature {
-			writeResponse(w, http.StatusOK, existing)
+			writeResponse(w, http.StatusOK, pbVouch(existing))
 			return
 		}
 		log.Info().
 			Str("voucherID", voucherID).
 			Str("subjectKeyID", subjectKeyID).
 			Msg("Vouch rejected: this key is already verified by the caller")
-		writeResponse(w, http.StatusConflict, "You have already verified this key")
+		writeError(w, http.StatusConflict, "You have already verified this key")
 		return
 	}
 
@@ -529,7 +529,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 				Dur("retryAfter", wait).
 				Msg("Vouch rejected: cooldown")
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
-			writeResponse(w, http.StatusTooManyRequests,
+			writeError(w, http.StatusTooManyRequests,
 				"You can verify this key again later")
 			return
 		}
@@ -544,11 +544,11 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if voucherKey == nil {
-		writeResponse(w, http.StatusNotFound, "Voucher key not found")
+		writeError(w, http.StatusNotFound, "Voucher key not found")
 		return
 	}
 	if !keyBelongsTo(voucherKeyID, voucherID) {
-		writeResponse(w, http.StatusBadRequest, "`voucherKeyID` is not owned by the caller")
+		writeError(w, http.StatusBadRequest, "`voucherKeyID` is not owned by the caller")
 		return
 	}
 
@@ -560,7 +560,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 			Str("subjectKeyID", subjectKeyID).
 			Err(err).
 			Msg("vouch signature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -607,12 +607,12 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.db.InsertVouch(r.Context(), cert); err != nil {
 		if errors.Is(err, ErrVouchConflict) {
-			writeResponse(w, http.StatusConflict, "Vouch already exists with a different signature")
+			writeError(w, http.StatusConflict, "Vouch already exists with a different signature")
 			return
 		}
 		if errors.Is(err, ErrVouchInvalidID) {
 			log.Error().Str("vouchID", cert.ID).Err(err).Msg("Invalid vouch id")
-			writeResponse(w, http.StatusBadRequest, "Invalid vouch id")
+			writeError(w, http.StatusBadRequest, "Invalid vouch id")
 			return
 		}
 		log.Error().Str("voucherID", voucherID).Err(err).Msg("Error storing vouch")
@@ -631,7 +631,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
 		Msg("Vouch accepted")
-	writeResponse(w, http.StatusOK, cert)
+	writeResponse(w, http.StatusOK, pbVouch(&cert))
 }
 
 // WithdrawVouch handles DELETE /vouches/{subjectKeyID}. Signed, unlike
@@ -643,27 +643,25 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 
 	subjectKeyID := mux.Vars(r)["subjectKeyID"]
 	if subjectKeyID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `subjectKeyID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `subjectKeyID` is required")
 		return
 	}
 
-	// r.FormValue skips DELETE bodies, so read it directly.
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req := &pb.WithdrawVouchRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	values, _ := url.ParseQuery(string(body))
 
-	voucherID, ok := h.resolveActingUser(r, values.Get("voucherID"))
+	voucherID, ok := h.resolveActingUser(r, req.GetVoucherId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
-	voucherKeyID := strings.TrimSpace(values.Get("voucherKeyID"))
-	signature := strings.TrimSpace(values.Get("signature"))
+	voucherKeyID := strings.TrimSpace(req.GetVoucherKeyId())
+	signature := strings.TrimSpace(req.GetSignature())
 	if voucherKeyID == "" || signature == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `voucherKeyID` and `signature` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `voucherKeyID` and `signature` are required")
 		return
 	}
 
@@ -674,14 +672,14 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing == nil {
-		writeResponse(w, http.StatusNotFound, "Vouch not found")
+		writeError(w, http.StatusNotFound, "Vouch not found")
 		return
 	}
 
 	// Verified against the voucher's key as named now, not the key that
 	// signed the original vouch: a user who rotated must still retract.
 	if !keyBelongsTo(voucherKeyID, voucherID) {
-		writeResponse(w, http.StatusBadRequest, "`voucherKeyID` is not owned by the caller")
+		writeError(w, http.StatusBadRequest, "`voucherKeyID` is not owned by the caller")
 		return
 	}
 	voucherKey, err := h.resolvePublicKey(r.Context(), voucherKeyID)
@@ -691,7 +689,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if voucherKey == nil {
-		writeResponse(w, http.StatusNotFound, "Voucher key not found")
+		writeError(w, http.StatusNotFound, "Voucher key not found")
 		return
 	}
 	// A stolen key must not be able to retract the vouches its theft
@@ -701,7 +699,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			Str("voucherID", voucherID).
 			Str("voucherKeyID", voucherKeyID).
 			Msg("withdrawal refused: voucher key is revoked")
-		writeResponse(w, http.StatusUnauthorized, "`voucherKeyID` is revoked")
+		writeError(w, http.StatusUnauthorized, "`voucherKeyID` is revoked")
 		return
 	}
 
@@ -713,7 +711,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			Str("subjectKeyID", subjectKeyID).
 			Err(err).
 			Msg("withdrawal signature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -755,7 +753,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		if errors.Is(err, ErrVouchNotFound) {
-			writeResponse(w, http.StatusNotFound, "Vouch not found")
+			writeError(w, http.StatusNotFound, "Vouch not found")
 			return
 		}
 		log.Error().Str("voucherID", voucherID).Err(err).Msg("Error withdrawing vouch")
@@ -767,7 +765,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
 		Msg("Vouch withdrawal accepted")
-	writeResponse(w, http.StatusOK, cert)
+	writeResponse(w, http.StatusOK, pbVouch(cert))
 }
 
 // isVouchIDWellFormed reports whether an id has the canonical
@@ -834,7 +832,7 @@ func (h *Handlers) ListVouchesForUser(w http.ResponseWriter, r *http.Request) {
 
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 	if h.refuseIfBlocked(w, r, userID) {
@@ -850,7 +848,7 @@ func (h *Handlers) ListVouchesForUser(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	writeResponse(w, http.StatusOK, list)
+	writeResponse(w, http.StatusOK, pbVouchList(list))
 }
 
 // ListMyVouches handles GET /vouches — every vouch the caller made,
@@ -860,7 +858,7 @@ func (h *Handlers) ListMyVouches(w http.ResponseWriter, r *http.Request) {
 
 	voucherID, ok := r.Context().Value(userIDKey).(string)
 	if !ok || voucherID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Authentication required")
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	limit := vouchPageLimit(r.URL.Query().Get("limit"))
@@ -872,7 +870,7 @@ func (h *Handlers) ListMyVouches(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	writeResponse(w, http.StatusOK, list)
+	writeResponse(w, http.StatusOK, pbVouchList(list))
 }
 
 // GetVouchByID loads one vouch by its own canonical id, live or withdrawn.
@@ -952,14 +950,14 @@ func (h *Handlers) GetVouch(w http.ResponseWriter, r *http.Request) {
 	subjectUserID := mux.Vars(r)["userID"]
 	vouchID := mux.Vars(r)["vouchID"]
 	if subjectUserID == "" || vouchID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `vouchID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `vouchID` are required")
 		return
 	}
 
 	// Reject a malformed id before touching the DB: a well-formed id is
 	// the only thing that can name a vouch this server minted.
 	if !isVouchIDWellFormed(vouchID) {
-		writeResponse(w, http.StatusBadRequest, "`vouchID` is not a canonical vouch id")
+		writeError(w, http.StatusBadRequest, "`vouchID` is not a canonical vouch id")
 		return
 	}
 
@@ -976,9 +974,9 @@ func (h *Handlers) GetVouch(w http.ResponseWriter, r *http.Request) {
 	}
 	// A vouch is never served under a subject it says nothing about.
 	if cert == nil || cert.SubjectUserID != subjectUserID {
-		writeResponse(w, http.StatusNotFound, "Vouch not found")
+		writeError(w, http.StatusNotFound, "Vouch not found")
 		return
 	}
 
-	writeResponse(w, http.StatusOK, cert)
+	writeResponse(w, http.StatusOK, pbVouch(cert))
 }

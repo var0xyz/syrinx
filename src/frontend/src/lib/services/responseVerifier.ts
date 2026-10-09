@@ -6,6 +6,7 @@
 
 import { cryptoService } from './crypto';
 import { getTrustedServerKey } from './serverKeyTrust';
+import { concatBytes } from '$lib/utils/bytes';
 
 const SIGNATURE_HEADER = 'X-Syrinx-Response-Signature';
 const SIGNED_HEADERS_HEADER = 'X-Syrinx-Signed-Headers';
@@ -39,9 +40,9 @@ export async function verifyResponseEnvelope(res: Response, keyArmor?: string): 
   if (!armor) return false;
 
   const signature = escapedSignature.replace(/\\n/g, '\n');
-  const bodyText = await res.clone().text();
+  const body = new Uint8Array(await res.clone().arrayBuffer());
   const canonicalHeaders = buildCanonicalHeaderString(res.headers, signedNames);
-  const completeResponse = `${canonicalHeaders}\n\n${bodyText}`;
+  const completeResponse = concatBytes(new TextEncoder().encode(`${canonicalHeaders}\n\n`), body);
 
   return cryptoService.verifyStrippedSignature(completeResponse, signature, armor);
 }

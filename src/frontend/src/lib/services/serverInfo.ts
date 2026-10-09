@@ -4,6 +4,8 @@ import type { PublicKey } from '$lib/types/api';
 import { isOnline } from './pwa';
 import { serverKeyProofHeader, getTrustedServerKey } from './serverKeyTrust';
 import { formatServerKeyId } from '$lib/utils/identityRef';
+import { decodeShape } from './wire';
+import { ServerInfoSchema } from '$lib/proto/identity_pb';
 
 export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
@@ -147,7 +149,7 @@ export async function refreshServerInfo(updateServerKey = true): Promise<ServerI
     serverKeyRejected.set(false);
     serverKeyCompromise.set(null);
 
-    const data = await response.json();
+    const data = decodeShape(ServerInfoSchema, new Uint8Array(await response.arrayBuffer()));
     const info: ServerInfo = {
       id: data.id,
       name: data.name,
