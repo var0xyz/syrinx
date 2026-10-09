@@ -48,6 +48,7 @@ Each table below has a **Status** column per step. Values:
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
 | Blocking              | Implemented | —                                                      |
+| Admin actions         | Proposed    | 00–10                                                  |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -201,6 +202,17 @@ admins may invite other admins. Prerequisite for federation operator actions.
 | 01  | `users.role` column + code helpers         | Implemented |
 | 02  | Admin-only admin invites (create + signup) | Implemented |
 | 03  | Role on profile countersignature           | Implemented |
+
+## Admin actions (kick, suspend, roles, rebind, ledger)
+
+See [`admin_actions/`](admin_actions/README.md). Two-admin approval for every
+account action, recorded in a public ledger with its reason. No control over
+individual reeds.
+
+| #     | Title                                       | Status   |
+| ----- | ------------------------------------------- | -------- |
+| 00    | Design + locked model                       | Proposed |
+| 01–10 | Requests, ledger, actions, flags, broadcast | Proposed |
 
 ## Federation (explicit peering + cross-server content)
 
