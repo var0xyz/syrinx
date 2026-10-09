@@ -5,7 +5,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +15,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
+
+	pb "syrinx/proto"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status code
@@ -93,12 +95,12 @@ func (rs *responseSigner) Flush() {
 	// discarded body, so they're cleared and rebuilt for this one.
 	if err := rs.signCompleteResponse(); err != nil {
 		log.Error().Err(err).Msg("Failed to sign complete response")
-		body := []byte("Internal Server Error")
+		body, _ := proto.Marshal(&pb.Error{Message: "Internal Server Error"})
 		h := rs.ResponseWriter.Header()
 		for k := range h {
 			delete(h, k)
 		}
-		h.Set("Content-Type", "text/plain; charset=utf-8")
+		h.Set("Content-Type", protobufContentType)
 		h.Set("Content-Length", fmt.Sprintf("%d", len(body)))
 		rs.ResponseWriter.WriteHeader(http.StatusInternalServerError)
 		rs.wroteHeaders = true
@@ -291,12 +293,12 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 		return
 	}
 	if !ok {
-		writeResponse(w, http.StatusForbidden, "Not an established peer")
+		writeError(w, http.StatusForbidden, "Not an established peer")
 		return
 	}
 
 	if err := h.verifyRequestSignature(r, signatureHeader, publicKeyArmor); err != nil {
-		writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
+		writeError(w, http.StatusUnauthorized, "Request signature verification failed")
 		return
 	}
 
@@ -382,7 +384,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("timestamp", timestampHeader).
 					Str("path", r.URL.Path).
 					Msg("Missing authentication headers")
-				writeResponse(w, http.StatusBadRequest, "Missing authentication headers")
+				writeError(w, http.StatusBadRequest, "Missing authentication headers")
 				return
 			}
 
@@ -391,7 +393,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("signatureScope", signatureScopeHeader).
 					Msg("Invalid signature scope")
-				writeResponse(w, http.StatusBadRequest, "Invalid signature scope")
+				writeError(w, http.StatusBadRequest, "Invalid signature scope")
 				return
 			}
 
@@ -401,7 +403,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("timestamp", timestampHeader).
 					Err(err).
 					Msg("Invalid timestamp")
-				writeResponse(w, http.StatusBadRequest, "Invalid timestamp")
+				writeError(w, http.StatusBadRequest, "Invalid timestamp")
 				return
 			}
 
@@ -425,7 +427,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Public key not found")
-				writeResponse(w, http.StatusForbidden, "Key not found")
+				writeError(w, http.StatusForbidden, "Key not found")
 				return
 			}
 
@@ -452,7 +454,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Request signed by revoked key rejected")
-				writeResponse(w, http.StatusUnauthorized, "Key is revoked")
+				writeError(w, http.StatusUnauthorized, "Key is revoked")
 				return
 			}
 
@@ -474,7 +476,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					path := r.URL.Path
 					if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
 						log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
-						writeResponse(w, http.StatusGone, "Account removed")
+						writeError(w, http.StatusGone, "Account removed")
 						return
 					}
 				}
@@ -486,7 +488,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("publicKeyId", publicKeyIDHeader).
 					Err(err).
 					Msg("Request signature verification failed")
-				writeResponse(w, http.StatusUnauthorized, "Request signature verification failed")
+				writeError(w, http.StatusUnauthorized, "Request signature verification failed")
 				return
 			}
 
@@ -516,7 +518,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					return
 				}
 				if !peerOK {
-					writeResponse(w, http.StatusForbidden, "Not an established peer")
+					writeError(w, http.StatusForbidden, "Not an established peer")
 					return
 				}
 				h.recordPeerApproval(r.Context(), callerServerID)
@@ -547,7 +549,7 @@ func (h *Handlers) serverKeyProofMiddleware(prefix string) func(http.Handler) ht
 
 			fingerprint := r.Header.Get(serverKeyProofHeader)
 			if fingerprint == "" || fingerprint != h.signingKey.Fingerprint {
-				writeResponse(w, http.StatusUnauthorized, "Missing or incorrect server key proof")
+				writeError(w, http.StatusUnauthorized, "Missing or incorrect server key proof")
 				return
 			}
 
@@ -677,16 +679,6 @@ func (h *Handlers) CORSMiddleware(allowedOrigin string) func(http.Handler) http.
 //   Device middleware   //
 // ===================== //
 
-type deviceErrorBody struct {
-	Error string `json:"error"`
-}
-
-func writeDeviceError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(deviceErrorBody{Error: message})
-}
-
 func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -708,10 +700,10 @@ func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
 
 			if err := h.services.db.CheckActiveDevice(r.Context(), userID, r.Header.Get("X-Syrinx-Device-Id")); err != nil {
 				if err == errDeviceMismatch || err == errMissingDevice {
-					writeDeviceError(w, http.StatusForbidden, "Device mismatch: this session is not bound to the active device.")
+					writeError(w, http.StatusForbidden, "Device mismatch: this session is not bound to the active device.")
 					return
 				}
-				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				internalServerError(w)
 				return
 			}
 

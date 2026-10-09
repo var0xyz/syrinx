@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -14,6 +13,8 @@ import (
 
 
 	_ "github.com/lib/pq"
+
+	pb "syrinx/proto"
 )
 
 func openDevicesTestDB(t *testing.T) *sql.DB {
@@ -251,12 +252,8 @@ func TestDeviceMiddleware(t *testing.T) {
 		if rr.Code != http.StatusForbidden {
 			t.Fatalf("status = %d", rr.Code)
 		}
-		var body map[string]string
-		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-			t.Fatal(err)
-		}
-		if body["error"] != "Device mismatch: this session is not bound to the active device." {
-			t.Fatalf("error = %q", body["error"])
+		if got := errorMessage(t, rr.Body.Bytes()); got != "Device mismatch: this session is not bound to the active device." {
+			t.Fatalf("error = %q", got)
 		}
 	})
 
@@ -297,12 +294,10 @@ func TestBindDeviceHandler(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
 	}
-	var got string
-	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got != d2 {
-		t.Fatalf("body = %q want %q", got, d2)
+	var resp pb.BindDeviceResponse
+	decodeProto(t, rr.Body.Bytes(), &resp)
+	if got := resp.DeviceId; got != d2 {
+		t.Fatalf("body = %q want %q", resp.DeviceId, d2)
 	}
 	if !kicked {
 		t.Fatal("expected kick")

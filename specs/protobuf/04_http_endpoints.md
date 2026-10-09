@@ -2,7 +2,14 @@
 
 ## Status
 
-Proposed.
+Implemented. Every client `/api/*` route, including recovery, account
+recovery and the SPA-facing federation admin routes, speaks protobuf
+both ways; non-2xx bodies are `Error`, carrying the removal or block
+certificate as its detail where the JSON wire carried the cert as the
+body. Server-to-server calls that go through the client API (proxied
+requests, peer key and revocation fetches, follow forwarding) moved
+too. `api.ts` decodes into the old `lib/types/api.ts` shapes. The
+username checks and `POST /users/me/backup` answer 204 with no body.
 
 ## Depends on
 

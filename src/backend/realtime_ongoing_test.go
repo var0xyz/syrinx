@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -17,15 +16,11 @@ func TestRejectRealtimeConnection(t *testing.T) {
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", rr.Code)
 	}
-	if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
+	if ct := rr.Header().Get("Content-Type"); ct != protobufContentType {
 		t.Fatalf("content-type = %q", ct)
 	}
-	var body realtimeErrorMessage
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Error != "Finish recovery import first." {
-		t.Fatalf("error = %q", body.Error)
+	if got := errorMessage(t, rr.Body.Bytes()); got != "Finish recovery import first." {
+		t.Fatalf("error = %q", got)
 	}
 }
 

@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gorilla/mux"
+
+	pb "syrinx/proto"
 )
 
 // seedSignedThread stores an n-part thread and returns its parts and the
@@ -30,9 +30,7 @@ func (f *threadFixture) seedSignedThread(t *testing.T, n int) ([]string, string)
 
 func (f *threadFixture) deleteThread(t *testing.T, threadID, signature string) *httptest.ResponseRecorder {
 	t.Helper()
-	form := url.Values{"signature": {signature}}
-	r := httptest.NewRequest(http.MethodDelete, "/api/threads/"+threadID, strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r := protoRequest(http.MethodDelete, "/api/threads/"+threadID, &pb.RemovalRequest{Signature: signature})
 	r = mux.SetURLVars(withInviteUID(r, f.author), map[string]string{"threadID": threadID})
 	rr := httptest.NewRecorder()
 	f.h.DeleteThread(rr, r)
@@ -54,9 +52,7 @@ func TestDeleteReed_RefusesThreadParts(t *testing.T) {
 	ids, _ := f.seedSignedThread(t, 3)
 	for _, id := range []string{ids[0], ids[1]} {
 		_, _, bare, _ := parseKeyFingerprint(identityID(id))
-		form := url.Values{"signature": {"sig"}}
-		r := httptest.NewRequest(http.MethodDelete, "/api/reeds/x", strings.NewReader(form.Encode()))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r := protoRequest(http.MethodDelete, "/api/reeds/x", &pb.RemovalRequest{Signature: "sig"})
 		r = mux.SetURLVars(withInviteUID(r, f.author), map[string]string{"userID": f.author, "reedID": bare})
 		rr := httptest.NewRecorder()
 		f.h.DeleteReed(rr, r)
@@ -77,12 +73,10 @@ func TestDeleteThread_RemovesEveryPart(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	var rm threadRemoval
-	if err := json.Unmarshal(rr.Body.Bytes(), &rm); err != nil {
-		t.Fatal(err)
-	}
-	if rm.Cert.ThreadID != ids[0] || len(rm.Record.ReedIDs) != 3 {
-		t.Fatalf("unexpected removal: %+v", rm)
+	var rm pb.ThreadRemoval
+	decodeProto(t, rr.Body.Bytes(), &rm)
+	if rm.GetCert().GetThreadId() != ids[0] || len(rm.GetRecord().GetReedIds()) != 3 {
+		t.Fatalf("unexpected removal: %v", &rm)
 	}
 	for _, id := range ids {
 		result, err := ds.GetReedOrRemovalCert(ctx, id)

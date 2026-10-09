@@ -3,19 +3,13 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
+
+	pb "syrinx/proto"
 )
 
 func TestBlockedUserCannotInteract(t *testing.T) {
@@ -35,17 +29,21 @@ func TestBlockedUserCannotInteract(t *testing.T) {
 	}
 
 	like := f.serve(t, f.h.LikeReed, http.MethodPost, "/api/reeds/"+f.alice+"/"+reedID+"/like", f.bob, f.bobKP,
-		url.Values{"signature": {"s"}, "fingerprint": {f.bobKP.Fingerprint}}, vars)
+		&pb.LikeRequest{Signature: "s", Fingerprint: f.bobKP.Fingerprint}, vars)
 	if like.Code != http.StatusForbidden {
 		t.Fatalf("bob likes alice's reed: status %d", like.Code)
 	}
 
 	ref := string(canonicalID(f.ds.GetServerID(), "alice", reedID))
 	for _, field := range []string{"replyingTo", "echoing"} {
-		form := url.Values{"signature": {"s"}, "reedID": {uuid.Must(uuid.NewV7()).String()}, field: {ref}}
-		rr := f.serve(t, f.h.SignReed, http.MethodPost, "/api/reeds", f.bob, f.bobKP, form, nil)
-		var cert BlockCert
-		if rr.Code != http.StatusForbidden || json.Unmarshal(rr.Body.Bytes(), &cert) != nil || cert.UserID != f.alice {
+		body := &pb.SignReedRequest{Signature: "s", ReedId: uuid.Must(uuid.NewV7()).String()}
+		if field == "replyingTo" {
+			body.ReplyingTo = ref
+		} else {
+			body.Echoing = ref
+		}
+		rr := f.serve(t, f.h.SignReed, http.MethodPost, "/api/reeds", f.bob, f.bobKP, body, nil)
+		if cert := refusalBlock(rr.Body.Bytes()); rr.Code != http.StatusForbidden || cert == nil || cert.UserID != f.alice {
 			t.Fatalf("bob %s alice's reed: status %d %s", field, rr.Code, rr.Body.String())
 		}
 	}
@@ -64,22 +62,8 @@ func TestBlockedUserCannotRipple(t *testing.T) {
 	f.storeBlock(t, f.alice, f.aliceKP, f.bob)
 	reedID := uuid.Must(uuid.NewV7()).String()
 	path := "/api/reeds/" + f.alice + "/" + reedID + "/ripples"
-	body, _ := json.Marshal(map[string]any{"content": "hi", "threadID": uuid.Must(uuid.NewV7()).String()})
-
-	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	sig, err := f.h.services.crypto.sign(http.MethodPost+" "+path+"\n\n"+string(body)+"\n\n"+timestamp, f.bobKP.PrivateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Syrinx-Public-Key-Id", f.keyID(f.bob, f.bobKP))
-	req.Header.Set("X-Syrinx-Signature", base64.StdEncoding.EncodeToString([]byte(sig)))
-	req.Header.Set("X-Syrinx-Signature-Scope", "body")
-	req.Header.Set("X-Syrinx-Timestamp", timestamp)
-	req = mux.SetURLVars(req, map[string]string{"userID": f.alice, "reedID": reedID})
-	rr := httptest.NewRecorder()
-	f.h.signatureAuthMiddleware("/api")(http.HandlerFunc(f.h.PostRipple)).ServeHTTP(rr, req)
+	body := &pb.PostRippleRequest{Content: "hi", ThreadId: uuid.Must(uuid.NewV7()).String()}
+	rr := f.serve(t, f.h.PostRipple, http.MethodPost, path, f.bob, f.bobKP, body, map[string]string{"userID": f.alice, "reedID": reedID})
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("bob ripples on alice's reed: status %d %s", rr.Code, rr.Body.String())
 	}

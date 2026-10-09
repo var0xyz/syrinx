@@ -2,8 +2,9 @@
 
 ## Status
 
-Implemented (design locked). WebSocket half (02, 05) is shipped; HTTP (01, 03, 04),
-federation (06) and the SPA's move to generated types (07) remain.
+Implemented (design locked). WebSocket (02, 05) and client HTTP (01, 03,
+04) are shipped; federation (06) and the SPA's move to generated types
+(07) remain.
 
 ## Depends on
 
@@ -220,5 +221,6 @@ text path after 05.
 - One Go proto package (see Package layout).
 - Each federation relay call gets its own `*Request` (and `*Response`
   where it returns a body); no shared shapes between calls.
-- `Error` carries `message` only; add a `code` only once a caller needs
-  to branch on it.
+- `Error` carries `message`, plus the removal or block certificate a 410
+  or 403 is backed by as its `detail` oneof; add a `code` only once a
+  caller needs to branch on it.

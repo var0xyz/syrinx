@@ -32,7 +32,7 @@ Each table below has a **Status** column per step. Values:
 | Notifications         | Proposed    | 00–05                                                  |
 | Load testing          | Proposed    | 00–03                                                  |
 | Federation            | In progress | 00, 02–05 (depends on roles)                           |
-| Protobuf wire         | In progress | 01, 03, 04, 06, 07 (HTTP, federation, SPA types)       |
+| Protobuf wire         | In progress | 06, 07 (federation, SPA types)                         |
 | Depackaging           | Proposed    | 00–10 (fold 11 packages into root)                     |
 | Publish ready         | Implemented | —                                                      |
 | Pipes                 | Implemented | —                                                      |
@@ -313,18 +313,18 @@ to Protocol Buffers; `canonicalJSON` signing input unchanged.
 | #   | Title                             | Status   |
 | --- | --------------------------------- | -------- |
 | 00  | Design + locked model             | Implemented |
-| 01  | Shared resource protos + codegen  | Proposed |
+| 01  | Shared resource protos + codegen  | Implemented |
 | 02  | WebSocket envelope + event protos | Implemented |
-| 03  | HTTP encode/decode + content type | Proposed |
-| 04  | Switch every HTTP handler/client  | Proposed |
+| 03  | HTTP encode/decode + content type | Implemented |
+| 04  | Switch every HTTP handler/client  | Implemented |
 | 05  | Binary WS only; SPA + realtime    | Implemented |
 | 06  | Federation relay + admin protos   | Proposed |
 | 07  | SPA on generated types (final)    | Proposed |
 
-**Track status: In progress.** The WebSocket channel is binary protobuf
-only (`realtime.go`, `proto/websocket.proto`). Client↔server HTTP is
-still JSON plus form-urlencoded bodies, and federation HTTP is JSON (the
-reed-stats peer push wraps a base64 protobuf `WSMessage` inside it).
+**Track status: In progress.** WebSocket frames and every client
+`/api/*` body are protobuf. Peer-to-peer federation calls are still JSON
+(06), and the SPA still converts decoded messages back to its
+hand-written shapes (07).
 
 ## Signed deletions (reeds + accounts)
 
@@ -469,8 +469,9 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Protobuf wire** ([`protobuf/`](protobuf/README.md)) is independent of
   recovery/invites feature work but should land as a coordinated server+SPA
   cutover; within `protobuf/`, follow that directory's depends-on column
-  (00→07). WebSocket (02, 05) is done; 04 and 06 are the remaining hard
-  cutovers, and 07 moves the SPA onto generated types last.
+  (00→07). WebSocket (02, 05) and client HTTP (01, 03, 04) are done; 06
+  is the remaining hard cutover, and 07 moves the SPA onto generated
+  types last.
 - **Pipes** ([`pipes/`](pipes/README.md)) — Implemented (00–03).
 - **Likes** ([`likes/`](likes/README.md)) — independent of every other
   track; a straightforward extension of the existing coverage/echo

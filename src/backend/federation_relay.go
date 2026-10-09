@@ -191,14 +191,14 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayRequestPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
@@ -207,12 +207,12 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	req.RequesterKeyID = strings.TrimSpace(req.RequesterKeyID)
 	if req.ReedID == "" || req.AuthorID == "" || req.RequesterUserID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id, author_id, and requester_user_id are required")
+		writeJSON(w, http.StatusBadRequest, "reed_id, author_id, and requester_user_id are required")
 		return
 	}
 	if !requesterKeyBelongsTo(req.RequesterKeyID, req.RequesterUserID, peerServerID) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
-		writeResponse(w, http.StatusBadRequest, "requester_key_id is not a key of the requester on the calling peer")
+		writeJSON(w, http.StatusBadRequest, "requester_key_id is not a key of the requester on the calling peer")
 		return
 	}
 
@@ -222,12 +222,12 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	authorUserID, embeddedServerID, parseOK := parseIdentityID(identityID(req.AuthorID))
 	if !parseOK || embeddedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
-		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
+		writeJSON(w, http.StatusBadRequest, "author_id is not local to this server")
 		return
 	}
 	if !peerRequestIDMatchesPeer(req.PeerRequestID, peerServerID) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", false)
-		writeResponse(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
 		return
 	}
 	canonicalReedID := string(appendEntity(canonicalID(h.services.db.GetServerID(), authorUserID), req.ReedID))
@@ -258,16 +258,16 @@ func (h *Handlers) RelayRequestFromPeer(w http.ResponseWriter, r *http.Request) 
 	switch result {
 	case realtimeForeignRequestReedNotFound:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
-		writeResponse(w, http.StatusNotFound, "Reed not found")
+		writeJSON(w, http.StatusNotFound, "Reed not found")
 	case realtimeForeignRequestReedNotHeld:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
-		writeResponse(w, http.StatusConflict, "Reed is not currently held")
+		writeJSON(w, http.StatusConflict, "Reed is not currently held")
 	case realtimeForeignRequestAccepted:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
-		writeResponse(w, http.StatusAccepted, relayRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
+		writeJSON(w, http.StatusAccepted, relayRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
 	default:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "request", true)
-		writeResponse(w, http.StatusOK, relayRequestResponse{PeerEventID: peerEventID, Status: "ack"})
+		writeJSON(w, http.StatusOK, relayRequestResponse{PeerEventID: peerEventID, Status: "ack"})
 	}
 }
 
@@ -327,20 +327,20 @@ func (h *Handlers) RelayProfilePageFromPeer(w http.ResponseWriter, r *http.Reque
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayProfilePagePayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.AuthorID = strings.TrimSpace(req.AuthorID)
 	if req.AuthorID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
-		writeResponse(w, http.StatusBadRequest, "author_id is required")
+		writeJSON(w, http.StatusBadRequest, "author_id is required")
 		return
 	}
 
@@ -349,12 +349,12 @@ func (h *Handlers) RelayProfilePageFromPeer(w http.ResponseWriter, r *http.Reque
 	_, embeddedServerID, parseOK := parseIdentityID(identityID(req.AuthorID))
 	if !parseOK || embeddedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
-		writeResponse(w, http.StatusBadRequest, "author_id is not local to this server")
+		writeJSON(w, http.StatusBadRequest, "author_id is not local to this server")
 		return
 	}
 	if _, requesterServerID, ok := parseIdentityID(identityID(req.RequesterUserID)); !ok || requesterServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", false)
-		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
 		return
 	}
 
@@ -376,7 +376,7 @@ func (h *Handlers) RelayProfilePageFromPeer(w http.ResponseWriter, r *http.Reque
 	}
 
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "profile-page", true)
-	writeResponse(w, http.StatusOK, relayProfilePageResponse{ReedIDs: reedIDs, Count: count, HasMore: hasMore})
+	writeJSON(w, http.StatusOK, relayProfilePageResponse{ReedIDs: reedIDs, Count: count, HasMore: hasMore})
 }
 
 // ///////////////////////////////////// //
@@ -412,20 +412,20 @@ func (h *Handlers) DeliverRelayResponseFromPeer(w http.ResponseWriter, r *http.R
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayDeliverPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "deliver", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
 	if req.PeerEventID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "deliver", false)
-		writeResponse(w, http.StatusBadRequest, "peer_event_id is required")
+		writeJSON(w, http.StatusBadRequest, "peer_event_id is required")
 		return
 	}
 
@@ -454,11 +454,11 @@ func (h *Handlers) DeliverRelayResponseFromPeer(w http.ResponseWriter, r *http.R
 	}
 	if !found {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "deliver", true)
-		writeResponse(w, http.StatusNotFound, "Unknown or already-resolved event")
+		writeJSON(w, http.StatusNotFound, "Unknown or already-resolved event")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "deliver", true)
-	writeResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ///////////////////////////////////////// //
@@ -497,20 +497,20 @@ func (h *Handlers) RelayNotHeldFromPeer(w http.ResponseWriter, r *http.Request) 
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayNotHeldPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
 	if req.PeerEventID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", false)
-		writeResponse(w, http.StatusBadRequest, "peer_event_id is required")
+		writeJSON(w, http.StatusBadRequest, "peer_event_id is required")
 		return
 	}
 
@@ -528,11 +528,11 @@ func (h *Handlers) RelayNotHeldFromPeer(w http.ResponseWriter, r *http.Request) 
 	}
 	if !found {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", true)
-		writeResponse(w, http.StatusNotFound, "Unknown or already-resolved event")
+		writeJSON(w, http.StatusNotFound, "Unknown or already-resolved event")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "not-held", true)
-	writeResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ///////////////////////////////////// //
@@ -567,20 +567,20 @@ func (h *Handlers) CancelRelayRequestFromPeer(w http.ResponseWriter, r *http.Req
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayCancelPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "cancel", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
 	if req.PeerEventID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "cancel", false)
-		writeResponse(w, http.StatusBadRequest, "peer_event_id is required")
+		writeJSON(w, http.StatusBadRequest, "peer_event_id is required")
 		return
 	}
 
@@ -592,7 +592,7 @@ func (h *Handlers) CancelRelayRequestFromPeer(w http.ResponseWriter, r *http.Req
 	if err := h.realtimeRelay.CancelForeignPendingEvent(r.Context(), req.PeerEventID, peerServerID); err != nil {
 		log.Error().Err(err).Str("peerEventID", req.PeerEventID).Str("peerServerID", peerServerID).Msg("Failed to cancel foreign pending event")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "cancel", false)
-		writeResponse(w, http.StatusForbidden, "Forbidden")
+		writeJSON(w, http.StatusForbidden, "Forbidden")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "cancel", true)
@@ -646,20 +646,20 @@ func (h *Handlers) AckRelayDeliveryFromPeer(w http.ResponseWriter, r *http.Reque
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayAckPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "ack", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.PeerEventID = strings.TrimSpace(req.PeerEventID)
 	if req.PeerEventID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "ack", false)
-		writeResponse(w, http.StatusBadRequest, "peer_event_id is required")
+		writeJSON(w, http.StatusBadRequest, "peer_event_id is required")
 		return
 	}
 
@@ -671,7 +671,7 @@ func (h *Handlers) AckRelayDeliveryFromPeer(w http.ResponseWriter, r *http.Reque
 	if err := h.realtimeRelay.HandleForeignAck(r.Context(), req.PeerEventID, peerServerID); err != nil {
 		log.Error().Err(err).Str("peerEventID", req.PeerEventID).Str("peerServerID", peerServerID).Msg("Failed to handle foreign ack")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "ack", false)
-		writeResponse(w, http.StatusForbidden, "Forbidden")
+		writeJSON(w, http.StatusForbidden, "Forbidden")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "ack", true)
@@ -740,21 +740,21 @@ func (h *Handlers) RelaySubscribeReedFromPeer(w http.ResponseWriter, r *http.Req
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relaySubscribeReedPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
 	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
 	if req.ReedID == "" || req.RequesterUserID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		writeJSON(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
 		return
 	}
 
@@ -763,13 +763,13 @@ func (h *Handlers) RelaySubscribeReedFromPeer(w http.ResponseWriter, r *http.Req
 	_, reedServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !reedOK || reedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id is not local to this server")
+		writeJSON(w, http.StatusBadRequest, "reed_id is not local to this server")
 		return
 	}
 	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
 		return
 	}
 
@@ -790,7 +790,7 @@ func (h *Handlers) RelaySubscribeReedFromPeer(w http.ResponseWriter, r *http.Req
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "subscribe-reed", true)
-	writeResponse(w, http.StatusOK, relaySubscribeReedResponse{
+	writeJSON(w, http.StatusOK, relaySubscribeReedResponse{
 		Found:           found,
 		Echoes:          snapshot.Echoes,
 		CoveragePercent: snapshot.CoveragePercent,
@@ -834,34 +834,34 @@ func (h *Handlers) RelayUnsubscribeReedFromPeer(w http.ResponseWriter, r *http.R
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayUnsubscribeReedPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
 	req.RequesterUserID = strings.TrimSpace(req.RequesterUserID)
 	if req.ReedID == "" || req.RequesterUserID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		writeJSON(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
 		return
 	}
 
 	_, reedServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !reedOK || reedServerID != h.services.db.GetServerID() {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id is not local to this server")
+		writeJSON(w, http.StatusBadRequest, "reed_id is not local to this server")
 		return
 	}
 	_, requesterServerID, requesterOK := parseIdentityID(identityID(req.RequesterUserID))
 	if !requesterOK || requesterServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unsubscribe-reed", false)
-		writeResponse(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "requester_user_id does not belong to the calling peer")
 		return
 	}
 
@@ -919,27 +919,27 @@ func (h *Handlers) PushReedStatsFromPeer(w http.ResponseWriter, r *http.Request)
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayReedStatsPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
 	if req.ReedID == "" || len(req.Payload) == 0 {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id and payload are required")
+		writeJSON(w, http.StatusBadRequest, "reed_id and payload are required")
 		return
 	}
 	// A peer only reports on its own reeds.
 	_, reedServerID, _, reedOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !reedOK || reedServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "reed_id does not belong to the calling peer")
 		return
 	}
 	if h.realtimeRelay == nil {
@@ -952,12 +952,12 @@ func (h *Handlers) PushReedStatsFromPeer(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", req.ReedID).Str("peerServerID", peerServerID).Msg("Failed to deliver foreign reed stats push")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid payload")
+		writeJSON(w, http.StatusBadRequest, "Invalid payload")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", true)
 	if !delivered {
-		writeResponse(w, http.StatusNotFound, "No subscribers for this reed")
+		writeJSON(w, http.StatusNotFound, "No subscribers for this reed")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1006,20 +1006,20 @@ func (h *Handlers) HolderNotifyFromPeer(w http.ResponseWriter, r *http.Request) 
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayHolderNotifyPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "holder-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
 	if req.ReedID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "holder-notify", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id is required")
+		writeJSON(w, http.StatusBadRequest, "reed_id is required")
 		return
 	}
 
@@ -1118,14 +1118,14 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayFallbackRequestPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ReedID = strings.TrimSpace(req.ReedID)
@@ -1133,12 +1133,12 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 	req.RequesterKeyID = strings.TrimSpace(req.RequesterKeyID)
 	if req.ReedID == "" || req.RequesterUserID == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
+		writeJSON(w, http.StatusBadRequest, "reed_id and requester_user_id are required")
 		return
 	}
 	if !requesterKeyBelongsTo(req.RequesterKeyID, req.RequesterUserID, peerServerID) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
-		writeResponse(w, http.StatusBadRequest, "requester_key_id is not a key of the requester on the calling peer")
+		writeJSON(w, http.StatusBadRequest, "requester_key_id is not a key of the requester on the calling peer")
 		return
 	}
 
@@ -1148,12 +1148,12 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 	_, embeddedServerID, _, parseOK := parseKeyFingerprint(identityID(req.ReedID))
 	if !parseOK || embeddedServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
-		writeResponse(w, http.StatusBadRequest, "reed_id is not owned by the calling peer")
+		writeJSON(w, http.StatusBadRequest, "reed_id is not owned by the calling peer")
 		return
 	}
 	if !peerRequestIDMatchesPeer(req.PeerRequestID, peerServerID) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", false)
-		writeResponse(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "peer_request_id does not belong to the calling peer")
 		return
 	}
 
@@ -1172,16 +1172,16 @@ func (h *Handlers) RelayFallbackRequestFromPeer(w http.ResponseWriter, r *http.R
 	switch result {
 	case realtimeForeignRequestReedNotFound:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
-		writeResponse(w, http.StatusNotFound, "Reed not found")
+		writeJSON(w, http.StatusNotFound, "Reed not found")
 	case realtimeForeignRequestReedNotHeld:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
-		writeResponse(w, http.StatusConflict, "Reed is not currently held")
+		writeJSON(w, http.StatusConflict, "Reed is not currently held")
 	case realtimeForeignRequestAccepted:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
-		writeResponse(w, http.StatusAccepted, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
+		writeJSON(w, http.StatusAccepted, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "accepted"})
 	default:
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "fallback-request", true)
-		writeResponse(w, http.StatusOK, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "ack"})
+		writeJSON(w, http.StatusOK, relayFallbackRequestResponse{PeerEventID: peerEventID, Status: "ack"})
 	}
 }
 
@@ -1268,20 +1268,20 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relaySearchUsersPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.Query = strings.TrimSpace(req.Query)
 	if req.Query == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", true)
-		writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: []UserSearchResult{}})
+		writeJSON(w, http.StatusOK, relaySearchUsersResponse{Users: []UserSearchResult{}})
 		return
 	}
 
@@ -1295,7 +1295,7 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", true)
-	writeResponse(w, http.StatusOK, relaySearchUsersResponse{Users: results})
+	writeJSON(w, http.StatusOK, relaySearchUsersResponse{Users: results})
 }
 
 // notifyPeerOfApproval tells serverID we are approving it. A 2xx means it
@@ -1324,7 +1324,7 @@ func (h *Handlers) notifyPeerOfApproval(ctx context.Context, serverID, baseURL s
 func (h *Handlers) ApprovedNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "approved-notify", true)
@@ -1360,14 +1360,14 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayDisconnectNotifyPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "disconnect-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -1431,12 +1431,12 @@ func (h *Handlers) NewReedFromPeer(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	fail := func(status int, msg string) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "new-reed", false)
-		writeResponse(w, status, msg)
+		writeJSON(w, status, msg)
 	}
 
 	var req relayNewReedPayload
@@ -1545,20 +1545,20 @@ func (h *Handlers) ReedRemovalFromPeer(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayReedRemovalPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	cert, status, msg := h.acceptForeignReedRemoval(r.Context(), peerServerID, &req.relayReedRemovalCert)
 	if status != 0 {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-removal", false)
-		writeResponse(w, status, msg)
+		writeJSON(w, status, msg)
 		return
 	}
 	if err := h.dropForeignReedReferences(r.Context(), peerServerID, req.ReedID, req.ParentReedID, cert); err != nil {
@@ -1692,20 +1692,20 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayRealtimeResetPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if req.Reason != realtimeResetShutdown && req.Reason != realtimeResetBoot {
 		log.Error().Str("peerServerID", peerServerID).Str("reason", req.Reason).Msg("realtime reset with unknown reason")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", false)
-		writeResponse(w, http.StatusBadRequest, "`reason` must be shutdown or boot")
+		writeJSON(w, http.StatusBadRequest, "`reason` must be shutdown or boot")
 		return
 	}
 	if h.realtimeRelay == nil {
@@ -1787,20 +1787,20 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	var req relayAccountRemovalNotifyPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.UserID = strings.TrimSpace(req.UserID)
 	if req.UserID == "" || req.UserSignature == "" || req.ServerSignature == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_id, user_signature, and server_signature are required")
+		writeJSON(w, http.StatusBadRequest, "user_id, user_signature, and server_signature are required")
 		return
 	}
 
@@ -1809,7 +1809,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	_, userServerID, userOK := parseIdentityID(identityID(req.UserID))
 	if !userOK || userServerID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
 		return
 	}
 
@@ -1832,7 +1832,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	}
 	if pubKey == nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_key_id could not be resolved")
+		writeJSON(w, http.StatusBadRequest, "user_key_id could not be resolved")
 		return
 	}
 
@@ -1843,7 +1843,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Err(err).Str("userID", req.UserID).Str("peerServerID", peerServerID).Msg("Account-removal user signature verification failed")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_signature verification failed")
+		writeJSON(w, http.StatusBadRequest, "user_signature verification failed")
 		return
 	}
 
@@ -1964,7 +1964,7 @@ const peerKeyUpdateRetry = 5 * time.Minute
 // in authentication, which re-pins an unknown key before this runs.
 func (h *Handlers) ServerKeyNoticeFromPeer(w http.ResponseWriter, r *http.Request) {
 	if peerServerID, ok := r.Context().Value(peerServerIDKey).(string); !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -2040,11 +2040,15 @@ func (h *Handlers) peerServerKeySource(peerServerID, baseURL string) serverKeySo
 			if resp.StatusCode != http.StatusOK {
 				return nil, fmt.Errorf("fetch peer key revocation: status %d", resp.StatusCode)
 			}
-			var wire serverKeyRevocationWire
-			if err := json.NewDecoder(resp.Body).Decode(&wire); err != nil {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				return nil, fmt.Errorf("read peer key revocation: %w", err)
+			}
+			_, wire, err := decodePeerKeyRevocation(body)
+			if err != nil {
 				return nil, fmt.Errorf("decode peer key revocation: %w", err)
 			}
-			if wire.Type != identityTypeServerKeyRevocation || wire.ServerID != peerServerID {
+			if wire == nil || wire.ServerID != peerServerID {
 				return nil, errKeyHandoverBroken
 			}
 			return &wire.serverKeyRevocation, nil
@@ -2180,19 +2184,19 @@ func (h *Handlers) KeyRevocationFromPeer(w http.ResponseWriter, r *http.Request)
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	var rev KeyRevocation
 	if err := json.NewDecoder(r.Body).Decode(&rev); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "key-revocation", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := h.verifyPeerKeyRevocation(r.Context(), peerServerID, rev); err != nil {
 		log.Warn().Err(err).Str("peerServerID", peerServerID).Str("keyID", rev.ID).Msg("Rejected key revocation from peer")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "key-revocation", false)
-		writeResponse(w, http.StatusBadRequest, "Key revocation failed verification")
+		writeJSON(w, http.StatusBadRequest, "Key revocation failed verification")
 		return
 	}
 	if err := h.services.db.MarkAllocatedKeyRevoked(r.Context(), rev.ID); err != nil {
@@ -2280,19 +2284,19 @@ func (h *Handlers) ThreadRemovalFromPeer(w http.ResponseWriter, r *http.Request)
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	var rm threadRemoval
 	if err := json.NewDecoder(r.Body).Decode(&rm); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "thread-removal", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := h.verifyPeerThreadRemoval(r.Context(), peerServerID, rm); err != nil {
 		log.Warn().Err(err).Str("threadID", rm.Cert.ThreadID).Str("peerServerID", peerServerID).Msg("Refused peer thread removal")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "thread-removal", false)
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeJSON(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := h.services.db.InsertThreadRemoval(r.Context(), rm); err != nil && !errors.Is(err, errRemovalConflict) {
@@ -2400,9 +2404,16 @@ func (h *Handlers) fetchForeignKeyRevocation(ctx context.Context, keyID string) 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch key revocation: status %d", resp.StatusCode)
 	}
-	var rev KeyRevocation
-	if err := json.NewDecoder(resp.Body).Decode(&rev); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return nil, err
 	}
-	return &rev, nil
+	rev, _, err := decodePeerKeyRevocation(body)
+	if err != nil {
+		return nil, err
+	}
+	if rev == nil {
+		return nil, errors.New("not a user key revocation")
+	}
+	return rev, nil
 }

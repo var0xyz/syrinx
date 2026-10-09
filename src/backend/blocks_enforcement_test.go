@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -28,8 +27,8 @@ func TestBlockedProfileAnswers403WithCert(t *testing.T) {
 	if code != http.StatusForbidden {
 		t.Fatalf("blocked profile: status %d", code)
 	}
-	var got BlockCert
-	if err := json.Unmarshal(body, &got); err != nil || got.Type != identityTypeBlock ||
+	got := refusalBlock(body)
+	if got == nil || got.Type != identityTypeBlock ||
 		got.UserSignature != cert.UserSignature || got.ServerSignature.Armor != cert.ServerSignature.Armor {
 		t.Fatalf("403 body = %s", body)
 	}

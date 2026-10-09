@@ -16,6 +16,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	"syrinx/observability/metrics"
 	pb "syrinx/proto"
@@ -319,7 +320,10 @@ func (s *DataService) DeleteBlock(ctx context.Context, userID, blockedUserID str
 
 // writeBlocked answers a request the block refuses: 403 with the cert.
 func writeBlocked(w http.ResponseWriter, cert *BlockCert) {
-	writeResponse(w, http.StatusForbidden, cert)
+	writeResponse(w, http.StatusForbidden, &pb.Error{
+		Message: "Blocked",
+		Detail:  &pb.Error_Block{Block: pbBlockCert(cert)},
+	})
 }
 
 // refuseIfBlocked answers 403 + cert when authorID blocked the caller. A
@@ -448,29 +452,29 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := r.Context().Value(userIDKey).(string)
 	if !ok || userID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Authentication required")
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	blockedUserID := strings.TrimSpace(mux.Vars(r)["userID"])
 	if _, _, ok := parseIdentityID(identityID(blockedUserID)); !ok {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is invalid")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is invalid")
 		return
 	}
 	if blockedUserID == userID {
-		writeResponse(w, http.StatusBadRequest, "Cannot block yourself")
+		writeError(w, http.StatusBadRequest, "Cannot block yourself")
 		return
 	}
 	blockedServerID, foreign := h.foreignServerOf(blockedUserID)
 
-	values, err := parseFormData(r)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+	req := &pb.BlockRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	userSignature := strings.TrimSpace(values.Get("signature"))
-	bareFingerprint := strings.TrimSpace(values.Get("fingerprint"))
+	userSignature := strings.TrimSpace(req.GetSignature())
+	bareFingerprint := strings.TrimSpace(req.GetFingerprint())
 	if userSignature == "" || bareFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `signature` and `fingerprint` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `signature` and `fingerprint` are required")
 		return
 	}
 	keyID := string(appendEntity(identityID(userID), bareFingerprint))
@@ -482,7 +486,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if removal != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		writeAccountGone(w, h.accountRemovalWire(removal))
 		return
 	}
 	if foreign {
@@ -492,7 +496,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if peer == nil {
-			writeResponse(w, http.StatusNotFound, "User not found")
+			writeError(w, http.StatusNotFound, "User not found")
 			return
 		}
 		if err := h.services.db.UpsertRemoteIdentity(r.Context(), blockedUserID, blockedServerID); err != nil {
@@ -508,7 +512,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if profile == nil {
-			writeResponse(w, http.StatusNotFound, "User not found")
+			writeError(w, http.StatusNotFound, "User not found")
 			return
 		}
 	}
@@ -521,10 +525,10 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		if existing.UserSignature.Armor != userSignature {
-			writeResponse(w, http.StatusConflict, "Block already exists with a different signature")
+			writeError(w, http.StatusConflict, "Block already exists with a different signature")
 			return
 		}
-		writeResponse(w, http.StatusOK, existing)
+		writeResponse(w, http.StatusOK, pbBlockCert(existing))
 		return
 	}
 
@@ -535,11 +539,11 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pubKey == nil || pubKey.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(buildBlockUserPayload(userID, blockedUserID, keyID)), userSignature, pubKey.Armor); err != nil {
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -562,10 +566,10 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrBlockConflict) {
 			stored, getErr := h.services.db.GetBlock(r.Context(), userID, blockedUserID)
 			if getErr == nil && stored != nil && stored.UserSignature.Armor == userSignature {
-				writeResponse(w, http.StatusOK, stored)
+				writeResponse(w, http.StatusOK, pbBlockCert(stored))
 				return
 			}
-			writeResponse(w, http.StatusConflict, "Block already exists with a different signature")
+			writeError(w, http.StatusConflict, "Block already exists with a different signature")
 			return
 		}
 		log.Error().Err(err).Str("userID", userID).Str("blockedUserID", blockedUserID).Msg("Error storing block")
@@ -578,7 +582,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("userID", userID).Str("blockedUserID", blockedUserID).Msg("Block accepted")
-	writeResponse(w, http.StatusOK, cert)
+	writeResponse(w, http.StatusOK, pbBlockCert(&cert))
 }
 
 // afterBlock runs a new block's side effects outside its transaction.
@@ -615,7 +619,7 @@ func (h *Handlers) UnblockUser(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := r.Context().Value(userIDKey).(string)
 	if !ok || userID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Authentication required")
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	blockedUserID := strings.TrimSpace(mux.Vars(r)["userID"])
@@ -639,7 +643,7 @@ func (h *Handlers) ListMyBlocks(w http.ResponseWriter, r *http.Request) {
 
 	userID, ok := r.Context().Value(userIDKey).(string)
 	if !ok || userID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Authentication required")
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 	blocks, err := h.services.db.ListBlocksByUser(r.Context(), userID)
@@ -648,7 +652,11 @@ func (h *Handlers) ListMyBlocks(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	writeResponse(w, http.StatusOK, map[string]any{"blocks": blocks})
+	out := &pb.BlockListResponse{}
+	for i := range blocks {
+		out.Blocks = append(out.Blocks, pbBlockCert(&blocks[i]))
+	}
+	writeResponse(w, http.StatusOK, out)
 }
 
 func newUserUnblockedMsg(userID string) *pb.WSMessage {
@@ -830,11 +838,11 @@ func (h *Handlers) acceptForeignBlock(ctx context.Context, peerServerID string, 
 // acceptRefusalBlock stores the block a peer refused a request with, so
 // later requests are refused here without asking it.
 func (h *Handlers) acceptRefusalBlock(ctx context.Context, peerServerID string, body []byte) {
-	var cert BlockCert
-	if err := json.Unmarshal(body, &cert); err != nil || cert.Type != identityTypeBlock {
+	var refusal pb.Error
+	if err := proto.Unmarshal(body, &refusal); err != nil || refusal.GetBlock() == nil {
 		return
 	}
-	if err := h.acceptForeignBlock(ctx, peerServerID, cert); err != nil {
+	if err := h.acceptForeignBlock(ctx, peerServerID, blockCertFromPB(refusal.GetBlock())); err != nil {
 		h.services.log.GetLogger(ctx).Warn().Err(err).Str("peerServerID", peerServerID).Msg("Rejected block a peer refused a request with")
 	}
 }
@@ -845,19 +853,19 @@ func (h *Handlers) BlockNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	var cert BlockCert
 	if err := json.NewDecoder(r.Body).Decode(&cert); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if err := h.acceptForeignBlock(r.Context(), peerServerID, cert); err != nil {
 		log.Warn().Err(err).Str("peerServerID", peerServerID).Str("userID", cert.UserID).Msg("Rejected block from peer")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Block failed verification")
+		writeJSON(w, http.StatusBadRequest, "Block failed verification")
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", true)
@@ -869,18 +877,18 @@ func (h *Handlers) UnblockNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	var req relayUnblockPayload
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", false)
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if _, serverID, ok := parseIdentityID(identityID(req.UserID)); !ok || serverID != peerServerID {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "unblock-notify", false)
-		writeResponse(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
+		writeJSON(w, http.StatusBadRequest, "user_id does not belong to the calling peer")
 		return
 	}
 

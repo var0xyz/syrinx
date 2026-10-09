@@ -81,10 +81,10 @@ func (h *Handlers) callSubjectServer(ctx context.Context, subjectUserID, path st
 // server did not accept, naming which kind of failure it was.
 func writeVouchDeliveryError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errVouchSubjectRefused) {
-		writeResponse(w, http.StatusUnprocessableEntity, "The subject's server refused this verification")
+		writeError(w, http.StatusUnprocessableEntity, "The subject's server refused this verification")
 		return
 	}
-	writeResponse(w, http.StatusBadGateway, "Could not reach the subject's server")
+	writeError(w, http.StatusBadGateway, "Could not reach the subject's server")
 }
 
 // VouchReferenceFromPeer handles a peer telling this server one of its
@@ -95,12 +95,12 @@ func (h *Handlers) VouchReferenceFromPeer(w http.ResponseWriter, r *http.Request
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	fail := func(status int, msg string) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "vouch-reference", false)
-		writeResponse(w, status, msg)
+		writeJSON(w, status, msg)
 	}
 
 	var req relayVouchReferencePayload
@@ -221,12 +221,12 @@ func (h *Handlers) VouchWithdrawalFromPeer(w http.ResponseWriter, r *http.Reques
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	fail := func(status int, msg string) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "vouch-withdrawal", false)
-		writeResponse(w, status, msg)
+		writeJSON(w, status, msg)
 	}
 
 	var req relayVouchWithdrawalPayload

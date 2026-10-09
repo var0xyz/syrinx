@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,10 +20,12 @@ import (
 	"unicode/utf8"
 
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/proto"
 )
 
 // countersign signs payload with the active server key and returns a
@@ -71,29 +72,14 @@ type Handlers struct {
 	peerKeyUpdateAttempts sync.Map
 }
 
-type ServerInfo struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	RecoveryMode      bool   `json:"recoveryMode"`
-	SignupMode        string `json:"signupMode"`
-	MaxInvitesPerUser int    `json:"maxInvitesPerUser"` // -1 = infinite
-	// ServerKeyID is this server's own current signing key's canonical id
-	// (fingerprint@serverID) — clients check their local publicKeys cache
-	// for it and, on a miss, fetch it via GET /keys/{id}.
-	ServerKeyID string `json:"serverKeyId"`
-	// Peers this server is federated with, for picking which server a
-	// verification link opens on. Always an array.
-	Federation []FederatedServerInfo `json:"federation"`
-}
-
 // FederatedServerInfo is one established peer as /server/info lists it.
 // FrontendURL is where its users open links, as agreed in the handshake.
 type FederatedServerInfo struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	KeyID       string    `json:"keyId"`
-	CreatedAt   time.Time `json:"createdAt"`
-	FrontendURL string    `json:"frontendUrl"`
+	ID          string
+	Name        string
+	KeyID       string
+	CreatedAt   time.Time
+	FrontendURL string
 }
 
 // ///////////// //
@@ -135,33 +121,6 @@ func (h *Handlers) SetRealtimeRelay(rs *realtimeService) {
 	h.realtimeRelay = rs
 }
 
-func writeResponse(w http.ResponseWriter, statusCode int, message any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	json.NewEncoder(w).Encode(message)
-}
-
-func internalServerError(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusInternalServerError)
-	w.Write([]byte("Internal Server Error"))
-}
-
-func parseFormData(r *http.Request) (url.Values, error) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	values, err := url.ParseQuery(string(body))
-	if err != nil {
-		return nil, err
-	}
-
-	return values, nil
-}
-
 func (h *Handlers) getUserID(r *http.Request) string {
 	// First try to get user ID from context (set by signature auth middleware)
 	userID, ok := r.Context().Value(userIDKey).(string)
@@ -190,15 +149,24 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Msg("Failed to list federated servers for server info")
 		federation = []FederatedServerInfo{}
 	}
-	writeResponse(w, http.StatusOK, ServerInfo{
-		Federation:        federation,
-		ID:                h.services.db.GetServerID(),
+	info := &pb.ServerInfo{
+		Id:                h.services.db.GetServerID(),
 		Name:              h.cfg.ServerName,
 		RecoveryMode:      h.cfg.RecoveryMode,
 		SignupMode:        h.cfg.SignupMode,
-		MaxInvitesPerUser: h.cfg.MaxInvitesPerUser,
-		ServerKeyID:       string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
-	})
+		MaxInvitesPerUser: int32(h.cfg.MaxInvitesPerUser),
+		ServerKeyId:       string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
+	}
+	for _, srv := range federation {
+		info.Federation = append(info.Federation, &pb.FederatedServerInfo{
+			Id:          srv.ID,
+			Name:        srv.Name,
+			KeyId:       srv.KeyID,
+			CreatedAt:   unixOrZero(srv.CreatedAt),
+			FrontendUrl: srv.FrontendURL,
+		})
+	}
+	writeResponse(w, http.StatusOK, info)
 }
 
 // GetServerPublicKey returns the armored public half of a server signing
@@ -215,7 +183,7 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 
 	id := mux.Vars(r)["id"]
 	if id == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
@@ -230,12 +198,12 @@ func (h *Handlers) GetKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if key == nil {
-		writeResponse(w, http.StatusNotFound, "Key not found")
+		writeError(w, http.StatusNotFound, "Key not found")
 		return
 	}
 
 	h.allocateServedKey(r, key)
-	writeResponse(w, http.StatusOK, key)
+	writeResponse(w, http.StatusOK, pbKey(key))
 }
 
 // allocateServedKey records who now has key cached, so they are owed its
@@ -272,33 +240,33 @@ func (h *Handlers) proxyKeyToForeign(w http.ResponseWriter, r *http.Request, id 
 		return true
 	}
 	if peer == nil {
-		writeResponse(w, http.StatusNotFound, "Not found")
+		writeError(w, http.StatusNotFound, "Not found")
 		return true
 	}
 	log := h.services.log.GetLogger(r.Context())
 	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, "")
 	if err != nil {
 		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy key to peer server failed")
-		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
 		return true
 	}
 	// A user key is cached only once verified, so it can be allocated.
 	if status == http.StatusOK {
-		var key Key
-		if err := json.Unmarshal(respBody, &key); err != nil || key.ID != id {
-			writeResponse(w, http.StatusBadGateway, "Peer server returned an invalid key")
+		key, err := decodePeerKey(respBody)
+		if err != nil || key.ID != id {
+			writeError(w, http.StatusBadGateway, "Peer server returned an invalid key")
 			return true
 		}
 		if key.UserID != "" {
 			if _, err := h.verifyAndCachePeerUserKey(r.Context(), peer.BaseURL, homeServerID, key); err != nil {
 				log.Error().Err(err).Str("keyID", id).Msg("Peer user key failed verification")
-				writeResponse(w, http.StatusBadGateway, "Peer server returned an invalid key")
+				writeError(w, http.StatusBadGateway, "Peer server returned an invalid key")
 				return true
 			}
 			h.allocateServedKey(r, &key)
 		}
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", protobufContentType)
 	w.WriteHeader(status)
 	_, _ = w.Write(respBody)
 	return true
@@ -309,86 +277,86 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("Signup request received")
 
 	if h.cfg.RecoveryMode {
-		writeResponse(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
+		writeError(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
 		return
 	}
 
 	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
-		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+		writeError(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
 
-	values, err := parseFormData(r)
-	if err != nil {
+	req := &pb.SignupRequest{}
+	if err := readRequest(r, req); err != nil {
 		log.Error().Err(err).Msg("Error parsing form data")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
 
-	username := trimInvisibleChars(values.Get("username"))
+	username := trimInvisibleChars(req.GetUsername())
 	if username == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
+		writeError(w, http.StatusBadRequest, "Argument `username` is required")
 		return
 	}
 	if len(username) > 32 {
-		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		writeError(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
 		return
 	}
 
 	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
+		writeError(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
 	}
 
-	publicKey := values.Get("publicKey")
+	publicKey := req.GetPublicKey()
 	if publicKey == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `publicKey` is required")
+		writeError(w, http.StatusBadRequest, "Argument `publicKey` is required")
 		return
 	}
 
-	signature := values.Get("signature")
+	signature := req.GetSignature()
 	if signature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
 	signatureArmor := signature
 
-	userSignature := values.Get("userSignature")
+	userSignature := req.GetUserSignature()
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userSignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userSignature` is required")
 		return
 	}
 
-	userID := strings.TrimSpace(values.Get("userID"))
+	userID := strings.TrimSpace(req.GetUserId())
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 	if userID == rootUserID {
-		writeResponse(w, http.StatusBadRequest, "userID is reserved")
+		writeError(w, http.StatusBadRequest, "userID is reserved")
 		return
 	}
 	if !isValidCryptoID(userID) {
-		writeResponse(w, http.StatusBadRequest, "Invalid userID")
+		writeError(w, http.StatusBadRequest, "Invalid userID")
 		return
 	}
 
-	userIDSig := values.Get("userIDSignature")
+	userIDSig := req.GetUserIdSignature()
 	if userIDSig == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userIDSignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userIDSignature` is required")
 		return
 	}
 	userIDSigArmor := userIDSig
 
-	userIDFingerprint := strings.TrimSpace(values.Get("userIDFingerprint"))
+	userIDFingerprint := strings.TrimSpace(req.GetUserIdFingerprint())
 	if userIDFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userIDFingerprint` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userIDFingerprint` is required")
 		return
 	}
 
-	inviteID := strings.TrimSpace(values.Get("inviteID"))
-	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
+	inviteID := strings.TrimSpace(req.GetInviteId())
+	inviteSecret := strings.TrimSpace(req.GetInviteSecret())
 	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
@@ -403,11 +371,11 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		if errors.Is(err, errInviteRequired) {
-			writeResponse(w, http.StatusForbidden, "Invite required")
+			writeError(w, http.StatusForbidden, "Invite required")
 			return
 		}
 		if errors.Is(err, errInvalidInvite) {
-			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			writeError(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
 		log.Error().Err(err).Msg("Invite policy error")
@@ -426,7 +394,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.services.crypto.verifySignature(userID, userIDSigArmor, serverPubKey); err != nil {
 		log.Error().Err(err).Msg("userID signature verification failed")
-		writeResponse(w, http.StatusBadRequest, "userID signature verification failed")
+		writeError(w, http.StatusBadRequest, "userID signature verification failed")
 		return
 	}
 
@@ -439,7 +407,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists {
-		writeResponse(w, http.StatusBadRequest, "Username already exists")
+		writeError(w, http.StatusBadRequest, "Username already exists")
 		return
 	}
 
@@ -450,7 +418,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	key, err := h.services.crypto.validateAndExtractPublicKey(publicKey, signatureArmor)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating public key")
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -469,7 +437,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.crypto.verifySignature(string(userPayload), userSignature, publicKey); err != nil {
 		log.Error().Err(err).Msg("userSignature verification failed")
-		writeResponse(w, http.StatusBadRequest, "userSignature verification failed")
+		writeError(w, http.StatusBadRequest, "userSignature verification failed")
 		return
 	}
 
@@ -532,14 +500,14 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, errInvalidInvite) {
-			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			writeError(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
 		// Username race → 400. A userID collision (or anything else) is a
 		// 500; the client retries signup with a fresh random ID.
 		if errors.Is(err, ErrUsernameTaken) {
 			log.Info().Str("username", username).Msg("Username already exists")
-			writeResponse(w, http.StatusBadRequest, "Username already exists")
+			writeError(w, http.StatusBadRequest, "Username already exists")
 			return
 		}
 		log.Error().Err(err).Msg("Failed to create user '" + username + "'")
@@ -555,7 +523,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode, user.ID)
 
-	writeResponse(w, http.StatusCreated, user)
+	writeResponse(w, http.StatusCreated, pbUser(user))
 }
 
 // GenerateUserID returns a fresh random user ID signed by the server.
@@ -579,10 +547,10 @@ func (h *Handlers) GenerateUserID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, map[string]string{
-		"userID":      userID,
-		"signature":   sig,
-		"fingerprint": h.signingKey.Fingerprint,
+	writeResponse(w, http.StatusOK, &pb.UserIDResponse{
+		UserId:      userID,
+		Signature:   sig,
+		Fingerprint: h.signingKey.Fingerprint,
 	})
 }
 
@@ -591,12 +559,12 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("CheckUsername request received")
 
 	if h.cfg.RecoveryMode {
-		writeResponse(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
+		writeError(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
 		return
 	}
 
 	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
-		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+		writeError(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
 
@@ -605,8 +573,8 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inviteID := strings.TrimSpace(values.Get("inviteID"))
-	inviteSecret := strings.TrimSpace(values.Get("inviteSecret"))
+	inviteID := strings.TrimSpace(values.GetInviteId())
+	inviteSecret := strings.TrimSpace(values.GetInviteSecret())
 	invite, err := h.services.db.GetPendingInvite(r.Context(), inviteID, inviteSecret)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to look up invite")
@@ -620,11 +588,11 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 		invite,
 	); err != nil {
 		if errors.Is(err, errInviteRequired) {
-			writeResponse(w, http.StatusForbidden, "Invite required")
+			writeError(w, http.StatusForbidden, "Invite required")
 			return
 		}
 		if errors.Is(err, errInvalidInvite) {
-			writeResponse(w, http.StatusForbidden, "Invalid or claimed invite")
+			writeError(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
 		log.Error().Err(err).Msg("Invite policy error")
@@ -659,26 +627,26 @@ func (h *Handlers) CheckUsernameForRename(w http.ResponseWriter, r *http.Request
 // parseCheckUsernameForm parses and validates the `username` form field
 // shared by CheckUsername and CheckUsernameForRename, writing the
 // appropriate error response and returning ok=false on failure.
-func (h *Handlers) parseCheckUsernameForm(w http.ResponseWriter, r *http.Request, log *zerolog.Logger) (url.Values, string, bool) {
-	values, err := parseFormData(r)
-	if err != nil {
-		log.Error().Err(err).Msg("Error parsing form data")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+func (h *Handlers) parseCheckUsernameForm(w http.ResponseWriter, r *http.Request, log *zerolog.Logger) (*pb.CheckUsernameRequest, string, bool) {
+	req := &pb.CheckUsernameRequest{}
+	if err := readRequest(r, req); err != nil {
+		log.Error().Err(err).Msg("Error parsing request")
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return nil, "", false
 	}
 
-	username := trimInvisibleChars(values.Get("username"))
+	username := trimInvisibleChars(req.GetUsername())
 	if username == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
+		writeError(w, http.StatusBadRequest, "Argument `username` is required")
 		return nil, "", false
 	}
 
 	if len(username) > 32 {
-		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		writeError(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
 		return nil, "", false
 	}
 
-	return values, username, true
+	return req, username, true
 }
 
 // respondUsernameAvailability checks username availability and writes the
@@ -695,24 +663,24 @@ func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Re
 	}
 
 	if exists {
-		writeResponse(w, http.StatusConflict, "Username is taken")
+		writeError(w, http.StatusConflict, "Username is taken")
 		return
 	}
 
-	writeResponse(w, http.StatusOK, "Username is available")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // UserStatus handles POST /api/users/status. Unauthenticated probe: client
 // sends a countersigned profile; server verifies its own countersignature and
 // reports claimed / unclaimed / mid-recovery state.
 func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
-	var profile recoveryProfile
-	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	profile, err := readRecoveryProfile(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if profile.ID == "" || profile.Username == "" || profile.UserSignature.KeyID == "" {
-		writeResponse(w, http.StatusBadRequest, "profile id, username, and userSignature.id are required")
+		writeError(w, http.StatusBadRequest, "profile id, username, and userSignature.id are required")
 		return
 	}
 
@@ -725,7 +693,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		h.services.db.GetServerKeyArmorAt,
 		h.services.crypto,
 	); err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -737,7 +705,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if unclaimed {
-		writeResponse(w, http.StatusNotFound, recoveryUserStatusUnknownResponse)
+		writeResponse(w, http.StatusNotFound, &pb.UserStatusResponse{Status: recoveryUserStatusUnknown})
 		return
 	}
 
@@ -745,7 +713,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	signedAt, err := h.services.db.UserServerSignedAt(r.Context(), profile.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			writeResponse(w, http.StatusNotFound, recoveryUserStatusUnknownResponse)
+			writeResponse(w, http.StatusNotFound, &pb.UserStatusResponse{Status: recoveryUserStatusUnknown})
 			return
 		}
 		internalServerError(w)
@@ -756,7 +724,7 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 	// fork the identity / key chain).
 	submittedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	if submittedAt.Before(signedAt) {
-		writeResponse(w, http.StatusBadRequest, "stale profile: backup is older than the server record")
+		writeError(w, http.StatusBadRequest, "stale profile: backup is older than the server record")
 		return
 	}
 
@@ -767,12 +735,12 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ongoing {
-		writeResponse(w, http.StatusConflict, recoveryUserStatusOngoingResponse)
+		writeResponse(w, http.StatusConflict, &pb.UserStatusResponse{Status: recoveryUserStatusOngoing})
 		return
 	}
 
 	// Claimed, not mid-import, profile not older than DB → complete.
-	writeResponse(w, http.StatusOK, recoveryUserStatusCompleteResponse)
+	writeResponse(w, http.StatusOK, &pb.UserStatusResponse{Status: recoveryUserStatusComplete})
 }
 
 func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
@@ -781,7 +749,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 
@@ -801,7 +769,7 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if removal != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		writeAccountGone(w, h.accountRemovalWire(removal))
 		return
 	}
 
@@ -814,11 +782,11 @@ func (h *Handlers) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		writeResponse(w, http.StatusNotFound, "User not found")
+		writeError(w, http.StatusNotFound, "User not found")
 		return
 	}
 
-	writeResponse(w, http.StatusOK, user)
+	writeResponse(w, http.StatusOK, pbUser(user))
 }
 
 func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
@@ -827,7 +795,7 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 
@@ -847,7 +815,7 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if removal != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		writeAccountGone(w, h.accountRemovalWire(removal))
 		return
 	}
 
@@ -860,11 +828,11 @@ func (h *Handlers) GetUserInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if info == nil {
-		writeResponse(w, http.StatusNotFound, "User not found")
+		writeError(w, http.StatusNotFound, "User not found")
 		return
 	}
 
-	writeResponse(w, http.StatusOK, info)
+	writeResponse(w, http.StatusOK, pbUserInfo(info))
 }
 
 // searchUsersFanoutTimeout bounds each peer's search-users call — this
@@ -884,7 +852,7 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
-		writeResponse(w, http.StatusOK, map[string]any{"users": []UserSearchResult{}})
+		writeResponse(w, http.StatusOK, &pb.UserSearchResponse{})
 		return
 	}
 
@@ -913,7 +881,7 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	results = slices.DeleteFunc(results, func(u UserSearchResult) bool { return blocking[u.ID] })
 
-	writeResponse(w, http.StatusOK, map[string]any{"users": results})
+	writeResponse(w, http.StatusOK, pbUserSearch(results))
 }
 
 // mergeUserSearchResults combines local and fanned-out foreign results.
@@ -968,14 +936,14 @@ func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, 
 		return true, 0
 	}
 	if peer == nil {
-		writeResponse(w, http.StatusNotFound, "Not found")
+		writeError(w, http.StatusNotFound, "Not found")
 		return true, 0
 	}
 
 	if err := h.forwardFollowToPeer(r.Context(), method, peer.BaseURL, userID, followerID); err != nil {
 		log.Error().Str("userID", userID).Str("followerID", followerID).Err(err).Msg("Failed to forward follow to peer")
 		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Follow forward to %s failed: %s", peer.BaseURL, err.Error()))
-		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
 		return true, 0
 	}
 
@@ -984,8 +952,7 @@ func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, 
 }
 
 // resolveFollower returns who's following: an end-user's own session, or
-// a peer vouching for one of its users via a followerID form field. Reads
-// the body directly since r.FormValue skips DELETE.
+// a peer vouching for one of its users via the body's follower_id.
 func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool) {
 	if userID, isUser := r.Context().Value(userIDKey).(string); isUser {
 		return userID, true
@@ -999,11 +966,11 @@ func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool)
 		return "", false
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
-	values, err := url.ParseQuery(string(body))
-	if err != nil {
+	var req pb.FollowRequest
+	if err := proto.Unmarshal(body, &req); err != nil {
 		return "", false
 	}
-	followerID = strings.TrimSpace(values.Get("followerID"))
+	followerID = strings.TrimSpace(req.GetFollowerId())
 	_, embeddedServerID, parseOK := parseIdentityID(identityID(followerID))
 	if !parseOK || embeddedServerID != peerServerID {
 		return "", false
@@ -1013,9 +980,8 @@ func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool)
 
 // resolveActingUser returns who's acting: an end-user's own session, or a
 // peer vouching for one of its users via candidateID (already extracted
-// from the request body by the caller — LikeReed's form field / PostRipple's
-// JSON field, whose parsing differs per handler, unlike resolveFollower's
-// single form-encoded shape).
+// from the request body by the caller, since each route's request message
+// names it differently).
 func (h *Handlers) resolveActingUser(r *http.Request, candidateID string) (userID string, ok bool) {
 	if userID, isUser := r.Context().Value(userIDKey).(string); isUser {
 		return userID, true
@@ -1049,11 +1015,11 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 
 	followerID, ok := h.resolveFollower(r)
 	if !ok {
-		writeResponse(w, http.StatusBadRequest, "Argument `followerID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `followerID` is required")
 		return
 	}
 	if followerID == userID {
-		writeResponse(w, http.StatusBadRequest, "Cannot follow yourself")
+		writeError(w, http.StatusBadRequest, "Cannot follow yourself")
 		return
 	}
 
@@ -1061,7 +1027,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 		h.upsertRemoteIdentity(r.Context(), log, followerID)
 		if err := h.services.db.RecordRemoteFollower(r.Context(), userID, followerID); err != nil {
 			if errors.Is(err, ErrFollowTargetNotFound) {
-				writeResponse(w, http.StatusNotFound, "User not found")
+				writeError(w, http.StatusNotFound, "User not found")
 				return
 			}
 			log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error recording remote follower")
@@ -1074,7 +1040,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.db.FollowUser(r.Context(), followerID, userID); err != nil {
 		if errors.Is(err, ErrFollowTargetNotFound) {
-			writeResponse(w, http.StatusNotFound, "User not found")
+			writeError(w, http.StatusNotFound, "User not found")
 			return
 		}
 		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error following user")
@@ -1095,7 +1061,7 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 
 	followerID, ok := h.resolveFollower(r)
 	if !ok {
-		writeResponse(w, http.StatusBadRequest, "Argument `followerID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `followerID` is required")
 		return
 	}
 
@@ -1124,7 +1090,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 	userID := h.getUserID(r)
 	if userID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Authentication required")
+		writeError(w, http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
@@ -1133,24 +1099,24 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	} else if isRoot {
-		writeResponse(w, http.StatusForbidden, "The root account cannot be deleted")
+		writeError(w, http.StatusForbidden, "The root account cannot be deleted")
 		return
 	}
 
-	values, err := parseFormData(r)
-	if err != nil {
+	req := &pb.DeleteAccountRequest{}
+	if err := readRequest(r, req); err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	userSignature := strings.TrimSpace(values.Get("signature"))
+	userSignature := strings.TrimSpace(req.GetSignature())
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
-	note := values.Get("note")
+	note := req.GetNote()
 	if err := validateAccountNote(note); err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1164,10 +1130,10 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		if existing.UserSignature != userSignature || existing.Note != note {
-			writeResponse(w, http.StatusConflict, "Account removal already exists with a different attestation")
+			writeError(w, http.StatusConflict, "Account removal already exists with a different attestation")
 			return
 		}
-		writeResponse(w, http.StatusOK, h.accountRemovalWire(existing))
+		writeResponse(w, http.StatusOK, pbAccountRemoval(h.accountRemovalWire(existing)))
 		return
 	}
 
@@ -1178,7 +1144,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		writeResponse(w, http.StatusNotFound, "User not found")
+		writeError(w, http.StatusNotFound, "User not found")
 		return
 	}
 
@@ -1197,7 +1163,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pubKey == nil || pubKey.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
@@ -1205,7 +1171,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 			Str("userID", userID).
 			Err(err).
 			Msg("account removal signature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -1234,10 +1200,10 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, errRemovalConflict) {
 			existing, getErr := h.services.db.GetAccountRemoval(r.Context(), userID)
 			if getErr == nil && existing != nil && existing.UserSignature == userSignature && existing.Note == note {
-				writeResponse(w, http.StatusOK, h.accountRemovalWire(existing))
+				writeResponse(w, http.StatusOK, pbAccountRemoval(h.accountRemovalWire(existing)))
 				return
 			}
-			writeResponse(w, http.StatusConflict, "Account removal already exists with a different attestation")
+			writeError(w, http.StatusConflict, "Account removal already exists with a different attestation")
 			return
 		}
 		log.Error().Str("userID", userID).Err(err).Msg("Error storing account removal")
@@ -1289,7 +1255,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	go h.notifyForeignAccountRemovalToPeers(context.Background(), userID, cert)
 
 	log.Info().Str("userID", userID).Msg("Account removal accepted")
-	writeResponse(w, http.StatusOK, h.accountRemovalWire(&cert))
+	writeResponse(w, http.StatusOK, pbAccountRemoval(h.accountRemovalWire(&cert)))
 }
 
 func (h *Handlers) accountRemovalWire(cert *accountRemovalCert) AccountRemoval {
@@ -1353,13 +1319,19 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if currentUser == nil {
-		writeResponse(w, http.StatusBadRequest, "User not found")
+		writeError(w, http.StatusBadRequest, "User not found")
 		return
 	}
 
-	userSignature := r.FormValue("userSignature")
+	req := &pb.UpdateUserRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	userSignature := req.GetUserSignature()
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userSignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userSignature` is required")
 		return
 	}
 
@@ -1369,17 +1341,17 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		log.Info().
 			Str("userID", userID).
 			Msg("UpdateUser no-op (signature unchanged)")
-		writeResponse(w, http.StatusOK, currentUser)
+		writeResponse(w, http.StatusOK, pbUser(currentUser))
 		return
 	}
 
-	username := trimInvisibleChars(r.FormValue("username"))
+	username := trimInvisibleChars(req.GetUsername())
 	if username == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `username` is required")
+		writeError(w, http.StatusBadRequest, "Argument `username` is required")
 		return
 	}
 	if len(username) > 32 {
-		writeResponse(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
+		writeError(w, http.StatusBadRequest, "Username cannot exceed 32 characters")
 		return
 	}
 
@@ -1398,18 +1370,18 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 				Str("userID", userID).
 				Str("username", username).
 				Msg("Username already taken")
-			writeResponse(w, http.StatusBadRequest, "Username already taken")
+			writeError(w, http.StatusBadRequest, "Username already taken")
 			return
 		}
 	}
 
-	bio := r.FormValue("bio")
+	bio := req.GetBio()
 	if CountMarkdownCharacters(bio) > MaxReedVisibleChars {
 		log.Error().
 			Str("userID", userID).
 			Int("length", CountMarkdownCharacters(bio)).
 			Msg("Bio cannot exceed 140 visible characters")
-		writeResponse(w, http.StatusBadRequest, "Bio cannot exceed 140 characters")
+		writeError(w, http.StatusBadRequest, "Bio cannot exceed 140 characters")
 		return
 	}
 
@@ -1460,14 +1432,14 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			Str("userID", userID).
 			Str("fingerprint", fingerprint).
 			Msg("UpdateUser rejected: identity record signed by revoked key")
-		writeResponse(w, http.StatusUnauthorized, "Key is revoked")
+		writeError(w, http.StatusUnauthorized, "Key is revoked")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("userSignature verification failed")
-		writeResponse(w, http.StatusBadRequest, "userSignature verification failed")
+		writeError(w, http.StatusBadRequest, "userSignature verification failed")
 		return
 	}
 
@@ -1511,7 +1483,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		// between the UsernameExists check above and this UPDATE.
 		if errors.Is(err, ErrUsernameTaken) {
 			log.Info().Str("username", username).Msg("Username already taken (race)")
-			writeResponse(w, http.StatusBadRequest, "Username already taken")
+			writeError(w, http.StatusBadRequest, "Username already taken")
 			return
 		}
 		log.Error().
@@ -1544,36 +1516,42 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Str("username", username).
 		Msg("Signed identity record updated")
 
-	writeResponse(w, http.StatusOK, updated)
+	writeResponse(w, http.StatusOK, pbUser(updated))
 }
 
 func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("AddPublicKey request received")
 
-	userID := strings.TrimSpace(r.FormValue("userID"))
-	if userID == "" {
-		log.Error().Msg("Argument `userID` is required")
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+	req := &pb.AddPublicKeyRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	revokedKeySignature := strings.TrimSpace(r.FormValue("revokedKeySignature"))
+	userID := strings.TrimSpace(req.GetUserId())
+	if userID == "" {
+		log.Error().Msg("Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
+		return
+	}
+
+	revokedKeySignature := strings.TrimSpace(req.GetRevokedKeySignature())
 	if revokedKeySignature == "" {
 		log.Error().
 			Str("userID", userID).
 			Msg("Argument `revokedKeySignature` not found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeySignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `revokedKeySignature` is required")
 		return
 	}
 	revokedKeySigArmor := revokedKeySignature
 
-	newKeySignature := strings.TrimSpace(r.FormValue("newKeySignature"))
+	newKeySignature := strings.TrimSpace(req.GetNewKeySignature())
 	if newKeySignature == "" {
 		log.Error().
 			Str("userID", userID).
 			Msg("Argument `newKeySignature` not found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `newKeySignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `newKeySignature` is required")
 		return
 	}
 	newKeySigArmor := newKeySignature
@@ -1583,30 +1561,30 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	// window where the caller has no valid key at all, and any request
 	// signed in that window (even this server's own best-effort follow-ups)
 	// is rejected.
-	revocationReason := strings.TrimSpace(r.FormValue("revocationReason"))
-	revocationUserSignature := strings.TrimSpace(r.FormValue("revocationUserSignature"))
+	revocationReason := strings.TrimSpace(req.GetRevocationReason())
+	revocationUserSignature := strings.TrimSpace(req.GetRevocationUserSignature())
 	if revocationUserSignature == "" {
 		log.Error().
 			Str("userID", userID).
 			Msg("Argument `revocationUserSignature` not found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `revocationUserSignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `revocationUserSignature` is required")
 		return
 	}
 	revocationUserSigArmor := revocationUserSignature
 
-	armoredPublicKey := strings.TrimSpace(r.FormValue("publicKey"))
+	armoredPublicKey := strings.TrimSpace(req.GetPublicKey())
 	if armoredPublicKey == "" {
 		log.Error().Str("userID", userID).Msg("No public key found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `publicKey` is required")
+		writeError(w, http.StatusBadRequest, "Argument `publicKey` is required")
 		return
 	}
 
 	// revokedKeyFingerprint travels bare over the wire (form field); join
 	// it with userID (already canonical) to get the DB/lookup key.
-	revokedKeyFingerprintBare := strings.TrimSpace(r.FormValue("revokedKeyFingerprint"))
+	revokedKeyFingerprintBare := strings.TrimSpace(req.GetRevokedKeyFingerprint())
 	if revokedKeyFingerprintBare == "" {
 		log.Error().Str("userID", userID).Msg("Argument `revokedKeyFingerprint` not found in request")
-		writeResponse(w, http.StatusBadRequest, "Argument `revokedKeyFingerprint` is required")
+		writeError(w, http.StatusBadRequest, "Argument `revokedKeyFingerprint` is required")
 		return
 	}
 	revokedKeyFingerprint := string(appendEntity(identityID(userID), revokedKeyFingerprintBare))
@@ -1629,7 +1607,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 			Str("userID", userID).
 			Str("revokedKeyFingerprint", revokedKeyFingerprint).
 			Msg("Old public key not found")
-		writeResponse(w, http.StatusNotFound, "Old public key not found")
+		writeError(w, http.StatusNotFound, "Old public key not found")
 		return
 	}
 
@@ -1640,7 +1618,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 			Str("userID", userID).
 			Str("revokedKeyFingerprint", revokedKeyFingerprint).
 			Err(err).Msg("Revoked key signature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "Revoked key signature verification failed")
+		writeError(w, http.StatusUnauthorized, "Revoked key signature verification failed")
 		return
 	}
 
@@ -1657,7 +1635,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 			Str("userID", userID).
 			Str("revokedKeyFingerprint", revokedKeyFingerprint).
 			Err(err).Msg("revocationUserSignature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "revocationUserSignature verification failed")
+		writeError(w, http.StatusUnauthorized, "revocationUserSignature verification failed")
 		return
 	}
 
@@ -1667,7 +1645,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("Error validating public key")
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	log.Info().
@@ -1732,12 +1710,12 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 				Dur("retryAfter", tooSoon.RetryAfter).
 				Msg("AddPublicKey rejected: cooldown")
 			w.Header().Set("Retry-After", strconv.Itoa(int(tooSoon.RetryAfter.Seconds())+1))
-			writeResponse(w, http.StatusTooManyRequests,
+			writeError(w, http.StatusTooManyRequests,
 				"You can only revoke your key once every 24 hours")
 		case errors.Is(err, ErrUserNotFound):
-			writeResponse(w, http.StatusNotFound, "User not found")
+			writeError(w, http.StatusNotFound, "User not found")
 		case errors.Is(err, ErrKeyAlreadyExists):
-			writeResponse(w, http.StatusConflict, "Public key fingerprint already registered")
+			writeError(w, http.StatusConflict, "Public key fingerprint already registered")
 		case errors.Is(err, ErrPredecessorRequired),
 			errors.Is(err, ErrPredecessorNotFound),
 			errors.Is(err, ErrPredecessorNotRevoked),
@@ -1747,7 +1725,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 				Str("userID", userID).
 				Str("revokedKeyFingerprint", revokedKeyFingerprint).
 				Err(err).Msg("AddPublicKey rejected")
-			writeResponse(w, http.StatusBadRequest, err.Error())
+			writeError(w, http.StatusBadRequest, err.Error())
 		default:
 			log.Error().
 				Str("userID", userID).
@@ -1765,7 +1743,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyFingerprint}
 	go h.notifyPeersOfKeyRevocation(revokedKeyFingerprint)
 
-	writeResponse(w, http.StatusOK, publicKey)
+	writeResponse(w, http.StatusOK, pbKey(publicKey))
 }
 
 func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
@@ -1774,7 +1752,7 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 
 	fingerprint := mux.Vars(r)["id"]
 	if fingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
@@ -1791,7 +1769,7 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if revocation != nil {
-		writeResponse(w, http.StatusOK, revocation)
+		writeResponse(w, http.StatusOK, &pb.KeyRevocationResponse{Revocation: &pb.KeyRevocationResponse_User{User: pbKeyRevocation(revocation)}})
 		return
 	}
 
@@ -1803,10 +1781,10 @@ func (h *Handlers) GetKeyRevocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if serverRevocation == nil {
-		writeResponse(w, http.StatusNotFound, "Revocation not found")
+		writeError(w, http.StatusNotFound, "Revocation not found")
 		return
 	}
-	writeResponse(w, http.StatusOK, serverRevocation)
+	writeResponse(w, http.StatusOK, &pb.KeyRevocationResponse{Revocation: &pb.KeyRevocationResponse_Server{Server: pbServerKeyRevocation(serverRevocation)}})
 }
 
 // normalizeClaimedTags lowercases, trims, and dedupes a client-claimed tag
@@ -1892,7 +1870,7 @@ func (h *Handlers) activeUserKey(w http.ResponseWriter, r *http.Request, userID 
 		return nil, false
 	}
 	if key == nil || key.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return nil, false
 	}
 	return key, true
@@ -1904,35 +1882,36 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	userID := h.getUserID(r)
 
-	err := r.ParseForm()
+	req := &pb.SignReedRequest{}
+	err := readRequest(r, req)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
-			Err(err).Msg("Error parsing form")
-		writeResponse(w, http.StatusBadRequest, "Error parsing form")
+			Err(err).Msg("Error parsing request")
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	userSignature := r.FormValue("signature")
+	userSignature := req.GetSignature()
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
 
-	reedID := r.FormValue("reedID")
+	reedID := req.GetReedId()
 	if reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `reedID` is required")
 		return
 	}
 
 	// Echoing/replying are optional reed refs. Reed content never reaches
 	// the server — only structural metadata and the author's claims about
 	// it (tags, mentions), which receiving clients verify.
-	echoing := strings.TrimSpace(r.FormValue("echoing"))
-	replyingTo := strings.TrimSpace(r.FormValue("replyingTo"))
-	previousID := strings.TrimSpace(r.FormValue("previousID"))
-	claimedTags := r.Form["tags"]
-	claimedMentions := r.Form["mentions"]
+	echoing := strings.TrimSpace(req.GetEchoing())
+	replyingTo := strings.TrimSpace(req.GetReplyingTo())
+	previousID := strings.TrimSpace(req.GetPreviousId())
+	claimedTags := req.GetTags()
+	claimedMentions := req.GetMentions()
 
 	localServerID := h.services.db.GetServerID()
 	var echoRef *ReedRef
@@ -1943,7 +1922,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if echoing != "" {
 		ref, ok := h.parseReedRef(echoing, localServerID)
 		if !ok {
-			writeResponse(w, http.StatusBadRequest, "Invalid echoing reference")
+			writeError(w, http.StatusBadRequest, "Invalid echoing reference")
 			return
 		}
 		echoRef = &ref
@@ -1951,13 +1930,13 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	if replyingTo != "" {
 		ref, ok := h.parseReedRef(replyingTo, localServerID)
 		if !ok {
-			writeResponse(w, http.StatusBadRequest, "Invalid replying reference")
+			writeError(w, http.StatusBadRequest, "Invalid replying reference")
 			return
 		}
 		replyRef = &ref
 	}
 	if echoRef != nil && replyRef != nil {
-		writeResponse(w, http.StatusBadRequest, "A reed cannot both echo and reply")
+		writeError(w, http.StatusBadRequest, "A reed cannot both echo and reply")
 		return
 	}
 	for _, ref := range []*ReedRef{echoRef, replyRef} {
@@ -1979,7 +1958,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 
 	storedMentions, err := h.resolveMentionClaims(r.Context(), claimedMentions, userID)
 	if errors.Is(err, errMentionTargetNotFound) {
-		writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
+		writeError(w, http.StatusBadRequest, "Mentioned user not found")
 		return
 	}
 	if err != nil {
@@ -2001,7 +1980,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		writeResponse(w, http.StatusBadRequest, "User not found")
+		writeError(w, http.StatusBadRequest, "User not found")
 		return
 	}
 
@@ -2088,7 +2067,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if errors.Is(err, ErrReedFork) {
-			writeResponse(w, http.StatusConflict, "previousID does not match the author's current tip")
+			writeError(w, http.StatusConflict, "previousID does not match the author's current tip")
 			return
 		}
 		log.Error().
@@ -2154,7 +2133,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 		Str("reedID", reed.ID).
 		Msg("Reed created successfully")
 
-	writeResponse(w, http.StatusCreated, serverSignature)
+	writeResponse(w, http.StatusCreated, pbServerSignature(serverSignature))
 }
 
 // respondSignReedReplay returns the stored countersignature (HTTP 200) when
@@ -2167,18 +2146,18 @@ func (h *Handlers) respondSignReedReplay(
 ) {
 	log := h.services.log.GetLogger(r.Context())
 	if existing.UserSignature != userSignature {
-		writeResponse(w, http.StatusConflict, "Reed already exists with a different signature")
+		writeError(w, http.StatusConflict, "Reed already exists with a different signature")
 		return
 	}
 	log.Info().
 		Str("reedID", reedID).
 		Str("userID", userID).
 		Msg("SignReed replay: returning stored countersignature")
-	writeResponse(w, http.StatusOK, ServerSignature{
+	writeResponse(w, http.StatusOK, pbServerSignature(ServerSignature{
 		ID:       existing.ServerFingerprint,
 		Armor:    existing.ServerSignature,
 		SignedAt: existing.ServerSignedAt,
-	})
+	}))
 }
 
 // threadPartRequest is one part of a POST /threads body; its position in
@@ -2209,13 +2188,22 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	userID := h.getUserID(r)
 
-	var req createThreadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var msg pb.CreateThreadRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req := createThreadRequest{PreviousID: msg.GetPreviousId(), ThreadSignature: msg.GetThreadSignature()}
+	for _, part := range msg.GetReeds() {
+		req.Reeds = append(req.Reeds, threadPartRequest{
+			ReedID:    part.GetReedId(),
+			Signature: part.GetSignature(),
+			Tags:      part.GetTags(),
+			Mentions:  part.GetMentions(),
+		})
+	}
 	if req.ThreadSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `threadSignature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `threadSignature` is required")
 		return
 	}
 
@@ -2224,11 +2212,11 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]struct{}, len(req.Reeds))
 	for i, part := range req.Reeds {
 		if part.ReedID == "" || part.Signature == "" {
-			writeResponse(w, http.StatusBadRequest, "Every reed needs `reedID` and `signature`")
+			writeError(w, http.StatusBadRequest, "Every reed needs `reedID` and `signature`")
 			return
 		}
 		if _, dup := seen[part.ReedID]; dup {
-			writeResponse(w, http.StatusBadRequest, "A reed appears twice in the thread")
+			writeError(w, http.StatusBadRequest, "A reed appears twice in the thread")
 			return
 		}
 		seen[part.ReedID] = struct{}{}
@@ -2236,7 +2224,7 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 		parts[i] = createReedParams{ReedID: part.ReedID, UserID: userID, UserSignature: part.Signature}
 	}
 	if err := validateThreadParts(userID, parts); err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	threadID := reedIDs[0]
@@ -2244,7 +2232,7 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 	for i, part := range req.Reeds {
 		mentions, err := h.resolveMentionClaims(r.Context(), part.Mentions, userID)
 		if errors.Is(err, errMentionTargetNotFound) {
-			writeResponse(w, http.StatusBadRequest, "Mentioned user not found")
+			writeError(w, http.StatusBadRequest, "Mentioned user not found")
 			return
 		}
 		if err != nil {
@@ -2267,7 +2255,7 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 	serverID := h.services.db.GetServerID()
 	userPayload := buildThreadUserPayload(serverID, threadID, reedIDs)
 	if err := h.services.crypto.verifySignature(string(userPayload), req.ThreadSignature, pubKey.Armor); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Thread signature verification failed")
+		writeError(w, http.StatusBadRequest, "Thread signature verification failed")
 		return
 	}
 
@@ -2325,14 +2313,14 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 				h.respondThreadReplay(w, r, existing, req)
 				return
 			}
-			writeResponse(w, http.StatusConflict, "A reed in the thread already exists")
+			writeError(w, http.StatusConflict, "A reed in the thread already exists")
 			return
 		}
 		switch {
 		case errors.Is(err, ErrReedFork):
-			writeResponse(w, http.StatusConflict, "previousID does not match the author's current tip")
+			writeError(w, http.StatusConflict, "previousID does not match the author's current tip")
 		case errors.Is(err, ErrInvalidThread):
-			writeResponse(w, http.StatusBadRequest, err.Error())
+			writeError(w, http.StatusBadRequest, err.Error())
 		default:
 			log.Error().Str("threadID", threadID).Str("userID", userID).Err(err).Msg("Error creating thread")
 			internalServerError(w)
@@ -2349,7 +2337,7 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	log.Debug().Str("userID", userID).Str("threadID", threadID).Int("reeds", len(parts)).Msg("Thread created")
-	writeResponse(w, http.StatusCreated, sigs)
+	writeResponse(w, http.StatusCreated, pbServerSignatures(sigs))
 }
 
 // respondThreadReplay returns the stored signatures (HTTP 200) when the
@@ -2357,7 +2345,7 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) respondThreadReplay(w http.ResponseWriter, r *http.Request, existing *threadRecord, req createThreadRequest) {
 	log := h.services.log.GetLogger(r.Context())
 	conflict := func() {
-		writeResponse(w, http.StatusConflict, "Thread already exists with different signatures")
+		writeError(w, http.StatusConflict, "Thread already exists with different signatures")
 	}
 	if existing.UserSignature != req.ThreadSignature || len(existing.ReedIDs) != len(req.Reeds) {
 		conflict()
@@ -2389,7 +2377,7 @@ func (h *Handlers) respondThreadReplay(w http.ResponseWriter, r *http.Request, e
 		sigs.Reeds[i] = ServerSignature{ID: att.ServerFingerprint, Armor: att.ServerSignature, SignedAt: att.ServerSignedAt}
 	}
 	log.Info().Str("threadID", existing.ThreadID).Msg("CreateThread replay: returning stored countersignatures")
-	writeResponse(w, http.StatusOK, sigs)
+	writeResponse(w, http.StatusOK, pbServerSignatures(sigs))
 }
 
 // DeleteThread removes a whole thread: the author signs a removal bound to
@@ -2401,17 +2389,17 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 
 	author, ok := authorOf(identityID(threadID))
 	if !ok || string(author) != userID {
-		writeResponse(w, http.StatusForbidden, "You can only delete your own threads")
+		writeError(w, http.StatusForbidden, "You can only delete your own threads")
 		return
 	}
-	values, err := parseFormData(r)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+	req := &pb.RemovalRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	userSignature := strings.TrimSpace(values.Get("signature"))
+	userSignature := strings.TrimSpace(req.GetSignature())
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
 
@@ -2423,10 +2411,10 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		if existing.Cert.UserSignature.Armor != userSignature {
-			writeResponse(w, http.StatusConflict, "Thread removal already exists with a different signature")
+			writeError(w, http.StatusConflict, "Thread removal already exists with a different signature")
 			return
 		}
-		writeResponse(w, http.StatusOK, existing)
+		writeResponse(w, http.StatusOK, pbThreadRemoval(existing))
 		return
 	}
 
@@ -2437,7 +2425,7 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rec == nil {
-		writeResponse(w, http.StatusNotFound, "Thread not found")
+		writeError(w, http.StatusNotFound, "Thread not found")
 		return
 	}
 
@@ -2448,7 +2436,7 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 	serverID := h.services.db.GetServerID()
 	userPayload := buildThreadRemovalUserPayload(serverID, threadID, rec.UserSignature)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSignature, pubKey.Armor); err != nil {
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -2474,7 +2462,7 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.services.db.InsertThreadRemoval(r.Context(), rm); err != nil {
 		if errors.Is(err, errRemovalConflict) {
-			writeResponse(w, http.StatusConflict, "Thread removal already exists with a different signature")
+			writeError(w, http.StatusConflict, "Thread removal already exists with a different signature")
 			return
 		}
 		log.Error().Str("threadID", threadID).Err(err).Msg("Error storing thread removal")
@@ -2492,7 +2480,7 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 	go h.deliverAuthorToPeers(userID)
 
 	log.Info().Str("userID", userID).Str("threadID", threadID).Msg("Thread removal accepted")
-	writeResponse(w, http.StatusOK, rm)
+	writeResponse(w, http.StatusOK, pbThreadRemoval(&rm))
 }
 
 // parseReedRef parses userID@serverID/reedID and checks reed id + local server.
@@ -2514,26 +2502,26 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	pathUserID := mux.Vars(r)["userID"]
 	bareReedID := mux.Vars(r)["reedID"]
 	if pathUserID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 
 	userID := h.getUserID(r)
 	if userID != pathUserID {
-		writeResponse(w, http.StatusForbidden, "You can only delete your own reeds")
+		writeError(w, http.StatusForbidden, "You can only delete your own reeds")
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
 
-	values, err := parseFormData(r)
-	if err != nil {
+	req := &pb.RemovalRequest{}
+	if err := readRequest(r, req); err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	userSignature := strings.TrimSpace(values.Get("signature"))
+	userSignature := strings.TrimSpace(req.GetSignature())
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
 
@@ -2545,7 +2533,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	} else if head != "" {
-		writeResponse(w, http.StatusBadRequest, "Delete the whole thread")
+		writeError(w, http.StatusBadRequest, "Delete the whole thread")
 		return
 	}
 
@@ -2557,10 +2545,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		if existing.UserSignature != userSignature {
-			writeResponse(w, http.StatusConflict, "Reed removal already exists with a different signature")
+			writeError(w, http.StatusConflict, "Reed removal already exists with a different signature")
 			return
 		}
-		writeResponse(w, http.StatusOK, h.reedRemovalWire(existing))
+		writeResponse(w, http.StatusOK, pbReedRemoval(h.reedRemovalWire(existing)))
 		return
 	}
 
@@ -2571,11 +2559,11 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if reed == nil {
-		writeResponse(w, http.StatusNotFound, "Reed not found")
+		writeError(w, http.StatusNotFound, "Reed not found")
 		return
 	}
 	if reed.UserID != userID {
-		writeResponse(w, http.StatusForbidden, "You can only delete your own reeds")
+		writeError(w, http.StatusForbidden, "You can only delete your own reeds")
 		return
 	}
 
@@ -2586,7 +2574,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
-		writeResponse(w, http.StatusBadRequest, "User not found")
+		writeError(w, http.StatusBadRequest, "User not found")
 		return
 	}
 
@@ -2605,7 +2593,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pubKey == nil || pubKey.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
@@ -2614,7 +2602,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 			Str("reedID", reedID).
 			Err(err).
 			Msg("signature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -2645,10 +2633,10 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 			// signature matches; otherwise a true conflicting attestation.
 			existing, getErr := h.services.db.GetReedRemoval(r.Context(), reedID)
 			if getErr == nil && existing != nil && existing.UserSignature == userSignature {
-				writeResponse(w, http.StatusOK, h.reedRemovalWire(existing))
+				writeResponse(w, http.StatusOK, pbReedRemoval(h.reedRemovalWire(existing)))
 				return
 			}
-			writeResponse(w, http.StatusConflict, "Reed removal already exists with a different signature")
+			writeError(w, http.StatusConflict, "Reed removal already exists with a different signature")
 			return
 		}
 		log.Error().Str("userID", userID).Str("reedID", reedID).Err(err).Msg("Error storing reed removal")
@@ -2711,7 +2699,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 	go h.deliverAuthorToPeers(userID)
 
 	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")
-	writeResponse(w, http.StatusOK, h.reedRemovalWire(&cert))
+	writeResponse(w, http.StatusOK, pbReedRemoval(h.reedRemovalWire(&cert)))
 }
 
 // LikeReed handles POST /reeds/{userID}/{reedID}/like — a signed like.
@@ -2725,7 +2713,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	authorID := mux.Vars(r)["userID"]
 	bareReedID := mux.Vars(r)["reedID"]
 	if authorID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	reedID := string(appendEntity(identityID(authorID), bareReedID))
@@ -2737,28 +2725,28 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	values, err := parseFormData(r)
-	if err != nil {
+	req := &pb.LikeRequest{}
+	if err := readRequest(r, req); err != nil {
 		log.Error().Err(err).Msg("Error parsing form")
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
-	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	likerID, ok := h.resolveActingUser(r, req.GetLikerId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 	if h.refuseBlockedRequester(w, r, authorID, likerID) {
 		return
 	}
-	userSignature := strings.TrimSpace(values.Get("signature"))
+	userSignature := strings.TrimSpace(req.GetSignature())
 	if userSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `signature` is required")
+		writeError(w, http.StatusBadRequest, "Argument `signature` is required")
 		return
 	}
-	bareFingerprint := strings.TrimSpace(values.Get("fingerprint"))
+	bareFingerprint := strings.TrimSpace(req.GetFingerprint())
 	if bareFingerprint == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `fingerprint` is required")
+		writeError(w, http.StatusBadRequest, "Argument `fingerprint` is required")
 		return
 	}
 	fingerprint := string(appendEntity(identityID(likerID), bareFingerprint))
@@ -2773,10 +2761,10 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		if existing.UserSignature.Armor != userSignature {
-			writeResponse(w, http.StatusConflict, "Reed like already exists with a different signature")
+			writeError(w, http.StatusConflict, "Reed like already exists with a different signature")
 			return
 		}
-		writeResponse(w, http.StatusOK, existing)
+		writeResponse(w, http.StatusOK, pbLikeCert(existing))
 		return
 	}
 
@@ -2787,7 +2775,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if reed == nil {
-		writeResponse(w, http.StatusNotFound, "Reed not found")
+		writeError(w, http.StatusNotFound, "Reed not found")
 		return
 	}
 
@@ -2800,7 +2788,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pubKey == nil || pubKey.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
@@ -2810,7 +2798,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 			Str("reedID", reedID).
 			Err(err).
 			Msg("signature verification failed")
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -2840,10 +2828,10 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrLikeConflict) {
 			existing, getErr := h.services.db.GetReedLike(r.Context(), likerID, reedID)
 			if getErr == nil && existing != nil && existing.UserSignature.Armor == userSignature {
-				writeResponse(w, http.StatusOK, existing)
+				writeResponse(w, http.StatusOK, pbLikeCert(existing))
 				return
 			}
-			writeResponse(w, http.StatusConflict, "Reed like already exists with a different signature")
+			writeError(w, http.StatusConflict, "Reed like already exists with a different signature")
 			return
 		}
 		log.Error().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Err(err).Msg("Error storing reed like")
@@ -2858,7 +2846,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed like accepted")
-	writeResponse(w, http.StatusOK, cert)
+	writeResponse(w, http.StatusOK, pbLikeCert(&cert))
 }
 
 // UnlikeReed handles DELETE /reeds/{userID}/{reedID}/like: a plain hard
@@ -2873,7 +2861,7 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	authorID := mux.Vars(r)["userID"]
 	bareReedID := mux.Vars(r)["reedID"]
 	if authorID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	reedID := string(appendEntity(identityID(authorID), bareReedID))
@@ -2882,17 +2870,14 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// r.FormValue skips DELETE bodies, same as resolveFollower's UNFOLLOW
-	// case — read directly.
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req := &pb.UnlikeRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	values, _ := url.ParseQuery(string(body))
-	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	likerID, ok := h.resolveActingUser(r, req.GetLikerId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 
@@ -2920,27 +2905,28 @@ func (h *Handlers) PinReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	reedID := mux.Vars(r)["reedID"]
 	if reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `reedID` is required")
 		return
 	}
 
-	if err := r.ParseForm(); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req := &pb.PinRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	pinnerID, ok := h.resolveActingUser(r, r.FormValue("pinnerID"))
+	pinnerID, ok := h.resolveActingUser(r, req.GetPinnerId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 
 	if err := h.services.db.PinReed(r.Context(), pinnerID, reedID); err != nil {
 		if errors.Is(err, ErrPinTargetNotFound) {
-			writeResponse(w, http.StatusNotFound, "Reed not found or not owned by this user")
+			writeError(w, http.StatusNotFound, "Reed not found or not owned by this user")
 			return
 		}
 		if errors.Is(err, ErrPinLimitReached) {
-			writeResponse(w, http.StatusConflict, "Already pinned 3 reeds")
+			writeError(w, http.StatusConflict, "Already pinned 3 reeds")
 			return
 		}
 		log.Error().Str("pinnerID", pinnerID).Str("reedID", reedID).Err(err).Msg("Error pinning reed")
@@ -2956,20 +2942,18 @@ func (h *Handlers) UnpinReed(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	reedID := mux.Vars(r)["reedID"]
 	if reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `reedID` is required")
 		return
 	}
 
-	// r.FormValue skips DELETE bodies — read directly, same as UnlikeReed.
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req := &pb.PinRequest{}
+	if err := readRequest(r, req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	values, _ := url.ParseQuery(string(body))
-	pinnerID, ok := h.resolveActingUser(r, values.Get("pinnerID"))
+	pinnerID, ok := h.resolveActingUser(r, req.GetPinnerId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 
@@ -3006,7 +2990,7 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
 	if userID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
@@ -3026,19 +3010,19 @@ func (h *Handlers) GetReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.AccountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
+		writeAccountGone(w, h.accountRemovalWire(result.AccountRemoval))
 		return
 	}
 	if result.ReedRemoval != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		writeReedGone(w, h.reedRemovalWire(result.ReedRemoval))
 		return
 	}
 	if result.ThreadRemoval != nil {
-		writeResponse(w, http.StatusGone, result.ThreadRemoval)
+		writeThreadGone(w, result.ThreadRemoval)
 		return
 	}
 	if result.Reed == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
+		writeError(w, http.StatusNotFound, "Post not found")
 		return
 	}
 
@@ -3060,7 +3044,7 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
 	if userID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
@@ -3080,19 +3064,19 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.AccountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
+		writeAccountGone(w, h.accountRemovalWire(result.AccountRemoval))
 		return
 	}
 	if result.ReedRemoval != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		writeReedGone(w, h.reedRemovalWire(result.ReedRemoval))
 		return
 	}
 	if result.ThreadRemoval != nil {
-		writeResponse(w, http.StatusGone, result.ThreadRemoval)
+		writeThreadGone(w, result.ThreadRemoval)
 		return
 	}
 	if result.Reed == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
+		writeError(w, http.StatusNotFound, "Post not found")
 		return
 	}
 
@@ -3103,7 +3087,7 @@ func (h *Handlers) GetReedEchoCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, count)
+	writeResponse(w, http.StatusOK, &pb.EchoCountResponse{Count: int32(count)})
 }
 
 // GetReedChorus handles GET /reeds/{userID}/{reedID}/chorus.
@@ -3114,7 +3098,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
 	if userID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
@@ -3134,7 +3118,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil && result.ThreadRemoval == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
+		writeError(w, http.StatusNotFound, "Post not found")
 		return
 	}
 
@@ -3142,7 +3126,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			writeError(w, http.StatusBadRequest, "Invalid limit")
 			return
 		}
 		limit = n
@@ -3152,7 +3136,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
 		}
 		t = t.UTC().Truncate(time.Second)
@@ -3166,7 +3150,7 @@ func (h *Handlers) GetReedChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, list)
+	writeResponse(w, http.StatusOK, pbEchoerList(list))
 }
 
 func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
@@ -3176,7 +3160,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	bareReedID := mux.Vars(r)["reedID"]
 	userID := mux.Vars(r)["userID"]
 	if userID == "" || bareReedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	reedID := string(appendEntity(identityID(userID), bareReedID))
@@ -3196,7 +3180,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.Reed == nil && result.ReedRemoval == nil && result.AccountRemoval == nil && result.ThreadRemoval == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
+		writeError(w, http.StatusNotFound, "Post not found")
 		return
 	}
 
@@ -3204,7 +3188,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			writeError(w, http.StatusBadRequest, "Invalid limit")
 			return
 		}
 		limit = n
@@ -3214,7 +3198,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
 		}
 		t = t.UTC().Truncate(time.Second)
@@ -3228,7 +3212,7 @@ func (h *Handlers) GetReedReplies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, list)
+	writeResponse(w, http.StatusOK, pbReplyList(list))
 }
 
 
@@ -3243,7 +3227,7 @@ func (h *Handlers) DeleteMention(w http.ResponseWriter, r *http.Request) {
 
 	reedID := mux.Vars(r)["reedID"]
 	if reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `reedID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `reedID` is required")
 		return
 	}
 
@@ -3256,7 +3240,7 @@ func (h *Handlers) DeleteMention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !removed {
-		writeResponse(w, http.StatusNotFound, "Mention not found")
+		writeError(w, http.StatusNotFound, "Mention not found")
 		return
 	}
 
@@ -3266,7 +3250,7 @@ func (h *Handlers) DeleteMention(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metrics.MentionClaimRejected(r.Context(), authorID, userID, reason)
 
-	writeResponse(w, http.StatusOK, map[string]bool{"removed": true})
+	writeResponse(w, http.StatusOK, &pb.DeleteMentionResponse{Removed: true})
 }
 
 // GetUserFollowing handles GET /users/{userID}/following.
@@ -3276,7 +3260,7 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 
@@ -3288,7 +3272,7 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			writeError(w, http.StatusBadRequest, "Invalid limit")
 			return
 		}
 		limit = n
@@ -3298,7 +3282,7 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
 		}
 		t = t.UTC().Truncate(time.Second)
@@ -3312,7 +3296,7 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, list)
+	writeResponse(w, http.StatusOK, pbFollowList(list))
 }
 
 // GetUserFollowers handles GET /users/{userID}/followers.
@@ -3322,7 +3306,7 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 
 	userID := mux.Vars(r)["userID"]
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeError(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 
@@ -3334,7 +3318,7 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			writeError(w, http.StatusBadRequest, "Invalid limit")
 			return
 		}
 		limit = n
@@ -3344,7 +3328,7 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.URL.Query().Get("before")); raw != "" {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
 		}
 		t = t.UTC().Truncate(time.Second)
@@ -3358,7 +3342,7 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeResponse(w, http.StatusOK, list)
+	writeResponse(w, http.StatusOK, pbFollowList(list))
 }
 
 // =================== //
@@ -3371,41 +3355,39 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) RecordBackup(w http.ResponseWriter, r *http.Request) {
 	userID := h.getUserID(r)
 	if userID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	var req struct {
-		Kind string `json:"kind"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var req pb.RecordBackupRequest
+	if err := readRequest(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
-	kind := metrics.BackupKind(strings.TrimSpace(strings.ToLower(req.Kind)))
+	kind := metrics.BackupKind(strings.TrimSpace(strings.ToLower(req.GetKind())))
 	switch kind {
 	case metrics.BackupKindIdentity, metrics.BackupKindFull:
 	default:
-		writeResponse(w, http.StatusBadRequest, "kind must be identity or full")
+		writeError(w, http.StatusBadRequest, "kind must be identity or full")
 		return
 	}
 
 	h.metrics.UserBackup(r.Context(), userID, kind)
-	writeResponse(w, http.StatusOK, "")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // BindDevice handles POST /api/users/device — revoke-all + bind this origin's device.
 func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(userIDKey).(string)
 	if !ok || userID == "" {
-		writeDeviceError(w, http.StatusUnauthorized, "unauthorized")
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
-		writeDeviceError(w, http.StatusBadRequest, "Invalid device id.")
+		writeError(w, http.StatusBadRequest, "Invalid device id.")
 		return
 	}
 
@@ -3417,7 +3399,7 @@ func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 
 	h.kickUserDevices(userID)
 
-	writeResponse(w, http.StatusOK, deviceID)
+	writeResponse(w, http.StatusOK, &pb.BindDeviceResponse{DeviceId: deviceID})
 }
 
 func (h *Handlers) kickUserDevices(userID string) {
@@ -3430,22 +3412,11 @@ func (h *Handlers) kickUserDevices(userID string) {
 //   Account recovery   //
 // ==================== //
 
-type accountRecoveryChallengeResponse struct {
-	Challenge string `json:"challenge"`
-}
-
 type bootstrapAccountRecoveryRequest struct {
 	Challenge string `json:"challenge"`
 	UserID    string `json:"userID"`
 	KeyID     string `json:"keyID"`
 	Signature string `json:"signature"`
-}
-
-type bootstrapAccountRecoveryResponse struct {
-	Profile   User     `json:"profile"`
-	Following []string `json:"following"`
-	TipReedID *string  `json:"tipReedID"`
-	ReedIDs   []string `json:"reedIDs"`
 }
 
 func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Request) {
@@ -3454,23 +3425,29 @@ func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
-	writeResponse(w, http.StatusOK, accountRecoveryChallengeResponse{Challenge: nonce})
+	writeResponse(w, http.StatusOK, &pb.ChallengeResponse{Challenge: nonce})
 }
 
 func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Request) {
-	var req bootstrapAccountRecoveryRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var msg pb.AccountRecoveryBootstrapRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req := bootstrapAccountRecoveryRequest{
+		Challenge: msg.GetChallenge(),
+		UserID:    msg.GetUserId(),
+		KeyID:     msg.GetKeyId(),
+		Signature: msg.GetSignature(),
+	}
 	if req.Challenge == "" || req.UserID == "" || req.KeyID == "" || req.Signature == "" {
-		writeResponse(w, http.StatusBadRequest, "Missing required fields")
+		writeError(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
 
 	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
+		writeError(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
 	}
 
@@ -3481,7 +3458,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !live {
-		writeResponse(w, http.StatusBadRequest, "Unknown or expired challenge")
+		writeError(w, http.StatusBadRequest, "Unknown or expired challenge")
 		return
 	}
 	now := time.Now()
@@ -3492,7 +3469,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if removed {
-		writeResponse(w, http.StatusGone, "Account removed")
+		writeError(w, http.StatusGone, "Account removed")
 		return
 	}
 
@@ -3502,7 +3479,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if profile == nil {
-		writeResponse(w, http.StatusNotFound, "Account not found")
+		writeError(w, http.StatusNotFound, "Account not found")
 		return
 	}
 
@@ -3512,7 +3489,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if activeFingerprint == "" || activeFingerprint != req.KeyID {
-		writeResponse(w, http.StatusUnauthorized, "Key is not the active key for this account")
+		writeError(w, http.StatusUnauthorized, "Key is not the active key for this account")
 		return
 	}
 
@@ -3522,12 +3499,12 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if key == nil || key.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Unknown or revoked key")
+		writeError(w, http.StatusUnauthorized, "Unknown or revoked key")
 		return
 	}
 
 	if err := verifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
-		writeResponse(w, http.StatusUnauthorized, err.Error())
+		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -3555,11 +3532,11 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		reedIDs = []string{}
 	}
 
-	writeResponse(w, http.StatusOK, bootstrapAccountRecoveryResponse{
-		Profile:   *profile,
+	writeResponse(w, http.StatusOK, &pb.AccountRecoveryBootstrapResponse{
+		Profile:   pbUser(profile),
 		Following: following,
-		TipReedID: tipReedID,
-		ReedIDs:   reedIDs,
+		TipReedId: tipReedID,
+		ReedIds:   reedIDs,
 	})
 }
 
@@ -3574,14 +3551,14 @@ func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	writeResponse(w, http.StatusOK, recoveryChallengeResponse{Challenge: nonce})
+	writeResponse(w, http.StatusOK, &pb.ChallengeResponse{Challenge: nonce})
 }
 
 // ClaimIdentity handles POST /api/recovery/identity/claim.
 func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
-	var req recoveryClaimRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req, err := readRecoveryClaim(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
@@ -3592,30 +3569,30 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !live {
-		writeResponse(w, http.StatusBadRequest, "Unknown or expired challenge")
+		writeError(w, http.StatusBadRequest, "Unknown or expired challenge")
 		return
 	}
 
 	serverID := h.services.db.GetServerID()
 	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	if err := requireUnrevokedTip(active); err != nil {
-		writeResponse(w, http.StatusUnauthorized, err.Error())
+		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	if err := verifyChallengeSignature(req.Challenge, req.Signature, active.Key.Armor, h.services.crypto); err != nil {
-		writeResponse(w, http.StatusUnauthorized, err.Error())
+		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
 	deviceID, err := parseDeviceID(r.Header.Get("X-Syrinx-Device-Id"))
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
+		writeError(w, http.StatusBadRequest, "Missing or invalid X-Syrinx-Device-Id header")
 		return
 	}
 
@@ -3625,7 +3602,7 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Rejected {
-		writeResponse(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		writeError(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
 		return
 	}
 	if res.Created {
@@ -3633,32 +3610,32 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
-	writeResponse(w, http.StatusOK, req.Profile)
+	writeResponse(w, http.StatusOK, pbRecoveryProfile(req.Profile))
 }
 
 // ReportPeerIdentity handles POST /api/recovery/identity.
 func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	if !ok || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	var req recoveryPeerIdentityRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req, err := readRecoveryPeerIdentity(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 
 	if req.Profile.ID == caller {
-		writeResponse(w, http.StatusBadRequest, "own identity must use claim")
+		writeError(w, http.StatusBadRequest, "own identity must use claim")
 		return
 	}
 
 	serverID := h.services.db.GetServerID()
 	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -3668,7 +3645,7 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Rejected {
-		writeResponse(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		writeError(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
 		return
 	}
 	if res.Created {
@@ -3676,34 +3653,34 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
-	writeResponse(w, http.StatusOK, req.Profile)
+	writeResponse(w, http.StatusOK, pbRecoveryProfile(req.Profile))
 }
 
 // ReportReed handles POST /api/recovery/reeds.
 func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	if !ok || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	var req recoveryReedRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	req, err := readRecoveryReed(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	if req.ReedID == "" || req.AuthorID == "" || req.UserSignature.Armor == "" {
-		writeResponse(w, http.StatusBadRequest, "reedID, authorID, and userSignature are required")
+		writeError(w, http.StatusBadRequest, "reedID, authorID, and userSignature are required")
 		return
 	}
 	if req.ServerSignature.Fingerprint == "" || req.ServerSignature.Armor == "" || req.ServerSignature.Timestamp.IsZero() {
-		writeResponse(w, http.StatusBadRequest, "server countersignature is required")
+		writeError(w, http.StatusBadRequest, "server countersignature is required")
 		return
 	}
 
 	serverID := h.services.db.GetServerID()
 	if err := verifyRecoveryReedCountersig(r.Context(), req, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto); err != nil {
-		writeResponse(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -3711,7 +3688,7 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	// both arrive already canonical — only req.ReedID is bare on this wire.
 	authorKeyID := req.UserSignature.KeyID
 	canonicalReedID := string(appendEntity(identityID(req.AuthorID), req.ReedID))
-	err := saveRecoveryReed(r.Context(), h.services.db.db,
+	err = saveRecoveryReed(r.Context(), h.services.db.db,
 		serverID,
 		canonicalReedID,
 		req.ServerSignature.Fingerprint,
@@ -3723,9 +3700,9 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	)
 	switch {
 	case errors.Is(err, errRecoveryAuthorNotFound):
-		writeResponse(w, http.StatusBadRequest, "author not found")
+		writeError(w, http.StatusBadRequest, "author not found")
 	case errors.Is(err, errRecoveryReedConflict):
-		writeResponse(w, http.StatusConflict, "reed metadata conflict")
+		writeError(w, http.StatusConflict, "reed metadata conflict")
 	case err != nil:
 		internalServerError(w)
 	default:
@@ -3737,22 +3714,23 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	if !ok || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
-	var req recoveryFollowingRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var msg pb.RecoveryFollowingRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	req := recoveryFollowingRequest{UserIDs: msg.GetUserIds()}
 	if len(req.UserIDs) > maxRecoveryFollowingBatch {
-		writeResponse(w, http.StatusBadRequest, "userIDs exceeds maximum of 100")
+		writeError(w, http.StatusBadRequest, "userIDs exceeds maximum of 100")
 		return
 	}
 	for _, id := range req.UserIDs {
 		if id == caller {
-			writeResponse(w, http.StatusBadRequest, "Cannot follow yourself")
+			writeError(w, http.StatusBadRequest, "Cannot follow yourself")
 			return
 		}
 	}
@@ -3768,7 +3746,7 @@ func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	if !ok || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
@@ -3909,7 +3887,7 @@ func (h *Handlers) proxyIfForeign(w http.ResponseWriter, r *http.Request, id str
 		return true, 0
 	}
 	if peer == nil {
-		writeResponse(w, http.StatusNotFound, "Not found")
+		writeError(w, http.StatusNotFound, "Not found")
 		return true, 0
 	}
 
@@ -3937,7 +3915,7 @@ func (h *Handlers) proxyLikeToForeignReed(w http.ResponseWriter, r *http.Request
 		return true
 	}
 	if peer == nil {
-		writeResponse(w, http.StatusNotFound, "Not found")
+		writeError(w, http.StatusNotFound, "Not found")
 		return true
 	}
 
@@ -3946,14 +3924,14 @@ func (h *Handlers) proxyLikeToForeignReed(w http.ResponseWriter, r *http.Request
 		internalServerError(w)
 		return true
 	}
-	values, err := url.ParseQuery(string(body))
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request format")
+	var req pb.LikeRequest
+	if err := proto.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return true
 	}
-	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	likerID, ok := h.resolveActingUser(r, req.GetLikerId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return true
 	}
 
@@ -3961,20 +3939,20 @@ func (h *Handlers) proxyLikeToForeignReed(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy like to peer server failed")
 		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Proxy like to %s failed: %s", peer.BaseURL, err.Error()))
-		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
 		return true
 	}
 
 	if status == http.StatusOK {
-		var cert LikeCert
-		if err := json.Unmarshal(respBody, &cert); err != nil {
+		var cert pb.LikeCert
+		if err := proto.Unmarshal(respBody, &cert); err != nil {
 			log.Error().Err(err).Str("likerID", likerID).Str("reedID", reedID).Msg("Failed to parse peer like cert")
-		} else if err := h.mirrorForeignLike(r.Context(), likerID, cert); err != nil {
+		} else if err := h.mirrorForeignLike(r.Context(), likerID, likeCertFromPB(&cert)); err != nil {
 			log.Error().Err(err).Str("likerID", likerID).Str("reedID", reedID).Msg("Failed to mirror foreign like locally")
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", protobufContentType)
 	w.WriteHeader(status)
 	_, _ = w.Write(respBody)
 	return true
@@ -4013,19 +3991,23 @@ func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Reque
 		return true
 	}
 	if peer == nil {
-		writeResponse(w, http.StatusNotFound, "Not found")
+		writeError(w, http.StatusNotFound, "Not found")
 		return true
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return true
 	}
-	values, _ := url.ParseQuery(string(body))
-	likerID, ok := h.resolveActingUser(r, values.Get("likerID"))
+	var req pb.UnlikeRequest
+	if err := proto.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return true
+	}
+	likerID, ok := h.resolveActingUser(r, req.GetLikerId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return true
 	}
 
@@ -4033,7 +4015,7 @@ func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy unlike to peer server failed")
 		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Proxy unlike to %s failed: %s", peer.BaseURL, err.Error()))
-		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
 		return true
 	}
 
@@ -4043,6 +4025,9 @@ func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if len(respBody) > 0 {
+		w.Header().Set("Content-Type", protobufContentType)
+	}
 	w.WriteHeader(status)
 	if len(respBody) > 0 {
 		_, _ = w.Write(respBody)
@@ -4126,7 +4111,7 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 	if err != nil {
 		log.Error().Err(err).Str("target", target).Msg("proxy to peer server failed")
 		h.logFederationServerAsync(peerServerID, "error", fmt.Sprintf("Proxy request to %s failed: %s", target, err.Error()))
-		writeResponse(w, http.StatusBadGateway, "Failed to reach peer server")
+		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
 		return 0
 	}
 	defer resp.Body.Close()
@@ -4157,12 +4142,16 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 // userID (local to the peer). Blocks until the peer confirms.
 func (h *Handlers) forwardFollowToPeer(ctx context.Context, method, peerBaseURL, userID, followerID string) error {
 	target := strings.TrimRight(peerBaseURL, "/") + "/api/users/" + userID + "/follow"
-	body := "followerID=" + url.QueryEscape(followerID)
+	encoded, err := proto.Marshal(&pb.FollowRequest{FollowerId: followerID})
+	if err != nil {
+		return err
+	}
+	body := string(encoded)
 	httpReq, err := http.NewRequestWithContext(ctx, method, target, strings.NewReader(body))
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpReq.Header.Set("Content-Type", protobufContentType)
 	if err := h.setPeerProxyAuthHeaders(httpReq, body); err != nil {
 		return err
 	}
@@ -4223,8 +4212,12 @@ func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverI
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("fetch peer server key: status %d", resp.StatusCode)
 	}
-	var key Key
-	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read peer server key: %w", err)
+	}
+	key, err := decodePeerKey(body)
+	if err != nil {
 		return "", fmt.Errorf("decode peer server key: %w", err)
 	}
 	armorBytes := key.Armor
@@ -4304,8 +4297,12 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 		return nil, fmt.Errorf("fetch peer user key: status %d", resp.StatusCode)
 	}
 
-	var key Key
-	if err := json.NewDecoder(resp.Body).Decode(&key); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read peer user key: %w", err)
+	}
+	key, err := decodePeerKey(body)
+	if err != nil {
 		return nil, fmt.Errorf("decode peer user key: %w", err)
 	}
 	return h.verifyAndCachePeerUserKey(ctx, baseURL, peerServerID, key)
@@ -4394,62 +4391,57 @@ func (h *Handlers) logFederationAttemptAsync(attemptID, level, message string) {
 func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var req pb.FederationCreateRequest
+	if err := readRequest(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	var req federationCreateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	remoteArmor := strings.TrimSpace(req.RemotePublicKeyArmor)
+	remoteArmor := strings.TrimSpace(req.GetRemotePublicKeyArmor())
 	if remoteArmor == "" {
-		writeResponse(w, http.StatusBadRequest, "remotePublicKeyArmor is required")
+		writeError(w, http.StatusBadRequest, "remotePublicKeyArmor is required")
 		return
 	}
-	name := strings.TrimSpace(req.Name)
+	name := strings.TrimSpace(req.GetName())
 	if name == "" {
-		writeResponse(w, http.StatusBadRequest, "name is required")
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	if len(name) > 255 {
-		writeResponse(w, http.StatusBadRequest, "name is too long")
+		writeError(w, http.StatusBadRequest, "name is too long")
 		return
 	}
 
 	remoteFingerprint, err := h.services.crypto.extractFingerprintFromArmor(remoteArmor)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid remote public key")
+		writeError(w, http.StatusBadRequest, "Invalid remote public key")
 		return
 	}
 	if remoteFingerprint == h.signingKey.Fingerprint {
-		writeResponse(w, http.StatusBadRequest, "Cannot create a federation invitation using this server's own public key")
+		writeError(w, http.StatusBadRequest, "Cannot create a federation invitation using this server's own public key")
 		return
 	}
 
 	inviteID, err := newCryptoID()
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	secret, err := newInviteSecret()
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
@@ -4465,13 +4457,13 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	)
 	sig, err := h.federationSignServer(signBytes)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
 	serverPubArmor, err := h.services.db.GetServerPublicKeyByFingerprint(r.Context(), h.signingKey.Fingerprint)
 	if err != nil || serverPubArmor == "" {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
@@ -4488,13 +4480,13 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	}
 	plaintext, err := json.Marshal(payload)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
 	connectionString, err := h.services.crypto.encrypt(plaintext, remoteArmor)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Failed to encrypt connection payload")
+		writeError(w, http.StatusBadRequest, "Failed to encrypt connection payload")
 		return
 	}
 
@@ -4503,19 +4495,19 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now); err != nil {
 		switch {
 		case errors.Is(err, errFederationInvitationExists):
-			writeResponse(w, http.StatusConflict, "Invitation already exists")
+			writeError(w, http.StatusConflict, "Invitation already exists")
 		case errors.Is(err, errFederationInvitationDuplicateKey):
-			writeResponse(w, http.StatusConflict, "A pending invitation for this public key already exists")
+			writeError(w, http.StatusConflict, "A pending invitation for this public key already exists")
 		case errors.Is(err, errFederationInvitationDuplicateName):
-			writeResponse(w, http.StatusConflict, "A pending invitation with this name already exists")
+			writeError(w, http.StatusConflict, "A pending invitation with this name already exists")
 		default:
-			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+			writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		}
 		return
 	}
 
-	writeResponse(w, http.StatusCreated, federationCreateResponse{
-		InviteID:         inviteID,
+	writeResponse(w, http.StatusCreated, &pb.FederationCreateResponse{
+		InviteId:         inviteID,
 		ConnectionString: connectionString,
 		Status:           federationStatusNew,
 	})
@@ -4524,60 +4516,51 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 func (h *Handlers) ListFederationInvitations(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	rows, err := h.services.db.ListFederationInvitations(r.Context())
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
-	out := make([]federationListItemWire, 0, len(rows))
+	out := &pb.FederationInvitationList{}
 	for _, row := range rows {
-		out = append(out, federationInvitationRowToWire(row))
+		out.Invitations = append(out.Invitations, federationInvitationRowToWire(row))
 	}
 	writeResponse(w, http.StatusOK, out)
 }
 
-func federationInvitationRowToWire(row federationInvitationListRow) federationListItemWire {
-	item := federationListItemWire{
-		InviteID:          row.ID,
+func federationInvitationRowToWire(row federationInvitationListRow) *pb.FederationInvitation {
+	item := &pb.FederationInvitation{
+		InviteId:          row.ID,
 		Name:              row.Name,
 		Status:            row.Status,
 		CreatedBy:         row.CreatedBy,
 		RemoteFingerprint: row.Fingerprint,
-		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
-	}
-	if row.AcceptedAt != nil {
-		s := row.AcceptedAt.UTC().Format(time.RFC3339)
-		item.AcceptedAt = &s
+		CreatedAt:         unixOrZero(row.CreatedAt),
+		AcceptedAt:        unixPtr(row.AcceptedAt),
+		ReviewedAt:        unixPtr(row.ReviewedAt),
 	}
 	if row.ServerID != "" {
-		sid := row.ServerID
-		item.ServerID = &sid
+		item.ServerId = &row.ServerID
 	}
 	if row.ReviewedBy != "" {
-		rb := row.ReviewedBy
-		item.ReviewedBy = &rb
-	}
-	if row.ReviewedAt != nil {
-		s := row.ReviewedAt.UTC().Format(time.RFC3339)
-		item.ReviewedAt = &s
+		item.ReviewedBy = &row.ReviewedBy
 	}
 	if row.Status == federationStatusNew && row.ConnectionCiphertext != "" {
-		cs := row.ConnectionCiphertext
-		item.ConnectionString = &cs
+		item.ConnectionString = &row.ConnectionCiphertext
 	}
 	return item
 }
@@ -4589,51 +4572,48 @@ func federationInvitationRowToWire(row federationInvitationListRow) federationLi
 func (h *Handlers) ListFederationServers(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	rows, err := h.services.db.ListFederationServers(r.Context())
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
-	out := make([]federationServerWire, 0, len(rows))
+	out := &pb.FederationServerList{}
 	for _, row := range rows {
-		out = append(out, federationServerRowToWire(row))
+		out.Servers = append(out.Servers, federationServerRowToWire(row))
 	}
 	writeResponse(w, http.StatusOK, out)
 }
 
 // federationServerRowToWire converts one servers row to its wire shape,
 // shared by ListFederationServers and GetFederationList.
-func federationServerRowToWire(row federationServerListRow) federationServerWire {
-	wire := federationServerWire{
-		ServerID:          row.ID,
+func federationServerRowToWire(row federationServerListRow) *pb.FederationServer {
+	wire := &pb.FederationServer{
+		ServerId:          row.ID,
 		Name:              row.Name,
-		BaseURL:           row.BaseURL,
-		FrontendURL:       row.FrontendURL,
+		BaseUrl:           row.BaseURL,
+		FrontendUrl:       row.FrontendURL,
 		Connected:         row.Connected,
 		Established:       row.Established,
-		CreatedAt:         row.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:         unixOrZero(row.CreatedAt),
 		Revoked:           row.Revoked,
 		DisconnectPending: row.DisconnectPending,
 	}
 	if row.Revoked {
-		if row.RevokedAt != nil {
-			t := row.RevokedAt.UTC().Format(time.RFC3339)
-			wire.RevokedAt = &t
-		}
+		wire.RevokedAt = unixPtr(row.RevokedAt)
 		if row.RevokedBy != "" {
 			wire.RevokedBy = &row.RevokedBy
 		}
@@ -4642,10 +4622,7 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 		}
 	}
 	if row.DisconnectPending {
-		if row.DisconnectRequestedAt != nil {
-			t := row.DisconnectRequestedAt.UTC().Format(time.RFC3339)
-			wire.DisconnectRequestedAt = &t
-		}
+		wire.DisconnectRequestedAt = unixPtr(row.DisconnectRequestedAt)
 		if row.DisconnectRequestedBy != "" {
 			wire.DisconnectRequestedBy = &row.DisconnectRequestedBy
 		}
@@ -4656,8 +4633,8 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 	return wire
 }
 
-// GetFederationServerLogs returns federation_log lines for one peer server as
-// plain text, one line per entry — the mesh tab's per-server drill-down (tap
+// GetFederationServerLogs returns federation_log lines for one peer server,
+// one line per entry — the mesh tab's per-server drill-down (tap
 // a server to see what actually happened during its handshake, since that
 // spans two servers and can fail or stall asynchronously). Attempt log lines
 // (pre-approval, written before a servers row existed — see
@@ -4669,22 +4646,22 @@ func federationServerRowToWire(row federationServerListRow) federationServerWire
 func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	serverID := mux.Vars(r)["id"]
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
@@ -4695,13 +4672,13 @@ func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Reques
 	// attempt info" rather than an error.
 	attempt, err := h.services.db.GetFederationAttemptForServer(r.Context(), serverID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if attempt != nil {
 		attemptRows, err := h.services.db.ListFederationAttemptLogs(r.Context(), attempt.ID)
 		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+			writeError(w, http.StatusInternalServerError, "Internal Server Error")
 			return
 		}
 		writeFederationLogLines(&sb, attemptRows)
@@ -4709,14 +4686,12 @@ func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Reques
 
 	serverRows, err := h.services.db.ListFederationServerLogs(r.Context(), serverID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	writeFederationLogLines(&sb, serverRows)
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(sb.String()))
+	writeResponse(w, http.StatusOK, &pb.FederationLogs{Text: sb.String()})
 }
 
 func writeFederationLogLines(sb *strings.Builder, rows []federationServerLogRow) {
@@ -4735,35 +4710,35 @@ func writeFederationLogLines(sb *strings.Builder, rows []federationServerLogRow)
 func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	serverID := mux.Vars(r)["id"]
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	inv, err := h.services.db.GetFederationInvitationForServer(r.Context(), serverID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if inv == nil {
-		writeResponse(w, http.StatusOK, nil)
+		writeResponse(w, http.StatusOK, &pb.FederationInvitationResponse{})
 		return
 	}
-	writeResponse(w, http.StatusOK, federationInvitationRowToWire(*inv))
+	writeResponse(w, http.StatusOK, &pb.FederationInvitationResponse{Invitation: federationInvitationRowToWire(*inv)})
 }
 
 // GetFederationServerAttempt returns the (approved) attempt that produced
@@ -4775,75 +4750,64 @@ func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.
 func (h *Handlers) GetFederationServerAttempt(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	serverID := mux.Vars(r)["id"]
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	attempt, err := h.services.db.GetFederationAttemptForServer(r.Context(), serverID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if attempt == nil {
-		writeResponse(w, http.StatusOK, nil)
+		writeResponse(w, http.StatusOK, &pb.FederationAttemptResponse{})
 		return
 	}
-	writeResponse(w, http.StatusOK, federationAttemptRowToWire(*attempt))
+	writeResponse(w, http.StatusOK, &pb.FederationAttemptResponse{Attempt: federationAttemptRowToWire(*attempt)})
 }
 
-func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire {
-	item := federationAttemptWire{
-		AttemptID:        row.ID,
-		RemoteServerID:   row.RemoteServerID,
+func federationAttemptRowToWire(row federationAttemptRow) *pb.FederationAttempt {
+	item := &pb.FederationAttempt{
+		AttemptId:        row.ID,
+		RemoteServerId:   row.RemoteServerID,
 		RemoteServerName: row.RemoteServerName,
-		BaseURL:          row.BaseURL,
-		FrontendURL:      row.FrontendURL,
+		BaseUrl:          row.BaseURL,
+		FrontendUrl:      row.FrontendURL,
 		Fingerprint:      row.Fingerprint,
-		CreatedAt:        row.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt:        unixOrZero(row.CreatedAt),
 		Status:           row.Status,
+		ApprovedAt:       unixPtr(row.ApprovedAt),
+		RejectedAt:       unixPtr(row.RejectedAt),
 	}
 	if row.InvitationID != "" {
-		id := row.InvitationID
-		item.InvitationID = &id
+		item.InvitationId = &row.InvitationID
 	}
 	if row.ServerID != "" {
-		id := row.ServerID
-		item.ServerID = &id
+		item.ServerId = &row.ServerID
 	}
 	if row.ApprovedBy != "" {
-		ab := row.ApprovedBy
-		item.ApprovedBy = &ab
-	}
-	if row.ApprovedAt != nil {
-		s := row.ApprovedAt.UTC().Format(time.RFC3339)
-		item.ApprovedAt = &s
+		item.ApprovedBy = &row.ApprovedBy
 	}
 	if row.RejectedBy != "" {
-		rb := row.RejectedBy
-		item.RejectedBy = &rb
-	}
-	if row.RejectedAt != nil {
-		s := row.RejectedAt.UTC().Format(time.RFC3339)
-		item.RejectedAt = &s
+		item.RejectedBy = &row.RejectedBy
 	}
 	if row.RejectedReason != "" {
-		reason := row.RejectedReason
-		item.RejectedReason = &reason
+		item.RejectedReason = &row.RejectedReason
 	}
 	return item
 }
@@ -4855,40 +4819,36 @@ func federationAttemptRowToWire(row federationAttemptRow) federationAttemptWire 
 func (h *Handlers) GetFederationList(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	invRows, err := h.services.db.ListFederationInvitations(r.Context())
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	attemptRows, err := h.services.db.ListFederationAttempts(r.Context())
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	serverRows, err := h.services.db.ListFederationServers(r.Context())
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
-	out := federationListWire{
-		Invitations: make([]federationListItemWire, 0, len(invRows)),
-		Attempts:    make([]federationAttemptWire, 0, len(attemptRows)),
-		Servers:     make([]federationServerWire, 0, len(serverRows)),
-	}
+	out := &pb.FederationList{}
 	for _, row := range invRows {
 		out.Invitations = append(out.Invitations, federationInvitationRowToWire(row))
 	}
@@ -4906,74 +4866,71 @@ func (h *Handlers) GetFederationList(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) GetFederationAttempt(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
 	if attemptID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	attempt, err := h.services.db.GetFederationAttempt(r.Context(), attemptID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if attempt == nil {
-		writeResponse(w, http.StatusNotFound, "Attempt not found")
+		writeError(w, http.StatusNotFound, "Attempt not found")
 		return
 	}
 	writeResponse(w, http.StatusOK, federationAttemptRowToWire(*attempt))
 }
 
 // GetFederationAttemptLogs returns federation_log lines for one attempt as
-// plain text, one line per entry — see GetFederationServerLogs's doc
-// comment for why plain text.
+// one line per entry — see GetFederationServerLogs's doc comment.
 func (h *Handlers) GetFederationAttemptLogs(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
 	if attemptID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	rows, err := h.services.db.ListFederationAttemptLogs(r.Context(), attemptID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
 	var sb strings.Builder
 	writeFederationLogLines(&sb, rows)
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(sb.String()))
+	writeResponse(w, http.StatusOK, &pb.FederationLogs{Text: sb.String()})
 }
 
 // ApproveFederationAttempt creates the servers row — see
@@ -4981,50 +4938,50 @@ func (h *Handlers) GetFederationAttemptLogs(w http.ResponseWriter, r *http.Reque
 func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 	callerIsRoot, err := h.isRoot(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
 	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
 	if attemptID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	serverID, established, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign, h.notifyPeerOfApproval)
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
-		writeResponse(w, http.StatusNotFound, "Attempt not found")
+		writeError(w, http.StatusNotFound, "Attempt not found")
 	case errors.Is(err, errFederationAttemptNotPending):
-		writeResponse(w, http.StatusConflict, "Attempt already decided")
+		writeError(w, http.StatusConflict, "Attempt already decided")
 	case errors.Is(err, errFederationSameApprover):
-		writeResponse(w, http.StatusForbidden, "A different admin must approve this connection")
+		writeError(w, http.StatusForbidden, "A different admin must approve this connection")
 	case errors.Is(err, errFederationPeerUnreachable):
 		h.services.log.GetLogger(r.Context()).Warn().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve could not reach peer")
 		h.logFederationAttemptAsync(attemptID, federationLogError, fmt.Sprintf("Approval by %s failed: %v", caller, err))
-		writeResponse(w, http.StatusBadGateway,
+		writeError(w, http.StatusBadGateway,
 			"Couldn't reach the other server, so the connection wasn't approved. Try again, or contact its admin.")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
-		writeResponse(w, http.StatusOK, map[string]any{"attemptId": attemptID, "serverId": serverID, "status": "approved", "established": established})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, ServerId: serverID, Status: "approved", Established: established})
 	}
 }
 
@@ -5034,51 +4991,49 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	attemptID := strings.TrimSpace(mux.Vars(r)["id"])
 	if attemptID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
-	var body struct {
-		Reason string `json:"reason"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var body pb.FederationReasonRequest
+	if err := readRequest(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	reason := strings.TrimSpace(body.Reason)
+	reason := strings.TrimSpace(body.GetReason())
 	if reason == "" {
-		writeResponse(w, http.StatusBadRequest, "reason is required")
+		writeError(w, http.StatusBadRequest, "reason is required")
 		return
 	}
 
 	err = h.services.db.RejectFederationAttempt(r.Context(), attemptID, caller, reason, time.Now().UTC().Truncate(time.Second))
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
-		writeResponse(w, http.StatusNotFound, "Attempt not found")
+		writeError(w, http.StatusNotFound, "Attempt not found")
 	case errors.Is(err, errFederationAttemptNotPending):
-		writeResponse(w, http.StatusConflict, "Attempt already decided")
+		writeError(w, http.StatusConflict, "Attempt already decided")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt reject failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Rejected by %s: %s", caller, reason))
-		writeResponse(w, http.StatusOK, map[string]string{"attemptId": attemptID, "status": "rejected"})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, Status: "rejected"})
 	}
 }
 
@@ -5088,53 +5043,51 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	serverID := strings.TrimSpace(mux.Vars(r)["id"])
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
-	var body struct {
-		Reason string `json:"reason"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var body pb.FederationReasonRequest
+	if err := readRequest(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	reason := strings.TrimSpace(body.Reason)
+	reason := strings.TrimSpace(body.GetReason())
 	if reason == "" {
-		writeResponse(w, http.StatusBadRequest, "reason is required")
+		writeError(w, http.StatusBadRequest, "reason is required")
 		return
 	}
 
 	err = h.services.db.RequestFederationServerDisconnect(r.Context(), serverID, caller, reason, time.Now().UTC().Truncate(time.Second))
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
-		writeResponse(w, http.StatusNotFound, "Server not found")
+		writeError(w, http.StatusNotFound, "Server not found")
 	case errors.Is(err, errFederationServerAlreadyRevoked):
-		writeResponse(w, http.StatusConflict, "Server already revoked")
+		writeError(w, http.StatusConflict, "Server already revoked")
 	case errors.Is(err, errFederationDisconnectAlreadyRequested):
-		writeResponse(w, http.StatusConflict, "Disconnect already requested for this server")
+		writeError(w, http.StatusConflict, "Disconnect already requested for this server")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect request failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationServerAsync(serverID, federationLogInfo,
 			fmt.Sprintf("Disconnect requested by %s: %s", caller, reason))
-		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "disconnect_pending"})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "disconnect_pending"})
 	}
 }
 
@@ -5144,41 +5097,41 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 	callerIsRoot, err := h.isRoot(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
 	serverID := strings.TrimSpace(mux.Vars(r)["id"])
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	reason, err := h.services.db.ConfirmFederationServerDisconnect(r.Context(), serverID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
-		writeResponse(w, http.StatusNotFound, "Server not found")
+		writeError(w, http.StatusNotFound, "Server not found")
 	case errors.Is(err, errFederationDisconnectNotRequested):
-		writeResponse(w, http.StatusConflict, "No disconnect request is pending for this server")
+		writeError(w, http.StatusConflict, "No disconnect request is pending for this server")
 	case errors.Is(err, errFederationSameApprover):
-		writeResponse(w, http.StatusForbidden, "A different admin must confirm this disconnect")
+		writeError(w, http.StatusForbidden, "A different admin must confirm this disconnect")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect confirm failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationServerAsync(serverID, federationLogError,
 			fmt.Sprintf("Disconnected by %s (confirmed): %s", caller, reason))
@@ -5196,7 +5149,7 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 				h.services.log.GetLogger(context.Background()).Warn().Err(err).Str("serverId", serverID).Msg("failed to notify peer of disconnect")
 			}
 		}()
-		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "revoked"})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "revoked"})
 	}
 }
 
@@ -5206,36 +5159,36 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	serverID := strings.TrimSpace(mux.Vars(r)["id"])
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	err = h.services.db.CancelFederationServerDisconnect(r.Context(), serverID)
 	switch {
 	case errors.Is(err, errFederationDisconnectNotRequested):
-		writeResponse(w, http.StatusConflict, "No disconnect request is pending for this server")
+		writeError(w, http.StatusConflict, "No disconnect request is pending for this server")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect cancel failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.logFederationServerAsync(serverID, federationLogInfo,
 			fmt.Sprintf("Disconnect request cancelled by %s", caller))
-		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "disconnect_cancelled"})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "disconnect_cancelled"})
 	}
 }
 
@@ -5245,36 +5198,36 @@ func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *ht
 func (h *Handlers) PurgeFederationServer(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	root, err := h.isRoot(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !root {
-		writeResponse(w, http.StatusForbidden, "Root required")
+		writeError(w, http.StatusForbidden, "Root required")
 		return
 	}
 
 	serverID := strings.TrimSpace(mux.Vars(r)["id"])
 	if serverID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `id` is required")
+		writeError(w, http.StatusBadRequest, "Argument `id` is required")
 		return
 	}
 
 	err = h.services.db.PurgeFederationServer(r.Context(), serverID)
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
-		writeResponse(w, http.StatusNotFound, "Server not found")
+		writeError(w, http.StatusNotFound, "Server not found")
 	case errors.Is(err, errFederationServerNotRevoked):
-		writeResponse(w, http.StatusConflict, "Server must be disconnected before it can be deleted")
+		writeError(w, http.StatusConflict, "Server must be disconnected before it can be deleted")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server purge failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
-		writeResponse(w, http.StatusOK, map[string]string{"serverId": serverID, "status": "purged"})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "purged"})
 	}
 }
 
@@ -5286,17 +5239,17 @@ func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Requ
 
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	userID := strings.TrimSpace(mux.Vars(r)["userID"])
 	if userID == "" {
-		writeResponse(w, http.StatusBadRequest, "Argument `userID` is required")
+		writeJSON(w, http.StatusBadRequest, "Argument `userID` is required")
 		return
 	}
 	if !strings.HasSuffix(userID, "@"+h.services.db.GetServerID()) {
-		writeResponse(w, http.StatusBadRequest, "userID must be local to this server")
+		writeJSON(w, http.StatusBadRequest, "userID must be local to this server")
 		return
 	}
 
@@ -5307,7 +5260,7 @@ func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if removal != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(removal))
+		writeJSON(w, http.StatusGone, h.accountRemovalWire(removal))
 		return
 	}
 
@@ -5318,7 +5271,7 @@ func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if user == nil {
-		writeResponse(w, http.StatusNotFound, "User not found")
+		writeJSON(w, http.StatusNotFound, "User not found")
 		return
 	}
 
@@ -5328,7 +5281,7 @@ func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	writeResponse(w, http.StatusOK, federationUserIdentityWire{
+	writeJSON(w, http.StatusOK, federationUserIdentityWire{
 		User:        user,
 		ActiveKeyID: fingerprint,
 	})
@@ -5337,36 +5290,36 @@ func (h *Handlers) GetFederationUserIdentity(w http.ResponseWriter, r *http.Requ
 func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
 	id := strings.TrimSpace(mux.Vars(r)["id"])
 	if id == "" {
-		writeResponse(w, http.StatusBadRequest, "id is required")
+		writeError(w, http.StatusBadRequest, "id is required")
 		return
 	}
 
 	err = h.services.db.RevokeFederationInvitation(r.Context(), id, caller, time.Now().UTC().Truncate(time.Second))
 	switch {
 	case errors.Is(err, errFederationInvitationNotFound):
-		writeResponse(w, http.StatusNotFound, "Invitation not found")
+		writeError(w, http.StatusNotFound, "Invitation not found")
 	case errors.Is(err, errFederationInvitationNotRevocable):
-		writeResponse(w, http.StatusBadRequest, "Invitation cannot be revoked")
+		writeError(w, http.StatusBadRequest, "Invitation cannot be revoked")
 	case err != nil:
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("id", id).Msg("federation invitation revoke failed")
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
-		writeResponse(w, http.StatusOK, map[string]string{"inviteId": id, "status": federationStatusCanceled})
+		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{InviteId: id, Status: federationStatusCanceled})
 	}
 }
 
@@ -5380,18 +5333,18 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 
 	inviteID := strings.TrimSpace(mux.Vars(r)["id"])
 	if inviteID == "" {
-		writeResponse(w, http.StatusBadRequest, "id is required")
+		writeJSON(w, http.StatusBadRequest, "id is required")
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	var req federationConnectRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+		writeJSON(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
 	req.ServerID = strings.TrimSpace(req.ServerID)
@@ -5401,11 +5354,11 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	req.Secret = strings.TrimSpace(req.Secret)
 	if req.ServerID == "" || req.BaseURL == "" || req.FrontendURL == "" || req.Fingerprint == "" ||
 		req.Signature == "" || req.Secret == "" {
-		writeResponse(w, http.StatusBadRequest, "Missing required fields")
+		writeJSON(w, http.StatusBadRequest, "Missing required fields")
 		return
 	}
 	if !h.federationURLAllowed(req.BaseURL) || !h.federationURLAllowed(req.FrontendURL) {
-		writeResponse(w, http.StatusBadRequest, "baseUrl and frontendUrl must be https")
+		writeJSON(w, http.StatusBadRequest, "baseUrl and frontendUrl must be https")
 		return
 	}
 
@@ -5418,7 +5371,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	if inv == nil {
 		// Nothing to attach a log line to — an unknown invite id isn't a
 		// real invitation's problem to surface.
-		writeResponse(w, http.StatusNotFound, "Invitation not found")
+		writeJSON(w, http.StatusNotFound, "Invitation not found")
 		return
 	}
 
@@ -5427,13 +5380,13 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 
 	if inv.Status != federationStatusNew {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invitation is not new")
-		writeResponse(w, http.StatusConflict, "Invitation is not new")
+		writeJSON(w, http.StatusConflict, "Invitation is not new")
 		return
 	}
 
 	if subtle.ConstantTimeCompare(cryptoHash(req.Secret), inv.SecretHash) != 1 {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid secret")
-		writeResponse(w, http.StatusForbidden, "Invalid secret")
+		writeJSON(w, http.StatusForbidden, "Invalid secret")
 		return
 	}
 	// req.Fingerprint must be the exact key A's admin pasted when creating
@@ -5443,7 +5396,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	// signature against, instead of trusting a self-reported fingerprint.
 	if req.Fingerprint != inv.Fingerprint {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: fingerprint does not match invitation")
-		writeResponse(w, http.StatusForbidden, "Fingerprint does not match invitation")
+		writeJSON(w, http.StatusForbidden, "Fingerprint does not match invitation")
 		return
 	}
 
@@ -5451,7 +5404,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	sigArmor := req.Signature
 	if err := h.services.crypto.verifyDetachedSignature(string(signBytes), sigArmor, inv.PublicKey); err != nil {
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invalid signature")
-		writeResponse(w, http.StatusBadRequest, "Invalid signature")
+		writeJSON(w, http.StatusBadRequest, "Invalid signature")
 		return
 	}
 
@@ -5465,16 +5418,16 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	}, now)
 	switch {
 	case errors.Is(err, errFederationInvitationNotFound):
-		writeResponse(w, http.StatusNotFound, "Invitation not found")
+		writeJSON(w, http.StatusNotFound, "Invitation not found")
 	case errors.Is(err, errFederationInvitationNotNew):
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: invitation is not new")
-		writeResponse(w, http.StatusConflict, "Invitation is not new")
+		writeJSON(w, http.StatusConflict, "Invitation is not new")
 	case errors.Is(err, errFederationServerAlreadyKnown):
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: server already known")
-		writeResponse(w, http.StatusConflict, "A federation attempt or connection with this server already exists")
+		writeJSON(w, http.StatusConflict, "A federation attempt or connection with this server already exists")
 	case errors.Is(err, errFederationKeyAlreadyKnown):
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Rejected connect attempt: public key already known")
-		writeResponse(w, http.StatusConflict, "This server's public key is already on record")
+		writeJSON(w, http.StatusConflict, "This server's public key is already on record")
 	case err != nil:
 		log.Error().Err(err).Str("inviteId", inviteID).Msg("federation connect accept failed")
 		h.logFederationInvitationAsync(inviteID, federationLogError, "Failed to record connect attempt: internal error")
@@ -5489,7 +5442,7 @@ func (h *Handlers) IncomingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		// isn't empty for a connection it originated.
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Handshake verified with server %s (%s); awaiting approval", req.ServerID, req.BaseURL))
-		writeResponse(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
+		writeJSON(w, http.StatusOK, federationConnectResponse{Status: federationStatusAccepted, ServerID: req.ServerID})
 	}
 }
 
@@ -5507,58 +5460,53 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	admin, err := h.isAdmin(r.Context(), caller)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if !admin {
-		writeResponse(w, http.StatusForbidden, "Admin required")
+		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var req pb.FederationAttemptRequest
+	if err := readRequest(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	var req federationAttemptRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	connectionString := strings.TrimSpace(req.ConnectionString)
+	connectionString := strings.TrimSpace(req.GetConnectionString())
 	if connectionString == "" {
-		writeResponse(w, http.StatusBadRequest, "connectionString is required")
+		writeError(w, http.StatusBadRequest, "connectionString is required")
 		return
 	}
 
 	plaintext, err := h.services.crypto.decrypt(connectionString, h.signingKey.Armor)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Failed to decrypt connection string")
+		writeError(w, http.StatusBadRequest, "Failed to decrypt connection string")
 		return
 	}
 	var payload federationConnectionPayload
 	if err := json.Unmarshal(plaintext, &payload); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid connection payload")
+		writeError(w, http.StatusBadRequest, "Invalid connection payload")
 		return
 	}
 	if payload.InviteID == "" || payload.ServerID == "" || payload.BaseURL == "" || payload.FrontendURL == "" ||
 		payload.Fingerprint == "" || payload.PublicKeyArmor == "" || payload.Signature == "" || payload.Secret == "" {
-		writeResponse(w, http.StatusBadRequest, "Incomplete connection payload")
+		writeError(w, http.StatusBadRequest, "Incomplete connection payload")
 		return
 	}
 	if !h.federationURLAllowed(payload.BaseURL) || !h.federationURLAllowed(payload.FrontendURL) {
-		writeResponse(w, http.StatusBadRequest, "baseUrl and frontendUrl must be https")
+		writeError(w, http.StatusBadRequest, "baseUrl and frontendUrl must be https")
 		return
 	}
 
 	remoteFingerprint, err := h.services.crypto.extractFingerprintFromArmor(payload.PublicKeyArmor)
 	if err != nil || remoteFingerprint != payload.Fingerprint {
-		writeResponse(w, http.StatusBadRequest, "Public key does not match claimed fingerprint")
+		writeError(w, http.StatusBadRequest, "Public key does not match claimed fingerprint")
 		return
 	}
 	initiatorSignBytes := buildFederationInvitationPayload(
@@ -5566,7 +5514,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	)
 	initiatorSigArmor := payload.Signature
 	if err := h.services.crypto.verifyDetachedSignature(string(initiatorSignBytes), initiatorSigArmor, payload.PublicKeyArmor); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid initiator signature")
+		writeError(w, http.StatusBadRequest, "Invalid initiator signature")
 		return
 	}
 
@@ -5585,10 +5533,10 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	attemptID, err := h.services.db.CreateFederationAttempt(r.Context(), peer, now)
 	switch {
 	case errors.Is(err, errFederationServerAlreadyKnown):
-		writeResponse(w, http.StatusConflict, "A federation attempt or connection with this server already exists")
+		writeError(w, http.StatusConflict, "A federation attempt or connection with this server already exists")
 		return
 	case errors.Is(err, errFederationKeyAlreadyKnown):
-		writeResponse(w, http.StatusConflict, "This server's public key is already on record")
+		writeError(w, http.StatusConflict, "This server's public key is already on record")
 		return
 	case err != nil:
 		log.Error().Err(err).Msg("failed to record federation attempt")
@@ -5635,7 +5583,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		log.Error().Err(err).Str("connectURL", connectURL).Msg("federation connect callback failed")
 		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Failed to reach %s (%s): %s", payload.ServerID, payload.BaseURL, err.Error()))
-		writeResponse(w, http.StatusBadGateway, "Failed to reach initiator server")
+		writeError(w, http.StatusBadGateway, "Failed to reach initiator server")
 		return
 	}
 	defer resp.Body.Close()
@@ -5644,7 +5592,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		log.Info().Int("status", resp.StatusCode).Str("connectURL", connectURL).Msg("federation connect callback rejected")
 		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Rejected by %s (%s): %s", payload.ServerID, payload.BaseURL, string(respBody)))
-		writeResponse(w, resp.StatusCode, string(respBody))
+		writeError(w, resp.StatusCode, peerErrorMessage(respBody))
 		return
 	}
 	var connectResp federationConnectResponse
@@ -5659,7 +5607,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	h.logFederationAttemptAsync(attemptID, federationLogInfo,
 		fmt.Sprintf("Handshake verified with server %s (%s); awaiting approval", payload.ServerID, payload.BaseURL))
 
-	writeResponse(w, http.StatusOK, federationAttemptResponse{Status: federationStatusAccepted, ServerID: payload.ServerID})
+	writeResponse(w, http.StatusOK, &pb.FederationAttemptStatus{Status: federationStatusAccepted, ServerId: payload.ServerID})
 }
 
 // //////////// //
@@ -5711,19 +5659,19 @@ func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 	if result.AccountRemoval != nil {
-		writeResponse(w, http.StatusGone, h.accountRemovalWire(result.AccountRemoval))
+		writeAccountGone(w, h.accountRemovalWire(result.AccountRemoval))
 		return false
 	}
 	if result.ReedRemoval != nil {
-		writeResponse(w, http.StatusGone, h.reedRemovalWire(result.ReedRemoval))
+		writeReedGone(w, h.reedRemovalWire(result.ReedRemoval))
 		return false
 	}
 	if result.ThreadRemoval != nil {
-		writeResponse(w, http.StatusGone, result.ThreadRemoval)
+		writeThreadGone(w, result.ThreadRemoval)
 		return false
 	}
 	if result.Reed == nil {
-		writeResponse(w, http.StatusNotFound, "Post not found")
+		writeError(w, http.StatusNotFound, "Post not found")
 		return false
 	}
 	blank, err := h.services.db.IsBlankEcho(r.Context(), reedID)
@@ -5732,7 +5680,7 @@ func (h *Handlers) checkRippleParentReed(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 	if blank {
-		writeResponse(w, http.StatusBadRequest, "Empty echoes have no ripples — use the original reed instead")
+		writeError(w, http.StatusBadRequest, "Empty echoes have no ripples — use the original reed instead")
 		return false
 	}
 	return true
@@ -5750,13 +5698,6 @@ type postRippleRequest struct {
 	UserID string `json:"userID"`
 }
 
-type deleteRippleRequest struct {
-	// UserID is the acting user's canonical id — only read when the
-	// request arrives via peer relay (see resolveActingUser); a local
-	// caller's own session already provides this.
-	UserID string `json:"userID"`
-}
-
 // PostRipple handles POST /api/reeds/{userID}/{reedID}/ripples. Only a
 // holder of the parent reed may post (checkReedHolder). Verifies the user
 // signature, then countersigns via DataService.PostRipple.
@@ -5766,7 +5707,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	reedUserID := mux.Vars(r)["userID"]
 	reedID := mux.Vars(r)["reedID"]
 	if reedUserID == "" || reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
@@ -5783,19 +5724,23 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	var msg pb.PostRippleRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	var req postRippleRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
+	req := postRippleRequest{
+		Content:       msg.GetContent(),
+		ThreadID:      msg.GetThreadId(),
+		ReplyingTo:    msg.ReplyingTo,
+		KeyID:         msg.GetKeyId(),
+		UserSignature: msg.GetUserSignature(),
+		UserID:        msg.GetUserId(),
 	}
 	callerID, ok := h.resolveActingUser(r, req.UserID)
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 	if h.refuseBlockedRequester(w, r, reedUserID, callerID) {
@@ -5813,23 +5758,23 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
-		writeResponse(w, http.StatusBadRequest, "Comment cannot be empty")
+		writeError(w, http.StatusBadRequest, "Comment cannot be empty")
 		return
 	}
 	if utf8.RuneCountInString(content) > MaxRippleContentChars {
-		writeResponse(w, http.StatusBadRequest, "Comment is too long (max 140 characters)")
+		writeError(w, http.StatusBadRequest, "Comment is too long (max 140 characters)")
 		return
 	}
 
 	if _, err := uuid.Parse(req.ThreadID); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid threadID")
+		writeError(w, http.StatusBadRequest, "Invalid threadID")
 		return
 	}
 
 	if req.ReplyingTo != nil {
 		target, err := h.services.db.GetRipple(r.Context(), *req.ReplyingTo)
 		if errors.Is(err, ErrRippleNotFound) {
-			writeResponse(w, http.StatusBadRequest, "Cannot reply to a comment that doesn't exist")
+			writeError(w, http.StatusBadRequest, "Cannot reply to a comment that doesn't exist")
 			return
 		}
 		if err != nil {
@@ -5837,17 +5782,17 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if target.ReedID != canonicalReedID {
-			writeResponse(w, http.StatusBadRequest, "Cannot reply to a comment on a different post")
+			writeError(w, http.StatusBadRequest, "Cannot reply to a comment on a different post")
 			return
 		}
 		if target.ThreadID != req.ThreadID {
-			writeResponse(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")
+			writeError(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")
 			return
 		}
 	}
 
 	if req.KeyID == "" || req.UserSignature == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `keyID` and `userSignature` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `keyID` and `userSignature` are required")
 		return
 	}
 	pubKey, err := h.resolvePublicKey(r.Context(), req.KeyID)
@@ -5857,7 +5802,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if pubKey == nil || pubKey.Revoked {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
 	userSigArmor := req.UserSignature
@@ -5870,7 +5815,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	)
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Str("userID", callerID).Str("reedID", canonicalReedID).Err(err).Msg("ripple signature verification failed")
-		writeResponse(w, http.StatusBadRequest, "Invalid signature.")
+		writeError(w, http.StatusBadRequest, "Invalid signature.")
 		return
 	}
 
@@ -5879,7 +5824,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		req.KeyID, req.UserSignature, h.countersign, time.Now(),
 	)
 	if errors.Is(err, ErrRippleThreadMismatch) {
-		writeResponse(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")
+		writeError(w, http.StatusBadRequest, "Reply must use the same thread as the comment it replies to.")
 		return
 	}
 	if err != nil {
@@ -5889,7 +5834,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wire := rippleWire(resp)
-	writeResponse(w, http.StatusCreated, wire)
+	writeResponse(w, http.StatusCreated, pbRipple(wire))
 
 	h.broadcastChan <- realtimeBroadcastMessage{
 		Type:                 realtimeRipplePosted,
@@ -5916,15 +5861,6 @@ func (h *Handlers) localRippleAuthor(ctx context.Context, rippleID *string) stri
 	return parent.UserID
 }
 
-type rippleListResponse struct {
-	Responses  []RippleWire `json:"responses"`
-	HasMore    bool         `json:"hasMore"`
-	NextCursor string       `json:"nextCursor,omitempty"`
-	// LastActivityAt is when the reed's ripple thread was last posted to;
-	// the client derives the thread's lifetime from it.
-	LastActivityAt *time.Time `json:"lastActivityAt,omitempty"`
-}
-
 // checkReedHolder lets only holders of the reed see or join its ripples:
 // a user must hold it on their own server; a peer proxying for one of its
 // users must hold it as a server, vouching for that user.
@@ -5937,7 +5873,7 @@ func (h *Handlers) checkReedHolder(w http.ResponseWriter, r *http.Request, reedI
 	} else if peerServerID, isPeer := ctx.Value(peerServerIDKey).(string); isPeer {
 		holds, err = h.services.db.IsServerHolder(ctx, reedID, peerServerID)
 	} else {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve caller")
+		writeError(w, http.StatusUnauthorized, "Could not resolve caller")
 		return false
 	}
 	if err != nil {
@@ -5945,7 +5881,7 @@ func (h *Handlers) checkReedHolder(w http.ResponseWriter, r *http.Request, reedI
 		return false
 	}
 	if !holds {
-		writeResponse(w, http.StatusForbidden, "You don't hold this post")
+		writeError(w, http.StatusForbidden, "You don't hold this post")
 		return false
 	}
 	return true
@@ -5959,7 +5895,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	reedUserID := mux.Vars(r)["userID"]
 	reedID := mux.Vars(r)["reedID"]
 	if reedUserID == "" || reedID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `userID` and `reedID` are required")
 		return
 	}
 	canonicalReedID := string(appendEntity(identityID(reedUserID), reedID))
@@ -5990,7 +5926,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			writeError(w, http.StatusBadRequest, "Invalid limit")
 			return
 		}
 		limit = n
@@ -5999,7 +5935,7 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 	before := strings.TrimSpace(r.URL.Query().Get("before"))
 	if before != "" {
 		if _, err := decodeRippleCursor(before); err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
 		}
 	}
@@ -6017,18 +5953,13 @@ func (h *Handlers) GetRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wires := make([]RippleWire, len(list.Ripples))
+	resp := &pb.RippleListResponse{
+		HasMore:        list.HasMore,
+		NextCursor:     list.NextCursor,
+		LastActivityAt: unixOrZero(lastActivityAt),
+	}
 	for i := range list.Ripples {
-		wires[i] = rippleWire(&list.Ripples[i])
-	}
-
-	resp := rippleListResponse{
-		Responses:  wires,
-		HasMore:    list.HasMore,
-		NextCursor: list.NextCursor,
-	}
-	if !lastActivityAt.IsZero() {
-		resp.LastActivityAt = &lastActivityAt
+		resp.Responses = append(resp.Responses, pbRipple(rippleWire(&list.Ripples[i])))
 	}
 	writeResponse(w, http.StatusOK, resp)
 }
@@ -6042,7 +5973,7 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 	reedID := mux.Vars(r)["reedID"]
 	rippleID := mux.Vars(r)["rippleID"]
 	if reedID == "" || rippleID == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `reedID` and `rippleID` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `reedID` and `rippleID` are required")
 		return
 	}
 
@@ -6050,21 +5981,14 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var req pb.DeleteRippleRequest
+	if err := readRequest(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	var req deleteRippleRequest
-	if len(body) > 0 {
-		if err := json.Unmarshal(body, &req); err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid request body")
-			return
-		}
-	}
-	callerID, ok := h.resolveActingUser(r, req.UserID)
+	callerID, ok := h.resolveActingUser(r, req.GetUserId())
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Could not resolve acting user")
+		writeError(w, http.StatusUnauthorized, "Could not resolve acting user")
 		return
 	}
 
@@ -6074,11 +5998,11 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !found {
-		writeResponse(w, http.StatusNotFound, "Comment not found")
+		writeError(w, http.StatusNotFound, "Comment not found")
 		return
 	}
 	if !owned {
-		writeResponse(w, http.StatusForbidden, "You can only delete your own comments.")
+		writeError(w, http.StatusForbidden, "You can only delete your own comments.")
 		return
 	}
 
@@ -6104,29 +6028,6 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ReceivedRippleWire is one row in a user's ripples inbox — RippleWire
-// plus fields implicit from the URL on the per-reed endpoints but sent
-// explicitly here, since one response can mix ripples from many reeds.
-type ReceivedRippleWire struct {
-	RippleWire
-	ReedID       string `json:"reedID"`
-	ReedAuthorID string `json:"reedAuthorID"`
-}
-
-func receivedRippleWire(r *ReceivedRipple) ReceivedRippleWire {
-	return ReceivedRippleWire{
-		RippleWire:   rippleWire(&r.Ripple),
-		ReedID:       r.ReedID,
-		ReedAuthorID: r.ReedAuthorID,
-	}
-}
-
-type receivedRippleListResponse struct {
-	Ripples    []ReceivedRippleWire `json:"ripples"`
-	HasMore    bool                 `json:"hasMore"`
-	NextCursor string               `json:"nextCursor,omitempty"`
-}
-
 // GetReceivedRipples handles GET /ripples: the caller's ripples inbox —
 // every response on a reed they own, on any reed hosted on this server.
 func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
@@ -6138,7 +6039,7 @@ func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeResponse(w, http.StatusBadRequest, "Invalid limit")
+			writeError(w, http.StatusBadRequest, "Invalid limit")
 			return
 		}
 		limit = n
@@ -6147,7 +6048,7 @@ func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
 	before := strings.TrimSpace(r.URL.Query().Get("before"))
 	if before != "" {
 		if _, err := decodeReceivedRippleCursor(before); err != nil {
-			writeResponse(w, http.StatusBadRequest, "Invalid before cursor")
+			writeError(w, http.StatusBadRequest, "Invalid before cursor")
 			return
 		}
 	}
@@ -6159,16 +6060,16 @@ func (h *Handlers) GetReceivedRipples(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wires := make([]ReceivedRippleWire, len(list.Ripples))
+	out := &pb.ReceivedRippleListResponse{HasMore: list.HasMore, NextCursor: list.NextCursor}
 	for i := range list.Ripples {
-		wires[i] = receivedRippleWire(&list.Ripples[i])
+		rr := &list.Ripples[i]
+		out.Ripples = append(out.Ripples, &pb.ReceivedRipple{
+			Ripple:       pbRipple(rippleWire(&rr.Ripple)),
+			ReedId:       rr.ReedID,
+			ReedAuthorId: rr.ReedAuthorID,
+		})
 	}
-
-	writeResponse(w, http.StatusOK, receivedRippleListResponse{
-		Ripples:    wires,
-		HasMore:    list.HasMore,
-		NextCursor: list.NextCursor,
-	})
+	writeResponse(w, http.StatusOK, out)
 }
 
 // federationFrontendURL is where this server's users open links
@@ -6200,32 +6101,12 @@ func (h *Handlers) SendMailboxMessage(ctx context.Context, userID string, catego
 //   invites   //
 // =========== //
 
-type inviteUserSignatureWire struct {
-	ID    string `json:"id"`
-	Armor string `json:"armor"`
-}
-
-type inviteServerSignatureWire struct {
-	ID        string `json:"id"`
-	Armor     string `json:"armor"`
-	Timestamp string `json:"timestamp"`
-}
-
 type inviteCreateRequest struct {
-	ID            string                  `json:"id"`
-	TokenHash     string                  `json:"tokenHash"`
-	CreatedAt     time.Time               `json:"createdAt"`
-	GrantedRole   string                  `json:"grantedRole"`
-	UserSignature inviteUserSignatureWire `json:"userSignature"`
-}
-
-type inviteCreateResponse struct {
-	ID              string                    `json:"id"`
-	TokenHash       string                    `json:"tokenHash"`
-	CreatedAt       time.Time                 `json:"createdAt"`
-	GrantedRole     string                    `json:"grantedRole"`
-	UserSignature   inviteUserSignatureWire   `json:"userSignature"`
-	ServerSignature inviteServerSignatureWire `json:"serverSignature"`
+	ID            string
+	TokenHash     string
+	CreatedAt     time.Time
+	GrantedRole   string
+	UserSignature UserSignature
 }
 
 // CreateInvite handles POST /api/invites.
@@ -6234,47 +6115,49 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	ok = ok && caller != ""
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
-		writeResponse(w, http.StatusForbidden, "Signups are closed on this server")
+		writeError(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
+	var msg pb.CreateInviteRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	var req inviteCreateRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid request body")
-		return
+	req := inviteCreateRequest{
+		ID:            msg.GetId(),
+		TokenHash:     msg.GetTokenHash(),
+		CreatedAt:     timeFromUnix(msg.GetCreatedAt()),
+		GrantedRole:   msg.GetGrantedRole(),
+		UserSignature: userSignatureFromPB(msg.GetUserSignature()),
 	}
 	idOwner, idServerID, idEntity, ok := parseKeyFingerprint(identityID(req.ID))
 	if !ok || !isValidUUIDv7(idEntity) {
-		writeResponse(w, http.StatusBadRequest, "Invalid invite id")
+		writeError(w, http.StatusBadRequest, "Invalid invite id")
 		return
 	}
 	if string(canonicalID(idServerID, idOwner)) != caller {
-		writeResponse(w, http.StatusForbidden, "Invite id does not belong to the caller")
+		writeError(w, http.StatusForbidden, "Invite id does not belong to the caller")
 		return
 	}
 	tokenHash, err := decodeHashHex(req.TokenHash)
 	if err != nil {
-		writeResponse(w, http.StatusBadRequest, "Invalid tokenHash")
+		writeError(w, http.StatusBadRequest, "Invalid tokenHash")
 		return
 	}
 	tokenHashHex := encodeHashHex(tokenHash)
 	if req.UserSignature.ID == "" || req.UserSignature.Armor == "" {
-		writeResponse(w, http.StatusBadRequest, "userSignature is required")
+		writeError(w, http.StatusBadRequest, "userSignature is required")
 		return
 	}
 
 	createdAt := req.CreatedAt.UTC().Truncate(time.Second)
 	if createdAt.IsZero() {
-		writeResponse(w, http.StatusBadRequest, "createdAt is required")
+		writeError(w, http.StatusBadRequest, "createdAt is required")
 		return
 	}
 	now := time.Now().UTC().Truncate(time.Second)
@@ -6283,7 +6166,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		skew = -skew
 	}
 	if skew > inviteCreateSkew {
-		writeResponse(w, http.StatusBadRequest, "createdAt out of range")
+		writeError(w, http.StatusBadRequest, "createdAt out of range")
 		return
 	}
 
@@ -6292,17 +6175,17 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		grantedRole = roleUser
 	}
 	if grantedRole != roleUser && grantedRole != roleAdmin {
-		writeResponse(w, http.StatusBadRequest, "Invalid grantedRole")
+		writeError(w, http.StatusBadRequest, "Invalid grantedRole")
 		return
 	}
 	if grantedRole == roleAdmin {
 		callerRole, err := h.services.db.GetUserRole(r.Context(), caller)
 		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+			writeError(w, http.StatusInternalServerError, "Internal Server Error")
 			return
 		}
 		if !canGrantAdmin(callerRole) {
-			writeResponse(w, http.StatusForbidden, "Cannot grant admin role")
+			writeError(w, http.StatusForbidden, "Cannot grant admin role")
 			return
 		}
 	}
@@ -6313,7 +6196,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	userSigArmor := req.UserSignature.Armor
 	key, err := h.services.db.GetPublicKey(r.Context(), req.UserSignature.ID)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	var pubArmor string
@@ -6321,11 +6204,11 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		pubArmor = key.Armor
 	}
 	if pubArmor == "" {
-		writeResponse(w, http.StatusUnauthorized, "Active public key not available")
+		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubArmor); err != nil {
-		writeResponse(w, http.StatusUnauthorized, "signature verification failed")
+		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
@@ -6334,14 +6217,14 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		req.UserSignature.ID, req.UserSignature.Armor, h.cfg.MaxInvitesPerUser,
 	); err != nil {
 		if errors.Is(err, errInviteExists) {
-			writeResponse(w, http.StatusConflict, "Invite already exists")
+			writeError(w, http.StatusConflict, "Invite already exists")
 			return
 		}
 		if errors.Is(err, errInviteLimitReached) {
-			writeResponse(w, http.StatusForbidden, "Invite limit reached")
+			writeError(w, http.StatusForbidden, "Invite limit reached")
 			return
 		}
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
@@ -6358,31 +6241,18 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	)
 	serverSig, err := h.countersign(serverPayload, signedAt)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 
-	writeResponse(w, http.StatusCreated, inviteCreateResponse{
-		ID:            req.ID,
-		TokenHash:     tokenHashHex,
-		CreatedAt:     createdAt,
-		GrantedRole:   grantedRole,
-		UserSignature: req.UserSignature,
-		ServerSignature: inviteServerSignatureWire{
-			ID:        serverSig.ID,
-			Armor:     serverSig.Armor,
-			Timestamp: serverSig.SignedAt.UTC().Format(time.RFC3339),
-		},
+	writeResponse(w, http.StatusCreated, &pb.Invite{
+		Id:              req.ID,
+		TokenHash:       tokenHashHex,
+		CreatedAt:       unixOrZero(createdAt),
+		GrantedRole:     grantedRole,
+		UserSignature:   pbUserSignature(req.UserSignature),
+		ServerSignature: pbServerSignature(serverSig),
 	})
-}
-
-type inviteStatusResponse struct {
-	ID        string     `json:"id"`
-	CreatedAt time.Time  `json:"createdAt"`
-	Status    string     `json:"status"`
-	ClaimedAt *time.Time `json:"claimedAt"`
-	ClaimedBy *string    `json:"claimedBy"`
-	RevokedAt *time.Time `json:"revokedAt"`
 }
 
 // InviteStatus handles GET /api/invites/{id} for the caller's invite.
@@ -6390,34 +6260,33 @@ func (h *Handlers) InviteStatus(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	ok = ok && caller != ""
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	id := mux.Vars(r)["id"]
 	if id == "" {
-		writeResponse(w, http.StatusBadRequest, "Invite id is required")
+		writeError(w, http.StatusBadRequest, "Invite id is required")
 		return
 	}
 
 	inv, err := h.services.db.getInviteByID(r.Context(), id)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	if inv == nil || inv.CreatedBy != caller {
-		writeResponse(w, http.StatusNotFound, "Invite not found")
+		writeError(w, http.StatusNotFound, "Invite not found")
 		return
 	}
 
-	out := inviteStatusResponse{
-		ID:        inv.ID,
-		CreatedAt: inv.CreatedAt.UTC(),
+	writeResponse(w, http.StatusOK, &pb.InviteStatus{
+		Id:        inv.ID,
+		CreatedAt: unixOrZero(inv.CreatedAt),
 		Status:    inv.Status(),
-		ClaimedAt: inv.ClaimedAt,
+		ClaimedAt: unixPtr(inv.ClaimedAt),
 		ClaimedBy: inv.ClaimedBy,
-		RevokedAt: inv.RevokedAt,
-	}
-	writeResponse(w, http.StatusOK, out)
+		RevokedAt: unixPtr(inv.RevokedAt),
+	})
 }
 
 // DeleteInvite handles DELETE /api/invites/{id}.
@@ -6425,32 +6294,28 @@ func (h *Handlers) DeleteInvite(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
 	ok = ok && caller != ""
 	if !ok {
-		writeResponse(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	id := mux.Vars(r)["id"]
 	if id == "" {
-		writeResponse(w, http.StatusBadRequest, "Invite id is required")
+		writeError(w, http.StatusBadRequest, "Invite id is required")
 		return
 	}
 
 	err := h.services.db.revokeInvite(r.Context(), id, caller, time.Now().UTC())
 	switch {
 	case errors.Is(err, errInviteNotFound), errors.Is(err, errInviteNotOwner):
-		writeResponse(w, http.StatusNotFound, "Invite not found")
+		writeError(w, http.StatusNotFound, "Invite not found")
 	case errors.Is(err, errInviteAlreadyClaimed):
-		writeResponse(w, http.StatusConflict, "Invite already claimed")
+		writeError(w, http.StatusConflict, "Invite already claimed")
 	case errors.Is(err, errInviteAlreadyRevoked):
 		w.WriteHeader(http.StatusNoContent)
 	case err != nil:
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
-}
-
-type inviteCheckResponse struct {
-	Valid bool `json:"valid"`
 }
 
 // CheckInvite handles GET /api/invites/check?id=&secret=.
@@ -6459,14 +6324,14 @@ func (h *Handlers) CheckInvite(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
 	secret := strings.TrimSpace(r.URL.Query().Get("secret"))
 	if id == "" || secret == "" {
-		writeResponse(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
+		writeError(w, http.StatusBadRequest, "Arguments `id` and `secret` are required")
 		return
 	}
 	inv, err := h.services.db.GetPendingInvite(r.Context(), id, secret)
 	if err != nil {
-		writeResponse(w, http.StatusInternalServerError, "Internal Server Error")
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
 	valid := inv != nil
-	writeResponse(w, http.StatusOK, inviteCheckResponse{Valid: valid})
+	writeResponse(w, http.StatusOK, &pb.InviteCheckResponse{Valid: valid})
 }

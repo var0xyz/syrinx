@@ -10,6 +10,7 @@
 import { privateKeyRepository } from '../repositories/privateKey';
 import { authService } from './auth';
 import { deviceIdHeader } from './deviceId';
+import { concatBytes } from '$lib/utils/bytes';
 
 class RequestSignerService {
   private initialized = false;
@@ -287,7 +288,7 @@ class RequestSignerService {
    * Sign arbitrary text using the service worker, returning the armored
    * detached signature. This is the core signing primitive.
    */
-  async sign(text: string): Promise<string> {
+  async sign(text: string | Uint8Array): Promise<string> {
     return (await this.withWorkerKey(() => this.getSignatureFromWorker(text))).trim();
   }
 
@@ -322,26 +323,16 @@ class RequestSignerService {
     const urlObj = new URL(url, window.location.origin);
     const path = urlObj.pathname + (urlObj.search || '');
 
-    // Get body (always include, even if empty)
-    let body = '';
+    // The exact body bytes are signed (always included, even if empty).
+    let body: Uint8Array = new Uint8Array();
     if (method !== 'GET' && method !== 'HEAD' && options.body) {
-      if (options.body instanceof FormData) {
-        // Convert FormData to a consistent string representation
-        const formDataEntries: string[] = [];
-        for (const [key, value] of options.body.entries()) {
-          formDataEntries.push(`${key}=${value}`);
-        }
-        body = formDataEntries.join('&');
-      } else {
-        body = options.body as string || '';
-      }
+      body = options.body instanceof Uint8Array ? options.body : new TextEncoder().encode(String(options.body));
     }
 
     // Generate timestamp for replay protection
     const timestamp = Math.floor(Date.now() / 1000).toString();
 
-    // Build canonical request string (no headers needed)
-    const canonicalRequest = this.buildCanonicalRequestString(method, path, body, timestamp);
+    const canonicalRequest = this.buildCanonicalRequestBytes(method, path, body, timestamp);
 
     const signature = this.encodeBase64Signature(await this.sign(canonicalRequest));
 
@@ -363,29 +354,14 @@ class RequestSignerService {
     };
   }
 
-  /**
-   * Build canonical request string for signing
-   * Only signs method + path + query + body + timestamp (no headers)
-   */
-  private buildCanonicalRequestString(method: string, path: string, body: string = '', timestamp: string = ''): string {
-    const builder = [];
-
-    // Add method and path (path already includes query string from signRequest)
-    builder.push(`${method} ${path}`);
-    console.log('RequestSigner: Method:', method);
-    console.log('RequestSigner: Path:', path);
-
-    // Always add body (even if empty) - this ensures there's always something to sign
-    builder.push('');
-    builder.push(body);
-
-    // Add timestamp for replay protection
-    if (timestamp) {
-      builder.push('');
-      builder.push(timestamp);
-    }
-
-    return builder.join('\n');
+  /** method + path, the body bytes and the timestamp, as middlewares.go's
+   * buildCanonicalRequestString joins them. */
+  private buildCanonicalRequestBytes(method: string, path: string, body: Uint8Array, timestamp: string): Uint8Array {
+    return concatBytes(
+      new TextEncoder().encode(`${method} ${path}\n\n`),
+      body,
+      new TextEncoder().encode(`\n\n${timestamp}`),
+    );
   }
 
   /** Base64-encode a signature so it fits in a single-line HTTP header. */
@@ -397,8 +373,9 @@ class RequestSignerService {
   /**
    * Get signature from service worker
    */
-  private async getSignatureFromWorker(text: string): Promise<string> {
-    const result = await this.postToWorker<{ success: boolean; signature: string }>('SIGN_TEXT', { text });
+  private async getSignatureFromWorker(text: string | Uint8Array): Promise<string> {
+    const data = typeof text === 'string' ? { text } : { bytes: text };
+    const result = await this.postToWorker<{ success: boolean; signature: string }>('SIGN_TEXT', data);
     return result.signature;
   }
 }
