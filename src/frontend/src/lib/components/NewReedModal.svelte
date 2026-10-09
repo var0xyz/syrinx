@@ -375,7 +375,7 @@
             {#if isThread}<span class="preview-badge">{i + 1}/{parts.length}</span>{/if}
             <div class="reed-preview-body">
               {#if part.text.trim()}
-                <MarkdownParser text={part.text} preview={true} usernameHints={mentionUsernameHints} />
+                <MarkdownParser text={part.text} preview={true} usernameHints={mentionUsernameHints} fullRender={false} />
               {:else}
                 <p class="reed-preview-empty">{i === 0 ? 'Your reed will appear here as you type.' : 'Empty reed'}</p>
               {/if}

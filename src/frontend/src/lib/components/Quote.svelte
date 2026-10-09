@@ -271,7 +271,7 @@
       <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.signedAt}&nbsp;· {formatRelativeTime(fromUnix(displayReed.serverSignature.signedAt))}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
-        <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
+        <MarkdownParser text={displayReed.content} preview={true} className="quote-content" fullRender={maxLines === 0} />
       {/if}
     </div>
   {:else}
@@ -283,7 +283,7 @@
       <div class="quote-meta"><span class="quote-icon" class:echo={type === 'echo'} class:reply={type === 'reply'}></span><span class="quote-meta-text"><Username userID={displayReed.userID} {username} linked={false} fire={false} color="var(--muted)" />{#if displayReed.serverSignature?.signedAt}&nbsp;· {formatRelativeTime(fromUnix(displayReed.serverSignature.signedAt))}{/if}</span></div>
 
       {#if (displayReed.content || '').trim()}
-        <MarkdownParser text={displayReed.content} preview={true} className="quote-content" />
+        <MarkdownParser text={displayReed.content} preview={true} className="quote-content" fullRender={maxLines === 0} />
       {/if}
     </div>
   {/if}
