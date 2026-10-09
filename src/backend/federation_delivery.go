@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	pb "syrinx/proto"
 )
 
 // Durable reed delivery to peers.
@@ -121,7 +123,7 @@ func (h *Handlers) sendPeerStreamItem(ctx context.Context, peer PeerServer, item
 			return 0, err
 		}
 		if rm != nil {
-			return h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/thread-removal", rm, nil)
+			return h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/thread-removal", pbThreadRemoval(rm), nil)
 		}
 		payload, err := h.buildReedRemovalPayload(ctx, item.ReedID)
 		if err != nil {
@@ -137,59 +139,59 @@ func (h *Handlers) sendPeerStreamItem(ctx context.Context, peer PeerServer, item
 }
 
 // buildNewReedPayload describes a local reed from what is stored about it.
-func (h *Handlers) buildNewReedPayload(ctx context.Context, reedID string) (relayNewReedPayload, error) {
+func (h *Handlers) buildNewReedPayload(ctx context.Context, reedID string) (*pb.RelayNewReedPayload, error) {
 	db := h.services.db
 	author, signedAt, err := db.GetReedAuthorAndSignedAt(ctx, reedID)
 	if err != nil {
-		return relayNewReedPayload{}, fmt.Errorf("load reed: %w", err)
+		return nil, fmt.Errorf("load reed: %w", err)
 	}
 	mentions, err := db.GetReedMentions(ctx, reedID)
 	if err != nil {
-		return relayNewReedPayload{}, fmt.Errorf("load mentions: %w", err)
+		return nil, fmt.Errorf("load mentions: %w", err)
 	}
-	payload := relayNewReedPayload{ReedID: reedID, AuthorID: author, SignedAt: signedAt, Mentions: mentions}
+	payload := &pb.RelayNewReedPayload{ReedId: reedID, AuthorId: author, SignedAt: unixOrZero(signedAt), Mentions: mentions}
 
 	reply, err := db.GetReplyRecord(ctx, reedID)
 	if err != nil {
-		return relayNewReedPayload{}, fmt.Errorf("load reply: %w", err)
+		return nil, fmt.Errorf("load reply: %w", err)
 	}
 	if reply != nil {
-		payload.Reply = &relayNewReedReply{ParentReedID: reply.ParentReedID, RootID: reply.RootID}
+		payload.Reply = &pb.RelayNewReedReply{ParentReedId: reply.ParentReedID, RootId: reply.RootID}
 	}
 	echoed, isBlank, ok, err := db.GetEchoTarget(ctx, reedID)
 	if err != nil {
-		return relayNewReedPayload{}, fmt.Errorf("load echo: %w", err)
+		return nil, fmt.Errorf("load echo: %w", err)
 	}
 	if ok && payload.Reply == nil {
-		payload.Echo = &relayNewReedEcho{EchoedReedID: echoed, IsBlank: isBlank}
+		payload.Echo = &pb.RelayNewReedEcho{EchoedReedId: echoed, IsBlank: isBlank}
 	}
 	return payload, nil
 }
 
 // buildReedRemovalPayload carries a local reed's removal cert and, for a
 // reply, its parent.
-func (h *Handlers) buildReedRemovalPayload(ctx context.Context, reedID string) (relayReedRemovalPayload, error) {
+func (h *Handlers) buildReedRemovalPayload(ctx context.Context, reedID string) (*pb.RelayReedRemovalPayload, error) {
 	db := h.services.db
 	cert, err := db.GetReedRemoval(ctx, reedID)
 	if err != nil {
-		return relayReedRemovalPayload{}, fmt.Errorf("load removal: %w", err)
+		return nil, fmt.Errorf("load removal: %w", err)
 	}
 	if cert == nil {
-		return relayReedRemovalPayload{}, fmt.Errorf("no removal stored for %s", reedID)
+		return nil, fmt.Errorf("no removal stored for %s", reedID)
 	}
-	payload := relayReedRemovalPayload{relayReedRemovalCert: relayReedRemovalCert{
-		ReedID:            cert.ReedID,
-		UserID:            cert.UserID,
+	payload := &pb.RelayReedRemovalPayload{Cert: &pb.RelayReedRemovalCert{
+		ReedId:            cert.ReedID,
+		UserId:            cert.UserID,
 		UserSignature:     cert.UserSignature,
-		UserKeyID:         cert.UserKeyID,
+		UserKeyId:         cert.UserKeyID,
 		ServerSignature:   cert.ServerSignature,
 		ServerFingerprint: cert.ServerFingerprint,
-		ServerSignedAt:    cert.ServerSignedAt,
+		ServerSignedAt:    unixOrZero(cert.ServerSignedAt),
 	}}
 	if parent, ok, err := db.ReplyParent(ctx, reedID); err != nil {
-		return relayReedRemovalPayload{}, fmt.Errorf("load parent: %w", err)
+		return nil, fmt.Errorf("load parent: %w", err)
 	} else if ok {
-		payload.ParentReedID = parent
+		payload.ParentReedId = parent
 	}
 	return payload, nil
 }

@@ -268,10 +268,10 @@ func TestBuildNewReedPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildNewReedPayload: %v", err)
 	}
-	if payload.AuthorID != f.author || len(payload.Mentions) != 1 || payload.Mentions[0] != mentioned {
+	if payload.AuthorId != f.author || len(payload.Mentions) != 1 || payload.Mentions[0] != mentioned {
 		t.Fatalf("payload = %+v, want author %s mentioning %s", payload, f.author, mentioned)
 	}
-	if payload.Reply == nil || payload.Reply.ParentReedID != parent || payload.Echo != nil {
+	if payload.Reply == nil || payload.Reply.ParentReedId != parent || payload.Echo != nil {
 		t.Fatalf("payload reply = %+v echo = %+v, want a reply to %s", payload.Reply, payload.Echo, parent)
 	}
 }

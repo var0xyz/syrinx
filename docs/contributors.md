@@ -8,7 +8,7 @@ This site is the **canonical source of truth** for design intent. When you chang
 |------|----------------|
 | `src/backend/` | Go module — HTTP API, middleware, DB init, WebSocket service, all feature logic (in `package main` directly — see below) |
 | `src/backend/observability/`, `src/backend/observability/metrics/` | Business-metrics recorder DI interface — the one feature area still a real subpackage |
-| `src/backend/proto/` | WebSocket protobuf definitions (generated code needs its own package) |
+| `src/backend/proto/` | Protobuf definitions for every HTTP and WebSocket message (generated code needs its own package) |
 | `src/frontend/` | SvelteKit PWA client |
 | `cli/` | Separate Go module, standalone CLI tool (optional tooling) — not part of the server module |
 | `docs/` | This VitePress documentation site |

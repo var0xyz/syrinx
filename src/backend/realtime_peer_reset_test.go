@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 )
 
 const teardownOtherPeerID = "othr9012"
@@ -138,7 +139,7 @@ func TestForgetPeerReportsLocalViewers(t *testing.T) {
 
 func postRealtimeReset(t *testing.T, h *Handlers, peerServerID, reason string) int {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/api/federation/relay/realtime-reset", strings.NewReader(`{"reason":"`+reason+`"}`))
+	req := protoRequest(http.MethodPost, "/api/federation/relay/realtime-reset", &pb.RelayRealtimeResetPayload{Reason: reason})
 	rr := httptest.NewRecorder()
 	h.RealtimeResetFromPeer(rr, withPeer(req, peerServerID))
 	return rr.Code

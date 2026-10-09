@@ -156,9 +156,8 @@ same-named root file instead:
   logic, message types; ~75 DB query methods live in `services.go` as
   `DataService` methods (was package `realtime`). Wire is **binary protobuf
   only** — a text frame is rejected and the connection closed. HTTP
-  federation calls between servers (`federation_relay.go`) still carry
-  their payloads as JSON, including a base64-wrapped protobuf `WSMessage`
-  for the live reed-stats push bridge.
+  federation calls between servers (`federation_relay.go`) are protobuf
+  too; the live reed-stats push carries the `WSMessage` as a field.
 - `constants.go`, `utils.go`, `logger.go`, `spa_handler.go`, `ops.go`,
   `ripples_cleanup.go`, `challenges_cleanup.go`, `mailbox.go`, `mentions.go`, `federation_relay.go`,
   `root.go`, `wire.go`.
@@ -169,10 +168,9 @@ same-named root file instead:
   certificates, `Error`), `identity`/`reed`/`invites`/`recovery`/
   `federation.proto` for `/api/*` bodies, and `websocket.proto` for the
   WS event set — can't be `package main` (generated code needs its own
-  package), so this is the only other Go code outside root. Every client
-  `/api/*` body is `application/x-protobuf` (codec in `protowire.go`;
-  SPA side `lib/services/wire.ts`); peer-to-peer federation calls are
-  still JSON until `specs/protobuf/` step 06. Every `int64` is a
+  package), so this is the only other Go code outside root. Every `/api/*`
+  body, client or peer-to-peer, is `application/x-protobuf` (codec in
+  `protowire.go`; SPA side `lib/services/wire.ts`). Every `int64` is a
   unix-seconds timestamp. Regenerate with `make proto` (needs `protoc`
   + `protoc-gen-go` on `PATH`).
 

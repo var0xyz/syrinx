@@ -1080,11 +1080,1834 @@ func (x *FederationActionResponse) GetEstablished() bool {
 	return false
 }
 
+// POST /federation/connect/{inviteId}: the responder calls the initiator
+// back; the secret and signature prove it redeemed the invitation.
+type FederationConnectRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServerId      string                 `protobuf:"bytes,1,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	ServerName    string                 `protobuf:"bytes,2,opt,name=server_name,json=serverName,proto3" json:"server_name,omitempty"`
+	BaseUrl       string                 `protobuf:"bytes,3,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	FrontendUrl   string                 `protobuf:"bytes,4,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
+	Fingerprint   string                 `protobuf:"bytes,5,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	Signature     string                 `protobuf:"bytes,6,opt,name=signature,proto3" json:"signature,omitempty"`
+	Secret        string                 `protobuf:"bytes,7,opt,name=secret,proto3" json:"secret,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FederationConnectRequest) Reset() {
+	*x = FederationConnectRequest{}
+	mi := &file_federation_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FederationConnectRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FederationConnectRequest) ProtoMessage() {}
+
+func (x *FederationConnectRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FederationConnectRequest.ProtoReflect.Descriptor instead.
+func (*FederationConnectRequest) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *FederationConnectRequest) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+func (x *FederationConnectRequest) GetServerName() string {
+	if x != nil {
+		return x.ServerName
+	}
+	return ""
+}
+
+func (x *FederationConnectRequest) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *FederationConnectRequest) GetFrontendUrl() string {
+	if x != nil {
+		return x.FrontendUrl
+	}
+	return ""
+}
+
+func (x *FederationConnectRequest) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
+
+func (x *FederationConnectRequest) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *FederationConnectRequest) GetSecret() string {
+	if x != nil {
+		return x.Secret
+	}
+	return ""
+}
+
+type FederationConnectResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	ServerId      string                 `protobuf:"bytes,2,opt,name=server_id,json=serverId,proto3" json:"server_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FederationConnectResponse) Reset() {
+	*x = FederationConnectResponse{}
+	mi := &file_federation_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FederationConnectResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FederationConnectResponse) ProtoMessage() {}
+
+func (x *FederationConnectResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FederationConnectResponse.ProtoReflect.Descriptor instead.
+func (*FederationConnectResponse) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *FederationConnectResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *FederationConnectResponse) GetServerId() string {
+	if x != nil {
+		return x.ServerId
+	}
+	return ""
+}
+
+// GET /federation/users/{userID}/identity: the snapshot a peer resolves a
+// local user through.
+type FederationUserIdentity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
+	ActiveKeyId   string                 `protobuf:"bytes,2,opt,name=active_key_id,json=activeKeyId,proto3" json:"active_key_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FederationUserIdentity) Reset() {
+	*x = FederationUserIdentity{}
+	mi := &file_federation_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FederationUserIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FederationUserIdentity) ProtoMessage() {}
+
+func (x *FederationUserIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FederationUserIdentity.ProtoReflect.Descriptor instead.
+func (*FederationUserIdentity) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *FederationUserIdentity) GetUser() *User {
+	if x != nil {
+		return x.User
+	}
+	return nil
+}
+
+func (x *FederationUserIdentity) GetActiveKeyId() string {
+	if x != nil {
+		return x.ActiveKeyId
+	}
+	return ""
+}
+
+type RelayRequestPayload struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	AuthorId        string                 `protobuf:"bytes,2,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`
+	RequesterUserId string                 `protobuf:"bytes,3,opt,name=requester_user_id,json=requesterUserId,proto3" json:"requester_user_id,omitempty"`
+	RequesterKeyId  string                 `protobuf:"bytes,4,opt,name=requester_key_id,json=requesterKeyId,proto3" json:"requester_key_id,omitempty"`
+	PeerRequestId   string                 `protobuf:"bytes,5,opt,name=peer_request_id,json=peerRequestId,proto3" json:"peer_request_id,omitempty"`
+	// Asks for the whole thread reed_id heads.
+	Thread        bool `protobuf:"varint,6,opt,name=thread,proto3" json:"thread,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRequestPayload) Reset() {
+	*x = RelayRequestPayload{}
+	mi := &file_federation_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRequestPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRequestPayload) ProtoMessage() {}
+
+func (x *RelayRequestPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRequestPayload.ProtoReflect.Descriptor instead.
+func (*RelayRequestPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *RelayRequestPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayRequestPayload) GetAuthorId() string {
+	if x != nil {
+		return x.AuthorId
+	}
+	return ""
+}
+
+func (x *RelayRequestPayload) GetRequesterUserId() string {
+	if x != nil {
+		return x.RequesterUserId
+	}
+	return ""
+}
+
+func (x *RelayRequestPayload) GetRequesterKeyId() string {
+	if x != nil {
+		return x.RequesterKeyId
+	}
+	return ""
+}
+
+func (x *RelayRequestPayload) GetPeerRequestId() string {
+	if x != nil {
+		return x.PeerRequestId
+	}
+	return ""
+}
+
+func (x *RelayRequestPayload) GetThread() bool {
+	if x != nil {
+		return x.Thread
+	}
+	return false
+}
+
+type RelayRequestResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerEventId   string                 `protobuf:"bytes,1,opt,name=peer_event_id,json=peerEventId,proto3" json:"peer_event_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRequestResponse) Reset() {
+	*x = RelayRequestResponse{}
+	mi := &file_federation_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRequestResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRequestResponse) ProtoMessage() {}
+
+func (x *RelayRequestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRequestResponse.ProtoReflect.Descriptor instead.
+func (*RelayRequestResponse) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *RelayRequestResponse) GetPeerEventId() string {
+	if x != nil {
+		return x.PeerEventId
+	}
+	return ""
+}
+
+func (x *RelayRequestResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type RelayProfilePagePayload struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	AuthorId        string                 `protobuf:"bytes,1,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`
+	RequesterUserId string                 `protobuf:"bytes,2,opt,name=requester_user_id,json=requesterUserId,proto3" json:"requester_user_id,omitempty"`
+	Page            int32                  `protobuf:"varint,3,opt,name=page,proto3" json:"page,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelayProfilePagePayload) Reset() {
+	*x = RelayProfilePagePayload{}
+	mi := &file_federation_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayProfilePagePayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayProfilePagePayload) ProtoMessage() {}
+
+func (x *RelayProfilePagePayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayProfilePagePayload.ProtoReflect.Descriptor instead.
+func (*RelayProfilePagePayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *RelayProfilePagePayload) GetAuthorId() string {
+	if x != nil {
+		return x.AuthorId
+	}
+	return ""
+}
+
+func (x *RelayProfilePagePayload) GetRequesterUserId() string {
+	if x != nil {
+		return x.RequesterUserId
+	}
+	return ""
+}
+
+func (x *RelayProfilePagePayload) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+type RelayProfilePageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedIds       []string               `protobuf:"bytes,1,rep,name=reed_ids,json=reedIds,proto3" json:"reed_ids,omitempty"`
+	Count         int32                  `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	HasMore       bool                   `protobuf:"varint,3,opt,name=has_more,json=hasMore,proto3" json:"has_more,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayProfilePageResponse) Reset() {
+	*x = RelayProfilePageResponse{}
+	mi := &file_federation_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayProfilePageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayProfilePageResponse) ProtoMessage() {}
+
+func (x *RelayProfilePageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayProfilePageResponse.ProtoReflect.Descriptor instead.
+func (*RelayProfilePageResponse) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *RelayProfilePageResponse) GetReedIds() []string {
+	if x != nil {
+		return x.ReedIds
+	}
+	return nil
+}
+
+func (x *RelayProfilePageResponse) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *RelayProfilePageResponse) GetHasMore() bool {
+	if x != nil {
+		return x.HasMore
+	}
+	return false
+}
+
+// Relayed content for a request the receiver registered. A relayed thread
+// also carries its record, which the receiver verifies.
+type RelayDeliverPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerEventId   string                 `protobuf:"bytes,1,opt,name=peer_event_id,json=peerEventId,proto3" json:"peer_event_id,omitempty"`
+	Ciphertext    string                 `protobuf:"bytes,2,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	Record        *ThreadRecord          `protobuf:"bytes,3,opt,name=record,proto3" json:"record,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayDeliverPayload) Reset() {
+	*x = RelayDeliverPayload{}
+	mi := &file_federation_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayDeliverPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayDeliverPayload) ProtoMessage() {}
+
+func (x *RelayDeliverPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayDeliverPayload.ProtoReflect.Descriptor instead.
+func (*RelayDeliverPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *RelayDeliverPayload) GetPeerEventId() string {
+	if x != nil {
+		return x.PeerEventId
+	}
+	return ""
+}
+
+func (x *RelayDeliverPayload) GetCiphertext() string {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return ""
+}
+
+func (x *RelayDeliverPayload) GetRecord() *ThreadRecord {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+type RelayNotHeldPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerEventId   string                 `protobuf:"bytes,1,opt,name=peer_event_id,json=peerEventId,proto3" json:"peer_event_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayNotHeldPayload) Reset() {
+	*x = RelayNotHeldPayload{}
+	mi := &file_federation_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayNotHeldPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayNotHeldPayload) ProtoMessage() {}
+
+func (x *RelayNotHeldPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayNotHeldPayload.ProtoReflect.Descriptor instead.
+func (*RelayNotHeldPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *RelayNotHeldPayload) GetPeerEventId() string {
+	if x != nil {
+		return x.PeerEventId
+	}
+	return ""
+}
+
+type RelayCancelPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerEventId   string                 `protobuf:"bytes,1,opt,name=peer_event_id,json=peerEventId,proto3" json:"peer_event_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayCancelPayload) Reset() {
+	*x = RelayCancelPayload{}
+	mi := &file_federation_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayCancelPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayCancelPayload) ProtoMessage() {}
+
+func (x *RelayCancelPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayCancelPayload.ProtoReflect.Descriptor instead.
+func (*RelayCancelPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *RelayCancelPayload) GetPeerEventId() string {
+	if x != nil {
+		return x.PeerEventId
+	}
+	return ""
+}
+
+type RelayAckPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerEventId   string                 `protobuf:"bytes,1,opt,name=peer_event_id,json=peerEventId,proto3" json:"peer_event_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayAckPayload) Reset() {
+	*x = RelayAckPayload{}
+	mi := &file_federation_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayAckPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayAckPayload) ProtoMessage() {}
+
+func (x *RelayAckPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayAckPayload.ProtoReflect.Descriptor instead.
+func (*RelayAckPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *RelayAckPayload) GetPeerEventId() string {
+	if x != nil {
+		return x.PeerEventId
+	}
+	return ""
+}
+
+type RelaySubscribeReedPayload struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	RequesterUserId string                 `protobuf:"bytes,2,opt,name=requester_user_id,json=requesterUserId,proto3" json:"requester_user_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelaySubscribeReedPayload) Reset() {
+	*x = RelaySubscribeReedPayload{}
+	mi := &file_federation_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySubscribeReedPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySubscribeReedPayload) ProtoMessage() {}
+
+func (x *RelaySubscribeReedPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySubscribeReedPayload.ProtoReflect.Descriptor instead.
+func (*RelaySubscribeReedPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *RelaySubscribeReedPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelaySubscribeReedPayload) GetRequesterUserId() string {
+	if x != nil {
+		return x.RequesterUserId
+	}
+	return ""
+}
+
+type RelaySubscribeReedResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Found           bool                   `protobuf:"varint,1,opt,name=found,proto3" json:"found,omitempty"`
+	Echoes          int32                  `protobuf:"varint,2,opt,name=echoes,proto3" json:"echoes,omitempty"`
+	CoveragePercent int32                  `protobuf:"varint,3,opt,name=coverage_percent,json=coveragePercent,proto3" json:"coverage_percent,omitempty"`
+	Replies         int32                  `protobuf:"varint,4,opt,name=replies,proto3" json:"replies,omitempty"`
+	Likes           int32                  `protobuf:"varint,5,opt,name=likes,proto3" json:"likes,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelaySubscribeReedResponse) Reset() {
+	*x = RelaySubscribeReedResponse{}
+	mi := &file_federation_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySubscribeReedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySubscribeReedResponse) ProtoMessage() {}
+
+func (x *RelaySubscribeReedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySubscribeReedResponse.ProtoReflect.Descriptor instead.
+func (*RelaySubscribeReedResponse) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *RelaySubscribeReedResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
+func (x *RelaySubscribeReedResponse) GetEchoes() int32 {
+	if x != nil {
+		return x.Echoes
+	}
+	return 0
+}
+
+func (x *RelaySubscribeReedResponse) GetCoveragePercent() int32 {
+	if x != nil {
+		return x.CoveragePercent
+	}
+	return 0
+}
+
+func (x *RelaySubscribeReedResponse) GetReplies() int32 {
+	if x != nil {
+		return x.Replies
+	}
+	return 0
+}
+
+func (x *RelaySubscribeReedResponse) GetLikes() int32 {
+	if x != nil {
+		return x.Likes
+	}
+	return 0
+}
+
+type RelayUnsubscribeReedPayload struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	RequesterUserId string                 `protobuf:"bytes,2,opt,name=requester_user_id,json=requesterUserId,proto3" json:"requester_user_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelayUnsubscribeReedPayload) Reset() {
+	*x = RelayUnsubscribeReedPayload{}
+	mi := &file_federation_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayUnsubscribeReedPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayUnsubscribeReedPayload) ProtoMessage() {}
+
+func (x *RelayUnsubscribeReedPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayUnsubscribeReedPayload.ProtoReflect.Descriptor instead.
+func (*RelayUnsubscribeReedPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *RelayUnsubscribeReedPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayUnsubscribeReedPayload) GetRequesterUserId() string {
+	if x != nil {
+		return x.RequesterUserId
+	}
+	return ""
+}
+
+// One live update for a reed, as the WS message its local viewers get.
+type RelayReedStatsPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	ExcludeUserId string                 `protobuf:"bytes,2,opt,name=exclude_user_id,json=excludeUserId,proto3" json:"exclude_user_id,omitempty"`
+	Message       *WSMessage             `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayReedStatsPayload) Reset() {
+	*x = RelayReedStatsPayload{}
+	mi := &file_federation_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayReedStatsPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayReedStatsPayload) ProtoMessage() {}
+
+func (x *RelayReedStatsPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayReedStatsPayload.ProtoReflect.Descriptor instead.
+func (*RelayReedStatsPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *RelayReedStatsPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayReedStatsPayload) GetExcludeUserId() string {
+	if x != nil {
+		return x.ExcludeUserId
+	}
+	return ""
+}
+
+func (x *RelayReedStatsPayload) GetMessage() *WSMessage {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+type RelayHolderNotifyPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayHolderNotifyPayload) Reset() {
+	*x = RelayHolderNotifyPayload{}
+	mi := &file_federation_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayHolderNotifyPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayHolderNotifyPayload) ProtoMessage() {}
+
+func (x *RelayHolderNotifyPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayHolderNotifyPayload.ProtoReflect.Descriptor instead.
+func (*RelayHolderNotifyPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *RelayHolderNotifyPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+type RelayFallbackRequestPayload struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	RequesterUserId string                 `protobuf:"bytes,2,opt,name=requester_user_id,json=requesterUserId,proto3" json:"requester_user_id,omitempty"`
+	RequesterKeyId  string                 `protobuf:"bytes,3,opt,name=requester_key_id,json=requesterKeyId,proto3" json:"requester_key_id,omitempty"`
+	PeerRequestId   string                 `protobuf:"bytes,4,opt,name=peer_request_id,json=peerRequestId,proto3" json:"peer_request_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RelayFallbackRequestPayload) Reset() {
+	*x = RelayFallbackRequestPayload{}
+	mi := &file_federation_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayFallbackRequestPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayFallbackRequestPayload) ProtoMessage() {}
+
+func (x *RelayFallbackRequestPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayFallbackRequestPayload.ProtoReflect.Descriptor instead.
+func (*RelayFallbackRequestPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *RelayFallbackRequestPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayFallbackRequestPayload) GetRequesterUserId() string {
+	if x != nil {
+		return x.RequesterUserId
+	}
+	return ""
+}
+
+func (x *RelayFallbackRequestPayload) GetRequesterKeyId() string {
+	if x != nil {
+		return x.RequesterKeyId
+	}
+	return ""
+}
+
+func (x *RelayFallbackRequestPayload) GetPeerRequestId() string {
+	if x != nil {
+		return x.PeerRequestId
+	}
+	return ""
+}
+
+type RelayFallbackRequestResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PeerEventId   string                 `protobuf:"bytes,1,opt,name=peer_event_id,json=peerEventId,proto3" json:"peer_event_id,omitempty"`
+	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayFallbackRequestResponse) Reset() {
+	*x = RelayFallbackRequestResponse{}
+	mi := &file_federation_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayFallbackRequestResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayFallbackRequestResponse) ProtoMessage() {}
+
+func (x *RelayFallbackRequestResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayFallbackRequestResponse.ProtoReflect.Descriptor instead.
+func (*RelayFallbackRequestResponse) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *RelayFallbackRequestResponse) GetPeerEventId() string {
+	if x != nil {
+		return x.PeerEventId
+	}
+	return ""
+}
+
+func (x *RelayFallbackRequestResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+type RelaySearchUsersPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelaySearchUsersPayload) Reset() {
+	*x = RelaySearchUsersPayload{}
+	mi := &file_federation_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySearchUsersPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySearchUsersPayload) ProtoMessage() {}
+
+func (x *RelaySearchUsersPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySearchUsersPayload.ProtoReflect.Descriptor instead.
+func (*RelaySearchUsersPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *RelaySearchUsersPayload) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *RelaySearchUsersPayload) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type RelaySearchUsersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Users         []*UserSearchResult    `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelaySearchUsersResponse) Reset() {
+	*x = RelaySearchUsersResponse{}
+	mi := &file_federation_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelaySearchUsersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelaySearchUsersResponse) ProtoMessage() {}
+
+func (x *RelaySearchUsersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelaySearchUsersResponse.ProtoReflect.Descriptor instead.
+func (*RelaySearchUsersResponse) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *RelaySearchUsersResponse) GetUsers() []*UserSearchResult {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+type RelayDisconnectNotifyPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayDisconnectNotifyPayload) Reset() {
+	*x = RelayDisconnectNotifyPayload{}
+	mi := &file_federation_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayDisconnectNotifyPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayDisconnectNotifyPayload) ProtoMessage() {}
+
+func (x *RelayDisconnectNotifyPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayDisconnectNotifyPayload.ProtoReflect.Descriptor instead.
+func (*RelayDisconnectNotifyPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *RelayDisconnectNotifyPayload) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type RelayNewReedReply struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ParentReedId  string                 `protobuf:"bytes,1,opt,name=parent_reed_id,json=parentReedId,proto3" json:"parent_reed_id,omitempty"`
+	RootId        string                 `protobuf:"bytes,2,opt,name=root_id,json=rootId,proto3" json:"root_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayNewReedReply) Reset() {
+	*x = RelayNewReedReply{}
+	mi := &file_federation_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayNewReedReply) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayNewReedReply) ProtoMessage() {}
+
+func (x *RelayNewReedReply) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayNewReedReply.ProtoReflect.Descriptor instead.
+func (*RelayNewReedReply) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *RelayNewReedReply) GetParentReedId() string {
+	if x != nil {
+		return x.ParentReedId
+	}
+	return ""
+}
+
+func (x *RelayNewReedReply) GetRootId() string {
+	if x != nil {
+		return x.RootId
+	}
+	return ""
+}
+
+type RelayNewReedEcho struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EchoedReedId  string                 `protobuf:"bytes,1,opt,name=echoed_reed_id,json=echoedReedId,proto3" json:"echoed_reed_id,omitempty"`
+	IsBlank       bool                   `protobuf:"varint,2,opt,name=is_blank,json=isBlank,proto3" json:"is_blank,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayNewReedEcho) Reset() {
+	*x = RelayNewReedEcho{}
+	mi := &file_federation_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayNewReedEcho) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayNewReedEcho) ProtoMessage() {}
+
+func (x *RelayNewReedEcho) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayNewReedEcho.ProtoReflect.Descriptor instead.
+func (*RelayNewReedEcho) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *RelayNewReedEcho) GetEchoedReedId() string {
+	if x != nil {
+		return x.EchoedReedId
+	}
+	return ""
+}
+
+func (x *RelayNewReedEcho) GetIsBlank() bool {
+	if x != nil {
+		return x.IsBlank
+	}
+	return false
+}
+
+// Announces one of the sender's own reeds, without content.
+type RelayNewReedPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	AuthorId      string                 `protobuf:"bytes,2,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`
+	SignedAt      int64                  `protobuf:"varint,3,opt,name=signed_at,json=signedAt,proto3" json:"signed_at,omitempty"`
+	Mentions      []string               `protobuf:"bytes,4,rep,name=mentions,proto3" json:"mentions,omitempty"`
+	Reply         *RelayNewReedReply     `protobuf:"bytes,5,opt,name=reply,proto3" json:"reply,omitempty"`
+	Echo          *RelayNewReedEcho      `protobuf:"bytes,6,opt,name=echo,proto3" json:"echo,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayNewReedPayload) Reset() {
+	*x = RelayNewReedPayload{}
+	mi := &file_federation_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayNewReedPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayNewReedPayload) ProtoMessage() {}
+
+func (x *RelayNewReedPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayNewReedPayload.ProtoReflect.Descriptor instead.
+func (*RelayNewReedPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *RelayNewReedPayload) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayNewReedPayload) GetAuthorId() string {
+	if x != nil {
+		return x.AuthorId
+	}
+	return ""
+}
+
+func (x *RelayNewReedPayload) GetSignedAt() int64 {
+	if x != nil {
+		return x.SignedAt
+	}
+	return 0
+}
+
+func (x *RelayNewReedPayload) GetMentions() []string {
+	if x != nil {
+		return x.Mentions
+	}
+	return nil
+}
+
+func (x *RelayNewReedPayload) GetReply() *RelayNewReedReply {
+	if x != nil {
+		return x.Reply
+	}
+	return nil
+}
+
+func (x *RelayNewReedPayload) GetEcho() *RelayNewReedEcho {
+	if x != nil {
+		return x.Echo
+	}
+	return nil
+}
+
+// A signed reed removal as it travels between servers.
+type RelayReedRemovalCert struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ReedId            string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
+	UserId            string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserSignature     string                 `protobuf:"bytes,3,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	UserKeyId         string                 `protobuf:"bytes,4,opt,name=user_key_id,json=userKeyId,proto3" json:"user_key_id,omitempty"`
+	ServerSignature   string                 `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	ServerFingerprint string                 `protobuf:"bytes,6,opt,name=server_fingerprint,json=serverFingerprint,proto3" json:"server_fingerprint,omitempty"`
+	ServerSignedAt    int64                  `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RelayReedRemovalCert) Reset() {
+	*x = RelayReedRemovalCert{}
+	mi := &file_federation_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayReedRemovalCert) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayReedRemovalCert) ProtoMessage() {}
+
+func (x *RelayReedRemovalCert) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayReedRemovalCert.ProtoReflect.Descriptor instead.
+func (*RelayReedRemovalCert) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *RelayReedRemovalCert) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *RelayReedRemovalCert) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *RelayReedRemovalCert) GetUserSignature() string {
+	if x != nil {
+		return x.UserSignature
+	}
+	return ""
+}
+
+func (x *RelayReedRemovalCert) GetUserKeyId() string {
+	if x != nil {
+		return x.UserKeyId
+	}
+	return ""
+}
+
+func (x *RelayReedRemovalCert) GetServerSignature() string {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return ""
+}
+
+func (x *RelayReedRemovalCert) GetServerFingerprint() string {
+	if x != nil {
+		return x.ServerFingerprint
+	}
+	return ""
+}
+
+func (x *RelayReedRemovalCert) GetServerSignedAt() int64 {
+	if x != nil {
+		return x.ServerSignedAt
+	}
+	return 0
+}
+
+// The removal cert, plus the parent the removed reed replied to.
+type RelayReedRemovalPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cert          *RelayReedRemovalCert  `protobuf:"bytes,1,opt,name=cert,proto3" json:"cert,omitempty"`
+	ParentReedId  string                 `protobuf:"bytes,2,opt,name=parent_reed_id,json=parentReedId,proto3" json:"parent_reed_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayReedRemovalPayload) Reset() {
+	*x = RelayReedRemovalPayload{}
+	mi := &file_federation_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayReedRemovalPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayReedRemovalPayload) ProtoMessage() {}
+
+func (x *RelayReedRemovalPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayReedRemovalPayload.ProtoReflect.Descriptor instead.
+func (*RelayReedRemovalPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *RelayReedRemovalPayload) GetCert() *RelayReedRemovalCert {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
+func (x *RelayReedRemovalPayload) GetParentReedId() string {
+	if x != nil {
+		return x.ParentReedId
+	}
+	return ""
+}
+
+type RelayRealtimeResetPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayRealtimeResetPayload) Reset() {
+	*x = RelayRealtimeResetPayload{}
+	mi := &file_federation_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayRealtimeResetPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayRealtimeResetPayload) ProtoMessage() {}
+
+func (x *RelayRealtimeResetPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayRealtimeResetPayload.ProtoReflect.Descriptor instead.
+func (*RelayRealtimeResetPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *RelayRealtimeResetPayload) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type RelayAccountRemovalNotifyPayload struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	UserId            string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Note              string                 `protobuf:"bytes,2,opt,name=note,proto3" json:"note,omitempty"`
+	UserSignature     string                 `protobuf:"bytes,3,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	UserKeyId         string                 `protobuf:"bytes,4,opt,name=user_key_id,json=userKeyId,proto3" json:"user_key_id,omitempty"`
+	ServerSignature   string                 `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	ServerFingerprint string                 `protobuf:"bytes,6,opt,name=server_fingerprint,json=serverFingerprint,proto3" json:"server_fingerprint,omitempty"`
+	ServerSignedAt    int64                  `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *RelayAccountRemovalNotifyPayload) Reset() {
+	*x = RelayAccountRemovalNotifyPayload{}
+	mi := &file_federation_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayAccountRemovalNotifyPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayAccountRemovalNotifyPayload) ProtoMessage() {}
+
+func (x *RelayAccountRemovalNotifyPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayAccountRemovalNotifyPayload.ProtoReflect.Descriptor instead.
+func (*RelayAccountRemovalNotifyPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetUserSignature() string {
+	if x != nil {
+		return x.UserSignature
+	}
+	return ""
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetUserKeyId() string {
+	if x != nil {
+		return x.UserKeyId
+	}
+	return ""
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetServerSignature() string {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return ""
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetServerFingerprint() string {
+	if x != nil {
+		return x.ServerFingerprint
+	}
+	return ""
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetServerSignedAt() int64 {
+	if x != nil {
+		return x.ServerSignedAt
+	}
+	return 0
+}
+
+type RelayUnblockPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	BlockedUserId string                 `protobuf:"bytes,2,opt,name=blocked_user_id,json=blockedUserId,proto3" json:"blocked_user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayUnblockPayload) Reset() {
+	*x = RelayUnblockPayload{}
+	mi := &file_federation_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayUnblockPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayUnblockPayload) ProtoMessage() {}
+
+func (x *RelayUnblockPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayUnblockPayload.ProtoReflect.Descriptor instead.
+func (*RelayUnblockPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{43}
+}
+
+func (x *RelayUnblockPayload) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *RelayUnblockPayload) GetBlockedUserId() string {
+	if x != nil {
+		return x.BlockedUserId
+	}
+	return ""
+}
+
+type RelayVouchReferencePayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cert          *Vouch                 `protobuf:"bytes,1,opt,name=cert,proto3" json:"cert,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayVouchReferencePayload) Reset() {
+	*x = RelayVouchReferencePayload{}
+	mi := &file_federation_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayVouchReferencePayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayVouchReferencePayload) ProtoMessage() {}
+
+func (x *RelayVouchReferencePayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayVouchReferencePayload.ProtoReflect.Descriptor instead.
+func (*RelayVouchReferencePayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *RelayVouchReferencePayload) GetCert() *Vouch {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
+}
+
+type RelayVouchWithdrawalPayload struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	VouchId       string                 `protobuf:"bytes,1,opt,name=vouch_id,json=vouchId,proto3" json:"vouch_id,omitempty"`
+	VoucherUserId string                 `protobuf:"bytes,2,opt,name=voucher_user_id,json=voucherUserId,proto3" json:"voucher_user_id,omitempty"`
+	Withdrawal    *VouchWithdrawal       `protobuf:"bytes,3,opt,name=withdrawal,proto3" json:"withdrawal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RelayVouchWithdrawalPayload) Reset() {
+	*x = RelayVouchWithdrawalPayload{}
+	mi := &file_federation_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RelayVouchWithdrawalPayload) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RelayVouchWithdrawalPayload) ProtoMessage() {}
+
+func (x *RelayVouchWithdrawalPayload) ProtoReflect() protoreflect.Message {
+	mi := &file_federation_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RelayVouchWithdrawalPayload.ProtoReflect.Descriptor instead.
+func (*RelayVouchWithdrawalPayload) Descriptor() ([]byte, []int) {
+	return file_federation_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *RelayVouchWithdrawalPayload) GetVouchId() string {
+	if x != nil {
+		return x.VouchId
+	}
+	return ""
+}
+
+func (x *RelayVouchWithdrawalPayload) GetVoucherUserId() string {
+	if x != nil {
+		return x.VoucherUserId
+	}
+	return ""
+}
+
+func (x *RelayVouchWithdrawalPayload) GetWithdrawal() *VouchWithdrawal {
+	if x != nil {
+		return x.Withdrawal
+	}
+	return nil
+}
+
 var File_federation_proto protoreflect.FileDescriptor
 
 const file_federation_proto_rawDesc = "" +
 	"\n" +
-	"\x10federation.proto\x12\x06syrinx\"d\n" +
+	"\x10federation.proto\x12\x06syrinx\x1a\fcommon.proto\x1a\x0eidentity.proto\x1a\x0fwebsocket.proto\"d\n" +
 	"\x17FederationCreateRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x125\n" +
 	"\x17remote_public_key_armor\x18\x02 \x01(\tR\x14remotePublicKeyArmor\"|\n" +
@@ -1196,7 +3019,130 @@ const file_federation_proto_rawDesc = "" +
 	"attempt_id\x18\x02 \x01(\tR\tattemptId\x12\x1b\n" +
 	"\tserver_id\x18\x03 \x01(\tR\bserverId\x12\x16\n" +
 	"\x06status\x18\x04 \x01(\tR\x06status\x12 \n" +
-	"\vestablished\x18\x05 \x01(\bR\vestablishedB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"\vestablished\x18\x05 \x01(\bR\vestablished\"\xee\x01\n" +
+	"\x18FederationConnectRequest\x12\x1b\n" +
+	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x1f\n" +
+	"\vserver_name\x18\x02 \x01(\tR\n" +
+	"serverName\x12\x19\n" +
+	"\bbase_url\x18\x03 \x01(\tR\abaseUrl\x12!\n" +
+	"\ffrontend_url\x18\x04 \x01(\tR\vfrontendUrl\x12 \n" +
+	"\vfingerprint\x18\x05 \x01(\tR\vfingerprint\x12\x1c\n" +
+	"\tsignature\x18\x06 \x01(\tR\tsignature\x12\x16\n" +
+	"\x06secret\x18\a \x01(\tR\x06secret\"P\n" +
+	"\x19FederationConnectResponse\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x1b\n" +
+	"\tserver_id\x18\x02 \x01(\tR\bserverId\"^\n" +
+	"\x16FederationUserIdentity\x12 \n" +
+	"\x04user\x18\x01 \x01(\v2\f.syrinx.UserR\x04user\x12\"\n" +
+	"\ractive_key_id\x18\x02 \x01(\tR\vactiveKeyId\"\xe1\x01\n" +
+	"\x13RelayRequestPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x1b\n" +
+	"\tauthor_id\x18\x02 \x01(\tR\bauthorId\x12*\n" +
+	"\x11requester_user_id\x18\x03 \x01(\tR\x0frequesterUserId\x12(\n" +
+	"\x10requester_key_id\x18\x04 \x01(\tR\x0erequesterKeyId\x12&\n" +
+	"\x0fpeer_request_id\x18\x05 \x01(\tR\rpeerRequestId\x12\x16\n" +
+	"\x06thread\x18\x06 \x01(\bR\x06thread\"R\n" +
+	"\x14RelayRequestResponse\x12\"\n" +
+	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"v\n" +
+	"\x17RelayProfilePagePayload\x12\x1b\n" +
+	"\tauthor_id\x18\x01 \x01(\tR\bauthorId\x12*\n" +
+	"\x11requester_user_id\x18\x02 \x01(\tR\x0frequesterUserId\x12\x12\n" +
+	"\x04page\x18\x03 \x01(\x05R\x04page\"f\n" +
+	"\x18RelayProfilePageResponse\x12\x19\n" +
+	"\breed_ids\x18\x01 \x03(\tR\areedIds\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\x12\x19\n" +
+	"\bhas_more\x18\x03 \x01(\bR\ahasMore\"\x87\x01\n" +
+	"\x13RelayDeliverPayload\x12\"\n" +
+	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x02 \x01(\tR\n" +
+	"ciphertext\x12,\n" +
+	"\x06record\x18\x03 \x01(\v2\x14.syrinx.ThreadRecordR\x06record\"9\n" +
+	"\x13RelayNotHeldPayload\x12\"\n" +
+	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\"8\n" +
+	"\x12RelayCancelPayload\x12\"\n" +
+	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\"5\n" +
+	"\x0fRelayAckPayload\x12\"\n" +
+	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\"`\n" +
+	"\x19RelaySubscribeReedPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12*\n" +
+	"\x11requester_user_id\x18\x02 \x01(\tR\x0frequesterUserId\"\xa5\x01\n" +
+	"\x1aRelaySubscribeReedResponse\x12\x14\n" +
+	"\x05found\x18\x01 \x01(\bR\x05found\x12\x16\n" +
+	"\x06echoes\x18\x02 \x01(\x05R\x06echoes\x12)\n" +
+	"\x10coverage_percent\x18\x03 \x01(\x05R\x0fcoveragePercent\x12\x18\n" +
+	"\areplies\x18\x04 \x01(\x05R\areplies\x12\x14\n" +
+	"\x05likes\x18\x05 \x01(\x05R\x05likes\"b\n" +
+	"\x1bRelayUnsubscribeReedPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12*\n" +
+	"\x11requester_user_id\x18\x02 \x01(\tR\x0frequesterUserId\"\x85\x01\n" +
+	"\x15RelayReedStatsPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12&\n" +
+	"\x0fexclude_user_id\x18\x02 \x01(\tR\rexcludeUserId\x12+\n" +
+	"\amessage\x18\x03 \x01(\v2\x11.syrinx.WSMessageR\amessage\"3\n" +
+	"\x18RelayHolderNotifyPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\"\xb4\x01\n" +
+	"\x1bRelayFallbackRequestPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12*\n" +
+	"\x11requester_user_id\x18\x02 \x01(\tR\x0frequesterUserId\x12(\n" +
+	"\x10requester_key_id\x18\x03 \x01(\tR\x0erequesterKeyId\x12&\n" +
+	"\x0fpeer_request_id\x18\x04 \x01(\tR\rpeerRequestId\"Z\n" +
+	"\x1cRelayFallbackRequestResponse\x12\"\n" +
+	"\rpeer_event_id\x18\x01 \x01(\tR\vpeerEventId\x12\x16\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"E\n" +
+	"\x17RelaySearchUsersPayload\x12\x14\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"J\n" +
+	"\x18RelaySearchUsersResponse\x12.\n" +
+	"\x05users\x18\x01 \x03(\v2\x18.syrinx.UserSearchResultR\x05users\"6\n" +
+	"\x1cRelayDisconnectNotifyPayload\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"R\n" +
+	"\x11RelayNewReedReply\x12$\n" +
+	"\x0eparent_reed_id\x18\x01 \x01(\tR\fparentReedId\x12\x17\n" +
+	"\aroot_id\x18\x02 \x01(\tR\x06rootId\"S\n" +
+	"\x10RelayNewReedEcho\x12$\n" +
+	"\x0eechoed_reed_id\x18\x01 \x01(\tR\fechoedReedId\x12\x19\n" +
+	"\bis_blank\x18\x02 \x01(\bR\aisBlank\"\xe3\x01\n" +
+	"\x13RelayNewReedPayload\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x1b\n" +
+	"\tauthor_id\x18\x02 \x01(\tR\bauthorId\x12\x1b\n" +
+	"\tsigned_at\x18\x03 \x01(\x03R\bsignedAt\x12\x1a\n" +
+	"\bmentions\x18\x04 \x03(\tR\bmentions\x12/\n" +
+	"\x05reply\x18\x05 \x01(\v2\x19.syrinx.RelayNewReedReplyR\x05reply\x12,\n" +
+	"\x04echo\x18\x06 \x01(\v2\x18.syrinx.RelayNewReedEchoR\x04echo\"\x93\x02\n" +
+	"\x14RelayReedRemovalCert\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedId\x12\x17\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12%\n" +
+	"\x0euser_signature\x18\x03 \x01(\tR\ruserSignature\x12\x1e\n" +
+	"\vuser_key_id\x18\x04 \x01(\tR\tuserKeyId\x12)\n" +
+	"\x10server_signature\x18\x05 \x01(\tR\x0fserverSignature\x12-\n" +
+	"\x12server_fingerprint\x18\x06 \x01(\tR\x11serverFingerprint\x12(\n" +
+	"\x10server_signed_at\x18\a \x01(\x03R\x0eserverSignedAt\"q\n" +
+	"\x17RelayReedRemovalPayload\x120\n" +
+	"\x04cert\x18\x01 \x01(\v2\x1c.syrinx.RelayReedRemovalCertR\x04cert\x12$\n" +
+	"\x0eparent_reed_id\x18\x02 \x01(\tR\fparentReedId\"3\n" +
+	"\x19RelayRealtimeResetPayload\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x9a\x02\n" +
+	" RelayAccountRemovalNotifyPayload\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
+	"\x04note\x18\x02 \x01(\tR\x04note\x12%\n" +
+	"\x0euser_signature\x18\x03 \x01(\tR\ruserSignature\x12\x1e\n" +
+	"\vuser_key_id\x18\x04 \x01(\tR\tuserKeyId\x12)\n" +
+	"\x10server_signature\x18\x05 \x01(\tR\x0fserverSignature\x12-\n" +
+	"\x12server_fingerprint\x18\x06 \x01(\tR\x11serverFingerprint\x12(\n" +
+	"\x10server_signed_at\x18\a \x01(\x03R\x0eserverSignedAt\"V\n" +
+	"\x13RelayUnblockPayload\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12&\n" +
+	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserId\"?\n" +
+	"\x1aRelayVouchReferencePayload\x12!\n" +
+	"\x04cert\x18\x01 \x01(\v2\r.syrinx.VouchR\x04cert\"\x99\x01\n" +
+	"\x1bRelayVouchWithdrawalPayload\x12\x19\n" +
+	"\bvouch_id\x18\x01 \x01(\tR\avouchId\x12&\n" +
+	"\x0fvoucher_user_id\x18\x02 \x01(\tR\rvoucherUserId\x127\n" +
+	"\n" +
+	"withdrawal\x18\x03 \x01(\v2\x17.syrinx.VouchWithdrawalR\n" +
+	"withdrawalB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_federation_proto_rawDescOnce sync.Once
@@ -1210,37 +3156,83 @@ func file_federation_proto_rawDescGZIP() []byte {
 	return file_federation_proto_rawDescData
 }
 
-var file_federation_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_federation_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
 var file_federation_proto_goTypes = []any{
-	(*FederationCreateRequest)(nil),      // 0: syrinx.FederationCreateRequest
-	(*FederationCreateResponse)(nil),     // 1: syrinx.FederationCreateResponse
-	(*FederationInvitation)(nil),         // 2: syrinx.FederationInvitation
-	(*FederationInvitationList)(nil),     // 3: syrinx.FederationInvitationList
-	(*FederationInvitationResponse)(nil), // 4: syrinx.FederationInvitationResponse
-	(*FederationServer)(nil),             // 5: syrinx.FederationServer
-	(*FederationServerList)(nil),         // 6: syrinx.FederationServerList
-	(*FederationAttempt)(nil),            // 7: syrinx.FederationAttempt
-	(*FederationAttemptResponse)(nil),    // 8: syrinx.FederationAttemptResponse
-	(*FederationList)(nil),               // 9: syrinx.FederationList
-	(*FederationLogs)(nil),               // 10: syrinx.FederationLogs
-	(*FederationAttemptRequest)(nil),     // 11: syrinx.FederationAttemptRequest
-	(*FederationAttemptStatus)(nil),      // 12: syrinx.FederationAttemptStatus
-	(*FederationReasonRequest)(nil),      // 13: syrinx.FederationReasonRequest
-	(*FederationActionResponse)(nil),     // 14: syrinx.FederationActionResponse
+	(*FederationCreateRequest)(nil),          // 0: syrinx.FederationCreateRequest
+	(*FederationCreateResponse)(nil),         // 1: syrinx.FederationCreateResponse
+	(*FederationInvitation)(nil),             // 2: syrinx.FederationInvitation
+	(*FederationInvitationList)(nil),         // 3: syrinx.FederationInvitationList
+	(*FederationInvitationResponse)(nil),     // 4: syrinx.FederationInvitationResponse
+	(*FederationServer)(nil),                 // 5: syrinx.FederationServer
+	(*FederationServerList)(nil),             // 6: syrinx.FederationServerList
+	(*FederationAttempt)(nil),                // 7: syrinx.FederationAttempt
+	(*FederationAttemptResponse)(nil),        // 8: syrinx.FederationAttemptResponse
+	(*FederationList)(nil),                   // 9: syrinx.FederationList
+	(*FederationLogs)(nil),                   // 10: syrinx.FederationLogs
+	(*FederationAttemptRequest)(nil),         // 11: syrinx.FederationAttemptRequest
+	(*FederationAttemptStatus)(nil),          // 12: syrinx.FederationAttemptStatus
+	(*FederationReasonRequest)(nil),          // 13: syrinx.FederationReasonRequest
+	(*FederationActionResponse)(nil),         // 14: syrinx.FederationActionResponse
+	(*FederationConnectRequest)(nil),         // 15: syrinx.FederationConnectRequest
+	(*FederationConnectResponse)(nil),        // 16: syrinx.FederationConnectResponse
+	(*FederationUserIdentity)(nil),           // 17: syrinx.FederationUserIdentity
+	(*RelayRequestPayload)(nil),              // 18: syrinx.RelayRequestPayload
+	(*RelayRequestResponse)(nil),             // 19: syrinx.RelayRequestResponse
+	(*RelayProfilePagePayload)(nil),          // 20: syrinx.RelayProfilePagePayload
+	(*RelayProfilePageResponse)(nil),         // 21: syrinx.RelayProfilePageResponse
+	(*RelayDeliverPayload)(nil),              // 22: syrinx.RelayDeliverPayload
+	(*RelayNotHeldPayload)(nil),              // 23: syrinx.RelayNotHeldPayload
+	(*RelayCancelPayload)(nil),               // 24: syrinx.RelayCancelPayload
+	(*RelayAckPayload)(nil),                  // 25: syrinx.RelayAckPayload
+	(*RelaySubscribeReedPayload)(nil),        // 26: syrinx.RelaySubscribeReedPayload
+	(*RelaySubscribeReedResponse)(nil),       // 27: syrinx.RelaySubscribeReedResponse
+	(*RelayUnsubscribeReedPayload)(nil),      // 28: syrinx.RelayUnsubscribeReedPayload
+	(*RelayReedStatsPayload)(nil),            // 29: syrinx.RelayReedStatsPayload
+	(*RelayHolderNotifyPayload)(nil),         // 30: syrinx.RelayHolderNotifyPayload
+	(*RelayFallbackRequestPayload)(nil),      // 31: syrinx.RelayFallbackRequestPayload
+	(*RelayFallbackRequestResponse)(nil),     // 32: syrinx.RelayFallbackRequestResponse
+	(*RelaySearchUsersPayload)(nil),          // 33: syrinx.RelaySearchUsersPayload
+	(*RelaySearchUsersResponse)(nil),         // 34: syrinx.RelaySearchUsersResponse
+	(*RelayDisconnectNotifyPayload)(nil),     // 35: syrinx.RelayDisconnectNotifyPayload
+	(*RelayNewReedReply)(nil),                // 36: syrinx.RelayNewReedReply
+	(*RelayNewReedEcho)(nil),                 // 37: syrinx.RelayNewReedEcho
+	(*RelayNewReedPayload)(nil),              // 38: syrinx.RelayNewReedPayload
+	(*RelayReedRemovalCert)(nil),             // 39: syrinx.RelayReedRemovalCert
+	(*RelayReedRemovalPayload)(nil),          // 40: syrinx.RelayReedRemovalPayload
+	(*RelayRealtimeResetPayload)(nil),        // 41: syrinx.RelayRealtimeResetPayload
+	(*RelayAccountRemovalNotifyPayload)(nil), // 42: syrinx.RelayAccountRemovalNotifyPayload
+	(*RelayUnblockPayload)(nil),              // 43: syrinx.RelayUnblockPayload
+	(*RelayVouchReferencePayload)(nil),       // 44: syrinx.RelayVouchReferencePayload
+	(*RelayVouchWithdrawalPayload)(nil),      // 45: syrinx.RelayVouchWithdrawalPayload
+	(*User)(nil),                             // 46: syrinx.User
+	(*ThreadRecord)(nil),                     // 47: syrinx.ThreadRecord
+	(*WSMessage)(nil),                        // 48: syrinx.WSMessage
+	(*UserSearchResult)(nil),                 // 49: syrinx.UserSearchResult
+	(*Vouch)(nil),                            // 50: syrinx.Vouch
+	(*VouchWithdrawal)(nil),                  // 51: syrinx.VouchWithdrawal
 }
 var file_federation_proto_depIdxs = []int32{
-	2, // 0: syrinx.FederationInvitationList.invitations:type_name -> syrinx.FederationInvitation
-	2, // 1: syrinx.FederationInvitationResponse.invitation:type_name -> syrinx.FederationInvitation
-	5, // 2: syrinx.FederationServerList.servers:type_name -> syrinx.FederationServer
-	7, // 3: syrinx.FederationAttemptResponse.attempt:type_name -> syrinx.FederationAttempt
-	2, // 4: syrinx.FederationList.invitations:type_name -> syrinx.FederationInvitation
-	7, // 5: syrinx.FederationList.attempts:type_name -> syrinx.FederationAttempt
-	5, // 6: syrinx.FederationList.servers:type_name -> syrinx.FederationServer
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	2,  // 0: syrinx.FederationInvitationList.invitations:type_name -> syrinx.FederationInvitation
+	2,  // 1: syrinx.FederationInvitationResponse.invitation:type_name -> syrinx.FederationInvitation
+	5,  // 2: syrinx.FederationServerList.servers:type_name -> syrinx.FederationServer
+	7,  // 3: syrinx.FederationAttemptResponse.attempt:type_name -> syrinx.FederationAttempt
+	2,  // 4: syrinx.FederationList.invitations:type_name -> syrinx.FederationInvitation
+	7,  // 5: syrinx.FederationList.attempts:type_name -> syrinx.FederationAttempt
+	5,  // 6: syrinx.FederationList.servers:type_name -> syrinx.FederationServer
+	46, // 7: syrinx.FederationUserIdentity.user:type_name -> syrinx.User
+	47, // 8: syrinx.RelayDeliverPayload.record:type_name -> syrinx.ThreadRecord
+	48, // 9: syrinx.RelayReedStatsPayload.message:type_name -> syrinx.WSMessage
+	49, // 10: syrinx.RelaySearchUsersResponse.users:type_name -> syrinx.UserSearchResult
+	36, // 11: syrinx.RelayNewReedPayload.reply:type_name -> syrinx.RelayNewReedReply
+	37, // 12: syrinx.RelayNewReedPayload.echo:type_name -> syrinx.RelayNewReedEcho
+	39, // 13: syrinx.RelayReedRemovalPayload.cert:type_name -> syrinx.RelayReedRemovalCert
+	50, // 14: syrinx.RelayVouchReferencePayload.cert:type_name -> syrinx.Vouch
+	51, // 15: syrinx.RelayVouchWithdrawalPayload.withdrawal:type_name -> syrinx.VouchWithdrawal
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_federation_proto_init() }
@@ -1248,6 +3240,9 @@ func file_federation_proto_init() {
 	if File_federation_proto != nil {
 		return
 	}
+	file_common_proto_init()
+	file_identity_proto_init()
+	file_websocket_proto_init()
 	file_federation_proto_msgTypes[2].OneofWrappers = []any{}
 	file_federation_proto_msgTypes[5].OneofWrappers = []any{}
 	file_federation_proto_msgTypes[7].OneofWrappers = []any{}
@@ -1257,7 +3252,7 @@ func file_federation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_federation_proto_rawDesc), len(file_federation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   46,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

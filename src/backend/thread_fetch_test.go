@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"testing"
@@ -116,10 +115,7 @@ func TestThreadFetch_RelayCarriesRecord(t *testing.T) {
 	rs := newRealtimeService(f.h.services.db, newCryptoService(), "")
 	ids := f.seedThread(t, [][]string{nil, nil}, [][]string{nil, nil})
 
-	var out relayedThread
-	if err := json.Unmarshal(rs.relayedThreadData(ids[0], "ct"), &out); err != nil {
-		t.Fatal(err)
-	}
+	out := rs.relayedThreadData(ids[0], "ct")
 	if out.Ciphertext != "ct" || out.Record == nil || fmt.Sprint(out.Record.ReedIDs) != fmt.Sprint(ids) {
 		t.Fatalf("relayed thread = %+v, want ciphertext and record of %v", out, ids)
 	}
@@ -167,8 +163,7 @@ func TestThreadFetch_ForeignAckUsesVerifiedRecord(t *testing.T) {
 			if tc.verified {
 				verified = ids
 			}
-			data, _ := json.Marshal(relayedThread{Ciphertext: "ct"})
-			if found, err := rs.HandleForeignRelayResponse(ctx, "peer-ev-1", teardownPeerID, data, verified); err != nil || !found {
+			if found, err := rs.HandleForeignRelayResponse(ctx, "peer-ev-1", teardownPeerID, relayedThread{Ciphertext: "ct"}, verified); err != nil || !found {
 				t.Fatalf("HandleForeignRelayResponse: %v, %v", found, err)
 			}
 			if err := rs.db.MarkEventRelayed(ctx, eventID); err != nil {

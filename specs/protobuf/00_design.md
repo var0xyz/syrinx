@@ -2,9 +2,8 @@
 
 ## Status
 
-Implemented (design locked). WebSocket (02, 05) and client HTTP (01, 03,
-04) are shipped; federation (06) and the SPA's move to generated types
-(07) remain.
+Implemented (design locked). Steps 01–06 are shipped; the SPA's move to
+generated types (07) remains.
 
 ## Depends on
 

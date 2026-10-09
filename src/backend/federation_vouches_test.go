@@ -5,16 +5,16 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 )
 
 // vouchRefFixture is a subject's server (home) with a local user, and a
@@ -121,13 +121,9 @@ func (f *vouchRefFixture) cert(t *testing.T, note string) VouchCert {
 	}
 }
 
-func (f *vouchRefFixture) post(t *testing.T, handler http.HandlerFunc, path, peerServerID string, payload any) int {
+func (f *vouchRefFixture) post(t *testing.T, handler http.HandlerFunc, path, peerServerID string, payload proto.Message) int {
 	t.Helper()
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))
+	req := protoRequest(http.MethodPost, path, payload)
 	rr := httptest.NewRecorder()
 	handler(rr, withPeer(req, peerServerID))
 	return rr.Code
@@ -148,7 +144,7 @@ func TestVouchReferenceAccepted(t *testing.T) {
 	f := newVouchRefFixture(t)
 	cert := f.cert(t, "met at the fair")
 
-	code := f.post(t, f.h.VouchReferenceFromPeer, "/api/federation/relay/vouch-reference", teardownPeerID, relayVouchReferencePayload{Cert: cert})
+	code := f.post(t, f.h.VouchReferenceFromPeer, "/api/federation/relay/vouch-reference", teardownPeerID, &pb.RelayVouchReferencePayload{Cert: pbVouch(&cert)})
 	if code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", code)
 	}
@@ -182,7 +178,7 @@ func TestVouchReferenceRefused(t *testing.T) {
 			cert := f.cert(t, "met at the fair")
 			caller := tamper(f, &cert)
 
-			code := f.post(t, f.h.VouchReferenceFromPeer, "/api/federation/relay/vouch-reference", caller, relayVouchReferencePayload{Cert: cert})
+			code := f.post(t, f.h.VouchReferenceFromPeer, "/api/federation/relay/vouch-reference", caller, &pb.RelayVouchReferencePayload{Cert: pbVouch(&cert)})
 			if code < 400 || code >= 500 {
 				t.Fatalf("status = %d, want a 4xx", code)
 			}
@@ -197,19 +193,19 @@ func TestVouchReferenceRefused(t *testing.T) {
 func TestVouchWithdrawalDropsReference(t *testing.T) {
 	f := newVouchRefFixture(t)
 	cert := f.cert(t, "")
-	if code := f.post(t, f.h.VouchReferenceFromPeer, "/api/federation/relay/vouch-reference", teardownPeerID, relayVouchReferencePayload{Cert: cert}); code != http.StatusNoContent {
+	if code := f.post(t, f.h.VouchReferenceFromPeer, "/api/federation/relay/vouch-reference", teardownPeerID, &pb.RelayVouchReferencePayload{Cert: pbVouch(&cert)}); code != http.StatusNoContent {
 		t.Fatalf("reference status = %d, want 204", code)
 	}
 
 	userSig := f.sign(t, buildVouchWithdrawalUserPayload(cert.ID), f.voucherKP.PrivateKey)
 	now := time.Now().UTC().Truncate(time.Second)
 	serverSig := f.sign(t, buildVouchWithdrawalServerPayload(cert.ID, f.peerKP.Fingerprint, userSig, now), f.peerKP.PrivateKey)
-	payload := relayVouchWithdrawalPayload{
-		VouchID:       cert.ID,
-		VoucherUserID: f.voucher,
-		Withdrawal: VouchWithdrawal{
-			UserSignature:   UserSignature{ID: f.voucherKeyID, Armor: userSig},
-			ServerSignature: ServerSignature{ID: f.peerKeyID, Armor: serverSig, SignedAt: now},
+	payload := &pb.RelayVouchWithdrawalPayload{
+		VouchId:       cert.ID,
+		VoucherUserId: f.voucher,
+		Withdrawal: &pb.VouchWithdrawal{
+			UserSignature:   &pb.UserSignature{Id: f.voucherKeyID, Armor: userSig},
+			ServerSignature: pbServerSignature(ServerSignature{ID: f.peerKeyID, Armor: serverSig, SignedAt: now}),
 		},
 	}
 	for i := 0; i < 2; i++ {

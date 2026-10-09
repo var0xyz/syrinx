@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed.
+Implemented. Every relay call and both handshake endpoints send and
+answer protobuf (`federation.proto`); `callPeerRelayEndpoint` signs the
+bytes it marshals once and sends, and peer handlers decode with
+`readRequest`. The deliver leg carries ciphertext and thread record as
+fields, and the reed-stats push nests the `WSMessage`. The connection
+string an admin pastes stays an encrypted JSON blob: it is not an HTTP
+body.
 
 ## Depends on
 

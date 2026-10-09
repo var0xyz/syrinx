@@ -4,13 +4,19 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { ThreadRecord } from "./common_pb";
+import { file_common } from "./common_pb";
+import type { User, UserSearchResult, Vouch, VouchWithdrawal } from "./identity_pb";
+import { file_identity } from "./identity_pb";
+import type { WSMessage } from "./websocket_pb";
+import { file_websocket } from "./websocket_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file federation.proto.
  */
 export const file_federation: GenFile = /*@__PURE__*/
-  fileDesc("ChBmZWRlcmF0aW9uLnByb3RvEgZzeXJpbngiSAoXRmVkZXJhdGlvbkNyZWF0ZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIfChdyZW1vdGVfcHVibGljX2tleV9hcm1vchgCIAEoCSJYChhGZWRlcmF0aW9uQ3JlYXRlUmVzcG9uc2USEQoJaW52aXRlX2lkGAEgASgJEhkKEWNvbm5lY3Rpb25fc3RyaW5nGAIgASgJEg4KBnN0YXR1cxgDIAEoCSK7AgoURmVkZXJhdGlvbkludml0YXRpb24SEQoJaW52aXRlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc3RhdHVzGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSGgoScmVtb3RlX2ZpbmdlcnByaW50GAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAMSEwoLYWNjZXB0ZWRfYXQYByABKAMSFgoJc2VydmVyX2lkGAggASgJSACIAQESGAoLcmV2aWV3ZWRfYnkYCSABKAlIAYgBARITCgtyZXZpZXdlZF9hdBgKIAEoAxIeChFjb25uZWN0aW9uX3N0cmluZxgLIAEoCUgCiAEBQgwKCl9zZXJ2ZXJfaWRCDgoMX3Jldmlld2VkX2J5QhQKEl9jb25uZWN0aW9uX3N0cmluZyJNChhGZWRlcmF0aW9uSW52aXRhdGlvbkxpc3QSMQoLaW52aXRhdGlvbnMYASADKAsyHC5zeXJpbnguRmVkZXJhdGlvbkludml0YXRpb24iUAocRmVkZXJhdGlvbkludml0YXRpb25SZXNwb25zZRIwCgppbnZpdGF0aW9uGAEgASgLMhwuc3lyaW54LkZlZGVyYXRpb25JbnZpdGF0aW9uIskDChBGZWRlcmF0aW9uU2VydmVyEhEKCXNlcnZlcl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCGJhc2VfdXJsGAMgASgJEhQKDGZyb250ZW5kX3VybBgEIAEoCRIRCgljb25uZWN0ZWQYBSABKAgSEwoLZXN0YWJsaXNoZWQYBiABKAgSEgoKY3JlYXRlZF9hdBgHIAEoAxIPCgdyZXZva2VkGAggASgIEhIKCnJldm9rZWRfYXQYCSABKAMSFwoKcmV2b2tlZF9ieRgKIAEoCUgAiAEBEhsKDnJldm9rZWRfcmVhc29uGAsgASgJSAGIAQESGgoSZGlzY29ubmVjdF9wZW5kaW5nGAwgASgIEh8KF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2F0GA0gASgDEiQKF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5GA4gASgJSAKIAQESHgoRZGlzY29ubmVjdF9yZWFzb24YDyABKAlIA4gBAUINCgtfcmV2b2tlZF9ieUIRCg9fcmV2b2tlZF9yZWFzb25CGgoYX2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5QhQKEl9kaXNjb25uZWN0X3JlYXNvbiJBChRGZWRlcmF0aW9uU2VydmVyTGlzdBIpCgdzZXJ2ZXJzGAEgAygLMhguc3lyaW54LkZlZGVyYXRpb25TZXJ2ZXIiwgMKEUZlZGVyYXRpb25BdHRlbXB0EhIKCmF0dGVtcHRfaWQYASABKAkSGAoQcmVtb3RlX3NlcnZlcl9pZBgCIAEoCRIaChJyZW1vdGVfc2VydmVyX25hbWUYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSFAoMZnJvbnRlbmRfdXJsGAUgASgJEhMKC2ZpbmdlcnByaW50GAYgASgJEhoKDWludml0YXRpb25faWQYByABKAlIAIgBARIWCglzZXJ2ZXJfaWQYCCABKAlIAYgBARISCgpjcmVhdGVkX2F0GAkgASgDEg4KBnN0YXR1cxgKIAEoCRIYCgthcHByb3ZlZF9ieRgLIAEoCUgCiAEBEhMKC2FwcHJvdmVkX2F0GAwgASgDEhgKC3JlamVjdGVkX2J5GA0gASgJSAOIAQESEwoLcmVqZWN0ZWRfYXQYDiABKAMSHAoPcmVqZWN0ZWRfcmVhc29uGA8gASgJSASIAQFCEAoOX2ludml0YXRpb25faWRCDAoKX3NlcnZlcl9pZEIOCgxfYXBwcm92ZWRfYnlCDgoMX3JlamVjdGVkX2J5QhIKEF9yZWplY3RlZF9yZWFzb24iRwoZRmVkZXJhdGlvbkF0dGVtcHRSZXNwb25zZRIqCgdhdHRlbXB0GAEgASgLMhkuc3lyaW54LkZlZGVyYXRpb25BdHRlbXB0IpsBCg5GZWRlcmF0aW9uTGlzdBIxCgtpbnZpdGF0aW9ucxgBIAMoCzIcLnN5cmlueC5GZWRlcmF0aW9uSW52aXRhdGlvbhIrCghhdHRlbXB0cxgCIAMoCzIZLnN5cmlueC5GZWRlcmF0aW9uQXR0ZW1wdBIpCgdzZXJ2ZXJzGAMgAygLMhguc3lyaW54LkZlZGVyYXRpb25TZXJ2ZXIiHgoORmVkZXJhdGlvbkxvZ3MSDAoEdGV4dBgBIAEoCSI1ChhGZWRlcmF0aW9uQXR0ZW1wdFJlcXVlc3QSGQoRY29ubmVjdGlvbl9zdHJpbmcYASABKAkiPAoXRmVkZXJhdGlvbkF0dGVtcHRTdGF0dXMSDgoGc3RhdHVzGAEgASgJEhEKCXNlcnZlcl9pZBgCIAEoCSIpChdGZWRlcmF0aW9uUmVhc29uUmVxdWVzdBIOCgZyZWFzb24YASABKAkieQoYRmVkZXJhdGlvbkFjdGlvblJlc3BvbnNlEhEKCWludml0ZV9pZBgBIAEoCRISCgphdHRlbXB0X2lkGAIgASgJEhEKCXNlcnZlcl9pZBgDIAEoCRIOCgZzdGF0dXMYBCABKAkSEwoLZXN0YWJsaXNoZWQYBSABKAhCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM");
+  fileDesc("ChBmZWRlcmF0aW9uLnByb3RvEgZzeXJpbngiSAoXRmVkZXJhdGlvbkNyZWF0ZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIfChdyZW1vdGVfcHVibGljX2tleV9hcm1vchgCIAEoCSJYChhGZWRlcmF0aW9uQ3JlYXRlUmVzcG9uc2USEQoJaW52aXRlX2lkGAEgASgJEhkKEWNvbm5lY3Rpb25fc3RyaW5nGAIgASgJEg4KBnN0YXR1cxgDIAEoCSK7AgoURmVkZXJhdGlvbkludml0YXRpb24SEQoJaW52aXRlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc3RhdHVzGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSGgoScmVtb3RlX2ZpbmdlcnByaW50GAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAMSEwoLYWNjZXB0ZWRfYXQYByABKAMSFgoJc2VydmVyX2lkGAggASgJSACIAQESGAoLcmV2aWV3ZWRfYnkYCSABKAlIAYgBARITCgtyZXZpZXdlZF9hdBgKIAEoAxIeChFjb25uZWN0aW9uX3N0cmluZxgLIAEoCUgCiAEBQgwKCl9zZXJ2ZXJfaWRCDgoMX3Jldmlld2VkX2J5QhQKEl9jb25uZWN0aW9uX3N0cmluZyJNChhGZWRlcmF0aW9uSW52aXRhdGlvbkxpc3QSMQoLaW52aXRhdGlvbnMYASADKAsyHC5zeXJpbnguRmVkZXJhdGlvbkludml0YXRpb24iUAocRmVkZXJhdGlvbkludml0YXRpb25SZXNwb25zZRIwCgppbnZpdGF0aW9uGAEgASgLMhwuc3lyaW54LkZlZGVyYXRpb25JbnZpdGF0aW9uIskDChBGZWRlcmF0aW9uU2VydmVyEhEKCXNlcnZlcl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCGJhc2VfdXJsGAMgASgJEhQKDGZyb250ZW5kX3VybBgEIAEoCRIRCgljb25uZWN0ZWQYBSABKAgSEwoLZXN0YWJsaXNoZWQYBiABKAgSEgoKY3JlYXRlZF9hdBgHIAEoAxIPCgdyZXZva2VkGAggASgIEhIKCnJldm9rZWRfYXQYCSABKAMSFwoKcmV2b2tlZF9ieRgKIAEoCUgAiAEBEhsKDnJldm9rZWRfcmVhc29uGAsgASgJSAGIAQESGgoSZGlzY29ubmVjdF9wZW5kaW5nGAwgASgIEh8KF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2F0GA0gASgDEiQKF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5GA4gASgJSAKIAQESHgoRZGlzY29ubmVjdF9yZWFzb24YDyABKAlIA4gBAUINCgtfcmV2b2tlZF9ieUIRCg9fcmV2b2tlZF9yZWFzb25CGgoYX2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5QhQKEl9kaXNjb25uZWN0X3JlYXNvbiJBChRGZWRlcmF0aW9uU2VydmVyTGlzdBIpCgdzZXJ2ZXJzGAEgAygLMhguc3lyaW54LkZlZGVyYXRpb25TZXJ2ZXIiwgMKEUZlZGVyYXRpb25BdHRlbXB0EhIKCmF0dGVtcHRfaWQYASABKAkSGAoQcmVtb3RlX3NlcnZlcl9pZBgCIAEoCRIaChJyZW1vdGVfc2VydmVyX25hbWUYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSFAoMZnJvbnRlbmRfdXJsGAUgASgJEhMKC2ZpbmdlcnByaW50GAYgASgJEhoKDWludml0YXRpb25faWQYByABKAlIAIgBARIWCglzZXJ2ZXJfaWQYCCABKAlIAYgBARISCgpjcmVhdGVkX2F0GAkgASgDEg4KBnN0YXR1cxgKIAEoCRIYCgthcHByb3ZlZF9ieRgLIAEoCUgCiAEBEhMKC2FwcHJvdmVkX2F0GAwgASgDEhgKC3JlamVjdGVkX2J5GA0gASgJSAOIAQESEwoLcmVqZWN0ZWRfYXQYDiABKAMSHAoPcmVqZWN0ZWRfcmVhc29uGA8gASgJSASIAQFCEAoOX2ludml0YXRpb25faWRCDAoKX3NlcnZlcl9pZEIOCgxfYXBwcm92ZWRfYnlCDgoMX3JlamVjdGVkX2J5QhIKEF9yZWplY3RlZF9yZWFzb24iRwoZRmVkZXJhdGlvbkF0dGVtcHRSZXNwb25zZRIqCgdhdHRlbXB0GAEgASgLMhkuc3lyaW54LkZlZGVyYXRpb25BdHRlbXB0IpsBCg5GZWRlcmF0aW9uTGlzdBIxCgtpbnZpdGF0aW9ucxgBIAMoCzIcLnN5cmlueC5GZWRlcmF0aW9uSW52aXRhdGlvbhIrCghhdHRlbXB0cxgCIAMoCzIZLnN5cmlueC5GZWRlcmF0aW9uQXR0ZW1wdBIpCgdzZXJ2ZXJzGAMgAygLMhguc3lyaW54LkZlZGVyYXRpb25TZXJ2ZXIiHgoORmVkZXJhdGlvbkxvZ3MSDAoEdGV4dBgBIAEoCSI1ChhGZWRlcmF0aW9uQXR0ZW1wdFJlcXVlc3QSGQoRY29ubmVjdGlvbl9zdHJpbmcYASABKAkiPAoXRmVkZXJhdGlvbkF0dGVtcHRTdGF0dXMSDgoGc3RhdHVzGAEgASgJEhEKCXNlcnZlcl9pZBgCIAEoCSIpChdGZWRlcmF0aW9uUmVhc29uUmVxdWVzdBIOCgZyZWFzb24YASABKAkieQoYRmVkZXJhdGlvbkFjdGlvblJlc3BvbnNlEhEKCWludml0ZV9pZBgBIAEoCRISCgphdHRlbXB0X2lkGAIgASgJEhEKCXNlcnZlcl9pZBgDIAEoCRIOCgZzdGF0dXMYBCABKAkSEwoLZXN0YWJsaXNoZWQYBSABKAgiogEKGEZlZGVyYXRpb25Db25uZWN0UmVxdWVzdBIRCglzZXJ2ZXJfaWQYASABKAkSEwoLc2VydmVyX25hbWUYAiABKAkSEAoIYmFzZV91cmwYAyABKAkSFAoMZnJvbnRlbmRfdXJsGAQgASgJEhMKC2ZpbmdlcnByaW50GAUgASgJEhEKCXNpZ25hdHVyZRgGIAEoCRIOCgZzZWNyZXQYByABKAkiPgoZRmVkZXJhdGlvbkNvbm5lY3RSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSEQoJc2VydmVyX2lkGAIgASgJIksKFkZlZGVyYXRpb25Vc2VySWRlbnRpdHkSGgoEdXNlchgBIAEoCzIMLnN5cmlueC5Vc2VyEhUKDWFjdGl2ZV9rZXlfaWQYAiABKAkilwEKE1JlbGF5UmVxdWVzdFBheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIRCglhdXRob3JfaWQYAiABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAyABKAkSGAoQcmVxdWVzdGVyX2tleV9pZBgEIAEoCRIXCg9wZWVyX3JlcXVlc3RfaWQYBSABKAkSDgoGdGhyZWFkGAYgASgIIj0KFFJlbGF5UmVxdWVzdFJlc3BvbnNlEhUKDXBlZXJfZXZlbnRfaWQYASABKAkSDgoGc3RhdHVzGAIgASgJIlUKF1JlbGF5UHJvZmlsZVBhZ2VQYXlsb2FkEhEKCWF1dGhvcl9pZBgBIAEoCRIZChFyZXF1ZXN0ZXJfdXNlcl9pZBgCIAEoCRIMCgRwYWdlGAMgASgFIk0KGFJlbGF5UHJvZmlsZVBhZ2VSZXNwb25zZRIQCghyZWVkX2lkcxgBIAMoCRINCgVjb3VudBgCIAEoBRIQCghoYXNfbW9yZRgDIAEoCCJmChNSZWxheURlbGl2ZXJQYXlsb2FkEhUKDXBlZXJfZXZlbnRfaWQYASABKAkSEgoKY2lwaGVydGV4dBgCIAEoCRIkCgZyZWNvcmQYAyABKAsyFC5zeXJpbnguVGhyZWFkUmVjb3JkIiwKE1JlbGF5Tm90SGVsZFBheWxvYWQSFQoNcGVlcl9ldmVudF9pZBgBIAEoCSIrChJSZWxheUNhbmNlbFBheWxvYWQSFQoNcGVlcl9ldmVudF9pZBgBIAEoCSIoCg9SZWxheUFja1BheWxvYWQSFQoNcGVlcl9ldmVudF9pZBgBIAEoCSJHChlSZWxheVN1YnNjcmliZVJlZWRQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAiABKAkidQoaUmVsYXlTdWJzY3JpYmVSZWVkUmVzcG9uc2USDQoFZm91bmQYASABKAgSDgoGZWNob2VzGAIgASgFEhgKEGNvdmVyYWdlX3BlcmNlbnQYAyABKAUSDwoHcmVwbGllcxgEIAEoBRINCgVsaWtlcxgFIAEoBSJJChtSZWxheVVuc3Vic2NyaWJlUmVlZFBheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIZChFyZXF1ZXN0ZXJfdXNlcl9pZBgCIAEoCSJlChVSZWxheVJlZWRTdGF0c1BheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIXCg9leGNsdWRlX3VzZXJfaWQYAiABKAkSIgoHbWVzc2FnZRgDIAEoCzIRLnN5cmlueC5XU01lc3NhZ2UiKwoYUmVsYXlIb2xkZXJOb3RpZnlQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkifAobUmVsYXlGYWxsYmFja1JlcXVlc3RQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAiABKAkSGAoQcmVxdWVzdGVyX2tleV9pZBgDIAEoCRIXCg9wZWVyX3JlcXVlc3RfaWQYBCABKAkiRQocUmVsYXlGYWxsYmFja1JlcXVlc3RSZXNwb25zZRIVCg1wZWVyX2V2ZW50X2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCSI3ChdSZWxheVNlYXJjaFVzZXJzUGF5bG9hZBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBSJDChhSZWxheVNlYXJjaFVzZXJzUmVzcG9uc2USJwoFdXNlcnMYASADKAsyGC5zeXJpbnguVXNlclNlYXJjaFJlc3VsdCIuChxSZWxheURpc2Nvbm5lY3ROb3RpZnlQYXlsb2FkEg4KBnJlYXNvbhgBIAEoCSI8ChFSZWxheU5ld1JlZWRSZXBseRIWCg5wYXJlbnRfcmVlZF9pZBgBIAEoCRIPCgdyb290X2lkGAIgASgJIjwKEFJlbGF5TmV3UmVlZEVjaG8SFgoOZWNob2VkX3JlZWRfaWQYASABKAkSEAoIaXNfYmxhbmsYAiABKAgisAEKE1JlbGF5TmV3UmVlZFBheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIRCglhdXRob3JfaWQYAiABKAkSEQoJc2lnbmVkX2F0GAMgASgDEhAKCG1lbnRpb25zGAQgAygJEigKBXJlcGx5GAUgASgLMhkuc3lyaW54LlJlbGF5TmV3UmVlZFJlcGx5EiYKBGVjaG8YBiABKAsyGC5zeXJpbnguUmVsYXlOZXdSZWVkRWNobyK1AQoUUmVsYXlSZWVkUmVtb3ZhbENlcnQSDwoHcmVlZF9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAMgASgJEhMKC3VzZXJfa2V5X2lkGAQgASgJEhgKEHNlcnZlcl9zaWduYXR1cmUYBSABKAkSGgoSc2VydmVyX2ZpbmdlcnByaW50GAYgASgJEhgKEHNlcnZlcl9zaWduZWRfYXQYByABKAMiXQoXUmVsYXlSZWVkUmVtb3ZhbFBheWxvYWQSKgoEY2VydBgBIAEoCzIcLnN5cmlueC5SZWxheVJlZWRSZW1vdmFsQ2VydBIWCg5wYXJlbnRfcmVlZF9pZBgCIAEoCSIrChlSZWxheVJlYWx0aW1lUmVzZXRQYXlsb2FkEg4KBnJlYXNvbhgBIAEoCSK+AQogUmVsYXlBY2NvdW50UmVtb3ZhbE5vdGlmeVBheWxvYWQSDwoHdXNlcl9pZBgBIAEoCRIMCgRub3RlGAIgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAMgASgJEhMKC3VzZXJfa2V5X2lkGAQgASgJEhgKEHNlcnZlcl9zaWduYXR1cmUYBSABKAkSGgoSc2VydmVyX2ZpbmdlcnByaW50GAYgASgJEhgKEHNlcnZlcl9zaWduZWRfYXQYByABKAMiPwoTUmVsYXlVbmJsb2NrUGF5bG9hZBIPCgd1c2VyX2lkGAEgASgJEhcKD2Jsb2NrZWRfdXNlcl9pZBgCIAEoCSI5ChpSZWxheVZvdWNoUmVmZXJlbmNlUGF5bG9hZBIbCgRjZXJ0GAEgASgLMg0uc3lyaW54LlZvdWNoInUKG1JlbGF5Vm91Y2hXaXRoZHJhd2FsUGF5bG9hZBIQCgh2b3VjaF9pZBgBIAEoCRIXCg92b3VjaGVyX3VzZXJfaWQYAiABKAkSKwoKd2l0aGRyYXdhbBgDIAEoCzIXLnN5cmlueC5Wb3VjaFdpdGhkcmF3YWxCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM", [file_common, file_identity, file_websocket]);
 
 /**
  * POST /federation/invitations.
@@ -534,4 +540,830 @@ export type FederationActionResponse = Message<"syrinx.FederationActionResponse"
  */
 export const FederationActionResponseSchema: GenMessage<FederationActionResponse> = /*@__PURE__*/
   messageDesc(file_federation, 14);
+
+/**
+ * POST /federation/connect/{inviteId}: the responder calls the initiator
+ * back; the secret and signature prove it redeemed the invitation.
+ *
+ * @generated from message syrinx.FederationConnectRequest
+ */
+export type FederationConnectRequest = Message<"syrinx.FederationConnectRequest"> & {
+  /**
+   * @generated from field: string server_id = 1;
+   */
+  serverId: string;
+
+  /**
+   * @generated from field: string server_name = 2;
+   */
+  serverName: string;
+
+  /**
+   * @generated from field: string base_url = 3;
+   */
+  baseUrl: string;
+
+  /**
+   * @generated from field: string frontend_url = 4;
+   */
+  frontendUrl: string;
+
+  /**
+   * @generated from field: string fingerprint = 5;
+   */
+  fingerprint: string;
+
+  /**
+   * @generated from field: string signature = 6;
+   */
+  signature: string;
+
+  /**
+   * @generated from field: string secret = 7;
+   */
+  secret: string;
+};
+
+/**
+ * Describes the message syrinx.FederationConnectRequest.
+ * Use `create(FederationConnectRequestSchema)` to create a new message.
+ */
+export const FederationConnectRequestSchema: GenMessage<FederationConnectRequest> = /*@__PURE__*/
+  messageDesc(file_federation, 15);
+
+/**
+ * @generated from message syrinx.FederationConnectResponse
+ */
+export type FederationConnectResponse = Message<"syrinx.FederationConnectResponse"> & {
+  /**
+   * @generated from field: string status = 1;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string server_id = 2;
+   */
+  serverId: string;
+};
+
+/**
+ * Describes the message syrinx.FederationConnectResponse.
+ * Use `create(FederationConnectResponseSchema)` to create a new message.
+ */
+export const FederationConnectResponseSchema: GenMessage<FederationConnectResponse> = /*@__PURE__*/
+  messageDesc(file_federation, 16);
+
+/**
+ * GET /federation/users/{userID}/identity: the snapshot a peer resolves a
+ * local user through.
+ *
+ * @generated from message syrinx.FederationUserIdentity
+ */
+export type FederationUserIdentity = Message<"syrinx.FederationUserIdentity"> & {
+  /**
+   * @generated from field: syrinx.User user = 1;
+   */
+  user?: User | undefined;
+
+  /**
+   * @generated from field: string active_key_id = 2;
+   */
+  activeKeyId: string;
+};
+
+/**
+ * Describes the message syrinx.FederationUserIdentity.
+ * Use `create(FederationUserIdentitySchema)` to create a new message.
+ */
+export const FederationUserIdentitySchema: GenMessage<FederationUserIdentity> = /*@__PURE__*/
+  messageDesc(file_federation, 17);
+
+/**
+ * @generated from message syrinx.RelayRequestPayload
+ */
+export type RelayRequestPayload = Message<"syrinx.RelayRequestPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string author_id = 2;
+   */
+  authorId: string;
+
+  /**
+   * @generated from field: string requester_user_id = 3;
+   */
+  requesterUserId: string;
+
+  /**
+   * @generated from field: string requester_key_id = 4;
+   */
+  requesterKeyId: string;
+
+  /**
+   * @generated from field: string peer_request_id = 5;
+   */
+  peerRequestId: string;
+
+  /**
+   * Asks for the whole thread reed_id heads.
+   *
+   * @generated from field: bool thread = 6;
+   */
+  thread: boolean;
+};
+
+/**
+ * Describes the message syrinx.RelayRequestPayload.
+ * Use `create(RelayRequestPayloadSchema)` to create a new message.
+ */
+export const RelayRequestPayloadSchema: GenMessage<RelayRequestPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 18);
+
+/**
+ * @generated from message syrinx.RelayRequestResponse
+ */
+export type RelayRequestResponse = Message<"syrinx.RelayRequestResponse"> & {
+  /**
+   * @generated from field: string peer_event_id = 1;
+   */
+  peerEventId: string;
+
+  /**
+   * @generated from field: string status = 2;
+   */
+  status: string;
+};
+
+/**
+ * Describes the message syrinx.RelayRequestResponse.
+ * Use `create(RelayRequestResponseSchema)` to create a new message.
+ */
+export const RelayRequestResponseSchema: GenMessage<RelayRequestResponse> = /*@__PURE__*/
+  messageDesc(file_federation, 19);
+
+/**
+ * @generated from message syrinx.RelayProfilePagePayload
+ */
+export type RelayProfilePagePayload = Message<"syrinx.RelayProfilePagePayload"> & {
+  /**
+   * @generated from field: string author_id = 1;
+   */
+  authorId: string;
+
+  /**
+   * @generated from field: string requester_user_id = 2;
+   */
+  requesterUserId: string;
+
+  /**
+   * @generated from field: int32 page = 3;
+   */
+  page: number;
+};
+
+/**
+ * Describes the message syrinx.RelayProfilePagePayload.
+ * Use `create(RelayProfilePagePayloadSchema)` to create a new message.
+ */
+export const RelayProfilePagePayloadSchema: GenMessage<RelayProfilePagePayload> = /*@__PURE__*/
+  messageDesc(file_federation, 20);
+
+/**
+ * @generated from message syrinx.RelayProfilePageResponse
+ */
+export type RelayProfilePageResponse = Message<"syrinx.RelayProfilePageResponse"> & {
+  /**
+   * @generated from field: repeated string reed_ids = 1;
+   */
+  reedIds: string[];
+
+  /**
+   * @generated from field: int32 count = 2;
+   */
+  count: number;
+
+  /**
+   * @generated from field: bool has_more = 3;
+   */
+  hasMore: boolean;
+};
+
+/**
+ * Describes the message syrinx.RelayProfilePageResponse.
+ * Use `create(RelayProfilePageResponseSchema)` to create a new message.
+ */
+export const RelayProfilePageResponseSchema: GenMessage<RelayProfilePageResponse> = /*@__PURE__*/
+  messageDesc(file_federation, 21);
+
+/**
+ * Relayed content for a request the receiver registered. A relayed thread
+ * also carries its record, which the receiver verifies.
+ *
+ * @generated from message syrinx.RelayDeliverPayload
+ */
+export type RelayDeliverPayload = Message<"syrinx.RelayDeliverPayload"> & {
+  /**
+   * @generated from field: string peer_event_id = 1;
+   */
+  peerEventId: string;
+
+  /**
+   * @generated from field: string ciphertext = 2;
+   */
+  ciphertext: string;
+
+  /**
+   * @generated from field: syrinx.ThreadRecord record = 3;
+   */
+  record?: ThreadRecord | undefined;
+};
+
+/**
+ * Describes the message syrinx.RelayDeliverPayload.
+ * Use `create(RelayDeliverPayloadSchema)` to create a new message.
+ */
+export const RelayDeliverPayloadSchema: GenMessage<RelayDeliverPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 22);
+
+/**
+ * @generated from message syrinx.RelayNotHeldPayload
+ */
+export type RelayNotHeldPayload = Message<"syrinx.RelayNotHeldPayload"> & {
+  /**
+   * @generated from field: string peer_event_id = 1;
+   */
+  peerEventId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayNotHeldPayload.
+ * Use `create(RelayNotHeldPayloadSchema)` to create a new message.
+ */
+export const RelayNotHeldPayloadSchema: GenMessage<RelayNotHeldPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 23);
+
+/**
+ * @generated from message syrinx.RelayCancelPayload
+ */
+export type RelayCancelPayload = Message<"syrinx.RelayCancelPayload"> & {
+  /**
+   * @generated from field: string peer_event_id = 1;
+   */
+  peerEventId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayCancelPayload.
+ * Use `create(RelayCancelPayloadSchema)` to create a new message.
+ */
+export const RelayCancelPayloadSchema: GenMessage<RelayCancelPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 24);
+
+/**
+ * @generated from message syrinx.RelayAckPayload
+ */
+export type RelayAckPayload = Message<"syrinx.RelayAckPayload"> & {
+  /**
+   * @generated from field: string peer_event_id = 1;
+   */
+  peerEventId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayAckPayload.
+ * Use `create(RelayAckPayloadSchema)` to create a new message.
+ */
+export const RelayAckPayloadSchema: GenMessage<RelayAckPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 25);
+
+/**
+ * @generated from message syrinx.RelaySubscribeReedPayload
+ */
+export type RelaySubscribeReedPayload = Message<"syrinx.RelaySubscribeReedPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string requester_user_id = 2;
+   */
+  requesterUserId: string;
+};
+
+/**
+ * Describes the message syrinx.RelaySubscribeReedPayload.
+ * Use `create(RelaySubscribeReedPayloadSchema)` to create a new message.
+ */
+export const RelaySubscribeReedPayloadSchema: GenMessage<RelaySubscribeReedPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 26);
+
+/**
+ * @generated from message syrinx.RelaySubscribeReedResponse
+ */
+export type RelaySubscribeReedResponse = Message<"syrinx.RelaySubscribeReedResponse"> & {
+  /**
+   * @generated from field: bool found = 1;
+   */
+  found: boolean;
+
+  /**
+   * @generated from field: int32 echoes = 2;
+   */
+  echoes: number;
+
+  /**
+   * @generated from field: int32 coverage_percent = 3;
+   */
+  coveragePercent: number;
+
+  /**
+   * @generated from field: int32 replies = 4;
+   */
+  replies: number;
+
+  /**
+   * @generated from field: int32 likes = 5;
+   */
+  likes: number;
+};
+
+/**
+ * Describes the message syrinx.RelaySubscribeReedResponse.
+ * Use `create(RelaySubscribeReedResponseSchema)` to create a new message.
+ */
+export const RelaySubscribeReedResponseSchema: GenMessage<RelaySubscribeReedResponse> = /*@__PURE__*/
+  messageDesc(file_federation, 27);
+
+/**
+ * @generated from message syrinx.RelayUnsubscribeReedPayload
+ */
+export type RelayUnsubscribeReedPayload = Message<"syrinx.RelayUnsubscribeReedPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string requester_user_id = 2;
+   */
+  requesterUserId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayUnsubscribeReedPayload.
+ * Use `create(RelayUnsubscribeReedPayloadSchema)` to create a new message.
+ */
+export const RelayUnsubscribeReedPayloadSchema: GenMessage<RelayUnsubscribeReedPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 28);
+
+/**
+ * One live update for a reed, as the WS message its local viewers get.
+ *
+ * @generated from message syrinx.RelayReedStatsPayload
+ */
+export type RelayReedStatsPayload = Message<"syrinx.RelayReedStatsPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string exclude_user_id = 2;
+   */
+  excludeUserId: string;
+
+  /**
+   * @generated from field: syrinx.WSMessage message = 3;
+   */
+  message?: WSMessage | undefined;
+};
+
+/**
+ * Describes the message syrinx.RelayReedStatsPayload.
+ * Use `create(RelayReedStatsPayloadSchema)` to create a new message.
+ */
+export const RelayReedStatsPayloadSchema: GenMessage<RelayReedStatsPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 29);
+
+/**
+ * @generated from message syrinx.RelayHolderNotifyPayload
+ */
+export type RelayHolderNotifyPayload = Message<"syrinx.RelayHolderNotifyPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayHolderNotifyPayload.
+ * Use `create(RelayHolderNotifyPayloadSchema)` to create a new message.
+ */
+export const RelayHolderNotifyPayloadSchema: GenMessage<RelayHolderNotifyPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 30);
+
+/**
+ * @generated from message syrinx.RelayFallbackRequestPayload
+ */
+export type RelayFallbackRequestPayload = Message<"syrinx.RelayFallbackRequestPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string requester_user_id = 2;
+   */
+  requesterUserId: string;
+
+  /**
+   * @generated from field: string requester_key_id = 3;
+   */
+  requesterKeyId: string;
+
+  /**
+   * @generated from field: string peer_request_id = 4;
+   */
+  peerRequestId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayFallbackRequestPayload.
+ * Use `create(RelayFallbackRequestPayloadSchema)` to create a new message.
+ */
+export const RelayFallbackRequestPayloadSchema: GenMessage<RelayFallbackRequestPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 31);
+
+/**
+ * @generated from message syrinx.RelayFallbackRequestResponse
+ */
+export type RelayFallbackRequestResponse = Message<"syrinx.RelayFallbackRequestResponse"> & {
+  /**
+   * @generated from field: string peer_event_id = 1;
+   */
+  peerEventId: string;
+
+  /**
+   * @generated from field: string status = 2;
+   */
+  status: string;
+};
+
+/**
+ * Describes the message syrinx.RelayFallbackRequestResponse.
+ * Use `create(RelayFallbackRequestResponseSchema)` to create a new message.
+ */
+export const RelayFallbackRequestResponseSchema: GenMessage<RelayFallbackRequestResponse> = /*@__PURE__*/
+  messageDesc(file_federation, 32);
+
+/**
+ * @generated from message syrinx.RelaySearchUsersPayload
+ */
+export type RelaySearchUsersPayload = Message<"syrinx.RelaySearchUsersPayload"> & {
+  /**
+   * @generated from field: string query = 1;
+   */
+  query: string;
+
+  /**
+   * @generated from field: int32 limit = 2;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message syrinx.RelaySearchUsersPayload.
+ * Use `create(RelaySearchUsersPayloadSchema)` to create a new message.
+ */
+export const RelaySearchUsersPayloadSchema: GenMessage<RelaySearchUsersPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 33);
+
+/**
+ * @generated from message syrinx.RelaySearchUsersResponse
+ */
+export type RelaySearchUsersResponse = Message<"syrinx.RelaySearchUsersResponse"> & {
+  /**
+   * @generated from field: repeated syrinx.UserSearchResult users = 1;
+   */
+  users: UserSearchResult[];
+};
+
+/**
+ * Describes the message syrinx.RelaySearchUsersResponse.
+ * Use `create(RelaySearchUsersResponseSchema)` to create a new message.
+ */
+export const RelaySearchUsersResponseSchema: GenMessage<RelaySearchUsersResponse> = /*@__PURE__*/
+  messageDesc(file_federation, 34);
+
+/**
+ * @generated from message syrinx.RelayDisconnectNotifyPayload
+ */
+export type RelayDisconnectNotifyPayload = Message<"syrinx.RelayDisconnectNotifyPayload"> & {
+  /**
+   * @generated from field: string reason = 1;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message syrinx.RelayDisconnectNotifyPayload.
+ * Use `create(RelayDisconnectNotifyPayloadSchema)` to create a new message.
+ */
+export const RelayDisconnectNotifyPayloadSchema: GenMessage<RelayDisconnectNotifyPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 35);
+
+/**
+ * @generated from message syrinx.RelayNewReedReply
+ */
+export type RelayNewReedReply = Message<"syrinx.RelayNewReedReply"> & {
+  /**
+   * @generated from field: string parent_reed_id = 1;
+   */
+  parentReedId: string;
+
+  /**
+   * @generated from field: string root_id = 2;
+   */
+  rootId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayNewReedReply.
+ * Use `create(RelayNewReedReplySchema)` to create a new message.
+ */
+export const RelayNewReedReplySchema: GenMessage<RelayNewReedReply> = /*@__PURE__*/
+  messageDesc(file_federation, 36);
+
+/**
+ * @generated from message syrinx.RelayNewReedEcho
+ */
+export type RelayNewReedEcho = Message<"syrinx.RelayNewReedEcho"> & {
+  /**
+   * @generated from field: string echoed_reed_id = 1;
+   */
+  echoedReedId: string;
+
+  /**
+   * @generated from field: bool is_blank = 2;
+   */
+  isBlank: boolean;
+};
+
+/**
+ * Describes the message syrinx.RelayNewReedEcho.
+ * Use `create(RelayNewReedEchoSchema)` to create a new message.
+ */
+export const RelayNewReedEchoSchema: GenMessage<RelayNewReedEcho> = /*@__PURE__*/
+  messageDesc(file_federation, 37);
+
+/**
+ * Announces one of the sender's own reeds, without content.
+ *
+ * @generated from message syrinx.RelayNewReedPayload
+ */
+export type RelayNewReedPayload = Message<"syrinx.RelayNewReedPayload"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string author_id = 2;
+   */
+  authorId: string;
+
+  /**
+   * @generated from field: int64 signed_at = 3;
+   */
+  signedAt: bigint;
+
+  /**
+   * @generated from field: repeated string mentions = 4;
+   */
+  mentions: string[];
+
+  /**
+   * @generated from field: syrinx.RelayNewReedReply reply = 5;
+   */
+  reply?: RelayNewReedReply | undefined;
+
+  /**
+   * @generated from field: syrinx.RelayNewReedEcho echo = 6;
+   */
+  echo?: RelayNewReedEcho | undefined;
+};
+
+/**
+ * Describes the message syrinx.RelayNewReedPayload.
+ * Use `create(RelayNewReedPayloadSchema)` to create a new message.
+ */
+export const RelayNewReedPayloadSchema: GenMessage<RelayNewReedPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 38);
+
+/**
+ * A signed reed removal as it travels between servers.
+ *
+ * @generated from message syrinx.RelayReedRemovalCert
+ */
+export type RelayReedRemovalCert = Message<"syrinx.RelayReedRemovalCert"> & {
+  /**
+   * @generated from field: string reed_id = 1;
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string user_id = 2;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string user_signature = 3;
+   */
+  userSignature: string;
+
+  /**
+   * @generated from field: string user_key_id = 4;
+   */
+  userKeyId: string;
+
+  /**
+   * @generated from field: string server_signature = 5;
+   */
+  serverSignature: string;
+
+  /**
+   * @generated from field: string server_fingerprint = 6;
+   */
+  serverFingerprint: string;
+
+  /**
+   * @generated from field: int64 server_signed_at = 7;
+   */
+  serverSignedAt: bigint;
+};
+
+/**
+ * Describes the message syrinx.RelayReedRemovalCert.
+ * Use `create(RelayReedRemovalCertSchema)` to create a new message.
+ */
+export const RelayReedRemovalCertSchema: GenMessage<RelayReedRemovalCert> = /*@__PURE__*/
+  messageDesc(file_federation, 39);
+
+/**
+ * The removal cert, plus the parent the removed reed replied to.
+ *
+ * @generated from message syrinx.RelayReedRemovalPayload
+ */
+export type RelayReedRemovalPayload = Message<"syrinx.RelayReedRemovalPayload"> & {
+  /**
+   * @generated from field: syrinx.RelayReedRemovalCert cert = 1;
+   */
+  cert?: RelayReedRemovalCert | undefined;
+
+  /**
+   * @generated from field: string parent_reed_id = 2;
+   */
+  parentReedId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayReedRemovalPayload.
+ * Use `create(RelayReedRemovalPayloadSchema)` to create a new message.
+ */
+export const RelayReedRemovalPayloadSchema: GenMessage<RelayReedRemovalPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 40);
+
+/**
+ * @generated from message syrinx.RelayRealtimeResetPayload
+ */
+export type RelayRealtimeResetPayload = Message<"syrinx.RelayRealtimeResetPayload"> & {
+  /**
+   * @generated from field: string reason = 1;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message syrinx.RelayRealtimeResetPayload.
+ * Use `create(RelayRealtimeResetPayloadSchema)` to create a new message.
+ */
+export const RelayRealtimeResetPayloadSchema: GenMessage<RelayRealtimeResetPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 41);
+
+/**
+ * @generated from message syrinx.RelayAccountRemovalNotifyPayload
+ */
+export type RelayAccountRemovalNotifyPayload = Message<"syrinx.RelayAccountRemovalNotifyPayload"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string note = 2;
+   */
+  note: string;
+
+  /**
+   * @generated from field: string user_signature = 3;
+   */
+  userSignature: string;
+
+  /**
+   * @generated from field: string user_key_id = 4;
+   */
+  userKeyId: string;
+
+  /**
+   * @generated from field: string server_signature = 5;
+   */
+  serverSignature: string;
+
+  /**
+   * @generated from field: string server_fingerprint = 6;
+   */
+  serverFingerprint: string;
+
+  /**
+   * @generated from field: int64 server_signed_at = 7;
+   */
+  serverSignedAt: bigint;
+};
+
+/**
+ * Describes the message syrinx.RelayAccountRemovalNotifyPayload.
+ * Use `create(RelayAccountRemovalNotifyPayloadSchema)` to create a new message.
+ */
+export const RelayAccountRemovalNotifyPayloadSchema: GenMessage<RelayAccountRemovalNotifyPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 42);
+
+/**
+ * @generated from message syrinx.RelayUnblockPayload
+ */
+export type RelayUnblockPayload = Message<"syrinx.RelayUnblockPayload"> & {
+  /**
+   * @generated from field: string user_id = 1;
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string blocked_user_id = 2;
+   */
+  blockedUserId: string;
+};
+
+/**
+ * Describes the message syrinx.RelayUnblockPayload.
+ * Use `create(RelayUnblockPayloadSchema)` to create a new message.
+ */
+export const RelayUnblockPayloadSchema: GenMessage<RelayUnblockPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 43);
+
+/**
+ * @generated from message syrinx.RelayVouchReferencePayload
+ */
+export type RelayVouchReferencePayload = Message<"syrinx.RelayVouchReferencePayload"> & {
+  /**
+   * @generated from field: syrinx.Vouch cert = 1;
+   */
+  cert?: Vouch | undefined;
+};
+
+/**
+ * Describes the message syrinx.RelayVouchReferencePayload.
+ * Use `create(RelayVouchReferencePayloadSchema)` to create a new message.
+ */
+export const RelayVouchReferencePayloadSchema: GenMessage<RelayVouchReferencePayload> = /*@__PURE__*/
+  messageDesc(file_federation, 44);
+
+/**
+ * @generated from message syrinx.RelayVouchWithdrawalPayload
+ */
+export type RelayVouchWithdrawalPayload = Message<"syrinx.RelayVouchWithdrawalPayload"> & {
+  /**
+   * @generated from field: string vouch_id = 1;
+   */
+  vouchId: string;
+
+  /**
+   * @generated from field: string voucher_user_id = 2;
+   */
+  voucherUserId: string;
+
+  /**
+   * @generated from field: syrinx.VouchWithdrawal withdrawal = 3;
+   */
+  withdrawal?: VouchWithdrawal | undefined;
+};
+
+/**
+ * Describes the message syrinx.RelayVouchWithdrawalPayload.
+ * Use `create(RelayVouchWithdrawalPayloadSchema)` to create a new message.
+ */
+export const RelayVouchWithdrawalPayloadSchema: GenMessage<RelayVouchWithdrawalPayload> = /*@__PURE__*/
+  messageDesc(file_federation, 45);
 

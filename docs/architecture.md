@@ -6,8 +6,8 @@ Syrinx is a small stack with a sharp division of responsibility: the server coor
 
 | Piece | Role |
 |-------|------|
-| **HTTP API** (Go) | REST: identity, reeds metadata, invites, deletion certs, recovery, server info |
-| **Realtime service** (Go) | WebSockets, JSON events, fanout and catch-up via Go channels |
+| **HTTP API** (Go) | REST with protobuf bodies: identity, reeds metadata, invites, deletion certs, recovery, server info, federation |
+| **Realtime service** (Go) | WebSockets, binary protobuf events, fanout and catch-up via Go channels |
 | **SPA** (SvelteKit) | Primary client / PWA: local keys, IndexedDB, signing, feeds, restore |
 | **Ops CLI** (`bin/ops`) | Operator tooling: export/import server identity bundles |
 

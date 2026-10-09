@@ -2,6 +2,10 @@ syntax = "proto3";
 
 package syrinx;
 
+import "common.proto";
+import "identity.proto";
+import "websocket.proto";
+
 option go_package = "github.com/alvaro/syrinx/proto";
 
 // POST /federation/invitations.
@@ -125,4 +129,198 @@ message FederationActionResponse {
   string status = 4;
   // Approval only: the other server had already approved us.
   bool established = 5;
+}
+
+// POST /federation/connect/{inviteId}: the responder calls the initiator
+// back; the secret and signature prove it redeemed the invitation.
+message FederationConnectRequest {
+  string server_id = 1;
+  string server_name = 2;
+  string base_url = 3;
+  string frontend_url = 4;
+  string fingerprint = 5;
+  string signature = 6;
+  string secret = 7;
+}
+
+message FederationConnectResponse {
+  string status = 1;
+  string server_id = 2;
+}
+
+// GET /federation/users/{userID}/identity: the snapshot a peer resolves a
+// local user through.
+message FederationUserIdentity {
+  User user = 1;
+  string active_key_id = 2;
+}
+
+// Relay calls between peers, under /federation/relay/. Each call has its
+// own request message, and its own response where it answers with a body.
+
+message RelayRequestPayload {
+  string reed_id = 1;
+  string author_id = 2;
+  string requester_user_id = 3;
+  string requester_key_id = 4;
+  string peer_request_id = 5;
+  // Asks for the whole thread reed_id heads.
+  bool thread = 6;
+}
+
+message RelayRequestResponse {
+  string peer_event_id = 1;
+  string status = 2;
+}
+
+message RelayProfilePagePayload {
+  string author_id = 1;
+  string requester_user_id = 2;
+  int32 page = 3;
+}
+
+message RelayProfilePageResponse {
+  repeated string reed_ids = 1;
+  int32 count = 2;
+  bool has_more = 3;
+}
+
+// Relayed content for a request the receiver registered. A relayed thread
+// also carries its record, which the receiver verifies.
+message RelayDeliverPayload {
+  string peer_event_id = 1;
+  string ciphertext = 2;
+  ThreadRecord record = 3;
+}
+
+message RelayNotHeldPayload {
+  string peer_event_id = 1;
+}
+
+message RelayCancelPayload {
+  string peer_event_id = 1;
+}
+
+message RelayAckPayload {
+  string peer_event_id = 1;
+}
+
+message RelaySubscribeReedPayload {
+  string reed_id = 1;
+  string requester_user_id = 2;
+}
+
+message RelaySubscribeReedResponse {
+  bool found = 1;
+  int32 echoes = 2;
+  int32 coverage_percent = 3;
+  int32 replies = 4;
+  int32 likes = 5;
+}
+
+message RelayUnsubscribeReedPayload {
+  string reed_id = 1;
+  string requester_user_id = 2;
+}
+
+// One live update for a reed, as the WS message its local viewers get.
+message RelayReedStatsPayload {
+  string reed_id = 1;
+  string exclude_user_id = 2;
+  WSMessage message = 3;
+}
+
+message RelayHolderNotifyPayload {
+  string reed_id = 1;
+}
+
+message RelayFallbackRequestPayload {
+  string reed_id = 1;
+  string requester_user_id = 2;
+  string requester_key_id = 3;
+  string peer_request_id = 4;
+}
+
+message RelayFallbackRequestResponse {
+  string peer_event_id = 1;
+  string status = 2;
+}
+
+message RelaySearchUsersPayload {
+  string query = 1;
+  int32 limit = 2;
+}
+
+message RelaySearchUsersResponse {
+  repeated UserSearchResult users = 1;
+}
+
+message RelayDisconnectNotifyPayload {
+  string reason = 1;
+}
+
+message RelayNewReedReply {
+  string parent_reed_id = 1;
+  string root_id = 2;
+}
+
+message RelayNewReedEcho {
+  string echoed_reed_id = 1;
+  bool is_blank = 2;
+}
+
+// Announces one of the sender's own reeds, without content.
+message RelayNewReedPayload {
+  string reed_id = 1;
+  string author_id = 2;
+  int64 signed_at = 3;
+  repeated string mentions = 4;
+  RelayNewReedReply reply = 5;
+  RelayNewReedEcho echo = 6;
+}
+
+// A signed reed removal as it travels between servers.
+message RelayReedRemovalCert {
+  string reed_id = 1;
+  string user_id = 2;
+  string user_signature = 3;
+  string user_key_id = 4;
+  string server_signature = 5;
+  string server_fingerprint = 6;
+  int64 server_signed_at = 7;
+}
+
+// The removal cert, plus the parent the removed reed replied to.
+message RelayReedRemovalPayload {
+  RelayReedRemovalCert cert = 1;
+  string parent_reed_id = 2;
+}
+
+message RelayRealtimeResetPayload {
+  string reason = 1;
+}
+
+message RelayAccountRemovalNotifyPayload {
+  string user_id = 1;
+  string note = 2;
+  string user_signature = 3;
+  string user_key_id = 4;
+  string server_signature = 5;
+  string server_fingerprint = 6;
+  int64 server_signed_at = 7;
+}
+
+message RelayUnblockPayload {
+  string user_id = 1;
+  string blocked_user_id = 2;
+}
+
+message RelayVouchReferencePayload {
+  Vouch cert = 1;
+}
+
+message RelayVouchWithdrawalPayload {
+  string vouch_id = 1;
+  string voucher_user_id = 2;
+  VouchWithdrawal withdrawal = 3;
 }

@@ -4,14 +4,16 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 )
 
 // A vouch about a user of another server is only stored once that server
@@ -30,30 +32,20 @@ var errVouchSubjectUnreachable = errors.New("subject's server could not be reach
 // will not accept it; sending it again will not help.
 var errVouchSubjectRefused = errors.New("subject's server refused the vouch")
 
-type relayVouchReferencePayload struct {
-	Cert VouchCert `json:"cert"`
-}
-
-type relayVouchWithdrawalPayload struct {
-	VouchID       string          `json:"vouch_id"`
-	VoucherUserID string          `json:"voucher_user_id"`
-	Withdrawal    VouchWithdrawal `json:"withdrawal"`
-}
-
 // deliverVouchToSubject asks the subject's server to accept a reference to
 // cert and waits for its answer.
 func (h *Handlers) deliverVouchToSubject(ctx context.Context, cert VouchCert) error {
 	return h.callSubjectServer(ctx, cert.SubjectUserID, "/api/federation/relay/vouch-reference",
-		relayVouchReferencePayload{Cert: cert})
+		&pb.RelayVouchReferencePayload{Cert: pbVouch(&cert)})
 }
 
 // deliverVouchWithdrawalToSubject asks the subject's server to drop its
 // reference to a withdrawn vouch and waits for its answer.
-func (h *Handlers) deliverVouchWithdrawalToSubject(ctx context.Context, subjectUserID string, payload relayVouchWithdrawalPayload) error {
+func (h *Handlers) deliverVouchWithdrawalToSubject(ctx context.Context, subjectUserID string, payload *pb.RelayVouchWithdrawalPayload) error {
 	return h.callSubjectServer(ctx, subjectUserID, "/api/federation/relay/vouch-withdrawal", payload)
 }
 
-func (h *Handlers) callSubjectServer(ctx context.Context, subjectUserID, path string, payload any) error {
+func (h *Handlers) callSubjectServer(ctx context.Context, subjectUserID, path string, payload proto.Message) error {
 	_, serverID, ok := parseIdentityID(identityID(subjectUserID))
 	if !ok {
 		return fmt.Errorf("%w: malformed subject id", errVouchSubjectRefused)
@@ -95,20 +87,20 @@ func (h *Handlers) VouchReferenceFromPeer(w http.ResponseWriter, r *http.Request
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	fail := func(status int, msg string) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "vouch-reference", false)
-		writeJSON(w, status, msg)
+		writeError(w, status, msg)
 	}
 
-	var req relayVouchReferencePayload
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var req pb.RelayVouchReferencePayload
+	if err := readRequest(r, &req); err != nil {
 		fail(http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	cert := req.Cert
+	cert := vouchFromPB(req.GetCert())
 
 	status, msg := h.checkForeignVouch(r.Context(), peerServerID, cert)
 	if status != 0 {
@@ -221,26 +213,26 @@ func (h *Handlers) VouchWithdrawalFromPeer(w http.ResponseWriter, r *http.Reques
 	log := h.services.log.GetLogger(r.Context())
 	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
 	if !ok || peerServerID == "" {
-		writeJSON(w, http.StatusUnauthorized, "Unauthorized")
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 	fail := func(status int, msg string) {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "vouch-withdrawal", false)
-		writeJSON(w, status, msg)
+		writeError(w, status, msg)
 	}
 
-	var req relayVouchWithdrawalPayload
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var req pb.RelayVouchWithdrawalPayload
+	if err := readRequest(r, &req); err != nil {
 		fail(http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	req.VouchID = strings.TrimSpace(req.VouchID)
-	if msg := validateVouchID(req.VouchID, req.VoucherUserID, peerServerID); msg != "" {
+	req.VouchId = strings.TrimSpace(req.VouchId)
+	if msg := validateVouchID(req.VouchId, req.VoucherUserId, peerServerID); msg != "" {
 		fail(http.StatusBadRequest, msg)
 		return
 	}
-	voucherKeyID := req.Withdrawal.UserSignature.ID
-	if !keyBelongsTo(voucherKeyID, req.VoucherUserID) {
+	voucherKeyID := req.Withdrawal.GetUserSignature().GetId()
+	if !keyBelongsTo(voucherKeyID, req.VoucherUserId) {
 		fail(http.StatusBadRequest, "withdrawal key is not the voucher's")
 		return
 	}
@@ -253,21 +245,22 @@ func (h *Handlers) VouchWithdrawalFromPeer(w http.ResponseWriter, r *http.Reques
 		fail(http.StatusBadRequest, "voucher key could not be resolved")
 		return
 	}
-	userSig := req.Withdrawal.UserSignature.Armor
-	if err := h.services.crypto.verifySignature(string(buildVouchWithdrawalUserPayload(req.VouchID)), userSig, voucherKey.Armor); err != nil {
+	userSig := req.Withdrawal.GetUserSignature().GetArmor()
+	if err := h.services.crypto.verifySignature(string(buildVouchWithdrawalUserPayload(req.VouchId)), userSig, voucherKey.Armor); err != nil {
 		fail(http.StatusBadRequest, "withdrawal signature does not verify")
 		return
 	}
+	serverSig := serverSignatureFromPB(req.Withdrawal.GetServerSignature())
 	serverPayload := func(fingerprint string) []byte {
-		return buildVouchWithdrawalServerPayload(req.VouchID, fingerprint, req.Withdrawal.UserSignature.Armor, req.Withdrawal.ServerSignature.SignedAt)
+		return buildVouchWithdrawalServerPayload(req.VouchId, fingerprint, req.Withdrawal.GetUserSignature().GetArmor(), serverSig.SignedAt)
 	}
-	if status, msg := h.checkPeerCountersignature(r.Context(), peerServerID, req.Withdrawal.ServerSignature, serverPayload); status != 0 {
+	if status, msg := h.checkPeerCountersignature(r.Context(), peerServerID, serverSig, serverPayload); status != 0 {
 		fail(status, msg)
 		return
 	}
 
-	if err := h.services.db.DeleteVouchReference(r.Context(), req.VouchID, peerServerID); err != nil {
-		log.Error().Err(err).Str("vouchID", req.VouchID).Msg("Failed to drop vouch reference")
+	if err := h.services.db.DeleteVouchReference(r.Context(), req.VouchId, peerServerID); err != nil {
+		log.Error().Err(err).Str("vouchID", req.VouchId).Msg("Failed to drop vouch reference")
 		fail(http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
