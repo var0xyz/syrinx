@@ -120,6 +120,13 @@ input, button {
   color: var(--fg);
 }
 
+/* iOS zooms on focus below 16px; !important beats scoped component styles. */
+@media (pointer: coarse) {
+  input, textarea, select {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
 button {
   cursor: pointer;
   background: var(--primary);
