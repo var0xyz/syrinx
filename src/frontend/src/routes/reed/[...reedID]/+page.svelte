@@ -914,8 +914,9 @@
   .reed-stats {
     min-height: 1rem;
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.25rem 0.5rem;
     padding: 0;
     background: none;
     border: none;
@@ -933,7 +934,7 @@
   .reed-stat {
     display: inline-flex;
     align-items: center;
-    gap: 0.2rem;
+    gap: 0.1rem;
   }
 
   /* Blank echoes have no stats to show, but the button stays in the
