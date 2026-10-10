@@ -120,7 +120,7 @@
               userID={likedItem.reed.userID}
               username={likedItem.author.username}
               content={likedItem.reed.content}
-              extraOptions={[{ label: 'Un-like', icon: '/icons/dislike-16.png', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
+              extraOptions={[{ label: 'Un-like', icon: '/icons/dislike-16.svg', onSelect: () => (pendingUnlikeID = likedItem.reed.id) }]}
             />
           </div>
         </div>

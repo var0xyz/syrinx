@@ -15,7 +15,7 @@
 
   $: options = [
     ...(reedRef
-      ? [{ label: 'Share', icon: '/icons/share-24.png', onSelect: () => shareReed(reedRef, username || userID, content) }]
+      ? [{ label: 'Share', icon: '/icons/share-24.svg', onSelect: () => shareReed(reedRef, username || userID, content) }]
       : []),
     ...(showProfile && userID
       ? [{ label: 'Go to profile', icon: '/icons/user-16.svg', onSelect: () => goto(`/profile/${userID}`) }]

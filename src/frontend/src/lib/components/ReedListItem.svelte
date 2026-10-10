@@ -29,9 +29,9 @@
   // A thread is deleted whole, from its head; a later part can't be.
   $: deleteOption = reed.thread
     ? reed.thread.index === 0
-      ? [{ label: 'Delete thread', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id, false, true) }]
+      ? [{ label: 'Delete thread', danger: true, icon: '/icons/trash-16.svg', onSelect: () => onDelete(reed.id, false, true) }]
       : []
-    : [{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => onDelete(reed.id) }];
+    : [{ label: 'Delete', danger: true, icon: '/icons/trash-16.svg', onSelect: () => onDelete(reed.id) }];
   $: displayUser = isUnwrapped ? (echoedReedUsers.get(displayReed.userID) || { username: displayReed.userID }) : (profileUser || { username: authorId });
 </script>
 
@@ -59,8 +59,8 @@
         showProfile={false}
         extraOptions={isOwner ? [
           pinned
-            ? { label: 'Unpin', icon: '/icons/pin-16-filled.png', onSelect: () => onTogglePin(reed) }
-            : { label: 'Pin', icon: '/icons/pin-16-outlined.png', onSelect: () => onTogglePin(reed) },
+            ? { label: 'Unpin', icon: '/icons/pin-16-filled.svg', onSelect: () => onTogglePin(reed) }
+            : { label: 'Pin', icon: '/icons/pin-16-outlined.svg', onSelect: () => onTogglePin(reed) },
           ...deleteOption,
         ] : []}
       />

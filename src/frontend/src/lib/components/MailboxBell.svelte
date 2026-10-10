@@ -155,7 +155,7 @@
                     title="Mark as read"
                     on:click|stopPropagation={() => markRead(message)}
                   >
-                    <span class="mailbox-action-icon" style="-webkit-mask-image: url('/icons/double-tick-16.png'); mask-image: url('/icons/double-tick-16.png');"></span>
+                    <span class="mailbox-action-icon" style="-webkit-mask-image: url('/icons/double-tick-16.svg'); mask-image: url('/icons/double-tick-16.svg');"></span>
                   </button>
                 {/if}
                 <button
@@ -164,7 +164,7 @@
                   title="Delete"
                   on:click|stopPropagation={() => deleteMessage(message)}
                 >
-                  <span class="mailbox-action-icon" style="-webkit-mask-image: url('/icons/trash-16.png'); mask-image: url('/icons/trash-16.png');"></span>
+                  <span class="mailbox-action-icon" style="-webkit-mask-image: url('/icons/trash-16.svg'); mask-image: url('/icons/trash-16.svg');"></span>
                 </button>
               </div>
             </div>

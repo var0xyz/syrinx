@@ -330,8 +330,8 @@
     width: 0.9rem;
     height: 0.9rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/info-16.png');
-    mask-image: url('/icons/info-16.png');
+    -webkit-mask-image: url('/icons/info-16.svg');
+    mask-image: url('/icons/info-16.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;

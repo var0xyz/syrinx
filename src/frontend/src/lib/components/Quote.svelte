@@ -349,13 +349,13 @@
   }
 
   .quote-icon.echo {
-    -webkit-mask-image: url('/icons/megaphone-16.png');
-    mask-image: url('/icons/megaphone-16.png');
+    -webkit-mask-image: url('/icons/megaphone-16.svg');
+    mask-image: url('/icons/megaphone-16.svg');
   }
 
   .quote-icon.reply {
-    -webkit-mask-image: url('/icons/reply-16.png');
-    mask-image: url('/icons/reply-16.png');
+    -webkit-mask-image: url('/icons/reply-16.svg');
+    mask-image: url('/icons/reply-16.svg');
   }
 
   :global(.quote-content) {

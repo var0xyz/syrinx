@@ -106,8 +106,8 @@
     width: 1.5rem;
     height: 1.5rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/add-list-24.png');
-    mask-image: url('/icons/add-list-24.png');
+    -webkit-mask-image: url('/icons/add-list-24.svg');
+    mask-image: url('/icons/add-list-24.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;
@@ -192,13 +192,13 @@
   }
 
   .edit-icon {
-    -webkit-mask-image: url('/icons/edit-16.png');
-    mask-image: url('/icons/edit-16.png');
+    -webkit-mask-image: url('/icons/edit-16.svg');
+    mask-image: url('/icons/edit-16.svg');
   }
 
   .delete-icon {
-    -webkit-mask-image: url('/icons/trash-16.png');
-    mask-image: url('/icons/trash-16.png');
+    -webkit-mask-image: url('/icons/trash-16.svg');
+    mask-image: url('/icons/trash-16.svg');
   }
 
   .empty-state {

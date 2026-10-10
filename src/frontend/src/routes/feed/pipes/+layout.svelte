@@ -277,8 +277,8 @@
   }
 
   .unpin-icon {
-    -webkit-mask-image: url('/icons/unpin-24.png');
-    mask-image: url('/icons/unpin-24.png');
+    -webkit-mask-image: url('/icons/unpin-24.svg');
+    mask-image: url('/icons/unpin-24.svg');
   }
 
   .pipe-detail {
@@ -321,8 +321,8 @@
     width: 1.5rem;
     height: 1.5rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/hashtag-24.png');
-    mask-image: url('/icons/hashtag-24.png');
+    -webkit-mask-image: url('/icons/hashtag-24.svg');
+    mask-image: url('/icons/hashtag-24.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;

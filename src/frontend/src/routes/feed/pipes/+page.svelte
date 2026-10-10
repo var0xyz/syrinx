@@ -179,8 +179,8 @@
   }
 
   .unpin-icon {
-    -webkit-mask-image: url('/icons/unpin-24.png');
-    mask-image: url('/icons/unpin-24.png');
+    -webkit-mask-image: url('/icons/unpin-24.svg');
+    mask-image: url('/icons/unpin-24.svg');
   }
 
   .empty-state {

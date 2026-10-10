@@ -402,8 +402,8 @@
     margin-left: 0.25rem;
     vertical-align: -0.1rem;
     background-color: currentColor;
-    -webkit-mask: url('/icons/lock-16.png') center / contain no-repeat;
-    mask: url('/icons/lock-16.png') center / contain no-repeat;
+    -webkit-mask: url('/icons/lock-16.svg') center / contain no-repeat;
+    mask: url('/icons/lock-16.svg') center / contain no-repeat;
   }
 
   .legend {

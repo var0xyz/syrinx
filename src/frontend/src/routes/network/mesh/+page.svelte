@@ -853,8 +853,8 @@
     width: 1.5rem;
     height: 1.5rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/link-24.png');
-    mask-image: url('/icons/link-24.png');
+    -webkit-mask-image: url('/icons/link-24.svg');
+    mask-image: url('/icons/link-24.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;
@@ -888,13 +888,13 @@
   }
 
   .icon-connect {
-    -webkit-mask-image: url('/icons/connect-24.png');
-    mask-image: url('/icons/connect-24.png');
+    -webkit-mask-image: url('/icons/connect-24.svg');
+    mask-image: url('/icons/connect-24.svg');
   }
 
   .icon-copy {
-    -webkit-mask-image: url('/icons/copy-24.png');
-    mask-image: url('/icons/copy-24.png');
+    -webkit-mask-image: url('/icons/copy-24.svg');
+    mask-image: url('/icons/copy-24.svg');
   }
 
   .field {

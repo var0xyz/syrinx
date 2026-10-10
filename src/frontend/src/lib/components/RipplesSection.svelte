@@ -681,8 +681,8 @@
     width: 1rem;
     height: 1rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/ripple-16.png');
-    mask-image: url('/icons/ripple-16.png');
+    -webkit-mask-image: url('/icons/ripple-16.svg');
+    mask-image: url('/icons/ripple-16.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;

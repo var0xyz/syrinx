@@ -4,7 +4,7 @@
    * @property {string} label
    * @property {() => void} onSelect
    * @property {boolean} [danger]
-   * @property {string} [icon] - URL of a mask icon (e.g. '/icons/trash-16.png')
+   * @property {string} [icon] - URL of a mask icon (e.g. '/icons/trash-16.svg')
    */
 
   /** @type {KebabMenuOption[]} */
