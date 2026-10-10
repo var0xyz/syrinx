@@ -4,15 +4,18 @@
 
   let height = 0;
 
-  // Sticky header, tabs and side panels offset themselves by this.
+  // Sticky header, tabs and side panels offset themselves by this. The
+  // banner takes over the notch inset, so the header drops its own.
   $: if (typeof document !== 'undefined') {
-    const value = $updateAvailable && height ? `${height}px` : '';
-    document.documentElement.style.setProperty('--update-banner-height', value);
+    const shown = $updateAvailable && height;
+    document.documentElement.style.setProperty('--update-banner-height', shown ? `${height}px` : '');
+    document.documentElement.style.setProperty('--header-inset-top', shown ? '0px' : '');
   }
 
   onDestroy(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.style.removeProperty('--update-banner-height');
+      document.documentElement.style.removeProperty('--header-inset-top');
     }
   });
 </script>
@@ -33,7 +36,7 @@
     flex-wrap: wrap;
     background: linear-gradient(135deg, #6c5ce7, #4834d4);
     color: white;
-    padding: 0.5rem 1rem;
+    padding: calc(0.5rem + env(safe-area-inset-top)) 1rem 0.5rem;
     text-align: center;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
     animation: slideDown 0.3s ease-out;
