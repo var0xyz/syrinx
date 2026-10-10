@@ -103,7 +103,7 @@
     .activity-sidebar {
       display: block;
       position: fixed;
-      top: calc(3rem + 1px + var(--update-banner-height, 0px));
+      top: calc(3rem + 1px + var(--header-inset-top) + var(--update-banner-height, 0px));
       right: 0;
       bottom: 0;
       width: var(--activity-sidebar-width);

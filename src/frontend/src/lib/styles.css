@@ -10,6 +10,8 @@
   --button-text: #001427;
   --sidenav-width: 260px;
   --activity-sidebar-width: 280px;
+  /* Header top padding: the notch inset, minus the empty space below it. */
+  --header-inset-top: max(0px, env(safe-area-inset-top) - 0.75rem);
 }
 
 * {
@@ -169,7 +171,7 @@ header {
   border-bottom: 1px solid var(--border);
   box-shadow: 0 0 0 1px var(--surface);
   text-align: center;
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--header-inset-top);
 }
 
 header h1 {
