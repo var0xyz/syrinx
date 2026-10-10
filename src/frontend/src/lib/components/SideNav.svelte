@@ -154,7 +154,7 @@
       align-items: stretch;
       gap: 0.2rem;
       position: fixed;
-      top: calc(3rem + 1px + var(--update-banner-height, 0px));
+      top: calc(3rem + 1px + var(--header-inset-top) + var(--update-banner-height, 0px));
       left: 0;
       bottom: 0;
       width: var(--sidenav-width);
