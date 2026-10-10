@@ -5,6 +5,7 @@ that are not already covered by about.txt.
 - Source: https://www.artstation.com/artwork/Xgnx90
 - Author: Áiron Bruce (https://estellairon.artstation.com/)
 
-All other icons (graph, info, like, megaphone, reply, share, trash) are
-from icons8.com, Material Outlined and Material Filled icon sets:
-- Source: https://icons8.com/icons
+The 16px and 24px UI icons (*-16*.svg, *-24*.svg, except user-16.svg) are Google Material
+Icons, plus Material Symbols for unpin-24.svg:
+- Source: https://github.com/google/material-design-icons
+- License: Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0)

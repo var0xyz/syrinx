@@ -274,13 +274,13 @@
   }
 
   .edit-icon {
-    -webkit-mask-image: url('/icons/edit-16.png');
-    mask-image: url('/icons/edit-16.png');
+    -webkit-mask-image: url('/icons/edit-16.svg');
+    mask-image: url('/icons/edit-16.svg');
   }
 
   .delete-icon {
-    -webkit-mask-image: url('/icons/trash-16.png');
-    mask-image: url('/icons/trash-16.png');
+    -webkit-mask-image: url('/icons/trash-16.svg');
+    mask-image: url('/icons/trash-16.svg');
   }
 
   .user-list-detail {

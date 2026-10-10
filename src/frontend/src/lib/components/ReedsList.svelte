@@ -540,7 +540,7 @@
           />
           {#if isOwner}
             <div class="reed-meta">
-              <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.png', onSelect: () => deleteReed(reed.id, true) }]} />
+              <KebabMenu options={[{ label: 'Delete', danger: true, icon: '/icons/trash-16.svg', onSelect: () => deleteReed(reed.id, true) }]} />
             </div>
           {/if}
         </div>
@@ -725,8 +725,8 @@
     width: 1.5rem;
     height: 1.5rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/quill-pen-24.png');
-    mask-image: url('/icons/quill-pen-24.png');
+    -webkit-mask-image: url('/icons/quill-pen-24.svg');
+    mask-image: url('/icons/quill-pen-24.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;

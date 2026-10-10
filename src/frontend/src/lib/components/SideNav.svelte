@@ -194,8 +194,8 @@
     width: 1rem;
     height: 1rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/quill-pen-24.png');
-    mask-image: url('/icons/quill-pen-24.png');
+    -webkit-mask-image: url('/icons/quill-pen-24.svg');
+    mask-image: url('/icons/quill-pen-24.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;

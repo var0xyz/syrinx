@@ -500,8 +500,8 @@
     width: 1.5rem;
     height: 1.5rem;
     background-color: currentColor;
-    -webkit-mask-image: url('/icons/invite-24.png');
-    mask-image: url('/icons/invite-24.png');
+    -webkit-mask-image: url('/icons/invite-24.svg');
+    mask-image: url('/icons/invite-24.svg');
     -webkit-mask-position: center;
     mask-position: center;
     -webkit-mask-size: contain;

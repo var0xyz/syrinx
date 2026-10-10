@@ -154,8 +154,8 @@
     mask-size: contain;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
-    -webkit-mask-image: url('/icons/install-16.png');
-    mask-image: url('/icons/install-16.png');
+    -webkit-mask-image: url('/icons/install-16.svg');
+    mask-image: url('/icons/install-16.svg');
     margin-right: 0.5rem;
   }
 

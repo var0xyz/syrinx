@@ -161,22 +161,22 @@
   }
 
   .stats-icon.echoes {
-    -webkit-mask-image: url('/icons/megaphone-24.png');
-    mask-image: url('/icons/megaphone-24.png');
+    -webkit-mask-image: url('/icons/megaphone-24.svg');
+    mask-image: url('/icons/megaphone-24.svg');
   }
 
   .stats-icon.replies {
-    -webkit-mask-image: url('/icons/reply-24.png');
-    mask-image: url('/icons/reply-24.png');
+    -webkit-mask-image: url('/icons/reply-24.svg');
+    mask-image: url('/icons/reply-24.svg');
   }
 
   .stats-icon.coverage {
-    -webkit-mask-image: url('/icons/graph-24.png');
-    mask-image: url('/icons/graph-24.png');
+    -webkit-mask-image: url('/icons/graph-24.svg');
+    mask-image: url('/icons/graph-24.svg');
   }
 
   .stats-icon.likes {
-    -webkit-mask-image: url('/icons/like-24-filled.png');
-    mask-image: url('/icons/like-24-filled.png');
+    -webkit-mask-image: url('/icons/like-24-filled.svg');
+    mask-image: url('/icons/like-24-filled.svg');
   }
 </style>

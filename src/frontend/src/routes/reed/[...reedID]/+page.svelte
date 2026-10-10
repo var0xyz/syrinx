@@ -958,32 +958,32 @@
   }
 
   .reed-stat-icon.echoes {
-    -webkit-mask-image: url('/icons/megaphone-16.png');
-    mask-image: url('/icons/megaphone-16.png');
+    -webkit-mask-image: url('/icons/megaphone-16.svg');
+    mask-image: url('/icons/megaphone-16.svg');
   }
 
   .reed-stat-icon.replies {
     margin-left: 0.15rem;
-    -webkit-mask-image: url('/icons/reply-16.png');
-    mask-image: url('/icons/reply-16.png');
+    -webkit-mask-image: url('/icons/reply-16.svg');
+    mask-image: url('/icons/reply-16.svg');
   }
 
   .reed-stat-icon.coverage {
     margin-left: 0.15rem;
-    -webkit-mask-image: url('/icons/graph-16.png');
-    mask-image: url('/icons/graph-16.png');
+    -webkit-mask-image: url('/icons/graph-16.svg');
+    mask-image: url('/icons/graph-16.svg');
   }
 
   .reed-stat-icon.likes {
     margin-left: 0.15rem;
-    -webkit-mask-image: url('/icons/like-16-outlined.png');
-    mask-image: url('/icons/like-16-outlined.png');
+    -webkit-mask-image: url('/icons/like-16-outlined.svg');
+    mask-image: url('/icons/like-16-outlined.svg');
   }
 
   .reed-stat-icon.info {
     margin-left: 0.25rem;
-    -webkit-mask-image: url('/icons/info-16.png');
-    mask-image: url('/icons/info-16.png');
+    -webkit-mask-image: url('/icons/info-16.svg');
+    mask-image: url('/icons/info-16.svg');
   }
 
   .reed-body {
@@ -1113,28 +1113,28 @@
   }
 
   .icon-echo {
-    -webkit-mask-image: url('/icons/megaphone-24.png');
-    mask-image: url('/icons/megaphone-24.png');
+    -webkit-mask-image: url('/icons/megaphone-24.svg');
+    mask-image: url('/icons/megaphone-24.svg');
   }
 
   .icon-reply {
-    -webkit-mask-image: url('/icons/reply-24.png');
-    mask-image: url('/icons/reply-24.png');
+    -webkit-mask-image: url('/icons/reply-24.svg');
+    mask-image: url('/icons/reply-24.svg');
   }
 
   .icon-share {
-    -webkit-mask-image: url('/icons/share-24.png');
-    mask-image: url('/icons/share-24.png');
+    -webkit-mask-image: url('/icons/share-24.svg');
+    mask-image: url('/icons/share-24.svg');
   }
 
   .icon-like {
-    -webkit-mask-image: url('/icons/like-24-outlined.png');
-    mask-image: url('/icons/like-24-outlined.png');
+    -webkit-mask-image: url('/icons/like-24-outlined.svg');
+    mask-image: url('/icons/like-24-outlined.svg');
   }
 
   .icon-like.filled {
-    -webkit-mask-image: url('/icons/like-24-filled.png');
-    mask-image: url('/icons/like-24-filled.png');
+    -webkit-mask-image: url('/icons/like-24-filled.svg');
+    mask-image: url('/icons/like-24-filled.svg');
   }
 
   .action-label {

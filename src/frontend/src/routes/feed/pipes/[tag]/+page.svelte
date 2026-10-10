@@ -212,13 +212,13 @@
   }
 
   .pin-icon {
-    -webkit-mask-image: url('/icons/pin-24.png');
-    mask-image: url('/icons/pin-24.png');
+    -webkit-mask-image: url('/icons/pin-24.svg');
+    mask-image: url('/icons/pin-24.svg');
   }
 
   .unpin-icon {
-    -webkit-mask-image: url('/icons/unpin-24.png');
-    mask-image: url('/icons/unpin-24.png');
+    -webkit-mask-image: url('/icons/unpin-24.svg');
+    mask-image: url('/icons/unpin-24.svg');
   }
 
   .pipe-content {
