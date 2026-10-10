@@ -157,11 +157,11 @@
   .toolbar-btn .icon-wrap {
     position: relative;
     display: inline-flex;
-    margin-bottom: 0.25rem;
   }
 
   .toolbar-btn .icon {
     font-size: 1.2rem;
+    margin-bottom: 0.25rem;
   }
 
   .toolbar-unread-dot {
