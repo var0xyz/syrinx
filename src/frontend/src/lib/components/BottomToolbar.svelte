@@ -107,7 +107,6 @@
     bottom: 0;
     z-index: 100;
     border-radius: 0.5rem 0.5rem 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
@@ -129,7 +128,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 0.75rem 0.5rem;
+    padding: 0.75rem 0.5rem max(0.75rem, env(safe-area-inset-bottom));
     text-decoration: none;
     transition: all 0.2s ease;
     color: var(--muted);
@@ -188,7 +187,7 @@
     }
 
     .toolbar-btn {
-      padding: 0.5rem 0;
+      padding: 0.5rem 0 max(0.5rem, env(safe-area-inset-bottom) - 0.75rem);
       min-width: 5rem;
     }
   }
