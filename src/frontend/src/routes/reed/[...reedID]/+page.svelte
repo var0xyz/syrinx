@@ -670,14 +670,10 @@
                     {:else if statsStatus === 'failed'}
                       Failed to load stats
                     {:else}
-                      <span class="reed-stat-icon replies" aria-hidden="true"></span>
-                      {replyCount}
-                      <span class="reed-stat-icon echoes" aria-hidden="true"></span>
-                      {echoCount}
-                      <span class="reed-stat-icon likes" aria-hidden="true"></span>
-                      {likeCount}
-                      <span class="reed-stat-icon coverage" aria-hidden="true"></span>
-                      {coveragePercent}%
+                      <span class="reed-stat"><span class="reed-stat-icon replies" aria-hidden="true"></span>{replyCount}</span>
+                      <span class="reed-stat"><span class="reed-stat-icon echoes" aria-hidden="true"></span>{echoCount}</span>
+                      <span class="reed-stat"><span class="reed-stat-icon likes" aria-hidden="true"></span>{likeCount}</span>
+                      <span class="reed-stat"><span class="reed-stat-icon coverage" aria-hidden="true"></span>{coveragePercent}%</span>
                       <span class="reed-stat-icon info" aria-hidden="true"></span>
                     {/if}
                   </button>
@@ -919,7 +915,7 @@
     min-height: 1rem;
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.75rem;
     padding: 0;
     background: none;
     border: none;
@@ -928,12 +924,16 @@
     font-size: 0.7rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     letter-spacing: 0.02em;
-    opacity: 0.8;
   }
 
   .reed-stats:hover {
-    opacity: 1;
     color: var(--fg);
+  }
+
+  .reed-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
   }
 
   /* Blank echoes have no stats to show, but the button stays in the
