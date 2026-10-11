@@ -443,10 +443,10 @@
       <div class="modal">
         <h2 id="create-invite-title">New connection</h2>
         <p class="modal-lead">
-          Label this invite so you can tell who it is for, then paste the remote server&apos;s OpenPGP public key (exchanged out of band).
+          Paste the remote server&apos;s OpenPGP public key (exchanged out-of-band).
         </p>
         <p class="modal-note">
-          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, so one with many active users can overload a smaller one.
+          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, one with many active users can overload a smaller one.
         </p>
         <label class="field">
           <span>Name</span>
@@ -454,7 +454,7 @@
             type="text"
             bind:value={inviteName}
             maxlength="255"
-            placeholder="e.g. Acme staging"
+            placeholder="e.g. Mom's server"
           />
         </label>
         <label class="field">
@@ -498,10 +498,10 @@
       <div class="modal">
         <h2 id="accept-connection-title">Accept connection</h2>
         <p class="modal-lead">
-          Paste the connection string another server&apos;s admin shared with you out of band.
+          Paste the connection string another server&apos;s admin shared with you out-of-band.
         </p>
         <p class="modal-note">
-          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, so one with many active users can overload a smaller one.
+          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, one with many active users can overload a smaller one.
         </p>
         <label class="field">
           <span>Connection string</span>
@@ -921,6 +921,8 @@
 
   .field textarea {
     resize: vertical;
+    overflow: auto;
+    white-space: nowrap;
   }
 
   .modal-backdrop {
