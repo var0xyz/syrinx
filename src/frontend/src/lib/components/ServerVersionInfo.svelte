@@ -10,6 +10,6 @@
   {#if $serverInfo?.name}
     {$serverInfo.name}<br />
   {/if}
-  Version {__APP_VERSION__.slice(0, 12)}<br />
+  Version {__APP_VERSION__.slice(0, 8)}<br />
   Built {formatAbsoluteDateTime(__APP_BUILD_TIME__)}
 </p>
