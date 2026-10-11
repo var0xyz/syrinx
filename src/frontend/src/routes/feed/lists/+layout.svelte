@@ -38,10 +38,11 @@
     userListsStore.set(await userListsRepository.getAll());
   }
 
-  async function onSaved() {
+  async function onSaved(e: CustomEvent<{ userList: UserListType; created: boolean }>) {
     formOpen = false;
     editingUserList = null;
     await refresh();
+    if (e.detail.created) selectUserList(e.detail.userList.id);
   }
 
   function requestDelete(userList: UserListType) {

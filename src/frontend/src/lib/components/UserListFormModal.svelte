@@ -59,12 +59,10 @@
     saveError = '';
     try {
       const input = { name, description, memberIds: [...selectedMemberIds] };
-      if (userList) {
-        await userListsRepository.update(userList.id, input);
-      } else {
-        await userListsRepository.create(input);
-      }
-      dispatch('saved');
+      const saved = userList
+        ? await userListsRepository.update(userList.id, input)
+        : await userListsRepository.create(input);
+      dispatch('saved', { userList: saved, created: !userList });
     } catch (e) {
       saveError = e instanceof Error ? e.message : 'Failed to save list';
     } finally {
