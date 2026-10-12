@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -33,7 +33,8 @@ That holds even after root renames, and root can always take it back.
 ## Enforcement
 
 Applied in `CheckUsername`, `Signup`, `CheckUsernameForRename` and
-`UpdateUser`:
+`UpdateUser`, through `UsernameExists`, which answers whether a name is
+unavailable to the user claiming it:
 
 - `LOWER(username)` in `reserved_usernames` → refused, with the same error as
   a taken username, so a reserved name looks taken and doesn't stand out.

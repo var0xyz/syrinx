@@ -885,16 +885,23 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	return tx.Commit()
 }
 
-// UsernameExists reports whether a user other than exceptUserID holds
-// username (case-insensitively); pass "" to exclude nobody.
-func (s *DataService) UsernameExists(ctx context.Context, username, exceptUserID string) (bool, error) {
+// UsernameExists reports whether username is unavailable to claimantID,
+// case-insensitively: another user holds it, it's reserved and claimantID
+// doesn't already hold it, or it's root's and claimantID isn't root. A
+// reserved name answers as taken, so it doesn't stand out.
+func (s *DataService) UsernameExists(ctx context.Context, username, claimantID string) (bool, error) {
+	if strings.EqualFold(username, rootUsername) && !isRootIdentity(claimantID, s.serverID) {
+		return true, nil
+	}
 	var exists bool
-
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) AND id <> $2
+		) OR (
+			EXISTS(SELECT 1 FROM reserved_usernames WHERE username = LOWER($1))
+			AND NOT EXISTS(SELECT 1 FROM users WHERE id = $2 AND LOWER(username) = LOWER($1))
 		)
-	`, username, exceptUserID).Scan(&exists)
+	`, username, claimantID).Scan(&exists)
 	if err != nil {
 		return false, err
 	}

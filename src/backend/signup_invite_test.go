@@ -138,6 +138,11 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 			PRIMARY KEY (entry_id, user_id)
 		)`,
+		`DROP TABLE IF EXISTS reserved_usernames CASCADE`,
+		`CREATE TABLE reserved_usernames (
+			username VARCHAR(255) PRIMARY KEY,
+			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
 		`DROP TABLE IF EXISTS invite_permissions CASCADE`,
 		`CREATE TABLE invite_permissions (
 			invite_id VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
