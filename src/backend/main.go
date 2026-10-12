@@ -342,6 +342,14 @@ func main() {
 	api.HandleFunc("/blocks", h.ListMyBlocks).Methods("GET")
 	api.HandleFunc("/blocks", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/admin/requests", h.OpenAdminRequest).Methods("POST")
+	api.HandleFunc("/admin/requests", h.ListAdminRequests).Methods("GET")
+	api.HandleFunc("/admin/requests", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/requests/{id}", h.GetAdminRequest).Methods("GET")
+	api.HandleFunc("/admin/requests/{id}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/requests/{id}/decision", h.DecideAdminRequest).Methods("POST")
+	api.HandleFunc("/admin/requests/{id}/decision", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/following", h.GetUserFollowing).Methods("GET")
 	api.HandleFunc("/users/{userID}/following", h.noop).Methods("OPTIONS")
 

@@ -111,3 +111,34 @@ message BlockCert {
   UserSignature user_signature = 3;
   ServerSignature server_signature = 4;
 }
+
+// A two-admin request: the requester's signed proposal, and once closed,
+// the decision and the server's countersignature. targets are sorted, as
+// signed; dropped_targets are those removed while it was pending.
+message AdminRequest {
+  string id = 1;
+  string action = 2;
+  string requester_id = 3 [json_name = "requesterID"];
+  string reason = 4;
+  repeated string targets = 5;
+  string body = 6;
+  uint32 created_at = 7;
+  UserSignature requester_signature = 8;
+  string state = 9;
+  repeated string dropped_targets = 10;
+  optional AdminDecision decision = 11;
+  optional ServerSignature server_signature = 12;
+}
+
+// An approval, rejection or withdrawal, signed over the request's signature.
+message AdminDecision {
+  string decision = 1;
+  string decider_id = 2 [json_name = "deciderID"];
+  UserSignature signature = 3;
+}
+
+// Proof that two admins authorized an action: the request with its approve
+// decision and server signature.
+message AdminAuthorization {
+  AdminRequest request = 1;
+}

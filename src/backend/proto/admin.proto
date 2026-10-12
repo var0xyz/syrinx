@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package syrinx;
+
+import "common.proto";
+
+option go_package = "github.com/var0xyz/syrinx/proto";
+
+// One page of admin requests, newest first.
+message AdminRequestList {
+  repeated AdminRequest requests = 1;
+  string next_cursor = 2;
+}

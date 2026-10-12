@@ -552,3 +552,73 @@ func buildRealtimeAuthPayload(serverID, userID, timestamp string) []byte {
 		"timestamp": timestamp,
 	})
 }
+
+// identityTypeAdminRequest is the `type` of a requester's signed admin
+// request; the decision and the server's countersignature have their own.
+const (
+	identityTypeAdminRequest       = "admin-request"
+	identityTypeAdminDecision      = "admin-decision"
+	identityTypeAdminRequestServer = "admin-request-server"
+)
+
+// buildAdminRequestPayload returns the bytes an admin signs to open a
+// request. targets must already be sorted.
+func buildAdminRequestPayload(
+	requestID,
+	action,
+	requesterID,
+	keyID,
+	reason string,
+	targets []string,
+	body string,
+	createdAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":        identityTypeAdminRequest,
+		"requestID":   requestID,
+		"action":      action,
+		"requesterID": requesterID,
+		"keyID":       keyID,
+		"reason":      reason,
+		"targets":     targets,
+		"body":        body,
+		"createdAt":   signedTime(createdAt),
+	})
+}
+
+// buildAdminDecisionPayload returns the bytes an admin signs to approve,
+// reject or withdraw a request. Embedding the request's signature binds
+// the decision to exactly that request.
+func buildAdminDecisionPayload(requestID, decision, deciderID, keyID, requestSignature string) []byte {
+	return canonicalJSON(signedFields{
+		"type":             identityTypeAdminDecision,
+		"requestID":        requestID,
+		"decision":         decision,
+		"deciderID":        deciderID,
+		"keyID":            keyID,
+		"requestSignature": requestSignature,
+	})
+}
+
+// buildAdminRequestServerPayload returns the bytes the server countersigns
+// when a request closes. decisionSignature is empty for a moot request.
+func buildAdminRequestServerPayload(
+	requestID,
+	state,
+	requestSignature,
+	decisionSignature,
+	serverID,
+	serverKeyFingerprint string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeAdminRequestServer,
+		"requestID":            requestID,
+		"state":                state,
+		"requestSignature":     requestSignature,
+		"decisionSignature":    decisionSignature,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             signedTime(signedAt),
+	})
+}

@@ -70,6 +70,8 @@ type Handlers struct {
 	// peerKeyUpdateAttempts remembers when each unknown peer key was last chased
 	// (see updatePeerKey).
 	peerKeyUpdateAttempts sync.Map
+	// adminExecutorOverride lets tests stand in an executor for an action.
+	adminExecutorOverride map[string]adminExecutor
 }
 
 // FederatedServerInfo is one established peer as /server/info lists it.
@@ -1319,6 +1321,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go h.notifyForeignAccountRemovalToPeers(context.Background(), userID, cert)
+	go h.dropFromAdminRequests(context.Background(), userID)
 
 	log.Info().Str("userID", userID).Msg("Account removal accepted")
 	writeResponse(w, http.StatusOK, pbAccountRemoval(h.accountRemovalWire(&cert)))
