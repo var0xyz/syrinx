@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -41,8 +41,10 @@ picker in [10](10_admin_spa.md), the same picker a kick uses.
   **suspension certificate** on every signed operation, ledger reads
   included. There is no exception: a suspended user learns nothing more
   about the network.
-- **WebSocket**: the handshake is refused with the same certificate.
-  Suspending someone closes their live connections.
+- **WebSocket**: the handshake is refused with the same certificate (a
+  browser can't read a refused handshake's body, so the SPA learns it from
+  its next signed request). Suspending someone closes their live
+  connections on every replica, over the realtime bus.
 
 ## Suspension certificate
 
@@ -64,9 +66,13 @@ effect peers might notice.
 
 ## SPA
 
-On `403 suspended`, the client verifies the certificate (both admin
-signatures and the server signature) and shows a suspended screen with its
-reason instead of the app. Local data is kept.
+On `403 suspended`, the client verifies the certificate and shows a
+suspended screen with its reason instead of the app. Local data is kept.
+
+A suspended client can't fetch keys, so it checks the admins' signatures
+only against keys it already holds; the server signature, which covers
+both of them, is always checked. A kick or a rebind, which purge or
+replace data, are checked in full by clients that aren't suspended.
 
 ## Tests
 

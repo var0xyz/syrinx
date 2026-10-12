@@ -491,6 +491,10 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				writeError(w, http.StatusUnauthorized, "Request signature verification failed")
 				return
 			}
+			if userID != "" && refuseIfSuspended(r.Context(), w, h.services.db, userID) {
+				log.Info().Str("userID", userID).Str("path", r.URL.Path).Msg("Rejected request from suspended user")
+				return
+			}
 
 			ctx := r.Context()
 			if userID != "" {

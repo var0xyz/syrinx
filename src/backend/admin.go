@@ -238,7 +238,16 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 	if ex, ok := h.adminExecutorOverride[action]; ok {
 		return &ex
 	}
-	return nil
+	var ex adminExecutor
+	switch action {
+	case adminActionSuspend:
+		ex = h.suspendExecutor()
+	case adminActionReinstate:
+		ex = h.reinstateExecutor()
+	default:
+		return nil
+	}
+	return &ex
 }
 
 // userRoleQ is the role of userID, "" when they have no users row.

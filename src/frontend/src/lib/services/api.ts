@@ -23,6 +23,7 @@ import {
 import {
   AccountRemovalCertSchema,
   BlockCertSchema,
+  AdminAuthorizationSchema,
   ErrorSchema,
   LedgerEntrySchema,
   ReedRemovalCertSchema,
@@ -114,7 +115,12 @@ export const PROTOBUF_CONTENT_TYPE = 'application/x-protobuf';
 
 /** The certificate a refusal or removal is backed by: what an Error body
  * carries as its detail. */
-export type RefusalDetail = api.AccountRemoval | api.ReedRemoval | api.ThreadRemoval | api.BlockCert;
+export type RefusalDetail =
+  | api.AccountRemoval
+  | api.ReedRemoval
+  | api.ThreadRemoval
+  | api.BlockCert
+  | api.AdminAuthorization;
 
 /** A failed request: status and, when the server sent one, the detail. */
 export type ApiError = Error & { status?: number; detail?: RefusalDetail; networkError?: boolean; tampered?: boolean };
@@ -135,6 +141,13 @@ export type BlockedReporter = (cert: api.BlockCert) => void;
 let blockedReporter: BlockedReporter | null = null;
 export function setBlockedReporter(reporter: BlockedReporter): void {
   blockedReporter = reporter;
+}
+
+/** Called with the suspension certificate a request was refused with. */
+export type SuspendedReporter = (cert: api.AdminAuthorization) => void;
+let suspendedReporter: SuspendedReporter | null = null;
+export function setSuspendedReporter(reporter: SuspendedReporter): void {
+  suspendedReporter = reporter;
 }
 
 /** Decodes a protobuf response body as schema. */
@@ -298,6 +311,13 @@ async function requestRaw(
     if (res.status === 403 && isMessage(error?.detail, BlockCertSchema)) {
       blockedReporter?.(error.detail);
       const err: ApiError = new Error('Blocked');
+      err.status = 403;
+      err.detail = error.detail;
+      throw err;
+    }
+    if (res.status === 403 && isMessage(error?.detail, AdminAuthorizationSchema)) {
+      suspendedReporter?.(error.detail);
+      const err: ApiError = new Error('Suspended');
       err.status = 403;
       err.detail = error.detail;
       throw err;

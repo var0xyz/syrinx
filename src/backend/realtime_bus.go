@@ -32,24 +32,26 @@ const (
 // realtimeBusEnvelope is what crosses between replicas. Frame is the
 // base64 of a marshaled pb.WSMessage, or empty for a wake-up (see Publish).
 type realtimeBusEnvelope struct {
-	UserID string `json:"userID"`
-	Frame  string `json:"frame,omitempty"`
+	UserID     string `json:"userID"`
+	Frame      string `json:"frame,omitempty"`
+	Disconnect bool   `json:"disconnect,omitempty"`
 }
 
 // realtimeBus forwards WS deliveries between replicas over Postgres
 // LISTEN/NOTIFY. Best-effort: notifications sent while disconnected are
 // lost, and catchUp on SYNC_REQUEST repairs that on reconnect.
 type realtimeBus struct {
-	listener *pq.Listener
-	db       *sql.DB
-	deliver  func(userID string, frame []byte) bool
-	done     chan struct{}
+	listener   *pq.Listener
+	db         *sql.DB
+	deliver    func(userID string, frame []byte) bool
+	disconnect func(userID string)
+	done       chan struct{}
 }
 
 // newRealtimeBus opens a dedicated listener connection. pq.Listener needs
 // its own connection and cannot come from the shared *sql.DB pool.
-func newRealtimeBus(dbURL string, db *sql.DB, deliver func(userID string, frame []byte) bool) (*realtimeBus, error) {
-	bus := &realtimeBus{db: db, deliver: deliver, done: make(chan struct{})}
+func newRealtimeBus(dbURL string, db *sql.DB, deliver func(userID string, frame []byte) bool, disconnect func(userID string)) (*realtimeBus, error) {
+	bus := &realtimeBus{db: db, deliver: deliver, disconnect: disconnect, done: make(chan struct{})}
 
 	bus.listener = pq.NewListener(dbURL, realtimeBusMinReconnect, realtimeBusMaxReconnect, func(ev pq.ListenerEventType, err error) {
 		switch ev {
@@ -101,6 +103,10 @@ func (b *realtimeBus) handle(payload string) {
 		log.Error().Err(err).Msg("Failed to decode realtime bus envelope")
 		return
 	}
+	if env.UserID != "" && env.Disconnect {
+		b.disconnect(env.UserID)
+		return
+	}
 	if env.UserID == "" || env.Frame == "" {
 		return
 	}
@@ -124,6 +130,16 @@ func (b *realtimeBus) Publish(userID string, frame []byte) error {
 	}
 
 	payload, err := json.Marshal(env)
+	if err != nil {
+		return err
+	}
+	_, err = b.db.Exec(`SELECT pg_notify($1, $2)`, realtimeBusChannel, string(payload))
+	return err
+}
+
+// PublishDisconnect has every replica close userID's sockets.
+func (b *realtimeBus) PublishDisconnect(userID string) error {
+	payload, err := json.Marshal(realtimeBusEnvelope{UserID: userID, Disconnect: true})
 	if err != nil {
 		return err
 	}

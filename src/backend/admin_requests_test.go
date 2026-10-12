@@ -190,7 +190,6 @@ func TestOpenAdminRequest_Validation(t *testing.T) {
 		{"unsorted permissions", f.request(t, "root", adminActionPromote, "Helps", "user.kick,admin.create", "u1"), http.StatusBadRequest},
 		{"missing permission", f.request(t, "a1", adminActionBroadcast, "", "Hi"), http.StatusForbidden},
 		{"granting a permission not held", f.request(t, "a1", adminActionPromote, "Helps", "user.kick", "u1"), http.StatusForbidden},
-		{"no executor", f.request(t, "a1", adminActionReinstate, "Done", "", "u1"), http.StatusNotImplemented},
 		{"unknown action", f.request(t, "a1", "ban", "Spam", "", "u1"), http.StatusBadRequest},
 		{"bad signature", func() *pb.AdminRequest {
 			m := f.request(t, "a1", adminActionKick, "Spam", "", "u1")

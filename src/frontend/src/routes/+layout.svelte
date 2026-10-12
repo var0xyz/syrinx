@@ -48,7 +48,9 @@
   import { receiveBlock, receiveUnblock } from '$lib/services/blockedBy';
   import { receiveLedgerEntry } from '$lib/services/ledger';
   import { syncPendingBlocks } from '$lib/services/blocks';
-  import { setBlockedReporter } from '$lib/services/api';
+  import { setBlockedReporter, setSuspendedReporter } from '$lib/services/api';
+  import { receiveSuspension, suspension } from '$lib/services/suspension';
+  import SuspendedScreen from '$lib/components/SuspendedScreen.svelte';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
@@ -349,6 +351,7 @@
       if (data.entry) await receiveLedgerEntry(data.entry);
     });
     setBlockedReporter((cert) => void receiveBlock(cert));
+    setSuspendedReporter((cert) => void receiveSuspension(cert));
     serverConnection.on(ServerEvent.KeyRevoked, async (data) => {
       const eventId = data.id;
       if (data.revocation && (await applyKeyRevocation(data.revocation))) {
@@ -410,6 +413,8 @@
       startTrustedSession();
     }}
   />
+{:else if $suspension}
+  <SuspendedScreen request={$suspension} />
 {:else}
 <div class="app-shell">
   <UpdateAvailableIndicator />
