@@ -86,8 +86,11 @@ middleware already refuses an account with a removal.
 1. the request signature verifies against the requester's key `keyID`, and
    the decision is `approve` and verifies against the approver's key;
 2. the target is in `request.targets`, and `request.action == "kick"`;
-3. requester and approver both have a server-countersigned admin or root
-   role, and they are different people unless the requester is root;
+3. requester and approver are different people, unless the requester is
+   root.
+
+Holders don't check the admins' roles or permissions: the home server
+checked them when the kick was approved, and the ledger records them.
 4. the server signature over `buildAccountKickServerPayload` verifies
    against the target's home server key, selected by fingerprint.
 
@@ -103,14 +106,13 @@ new user ID. They don't inherit anything from the old account.
 
 Add to `RISKS.md`: "Account purge without the author's signature". The
 mitigation is two admin signatures plus the public ledger. The residual risk
-is a compromised server minting its own admins ([00 open questions](00_design.md#open-questions)).
+is a compromised server minting its own admins ([00 decisions](00_design.md#decisions)).
 
 ## Tests
 
 - Kick of user + two invitees: three removal certs, three fan-outs, usernames
   cleared, invites revoked.
 - Holder rejects a cert where requester == approver (non-root), where the
-  approver isn't an admin, where the action isn't `kick`, and where the
-  target isn't in `targets`.
+  action isn't `kick`, and where the target isn't in `targets`.
 - A pending suspend on a kicked target goes moot.
 - Peer path: one notify per peer, verified on the peer.

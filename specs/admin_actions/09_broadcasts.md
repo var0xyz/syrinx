@@ -17,12 +17,13 @@ instance. Both kinds need a second admin's approval.
 
 ## Request
 
-`action = broadcast`, no targets, no reason, `params` = the message (UTF-8,
-≤1000 characters). The ledger entry for the opened request shows the
-message. The request is approved like any other.
+`action = broadcast`, no targets, no reason, `body` = the message (UTF-8,
+≤140 characters, the mailbox limit). The ledger entry for the opened
+request carries the message as its `content`. Requester and approver need
+`broadcast.message`.
 
-A private message is the same with `action = message` and exactly one
-target, the recipient, who must be a local user. It is **never** in the
+A private message is the same with `action = message`, `user.message` as
+its permission, and exactly one target, the recipient, who must be a local user. It is **never** in the
 ledger ([02](02_ledger.md)): only admins see it, through
 `/api/admin/requests`, whatever its outcome.
 
@@ -45,6 +46,18 @@ has it.
 
 A private message runs the same two steps for its one recipient, with
 `kind = "admin-message"` and no link, since there is no ledger entry.
+
+## Mailbox
+
+Both kinds go through the user mailbox, which needs two fixes first:
+
+- `SendMailboxMessage` looks up `users.user_fingerprint` and
+  `public_key_revocations.revoked_id`, which no longer exist. It reads the
+  recipient's `users.active_key_id` and checks `public_key_revocations.key_id`
+  instead.
+- The SPA's mailbox bell was hidden and its WebSocket handling turned off.
+  The bell comes back in the upper right corner, and the client handles
+  mailbox messages again.
 
 ## SPA
 
