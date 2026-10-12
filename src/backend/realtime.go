@@ -1435,13 +1435,10 @@ func (rs *realtimeService) HandleForeignKeyRevocation(rev KeyRevocation) {
 	rs.fanoutKeyRevocation(rev.ID, &rev)
 }
 
-// DisconnectUser closes all WebSocket connections for a user (device rebind kick).
-// Its caller passes a bare userID, but connManager's registry is keyed by
-// the "userID@serverID" form (see authenticateWebSocket) — convert here at
-// the boundary.
+// DisconnectUser closes all of userID's WebSocket connections on this
+// replica. userID is the "userID@serverID" form the registry is keyed by.
 func (rs *realtimeService) DisconnectUser(userID string) {
-	selfIdentity := canonicalID(rs.db.GetServerID(), userID)
-	rs.connManager.DisconnectUser(string(selfIdentity))
+	rs.connManager.DisconnectUser(userID)
 }
 
 // Shutdown notifies every connected client the server is going away and
