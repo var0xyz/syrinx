@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file common.proto.
  */
 export const file_common: GenFile = /*@__PURE__*/
-  fileDesc("Cgxjb21tb24ucHJvdG8SBnN5cmlueCIqCg1Vc2VyU2lnbmF0dXJlEgoKAmlkGAEgASgJEg0KBWFybW9yGAIgASgJIkoKD1NlcnZlclNpZ25hdHVyZRIKCgJpZBgBIAEoCRINCgVhcm1vchgCIAEoCRIcCglzaWduZWRfYXQYAyABKA1SCXRpbWVzdGFtcCLfAQoFRXJyb3ISDwoHbWVzc2FnZRgBIAEoCRI1Cg9hY2NvdW50X3JlbW92YWwYAiABKAsyGi5zeXJpbnguQWNjb3VudFJlbW92YWxDZXJ0SAASLwoMcmVlZF9yZW1vdmFsGAMgASgLMhcuc3lyaW54LlJlZWRSZW1vdmFsQ2VydEgAEi8KDnRocmVhZF9yZW1vdmFsGAQgASgLMhUuc3lyaW54LlRocmVhZFJlbW92YWxIABIiCgVibG9jaxgFIAEoCzIRLnN5cmlueC5CbG9ja0NlcnRIAEIICgZkZXRhaWwijQIKBlJpcHBsZRIMCgRoYXNoGAEgASgJEhsKCXRocmVhZF9pZBgCIAEoCVIIdGhyZWFkSUQSFwoHdXNlcl9pZBgDIAEoCVIGdXNlcklEEg8KB2NvbnRlbnQYBCABKAkSGAoLcmVwbHlpbmdfdG8YBSABKAlIAIgBARIPCgdkZWxldGVkGAYgASgIEhEKCXBvc3RlZF9hdBgHIAEoDRItCg51c2VyX3NpZ25hdHVyZRgIIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYCSABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlQg4KDF9yZXBseWluZ190byLCAQoPUmVlZFJlbW92YWxDZXJ0EhsKCXNlcnZlcl9pZBgBIAEoCVIIc2VydmVySUQSFwoHdXNlcl9pZBgCIAEoCVIGdXNlcklEEhcKB3JlZWRfaWQYAyABKAlSBnJlZWRJRBItCg51c2VyX3NpZ25hdHVyZRgEIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBSABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIroBChJBY2NvdW50UmVtb3ZhbENlcnQSGwoJc2VydmVyX2lkGAEgASgJUghzZXJ2ZXJJRBIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSDAoEbm90ZRgDIAEoCRItCg51c2VyX3NpZ25hdHVyZRgEIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBSABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIooCChFLZXlSZXZvY2F0aW9uQ2VydBIKCgJpZBgBIAEoCRIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSDgoGcmVhc29uGAMgASgJEhYKCXN1Y2Nlc3NvchgEIAEoCUgAiAEBEiAKE3N1Y2Nlc3Nvcl9zaWduYXR1cmUYBSABKAlIAYgBARItCg51c2VyX3NpZ25hdHVyZRgGIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYByABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlQgwKCl9zdWNjZXNzb3JCFgoUX3N1Y2Nlc3Nvcl9zaWduYXR1cmUi3gEKDFRocmVhZFJlY29yZBIbCglzZXJ2ZXJfaWQYASABKAlSCHNlcnZlcklEEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBIbCgl0aHJlYWRfaWQYAyABKAlSCHRocmVhZElEEhkKCHJlZWRfaWRzGAQgAygJUgdyZWVkSURzEi0KDnVzZXJfc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgGIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiyAEKEVRocmVhZFJlbW92YWxDZXJ0EhsKCXNlcnZlcl9pZBgBIAEoCVIIc2VydmVySUQSFwoHdXNlcl9pZBgCIAEoCVIGdXNlcklEEhsKCXRocmVhZF9pZBgDIAEoCVIIdGhyZWFkSUQSLQoOdXNlcl9zaWduYXR1cmUYBCABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAUgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZSJeCg1UaHJlYWRSZW1vdmFsEicKBGNlcnQYASABKAsyGS5zeXJpbnguVGhyZWFkUmVtb3ZhbENlcnQSJAoGcmVjb3JkGAIgASgLMhQuc3lyaW54LlRocmVhZFJlY29yZCKuAQoJQmxvY2tDZXJ0EhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBImCg9ibG9ja2VkX3VzZXJfaWQYAiABKAlSDWJsb2NrZWRVc2VySUQSLQoOdXNlcl9zaWduYXR1cmUYAyABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAQgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZUIgWh5naXRodWIuY29tL2FsdmFyby9zeXJpbngvcHJvdG9iBnByb3RvMw");
+  fileDesc("Cgxjb21tb24ucHJvdG8SBnN5cmlueCIqCg1Vc2VyU2lnbmF0dXJlEgoKAmlkGAEgASgJEg0KBWFybW9yGAIgASgJIkoKD1NlcnZlclNpZ25hdHVyZRIKCgJpZBgBIAEoCRINCgVhcm1vchgCIAEoCRIcCglzaWduZWRfYXQYAyABKA1SCXRpbWVzdGFtcCLfAQoFRXJyb3ISDwoHbWVzc2FnZRgBIAEoCRI1Cg9hY2NvdW50X3JlbW92YWwYAiABKAsyGi5zeXJpbnguQWNjb3VudFJlbW92YWxDZXJ0SAASLwoMcmVlZF9yZW1vdmFsGAMgASgLMhcuc3lyaW54LlJlZWRSZW1vdmFsQ2VydEgAEi8KDnRocmVhZF9yZW1vdmFsGAQgASgLMhUuc3lyaW54LlRocmVhZFJlbW92YWxIABIiCgVibG9jaxgFIAEoCzIRLnN5cmlueC5CbG9ja0NlcnRIAEIICgZkZXRhaWwijQIKBlJpcHBsZRIMCgRoYXNoGAEgASgJEhsKCXRocmVhZF9pZBgCIAEoCVIIdGhyZWFkSUQSFwoHdXNlcl9pZBgDIAEoCVIGdXNlcklEEg8KB2NvbnRlbnQYBCABKAkSGAoLcmVwbHlpbmdfdG8YBSABKAlIAIgBARIPCgdkZWxldGVkGAYgASgIEhEKCXBvc3RlZF9hdBgHIAEoDRItCg51c2VyX3NpZ25hdHVyZRgIIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYCSABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlQg4KDF9yZXBseWluZ190byLCAQoPUmVlZFJlbW92YWxDZXJ0EhsKCXNlcnZlcl9pZBgBIAEoCVIIc2VydmVySUQSFwoHdXNlcl9pZBgCIAEoCVIGdXNlcklEEhcKB3JlZWRfaWQYAyABKAlSBnJlZWRJRBItCg51c2VyX3NpZ25hdHVyZRgEIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBSABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIroBChJBY2NvdW50UmVtb3ZhbENlcnQSGwoJc2VydmVyX2lkGAEgASgJUghzZXJ2ZXJJRBIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSDAoEbm90ZRgDIAEoCRItCg51c2VyX3NpZ25hdHVyZRgEIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBSABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIooCChFLZXlSZXZvY2F0aW9uQ2VydBIKCgJpZBgBIAEoCRIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSDgoGcmVhc29uGAMgASgJEhYKCXN1Y2Nlc3NvchgEIAEoCUgAiAEBEiAKE3N1Y2Nlc3Nvcl9zaWduYXR1cmUYBSABKAlIAYgBARItCg51c2VyX3NpZ25hdHVyZRgGIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYByABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlQgwKCl9zdWNjZXNzb3JCFgoUX3N1Y2Nlc3Nvcl9zaWduYXR1cmUi3gEKDFRocmVhZFJlY29yZBIbCglzZXJ2ZXJfaWQYASABKAlSCHNlcnZlcklEEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBIbCgl0aHJlYWRfaWQYAyABKAlSCHRocmVhZElEEhkKCHJlZWRfaWRzGAQgAygJUgdyZWVkSURzEi0KDnVzZXJfc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgGIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiyAEKEVRocmVhZFJlbW92YWxDZXJ0EhsKCXNlcnZlcl9pZBgBIAEoCVIIc2VydmVySUQSFwoHdXNlcl9pZBgCIAEoCVIGdXNlcklEEhsKCXRocmVhZF9pZBgDIAEoCVIIdGhyZWFkSUQSLQoOdXNlcl9zaWduYXR1cmUYBCABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAUgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZSJeCg1UaHJlYWRSZW1vdmFsEicKBGNlcnQYASABKAsyGS5zeXJpbnguVGhyZWFkUmVtb3ZhbENlcnQSJAoGcmVjb3JkGAIgASgLMhQuc3lyaW54LlRocmVhZFJlY29yZCKuAQoJQmxvY2tDZXJ0EhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBImCg9ibG9ja2VkX3VzZXJfaWQYAiABKAlSDWJsb2NrZWRVc2VySUQSLQoOdXNlcl9zaWduYXR1cmUYAyABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAQgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZSL0AgoMQWRtaW5SZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmFjdGlvbhgCIAEoCRIhCgxyZXF1ZXN0ZXJfaWQYAyABKAlSC3JlcXVlc3RlcklEEg4KBnJlYXNvbhgEIAEoCRIPCgd0YXJnZXRzGAUgAygJEgwKBGJvZHkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoDRIyChNyZXF1ZXN0ZXJfc2lnbmF0dXJlGAggASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSDQoFc3RhdGUYCSABKAkSFwoPZHJvcHBlZF90YXJnZXRzGAogAygJEiwKCGRlY2lzaW9uGAsgASgLMhUuc3lyaW54LkFkbWluRGVjaXNpb25IAIgBARI2ChBzZXJ2ZXJfc2lnbmF0dXJlGAwgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZUgBiAEBQgsKCV9kZWNpc2lvbkITChFfc2VydmVyX3NpZ25hdHVyZSJqCg1BZG1pbkRlY2lzaW9uEhAKCGRlY2lzaW9uGAEgASgJEh0KCmRlY2lkZXJfaWQYAiABKAlSCWRlY2lkZXJJRBIoCglzaWduYXR1cmUYAyABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZSI7ChJBZG1pbkF1dGhvcml6YXRpb24SJQoHcmVxdWVzdBgBIAEoCzIULnN5cmlueC5BZG1pblJlcXVlc3RCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM");
 
 /**
  * A user's cryptographic signature over content, and the id of the key
@@ -444,4 +444,129 @@ export type BlockCert = Message<"syrinx.BlockCert"> & {
  */
 export const BlockCertSchema: GenMessage<BlockCert> = /*@__PURE__*/
   messageDesc(file_common, 10);
+
+/**
+ * A two-admin request: the requester's signed proposal, and once closed,
+ * the decision and the server's countersignature. targets are sorted, as
+ * signed; dropped_targets are those removed while it was pending.
+ *
+ * @generated from message syrinx.AdminRequest
+ */
+export type AdminRequest = Message<"syrinx.AdminRequest"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string action = 2;
+   */
+  action: string;
+
+  /**
+   * @generated from field: string requester_id = 3 [json_name = "requesterID"];
+   */
+  requesterId: string;
+
+  /**
+   * @generated from field: string reason = 4;
+   */
+  reason: string;
+
+  /**
+   * @generated from field: repeated string targets = 5;
+   */
+  targets: string[];
+
+  /**
+   * @generated from field: string body = 6;
+   */
+  body: string;
+
+  /**
+   * @generated from field: uint32 created_at = 7;
+   */
+  createdAt: number;
+
+  /**
+   * @generated from field: syrinx.UserSignature requester_signature = 8;
+   */
+  requesterSignature?: UserSignature | undefined;
+
+  /**
+   * @generated from field: string state = 9;
+   */
+  state: string;
+
+  /**
+   * @generated from field: repeated string dropped_targets = 10;
+   */
+  droppedTargets: string[];
+
+  /**
+   * @generated from field: optional syrinx.AdminDecision decision = 11;
+   */
+  decision?: AdminDecision | undefined;
+
+  /**
+   * @generated from field: optional syrinx.ServerSignature server_signature = 12;
+   */
+  serverSignature?: ServerSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.AdminRequest.
+ * Use `create(AdminRequestSchema)` to create a new message.
+ */
+export const AdminRequestSchema: GenMessage<AdminRequest> = /*@__PURE__*/
+  messageDesc(file_common, 11);
+
+/**
+ * An approval, rejection or withdrawal, signed over the request's signature.
+ *
+ * @generated from message syrinx.AdminDecision
+ */
+export type AdminDecision = Message<"syrinx.AdminDecision"> & {
+  /**
+   * @generated from field: string decision = 1;
+   */
+  decision: string;
+
+  /**
+   * @generated from field: string decider_id = 2 [json_name = "deciderID"];
+   */
+  deciderId: string;
+
+  /**
+   * @generated from field: syrinx.UserSignature signature = 3;
+   */
+  signature?: UserSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.AdminDecision.
+ * Use `create(AdminDecisionSchema)` to create a new message.
+ */
+export const AdminDecisionSchema: GenMessage<AdminDecision> = /*@__PURE__*/
+  messageDesc(file_common, 12);
+
+/**
+ * Proof that two admins authorized an action: the request with its approve
+ * decision and server signature.
+ *
+ * @generated from message syrinx.AdminAuthorization
+ */
+export type AdminAuthorization = Message<"syrinx.AdminAuthorization"> & {
+  /**
+   * @generated from field: syrinx.AdminRequest request = 1;
+   */
+  request?: AdminRequest | undefined;
+};
+
+/**
+ * Describes the message syrinx.AdminAuthorization.
+ * Use `create(AdminAuthorizationSchema)` to create a new message.
+ */
+export const AdminAuthorizationSchema: GenMessage<AdminAuthorization> = /*@__PURE__*/
+  messageDesc(file_common, 13);
 

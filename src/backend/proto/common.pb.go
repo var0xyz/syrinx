@@ -904,6 +904,248 @@ func (x *BlockCert) GetServerSignature() *ServerSignature {
 	return nil
 }
 
+// A two-admin request: the requester's signed proposal, and once closed,
+// the decision and the server's countersignature. targets are sorted, as
+// signed; dropped_targets are those removed while it was pending.
+type AdminRequest struct {
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Action             string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
+	RequesterId        string                 `protobuf:"bytes,3,opt,name=requester_id,json=requesterID,proto3" json:"requester_id,omitempty"`
+	Reason             string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	Targets            []string               `protobuf:"bytes,5,rep,name=targets,proto3" json:"targets,omitempty"`
+	Body               string                 `protobuf:"bytes,6,opt,name=body,proto3" json:"body,omitempty"`
+	CreatedAt          uint32                 `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	RequesterSignature *UserSignature         `protobuf:"bytes,8,opt,name=requester_signature,json=requesterSignature,proto3" json:"requester_signature,omitempty"`
+	State              string                 `protobuf:"bytes,9,opt,name=state,proto3" json:"state,omitempty"`
+	DroppedTargets     []string               `protobuf:"bytes,10,rep,name=dropped_targets,json=droppedTargets,proto3" json:"dropped_targets,omitempty"`
+	Decision           *AdminDecision         `protobuf:"bytes,11,opt,name=decision,proto3,oneof" json:"decision,omitempty"`
+	ServerSignature    *ServerSignature       `protobuf:"bytes,12,opt,name=server_signature,json=serverSignature,proto3,oneof" json:"server_signature,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *AdminRequest) Reset() {
+	*x = AdminRequest{}
+	mi := &file_common_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminRequest) ProtoMessage() {}
+
+func (x *AdminRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminRequest.ProtoReflect.Descriptor instead.
+func (*AdminRequest) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AdminRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AdminRequest) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AdminRequest) GetRequesterId() string {
+	if x != nil {
+		return x.RequesterId
+	}
+	return ""
+}
+
+func (x *AdminRequest) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *AdminRequest) GetTargets() []string {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+func (x *AdminRequest) GetBody() string {
+	if x != nil {
+		return x.Body
+	}
+	return ""
+}
+
+func (x *AdminRequest) GetCreatedAt() uint32 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *AdminRequest) GetRequesterSignature() *UserSignature {
+	if x != nil {
+		return x.RequesterSignature
+	}
+	return nil
+}
+
+func (x *AdminRequest) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *AdminRequest) GetDroppedTargets() []string {
+	if x != nil {
+		return x.DroppedTargets
+	}
+	return nil
+}
+
+func (x *AdminRequest) GetDecision() *AdminDecision {
+	if x != nil {
+		return x.Decision
+	}
+	return nil
+}
+
+func (x *AdminRequest) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
+// An approval, rejection or withdrawal, signed over the request's signature.
+type AdminDecision struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Decision      string                 `protobuf:"bytes,1,opt,name=decision,proto3" json:"decision,omitempty"`
+	DeciderId     string                 `protobuf:"bytes,2,opt,name=decider_id,json=deciderID,proto3" json:"decider_id,omitempty"`
+	Signature     *UserSignature         `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdminDecision) Reset() {
+	*x = AdminDecision{}
+	mi := &file_common_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminDecision) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminDecision) ProtoMessage() {}
+
+func (x *AdminDecision) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminDecision.ProtoReflect.Descriptor instead.
+func (*AdminDecision) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AdminDecision) GetDecision() string {
+	if x != nil {
+		return x.Decision
+	}
+	return ""
+}
+
+func (x *AdminDecision) GetDeciderId() string {
+	if x != nil {
+		return x.DeciderId
+	}
+	return ""
+}
+
+func (x *AdminDecision) GetSignature() *UserSignature {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+// Proof that two admins authorized an action: the request with its approve
+// decision and server signature.
+type AdminAuthorization struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Request       *AdminRequest          `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdminAuthorization) Reset() {
+	*x = AdminAuthorization{}
+	mi := &file_common_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminAuthorization) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminAuthorization) ProtoMessage() {}
+
+func (x *AdminAuthorization) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminAuthorization.ProtoReflect.Descriptor instead.
+func (*AdminAuthorization) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AdminAuthorization) GetRequest() *AdminRequest {
+	if x != nil {
+		return x.Request
+	}
+	return nil
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
@@ -978,7 +1220,31 @@ const file_common_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12&\n" +
 	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserID\x12<\n" +
 	"\x0euser_signature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignatureB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xe8\x03\n" +
+	"\fAdminRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\x12!\n" +
+	"\frequester_id\x18\x03 \x01(\tR\vrequesterID\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x18\n" +
+	"\atargets\x18\x05 \x03(\tR\atargets\x12\x12\n" +
+	"\x04body\x18\x06 \x01(\tR\x04body\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\a \x01(\rR\tcreatedAt\x12F\n" +
+	"\x13requester_signature\x18\b \x01(\v2\x15.syrinx.UserSignatureR\x12requesterSignature\x12\x14\n" +
+	"\x05state\x18\t \x01(\tR\x05state\x12'\n" +
+	"\x0fdropped_targets\x18\n" +
+	" \x03(\tR\x0edroppedTargets\x126\n" +
+	"\bdecision\x18\v \x01(\v2\x15.syrinx.AdminDecisionH\x00R\bdecision\x88\x01\x01\x12G\n" +
+	"\x10server_signature\x18\f \x01(\v2\x17.syrinx.ServerSignatureH\x01R\x0fserverSignature\x88\x01\x01B\v\n" +
+	"\t_decisionB\x13\n" +
+	"\x11_server_signature\"\x7f\n" +
+	"\rAdminDecision\x12\x1a\n" +
+	"\bdecision\x18\x01 \x01(\tR\bdecision\x12\x1d\n" +
+	"\n" +
+	"decider_id\x18\x02 \x01(\tR\tdeciderID\x123\n" +
+	"\tsignature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"D\n" +
+	"\x12AdminAuthorization\x12.\n" +
+	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestR\arequestB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_common_proto_rawDescOnce sync.Once
@@ -992,7 +1258,7 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_common_proto_goTypes = []any{
 	(*UserSignature)(nil),      // 0: syrinx.UserSignature
 	(*ServerSignature)(nil),    // 1: syrinx.ServerSignature
@@ -1005,6 +1271,9 @@ var file_common_proto_goTypes = []any{
 	(*ThreadRemovalCert)(nil),  // 8: syrinx.ThreadRemovalCert
 	(*ThreadRemoval)(nil),      // 9: syrinx.ThreadRemoval
 	(*BlockCert)(nil),          // 10: syrinx.BlockCert
+	(*AdminRequest)(nil),       // 11: syrinx.AdminRequest
+	(*AdminDecision)(nil),      // 12: syrinx.AdminDecision
+	(*AdminAuthorization)(nil), // 13: syrinx.AdminAuthorization
 }
 var file_common_proto_depIdxs = []int32{
 	5,  // 0: syrinx.Error.account_removal:type_name -> syrinx.AccountRemovalCert
@@ -1027,11 +1296,16 @@ var file_common_proto_depIdxs = []int32{
 	7,  // 17: syrinx.ThreadRemoval.record:type_name -> syrinx.ThreadRecord
 	0,  // 18: syrinx.BlockCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 19: syrinx.BlockCert.server_signature:type_name -> syrinx.ServerSignature
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	0,  // 20: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
+	12, // 21: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
+	1,  // 22: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 23: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
+	11, // 24: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
+	25, // [25:25] is the sub-list for method output_type
+	25, // [25:25] is the sub-list for method input_type
+	25, // [25:25] is the sub-list for extension type_name
+	25, // [25:25] is the sub-list for extension extendee
+	0,  // [0:25] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -1047,13 +1321,14 @@ func file_common_proto_init() {
 	}
 	file_common_proto_msgTypes[3].OneofWrappers = []any{}
 	file_common_proto_msgTypes[6].OneofWrappers = []any{}
+	file_common_proto_msgTypes[11].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

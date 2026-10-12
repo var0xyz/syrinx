@@ -413,3 +413,61 @@ export function buildRippleServerPayload(
 export function buildRealtimeAuthPayload(serverID: string, userID: string, timestamp: string): string {
   return canonicalJSON({ type: 'realtime-auth', serverID, userID, timestamp });
 }
+
+/** Mirror of buildAdminRequestPayload in identity.go. targets must already
+ * be sorted. */
+export function buildAdminRequestPayload(
+  requestID: string,
+  action: string,
+  requesterID: string,
+  keyID: string,
+  reason: string,
+  targets: string[],
+  body: string,
+  createdAt: string
+): string {
+  return canonicalJSON({
+    type: 'admin-request',
+    requestID,
+    action,
+    requesterID,
+    keyID,
+    reason,
+    targets,
+    body,
+    createdAt
+  });
+}
+
+/** Mirror of buildAdminDecisionPayload in identity.go. */
+export function buildAdminDecisionPayload(
+  requestID: string,
+  decision: string,
+  deciderID: string,
+  keyID: string,
+  requestSignature: string
+): string {
+  return canonicalJSON({ type: 'admin-decision', requestID, decision, deciderID, keyID, requestSignature });
+}
+
+/** Mirror of buildAdminRequestServerPayload in identity.go. */
+export function buildAdminRequestServerPayload(
+  requestID: string,
+  state: string,
+  requestSignature: string,
+  decisionSignature: string,
+  serverID: string,
+  serverKeyFingerprint: string,
+  signedAt: string
+): string {
+  return canonicalJSON({
+    type: 'admin-request-server',
+    requestID,
+    state,
+    requestSignature,
+    decisionSignature,
+    serverID,
+    serverKeyFingerprint,
+    signedAt
+  });
+}

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -126,21 +126,26 @@ func buildAdminDecisionPayload(requestID, decision, deciderID, keyID, requestSig
 // {"decision","deciderID","keyID","requestID","requestSignature","type":"admin-decision"}
 // decision ∈ approve | reject | withdraw
 
-func buildAdminServerPayload(requestID, state, requestSignature, decisionSignature,
+func buildAdminRequestServerPayload(requestID, state, requestSignature, decisionSignature,
     serverID, serverKeyFingerprint string, signedAt time.Time) []byte
-// {"decisionSignature","requestID","requestSignature","serverID","serverKeyFingerprint","signedAt","state","type":"admin-request"}
+// {"decisionSignature","requestID","requestSignature","serverID","serverKeyFingerprint","signedAt","state","type":"admin-request-server"}
 ```
 
 - `targets` is sorted before signing, so both sides produce the same bytes.
 - `body` is the armored key or the message, as a plain string. It is
   empty for most actions and then dropped, following the `canonicalJSON`
   rules.
+- The server payload has its own `type`, so a requester's signature and the
+  server's can never stand in for each other.
 - Embedding the request signature in the decision means an approval is
   bound to exactly one request.
 
 ## Wire
 
-`proto/admin.proto` (new):
+`AdminRequest`, `AdminDecision` and `AdminAuthorization` are in
+`proto/common.proto`, since the kick and rebind certificates there embed
+`AdminAuthorization`. `proto/admin.proto` holds the API-only messages
+(`AdminRequestList`).
 
 ```proto
 message AdminRequest {
@@ -215,7 +220,7 @@ On `approve`, inside one transaction:
 
 1. Re-check every eligibility rule and the action's own preconditions.
 2. Run the action's executor (registered per action by steps 03–06, 09).
-3. Countersign with `buildAdminServerPayload`, `state = executed`.
+3. Countersign with `buildAdminRequestServerPayload`, `state = executed`.
 
 If the executor fails, the transaction rolls back and the request stays
 pending.
