@@ -523,3 +523,28 @@ export function buildAccountKickServerPayload(
     signedAt
   });
 }
+
+/** Mirror of buildAdminRevocationServerPayload in identity.go. */
+export function buildAdminRevocationServerPayload(
+  userID: string,
+  keyID: string,
+  requestID: string,
+  requestSignature: string,
+  decisionSignature: string,
+  serverID: string,
+  serverKeyFingerprint: string,
+  signedAt: string
+): string {
+  return canonicalJSON({
+    type: 'admin-revocation',
+    userID,
+    keyID,
+    reason: 'lost',
+    requestID,
+    requestSignature,
+    decisionSignature,
+    serverID,
+    serverKeyFingerprint,
+    signedAt
+  });
+}

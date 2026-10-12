@@ -349,15 +349,7 @@ func newKeyRevokedMsg(eventID, requestID string, rev KeyRevocation) *pb.WSMessag
 		Type: pb.MessageType_KEY_REVOKED,
 		Id:   eventID,
 		Payload: &pb.WSMessage_KeyRevoked{
-			KeyRevoked: &pb.KeyRevokedMessage{RequestId: requestID, Revocation: &pb.KeyRevocationCert{
-				Id:                 rev.ID,
-				UserId:             rev.UserID,
-				Reason:             rev.Reason,
-				Successor:          rev.Successor,
-				SuccessorSignature: rev.SuccessorSignature,
-				UserSignature:      pbUserSignature(rev.UserSignature),
-				ServerSignature:    pbServerSignature(rev.ServerSignature),
-			}},
+			KeyRevoked: &pb.KeyRevokedMessage{RequestId: requestID, Revocation: pbKeyRevocation(&rev)},
 		},
 	}
 }
@@ -1193,15 +1185,19 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 func getRealtimeAuthPublicKey(ctx context.Context, db *DataService, fingerprint string) (string, bool, error) {
 	var armor string
 	var revoked bool
+	var restricted bool
 	err := db.db.QueryRowContext(ctx, `
-		SELECT pk.armor,
+		SELECT pk.armor, pk.restricted,
 		       EXISTS(
 			SELECT 1 FROM public_key_revocations rv
 			WHERE rv.key_id = pk.id
 		)
 		FROM public_keys pk
 		WHERE pk.id = $1
-	`, fingerprint).Scan(&armor, &revoked)
+	`, fingerprint).Scan(&armor, &restricted, &revoked)
+	if err == nil && restricted {
+		return "", false, fmt.Errorf("restricted key %s must rotate first", fingerprint)
+	}
 
 	if err != nil {
 		if err == sql.ErrNoRows {

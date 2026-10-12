@@ -119,6 +119,8 @@ type Key struct {
 	// Set on revoked server keys only; the signed record is the key chain.
 	RevokedAt   *time.Time `json:"revokedAt,omitempty"`
 	Compromised bool       `json:"compromised,omitempty"`
+	// Restricted is a key an admin rebind bound: it may only rotate away.
+	Restricted bool `json:"-"`
 }
 
 // ServerSigningKey is the server's own active signing key, held in memory
@@ -141,6 +143,8 @@ type KeyRevocation struct {
 	SuccessorSignature *string         `json:"successorSignature"`
 	UserSignature      UserSignature   `json:"userSignature"`
 	ServerSignature    ServerSignature `json:"serverSignature"`
+	// Admin is set on a lost-device rebind, signed in place of the key.
+	Admin *adminRequest `json:"-"`
 }
 
 type Reed struct {

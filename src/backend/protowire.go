@@ -166,15 +166,20 @@ func keyFromPB(k *pb.PublicKey) Key {
 }
 
 func pbKeyRevocation(r *KeyRevocation) *pb.KeyRevocationCert {
-	return &pb.KeyRevocationCert{
+	out := &pb.KeyRevocationCert{
 		Id:                 r.ID,
 		UserId:             r.UserID,
 		Reason:             r.Reason,
 		Successor:          r.Successor,
 		SuccessorSignature: r.SuccessorSignature,
-		UserSignature:      pbUserSignature(r.UserSignature),
 		ServerSignature:    pbServerSignature(r.ServerSignature),
 	}
+	if r.Admin != nil {
+		out.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(r.Admin)}
+	} else {
+		out.UserSignature = pbUserSignature(r.UserSignature)
+	}
+	return out
 }
 
 func pbServerKeyRevocation(r *serverKeyRevocationWire) *pb.ServerKeyRevocation {
@@ -593,6 +598,10 @@ func threadRecordFromPB(r *pb.ThreadRecord) threadRecordWire {
 
 // keyRevocationFromPB is the inverse of pbKeyRevocation.
 func keyRevocationFromPB(u *pb.KeyRevocationCert) KeyRevocation {
+	var admin *adminRequest
+	if u.GetAdmin().GetRequest() != nil {
+		admin = adminRequestFromPB(u.GetAdmin().GetRequest())
+	}
 	return KeyRevocation{
 		ID:                 u.GetId(),
 		UserID:             u.GetUserId(),
@@ -601,6 +610,7 @@ func keyRevocationFromPB(u *pb.KeyRevocationCert) KeyRevocation {
 		SuccessorSignature: u.SuccessorSignature,
 		UserSignature:      userSignatureFromPB(u.GetUserSignature()),
 		ServerSignature:    serverSignatureFromPB(u.GetServerSignature()),
+		Admin:              admin,
 	}
 }
 

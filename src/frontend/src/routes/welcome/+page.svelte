@@ -48,10 +48,19 @@
         <a href="/signup" class="btn btn-secondary">Sign Up</a>
       {/if}
     </div>
+    <a href="/lost-device" class="lost-device">Lost your device?</a>
   </div>
 </div>
 
 <style>
+  .lost-device {
+    display: block;
+    margin-top: 1rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+
   .container {
     max-width: 640px;
     display: flex;

@@ -88,3 +88,17 @@ assert.equal(
 );
 
 console.log('kick payload parity: ok');
+
+const { buildAdminRevocationServerPayload } = await import('../src/lib/services/signing.ts');
+
+assert.equal(
+  buildAdminRevocationServerPayload('u1@home1234', 'u1@home1234/OLDKEY', requestID, 'REQSIG', 'DECSIG',
+    'home1234', 'SERVERKEY01', '2026-10-12T13:00:00Z'),
+  '{"decisionSignature":"DECSIG","keyID":"u1@home1234/OLDKEY","reason":"lost",' +
+    '"requestID":"5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50","requestSignature":"REQSIG","serverID":"home1234",' +
+    '"serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T13:00:00Z","type":"admin-revocation",' +
+    '"userID":"u1@home1234"}',
+  'admin revocation payload'
+);
+
+console.log('admin revocation payload parity: ok');

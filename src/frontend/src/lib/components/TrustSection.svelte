@@ -3,6 +3,7 @@
   import TrustDetailsModal from '$lib/components/TrustDetailsModal.svelte';
   import VerificationInfoModal from '$lib/components/VerificationInfoModal.svelte';
   import {
+    adminReboundFor,
     keyChangeFor,
     liveVouchesFor,
     reconcileVouches,
@@ -24,6 +25,7 @@
   let live: VouchRecord[] = [];
   let stale: VouchRecord[] = [];
   let keyChange: KeyChangeKind | null = null;
+  let adminRebound = false;
   let showInfo = false;
 
   onMount(readLocal);
@@ -67,12 +69,22 @@
     live = await liveVouchesFor(userID, keyID);
     stale = await staleVouchesFor(userID, keyID);
     keyChange = await keyChangeFor(userID, keyID);
+    adminRebound = await adminReboundFor(userID);
   }
 
   // The substitution alarm is the one thing that stays on the profile: it
   // warns about evidence the user did not go looking for.
   $: alarm = isKeyChangeAlarm(keyChange);
 </script>
+
+{#if adminRebound}
+  <section class="trust">
+    <p class="row alarm">
+      This account’s key was replaced by admins. Vouches for the old key don’t carry over; verify this
+      person again before trusting it.
+    </p>
+  </section>
+{/if}
 
 {#if alarm}
   <section class="trust">

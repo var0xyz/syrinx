@@ -228,6 +228,8 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 		ex = h.permissionsExecutor()
 	case adminActionDemote:
 		ex = h.demoteExecutor()
+	case adminActionRebind:
+		ex = h.rebindExecutor()
 	default:
 		return nil
 	}
@@ -865,7 +867,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry := ledgerOpenedEntry(req, "")
+	entry := ledgerOpenedEntry(req, h.rebindKeyID(req))
 	err = withAdminTx(h.services.db.db, r.Context(), func(tx *sql.Tx) error {
 		if err := insertAdminRequestTx(r.Context(), tx, req); err != nil {
 			return err
@@ -1150,15 +1152,21 @@ func (h *Handlers) verifyForeignAdminAuthorization(ctx context.Context, peerServ
 		return nil, fmt.Errorf("no admin request")
 	}
 	req := adminRequestFromPB(auth.GetRequest())
+	return req, h.verifyForeignAdminRequest(ctx, peerServerID, req, action, target)
+}
+
+// verifyForeignAdminRequest is verifyForeignAdminAuthorization for a
+// request already read off the wire.
+func (h *Handlers) verifyForeignAdminRequest(ctx context.Context, peerServerID string, req *adminRequest, action, target string) error {
 	if req.Action != action || req.State != adminStateExecuted || req.Decision == nil ||
 		req.Decision.Decision != adminDecisionApprove || req.ServerSignature == nil {
-		return nil, fmt.Errorf("not an approved %s request", action)
+		return fmt.Errorf("not an approved %s request", action)
 	}
 	if !slices.Contains(req.Targets, target) {
-		return nil, fmt.Errorf("%s isn't a target of the request", target)
+		return fmt.Errorf("%s isn't a target of the request", target)
 	}
 	if req.Decision.DeciderID == req.RequesterID && !isRootIdentity(req.RequesterID, peerServerID) {
-		return nil, fmt.Errorf("the requester approved their own request")
+		return fmt.Errorf("the requester approved their own request")
 	}
 	signers := []struct {
 		userID string
@@ -1171,17 +1179,17 @@ func (h *Handlers) verifyForeignAdminAuthorization(ctx context.Context, peerServ
 	}
 	for _, s := range signers {
 		if !requesterKeyBelongsTo(s.sig.ID, s.userID, peerServerID) {
-			return nil, fmt.Errorf("key %s isn't %s's", s.sig.ID, s.userID)
+			return fmt.Errorf("key %s isn't %s's", s.sig.ID, s.userID)
 		}
 		key, err := h.resolvePublicKey(ctx, s.sig.ID)
 		if err != nil || key == nil {
-			return nil, fmt.Errorf("resolve %s's key: %v", s.userID, err)
+			return fmt.Errorf("resolve %s's key: %v", s.userID, err)
 		}
 		if err := h.services.crypto.verifySignature(string(s.bytes), s.sig.Armor, key.Armor); err != nil {
-			return nil, fmt.Errorf("%s's signature: %w", s.userID, err)
+			return fmt.Errorf("%s's signature: %w", s.userID, err)
 		}
 	}
-	return req, nil
+	return nil
 }
 
 // marshalAdminAuthorization is a peer's approved request as it's kept: the

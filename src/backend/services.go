@@ -1130,7 +1130,7 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.id, pk.owner, pk.armor, pk.created_at,
-		       pk.server_signature_id, pk.predecessor_id,
+		       pk.server_signature_id, pk.predecessor_id, pk.restricted,
 		       EXISTS(
 			SELECT 1 FROM public_key_revocations rv
 			WHERE rv.key_id = pk.id
@@ -1142,7 +1142,7 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 		WHERE pk.id = $1
 	`, id).Scan(
 		&key.ID, &owner, &key.Armor, &key.CreatedAt,
-		&serverSignatureID, &predID,
+		&serverSignatureID, &predID, &key.Restricted,
 		&revoked, &serverKeyRevokedAt, &compromised,
 	)
 	if err != nil {
@@ -1185,19 +1185,19 @@ func (s *DataService) IsPublicKeyRevoked(ctx context.Context, key *Key) (bool, e
 // id arrives canonical and is self-scoping — the sole lookup key.
 func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevocation, error) {
 	var rev KeyRevocation
-	var successor sql.NullString
+	var successor, adminRequestID sql.NullString
 	var reason sql.NullString
-	var userSigID, serverSigID int64
-	var successorSigID sql.NullInt64
+	var serverSigID int64
+	var userSigID, successorSigID sql.NullInt64
 
 	err := s.db.QueryRowContext(ctx, `
 		SELECT rv.key_id, rv.reason, rv.successor,
-		       rv.user_signature_id, rv.server_signature_id, rv.successor_signature_id
+		       rv.user_signature_id, rv.admin_request_id, rv.server_signature_id, rv.successor_signature_id
 		FROM public_key_revocations rv
 		WHERE rv.key_id = $1
 	`, id).Scan(
 		&rev.ID, &reason, &successor,
-		&userSigID, &serverSigID, &successorSigID,
+		&userSigID, &adminRequestID, &serverSigID, &successorSigID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1224,11 +1224,17 @@ func (s *DataService) GetKeyRevocation(ctx context.Context, id string) (*KeyRevo
 		rev.SuccessorSignature = &armor
 	}
 
-	userSig, err := getUserSignatureWire(ctx, s.db, userSigID)
-	if err != nil {
-		return nil, err
+	if adminRequestID.Valid {
+		if rev.Admin, err = s.GetAdminRequest(ctx, adminRequestID.String); err != nil {
+			return nil, err
+		}
+	} else {
+		userSig, err := getUserSignatureWire(ctx, s.db, userSigID.Int64)
+		if err != nil {
+			return nil, err
+		}
+		rev.UserSignature = userSig
 	}
-	rev.UserSignature = userSig
 
 	serverSig, err := getServerSignatureWire(ctx, s.db, serverSigID)
 	if err != nil {
@@ -1365,18 +1371,19 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 	}
 
 	// Measured from the server's countersignature, not the client-chosen
-	// key creation time.
+	// key creation time. A rebound key rotates away right after it's bound.
 	var registeredAt time.Time
+	var restricted bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT ss.signed_at
+		SELECT ss.signed_at, pk.restricted
 		FROM public_keys pk
 		JOIN server_signatures ss ON ss.id = pk.server_signature_id
 		WHERE pk.id = $1
-	`, predecessor).Scan(&registeredAt)
+	`, predecessor).Scan(&registeredAt, &restricted)
 	if err != nil {
 		return nil, err
 	}
-	if wait := keyRotationCooldown - time.Since(registeredAt); wait > 0 {
+	if wait := keyRotationCooldown - time.Since(registeredAt); wait > 0 && !restricted {
 		return nil, &ErrKeyRotationTooSoon{RetryAfter: wait}
 	}
 

@@ -47,6 +47,7 @@ import {
   buildAdminDecisionPayload,
   buildAdminRequestServerPayload,
   buildAccountKickServerPayload,
+  buildAdminRevocationServerPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -196,7 +197,16 @@ export async function verifyPublicKey(key: api.PublicKey): Promise<boolean> {
 
   // Rotation provenance is one hop away: the predecessor's handoff proof
   // lives on the *predecessor's own* revocation cert, as successorSignature.
+  // A rebind has none: two admins signed the lost key's revocation instead.
   if (key.predecessor) {
+    const rebind = await resolvePredecessorRevocation(key.predecessor);
+    if (rebind?.admin) {
+      if (rebind.successor !== key.id || !(await verifyKeyRevocation(rebind))) {
+        console.error('[verifyPublicKey] rebind revocation doesn’t bind this key', key.id);
+        return false;
+      }
+      return true;
+    }
     const predecessor = await resolvePredecessor(key);
     if (!predecessor?.armor) {
       console.error('[verifyPublicKey] predecessor public key unavailable', key.predecessor);
@@ -265,6 +275,7 @@ async function isKeyValidAt(
 }
 
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
+  if (revocation?.admin) return verifyAdminKeyRevocation(revocation);
   if (!revocation?.serverSignature || !revocation.userSignature?.armor) {
     console.error('[verifyKeyRevocation] missing signatures', revocation?.id);
     return false;
@@ -1225,6 +1236,46 @@ async function verifyKick(cert: api.AccountRemoval): Promise<boolean> {
   const result = await verify(cert.serverSignature, payload);
   if (result.ok === false) {
     console.error('[verifyKick] server signature failed', result);
+    return false;
+  }
+  return true;
+}
+
+/** A key revoked as lost by a rebind: two admins signed it in place of the
+ * key, and its server countersigned. */
+async function verifyAdminKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {
+  const req = revocation.admin?.request;
+  if (!req?.decision || !revocation.serverSignature || revocation.reason !== 'lost') {
+    console.error('[verifyAdminKeyRevocation] missing fields', revocation.id);
+    return false;
+  }
+  const owner = parseKeyId(revocation.id);
+  if (!owner || `${owner.userId}@${owner.serverId}` !== revocation.userId) {
+    console.error('[verifyAdminKeyRevocation] key isn’t the user’s', revocation.id);
+    return false;
+  }
+  if (!req.targets.includes(revocation.userId) || !(await verifyAdminAuthorization(revocation.admin, 'rebind'))) {
+    console.error('[verifyAdminKeyRevocation] not an approved rebind of', revocation.userId);
+    return false;
+  }
+  const { fingerprint, serverID } = splitServerSignatureId(revocation.serverSignature.id);
+  if (serverID !== owner.serverId) {
+    console.error('[verifyAdminKeyRevocation] not countersigned by the user’s server');
+    return false;
+  }
+  const payload = buildAdminRevocationServerPayload(
+    revocation.userId,
+    revocation.id,
+    req.id,
+    req.requesterSignature?.armor ?? '',
+    req.decision.signature?.armor ?? '',
+    serverID,
+    fingerprint,
+    signedAtHeader(revocation.serverSignature.signedAt)
+  );
+  const result = await verify(revocation.serverSignature, payload);
+  if (result.ok === false) {
+    console.error('[verifyAdminKeyRevocation] server signature failed', result);
     return false;
   }
   return true;

@@ -562,8 +562,10 @@ type KeyRevocationCert struct {
 	SuccessorSignature *string                `protobuf:"bytes,5,opt,name=successor_signature,json=successorSignature,proto3,oneof" json:"successor_signature,omitempty"`
 	UserSignature      *UserSignature         `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature    *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Set on a lost-device rebind, in place of the key's own signature.
+	Admin         *AdminAuthorization `protobuf:"bytes,8,opt,name=admin,proto3,oneof" json:"admin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *KeyRevocationCert) Reset() {
@@ -641,6 +643,13 @@ func (x *KeyRevocationCert) GetUserSignature() *UserSignature {
 func (x *KeyRevocationCert) GetServerSignature() *ServerSignature {
 	if x != nil {
 		return x.ServerSignature
+	}
+	return nil
+}
+
+func (x *KeyRevocationCert) GetAdmin() *AdminAuthorization {
+	if x != nil {
+		return x.Admin
 	}
 	return nil
 }
@@ -1312,7 +1321,7 @@ const file_common_proto_rawDesc = "" +
 	"\x0euser_signature\x18\x04 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
 	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x125\n" +
 	"\x05admin\x18\x06 \x01(\v2\x1a.syrinx.AdminAuthorizationH\x00R\x05admin\x88\x01\x01B\b\n" +
-	"\x06_admin\"\xd5\x02\n" +
+	"\x06_admin\"\x96\x03\n" +
 	"\x11KeyRevocationCert\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x16\n" +
@@ -1320,10 +1329,12 @@ const file_common_proto_rawDesc = "" +
 	"\tsuccessor\x18\x04 \x01(\tH\x00R\tsuccessor\x88\x01\x01\x124\n" +
 	"\x13successor_signature\x18\x05 \x01(\tH\x01R\x12successorSignature\x88\x01\x01\x12<\n" +
 	"\x0euser_signature\x18\x06 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignatureB\f\n" +
+	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x125\n" +
+	"\x05admin\x18\b \x01(\v2\x1a.syrinx.AdminAuthorizationH\x02R\x05admin\x88\x01\x01B\f\n" +
 	"\n" +
 	"_successorB\x16\n" +
-	"\x14_successor_signature\"\xfe\x01\n" +
+	"\x14_successor_signatureB\b\n" +
+	"\x06_admin\"\xfe\x01\n" +
 	"\fThreadRecord\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverID\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x1b\n" +
@@ -1425,25 +1436,26 @@ var file_common_proto_depIdxs = []int32{
 	13, // 11: syrinx.AccountRemovalCert.admin:type_name -> syrinx.AdminAuthorization
 	0,  // 12: syrinx.KeyRevocationCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 13: syrinx.KeyRevocationCert.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 14: syrinx.ThreadRecord.user_signature:type_name -> syrinx.UserSignature
-	1,  // 15: syrinx.ThreadRecord.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 16: syrinx.ThreadRemovalCert.user_signature:type_name -> syrinx.UserSignature
-	1,  // 17: syrinx.ThreadRemovalCert.server_signature:type_name -> syrinx.ServerSignature
-	8,  // 18: syrinx.ThreadRemoval.cert:type_name -> syrinx.ThreadRemovalCert
-	7,  // 19: syrinx.ThreadRemoval.record:type_name -> syrinx.ThreadRecord
-	0,  // 20: syrinx.BlockCert.user_signature:type_name -> syrinx.UserSignature
-	1,  // 21: syrinx.BlockCert.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 22: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
-	12, // 23: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
-	1,  // 24: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 25: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
-	11, // 26: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
-	1,  // 27: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	13, // 14: syrinx.KeyRevocationCert.admin:type_name -> syrinx.AdminAuthorization
+	0,  // 15: syrinx.ThreadRecord.user_signature:type_name -> syrinx.UserSignature
+	1,  // 16: syrinx.ThreadRecord.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 17: syrinx.ThreadRemovalCert.user_signature:type_name -> syrinx.UserSignature
+	1,  // 18: syrinx.ThreadRemovalCert.server_signature:type_name -> syrinx.ServerSignature
+	8,  // 19: syrinx.ThreadRemoval.cert:type_name -> syrinx.ThreadRemovalCert
+	7,  // 20: syrinx.ThreadRemoval.record:type_name -> syrinx.ThreadRecord
+	0,  // 21: syrinx.BlockCert.user_signature:type_name -> syrinx.UserSignature
+	1,  // 22: syrinx.BlockCert.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 23: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
+	12, // 24: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
+	1,  // 25: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 26: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
+	11, // 27: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
+	1,  // 28: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }

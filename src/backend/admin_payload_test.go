@@ -93,3 +93,16 @@ func TestAccountKickServerPayloadCanonicalShape(t *testing.T) {
 		t.Errorf("kick server payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestAdminRevocationServerPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 10, 12, 13, 0, 0, 0, time.UTC)
+	got := buildAdminRevocationServerPayload("u1@home1234", "u1@home1234/OLDKEY", "5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50",
+		"REQSIG", "DECSIG", "home1234", "SERVERKEY01", signedAt)
+	want := `{"decisionSignature":"DECSIG","keyID":"u1@home1234/OLDKEY","reason":"lost",` +
+		`"requestID":"5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50","requestSignature":"REQSIG","serverID":"home1234",` +
+		`"serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T13:00:00Z","type":"admin-revocation",` +
+		`"userID":"u1@home1234"}`
+	if string(got) != want {
+		t.Errorf("admin revocation payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

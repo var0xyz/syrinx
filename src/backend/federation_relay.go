@@ -2149,6 +2149,9 @@ func (h *Handlers) verifyPeerKeyRevocation(ctx context.Context, peerServerID str
 	if !ok || keyServerID != peerServerID || string(canonicalID(keyServerID, owner)) != rev.UserID {
 		return fmt.Errorf("key %s is not a key of a user of the calling peer", rev.ID)
 	}
+	if rev.Admin != nil {
+		return h.verifyPeerAdminRevocation(ctx, peerServerID, rev)
+	}
 
 	key, err := h.resolvePublicKey(ctx, rev.ID)
 	if err != nil || key == nil {
@@ -2164,6 +2167,23 @@ func (h *Handlers) verifyPeerKeyRevocation(ctx context.Context, peerServerID str
 			rev.UserID, rev.ID, rev.Reason, peerServerID, serverFP,
 			rev.UserSignature.Armor, rev.ServerSignature.SignedAt.UTC().Truncate(time.Second),
 		)
+	})
+}
+
+// verifyPeerAdminRevocation checks a rebind's revocation: two of the
+// peer's admins approved a rebind of rev's user, and the peer countersigned
+// revoking the key as lost.
+func (h *Handlers) verifyPeerAdminRevocation(ctx context.Context, peerServerID string, rev KeyRevocation) error {
+	if rev.Reason != keyRevocationReasonLost {
+		return fmt.Errorf("an admin revocation's reason must be lost")
+	}
+	req := rev.Admin
+	if err := h.verifyForeignAdminRequest(ctx, peerServerID, req, adminActionRebind, rev.UserID); err != nil {
+		return err
+	}
+	return h.verifyPeerCountersignature(ctx, peerServerID, rev.ServerSignature, func(serverFP string) []byte {
+		return buildAdminRevocationServerPayload(rev.UserID, rev.ID, req.ID, req.RequesterSignature.Armor,
+			req.Decision.Signature.Armor, peerServerID, serverFP, rev.ServerSignature.SignedAt.UTC().Truncate(time.Second))
 	})
 }
 

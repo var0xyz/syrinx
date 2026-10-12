@@ -31,6 +31,7 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | M10    | Medium   | design     | Account purge without the author's signature (kick)                    |
+| M11    | Medium   | design     | Admin key rebind is an account takeover by two admins                  |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | L4     | Low      | server     | WebSocket handshake replays within its timestamp window                |
@@ -122,6 +123,19 @@ can't kick anyone, and every kick is in the public ledger.
 **Residual:** holders trust the home server on who is an admin. A
 compromised server can mint two admins of its own and kick anyone; local
 members can see it in the ledger, but peers can't prevent it.
+
+### M11 — Admin key rebind is an account takeover by two admins
+**Where:** `rebindExecutor` (`admin_rebind.go`), `verifyPeerAdminRevocation`
+(`federation_relay.go`), `verifyAdminKeyRevocation`
+(`src/frontend/src/lib/verifiers/index.ts`).
+Two admins can revoke a user's key as lost and bind one they were handed,
+so whoever holds that key becomes the user. The only check on the person is
+the admins' out-of-band one.
+**Mitigations:** the two-person rule, the public ledger entry naming the new
+key, the revocation that says admins signed it, and vouches for the old key
+not carrying over (the profile warns whoever held one).
+**Residual:** two colluding admins, or a compromised server, can take over
+any account; members see it in the ledger and in the revocation.
 
 ## Low
 

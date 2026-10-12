@@ -685,3 +685,36 @@ func buildAccountKickServerPayload(
 		"signedAt":             signedTime(signedAt),
 	})
 }
+
+// identityTypeAdminRevocation is the `type` of a key revocation two admins
+// signed for a lost device, in place of the key itself.
+const (
+	identityTypeAdminRevocation = "admin-revocation"
+	keyRevocationReasonLost     = "lost"
+)
+
+// buildAdminRevocationServerPayload returns the bytes the server
+// countersigns when a rebind revokes keyID. The reason is always "lost".
+func buildAdminRevocationServerPayload(
+	userID,
+	keyID,
+	requestID,
+	requestSignature,
+	decisionSignature,
+	serverID,
+	serverKeyFingerprint string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeAdminRevocation,
+		"userID":               userID,
+		"keyID":                keyID,
+		"reason":               keyRevocationReasonLost,
+		"requestID":            requestID,
+		"requestSignature":     requestSignature,
+		"decisionSignature":    decisionSignature,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             signedTime(signedAt),
+	})
+}

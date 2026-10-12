@@ -80,6 +80,8 @@ message KeyRevocationCert {
   optional string successor_signature = 5;
   UserSignature user_signature = 6;
   ServerSignature server_signature = 7;
+  // Set on a lost-device rebind, in place of the key's own signature.
+  optional AdminAuthorization admin = 8;
 }
 
 // A thread record: the author's ordered list of a thread's reeds.
