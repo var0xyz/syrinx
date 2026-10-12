@@ -32,7 +32,7 @@ them when they were promoted or invited, or by a later permissions change.
 | `broadcast.message` | `broadcast`                                          |
 | `mesh.invite`       | Creating and canceling server invites                |
 | `mesh.connect`      | Approving or rejecting a server connection           |
-| `mesh.disconnect`   | Disconnecting from a peer and purging it             |
+| `mesh.disconnect`   | Disconnecting from a peer                            |
 
 The mesh permissions gate the existing `/api/federation` routes for admins;
 they don't go through requests.

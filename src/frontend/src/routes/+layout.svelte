@@ -46,6 +46,7 @@
   import { verifyAndCommitAccountRemoval } from '$lib/services/accountRemoval';
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
   import { receiveBlock, receiveUnblock } from '$lib/services/blockedBy';
+  import { receiveLedgerEntry } from '$lib/services/ledger';
   import { syncPendingBlocks } from '$lib/services/blocks';
   import { setBlockedReporter } from '$lib/services/api';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
@@ -343,6 +344,9 @@
     });
     serverConnection.on(ServerEvent.UserUnblocked, async (data) => {
       if (data.userId) await receiveUnblock(data.userId);
+    });
+    serverConnection.on(ServerEvent.LedgerEntry, async (data) => {
+      if (data.entry) await receiveLedgerEntry(data.entry);
     });
     setBlockedReporter((cert) => void receiveBlock(cert));
     serverConnection.on(ServerEvent.KeyRevoked, async (data) => {

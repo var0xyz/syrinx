@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -151,16 +151,16 @@ anything newer.
 | `GET /api/ledger?after={id}`   | Any signed-in local member | `{tail}`: the entries after that one in chain order, paginated |
 | `GET /api/ledger/{id}`         | Any signed-in local member | One entry                                                   |
 
-A new member rebuilds the ledger right after signup: it verifies `head`,
-then each `tail` entry against the one before it, following `after` with
-the last entry's ID until the tail is empty. From then on it keeps the
-ledger current from the WebSocket. An account recovery does the same, and
-a client that was offline asks only for the tail after the last entry it
-holds.
+A client rebuilds the ledger on every catch-up (each `SYNC_REQUEST`,
+including the first one after signup or an account recovery): it verifies
+`head`, then each `tail` entry against the one before it, following `after`
+with the last entry's ID until the tail is empty. Walking the whole chain
+each time is what lets it compare the entries it already holds; the ledger
+is small. Between catch-ups the WebSocket keeps it current.
 
 ## Verification (SPA)
 
-`lib/verifiers/ledgerEntry.ts` verifies the server signature over
+`verifyLedgerRecord` (`lib/verifiers`) verifies the server signature over
 `buildLedgerEntryPayload`, against the server key selected by fingerprint,
 before an entry is stored. An entry that fails is dropped.
 

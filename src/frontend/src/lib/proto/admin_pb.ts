@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { AdminRequest } from "./common_pb";
+import type { AdminRequest, LedgerEntry } from "./common_pb";
 import { file_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWRCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -37,4 +37,29 @@ export type AdminRequestList = Message<"syrinx.AdminRequestList"> & {
  */
 export const AdminRequestListSchema: GenMessage<AdminRequestList> = /*@__PURE__*/
   messageDesc(file_admin, 0);
+
+/**
+ * A page of the ledger in chain order. head, the entry with no previous
+ * one, is set only on the first page.
+ *
+ * @generated from message syrinx.LedgerPage
+ */
+export type LedgerPage = Message<"syrinx.LedgerPage"> & {
+  /**
+   * @generated from field: optional syrinx.LedgerEntry head = 1;
+   */
+  head?: LedgerEntry | undefined;
+
+  /**
+   * @generated from field: repeated syrinx.LedgerEntry tail = 2;
+   */
+  tail: LedgerEntry[];
+};
+
+/**
+ * Describes the message syrinx.LedgerPage.
+ * Use `create(LedgerPageSchema)` to create a new message.
+ */
+export const LedgerPageSchema: GenMessage<LedgerPage> = /*@__PURE__*/
+  messageDesc(file_admin, 1);
 

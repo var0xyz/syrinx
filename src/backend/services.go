@@ -4181,6 +4181,7 @@ func (s *DataService) ApproveFederationAttempt(
 	callerIsRoot bool,
 	countersign func(payload []byte, ts time.Time) (ServerSignature, error),
 	notifyPeer func(ctx context.Context, serverID, baseURL string) (established bool, err error),
+	ledger func(tx *sql.Tx, serverID string) error,
 ) (serverID string, established bool, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -4282,6 +4283,11 @@ func (s *DataService) ApproveFederationAttempt(
 			return "", false, fmt.Errorf("update federation invitation: %w", err)
 		}
 	}
+	if ledger != nil {
+		if err := ledger(tx, remoteServerID); err != nil {
+			return "", false, err
+		}
+	}
 
 	if err := tx.Commit(); err != nil {
 		return "", false, err
@@ -4293,7 +4299,11 @@ func (s *DataService) ApproveFederationAttempt(
 // disconnect-request staging. revokedBy is nil when the peer notified us
 // first. Called by the peer-notify path and ConfirmFederationServerDisconnect.
 func (s *DataService) RevokeFederationServer(ctx context.Context, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
-	res, err := s.db.ExecContext(ctx, `
+	return revokeFederationServerQ(ctx, s.db, serverID, revokedBy, reason, revokedAt)
+}
+
+func revokeFederationServerQ(ctx context.Context, q adminQuerier, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
+	res, err := q.ExecContext(ctx, `
 		UPDATE servers
 		SET revoked_at = $2, revoked_by = $3, revoked_reason = $4,
 			disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL
@@ -4308,7 +4318,7 @@ func (s *DataService) RevokeFederationServer(ctx context.Context, serverID strin
 	}
 	if n == 0 {
 		var exists bool
-		if err := s.db.QueryRowContext(ctx, `
+		if err := q.QueryRowContext(ctx, `
 			SELECT EXISTS(SELECT 1 FROM servers WHERE id = $1 AND self = FALSE)
 		`, serverID).Scan(&exists); err != nil {
 			return err
@@ -4359,11 +4369,17 @@ func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, ser
 // ConfirmFederationServerDisconnect finalizes a staged disconnect,
 // requiring confirmedBy to differ from the requester (root exempt). Returns
 // the staged reason so the caller can pass it to the peer notification.
-func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, serverID, confirmedBy string, confirmedAt time.Time, callerIsRoot bool) (reason string, err error) {
+func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, serverID, confirmedBy string, confirmedAt time.Time, callerIsRoot bool, ledger func(tx *sql.Tx) error) (reason string, err error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
 	var requestedBy string
-	if err := s.db.QueryRowContext(ctx, `
+	if err := tx.QueryRowContext(ctx, `
 		SELECT COALESCE(disconnect_requested_by, ''), COALESCE(disconnect_reason, '')
-		FROM servers WHERE id = $1 AND self = FALSE
+		FROM servers WHERE id = $1 AND self = FALSE FOR UPDATE
 	`, serverID).Scan(&requestedBy, &reason); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", errFederationServerNotFound
@@ -4376,10 +4392,15 @@ func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, ser
 	if !callerIsRoot && requestedBy == confirmedBy {
 		return "", errFederationSameApprover
 	}
-	if err := s.RevokeFederationServer(ctx, serverID, &confirmedBy, reason, confirmedAt); err != nil {
+	if err := revokeFederationServerQ(ctx, tx, serverID, &confirmedBy, reason, confirmedAt); err != nil {
 		return "", err
 	}
-	return reason, nil
+	if ledger != nil {
+		if err := ledger(tx); err != nil {
+			return "", err
+		}
+	}
+	return reason, tx.Commit()
 }
 
 // CancelFederationServerDisconnect clears a staged disconnect request
@@ -4447,20 +4468,23 @@ func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string
 // row is never deleted, so the log lines already written against it (see
 // logFederationAttempt) stay intact, unlike the earlier servers-row-based
 // design where rejecting cascade-deleted its own log.
-func (s *DataService) RejectFederationAttempt(ctx context.Context, attemptID, rejectedBy, reason string, rejectedAt time.Time) error {
-	res, err := s.db.ExecContext(ctx, `
+func (s *DataService) RejectFederationAttempt(ctx context.Context, attemptID, rejectedBy, reason string, rejectedAt time.Time, ledger func(tx *sql.Tx, remoteServerID string) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var remoteServerID string
+	err = tx.QueryRowContext(ctx, `
 		UPDATE federation_attempt
 		SET status = 'rejected', rejected_by = $2, rejected_at = $3, rejected_reason = $4
 		WHERE id = $1 AND status = 'pending'
-	`, attemptID, rejectedBy, rejectedAt.UTC(), reason)
-	if err != nil {
+		RETURNING remote_server_id
+	`, attemptID, rejectedBy, rejectedAt.UTC(), reason).Scan(&remoteServerID)
+	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
+	if err == sql.ErrNoRows {
 		attempt, err := s.GetFederationAttempt(ctx, attemptID)
 		if err != nil {
 			return err
@@ -4470,7 +4494,12 @@ func (s *DataService) RejectFederationAttempt(ctx context.Context, attemptID, re
 		}
 		return errFederationAttemptNotPending
 	}
-	return nil
+	if ledger != nil {
+		if err := ledger(tx, remoteServerID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 type federationServerLogRow struct {
@@ -4549,6 +4578,7 @@ func (s *DataService) InsertFederationInvitation(
 	secretHash []byte,
 	connectionCiphertext string,
 	createdAt time.Time,
+	ledger func(tx *sql.Tx) error,
 ) error {
 	createdByIdentity := createdBy
 
@@ -4583,6 +4613,11 @@ func (s *DataService) InsertFederationInvitation(
 			return errFederationInvitationExists
 		}
 		return err
+	}
+	if ledger != nil {
+		if err := ledger(tx); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()
@@ -4747,9 +4782,14 @@ func (s *DataService) GetFederationAttemptForServer(ctx context.Context, serverI
 
 // RevokeFederationInvitation's reviewedBy is the local admin revoking the
 // invitation, already in userID@serverID form.
-func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, reviewedBy string, reviewedAt time.Time) error {
+func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, reviewedBy string, reviewedAt time.Time, ledger func(tx *sql.Tx) error) error {
 	reviewedByIdentity := reviewedBy
-	res, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE federation_invitation
 		SET status = $2, connection_ciphertext = NULL,
 		    reviewed_by = $4, reviewed_at = $5
@@ -4772,7 +4812,12 @@ func (s *DataService) RevokeFederationInvitation(ctx context.Context, id, review
 		}
 		return errFederationInvitationNotRevocable
 	}
-	return nil
+	if ledger != nil {
+		if err := ledger(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // federationPeer describes the remote server on the other end of a

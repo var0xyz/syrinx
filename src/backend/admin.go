@@ -872,8 +872,15 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	entry := ledgerOpenedEntry(req, "")
 	err = withAdminTx(h.services.db.db, r.Context(), func(tx *sql.Tx) error {
-		return insertAdminRequestTx(r.Context(), tx, req)
+		if err := insertAdminRequestTx(r.Context(), tx, req); err != nil {
+			return err
+		}
+		if entry == nil {
+			return nil
+		}
+		return h.appendLedgerTx(r.Context(), tx, entry)
 	})
 	if errors.Is(err, ErrAdminRequestExists) {
 		writeError(w, http.StatusConflict, "A request with that ID already exists")
@@ -883,6 +890,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, r, err, "Error storing admin request")
 		return
 	}
+	h.pushLedgerEntries(entry)
 	log.Info().Str("requestID", req.ID).Str("action", req.Action).Str("requesterID", callerID).Msg("Admin request opened")
 	writeResponse(w, http.StatusCreated, pbAdminRequest(req))
 }
@@ -1006,6 +1014,7 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var entry *ledgerEntry
 	err = withAdminTx(h.services.db.db, r.Context(), func(tx *sql.Tx) error {
 		locked, err := getAdminRequestQ(r.Context(), tx, req.ID, true)
 		if err != nil {
@@ -1035,12 +1044,16 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		req = locked
-		return nil
+		if entry = ledgerClosedEntry(locked, state, callerID); entry == nil {
+			return nil
+		}
+		return h.appendLedgerTx(r.Context(), tx, entry)
 	})
 	if err != nil {
 		h.writeAdminError(w, r, err, "Error deciding admin request")
 		return
 	}
+	h.pushLedgerEntries(entry)
 	if ex != nil && ex.after != nil {
 		ex.after(req)
 	}
@@ -1085,11 +1098,22 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 	if err != nil {
 		return err
 	}
-	return withAdminTx(h.services.db.db, ctx, func(tx *sql.Tx) error {
+	var entry *ledgerEntry
+	err = withAdminTx(h.services.db.db, ctx, func(tx *sql.Tx) error {
 		locked, err := getAdminRequestQ(ctx, tx, requestID, true)
 		if err != nil || locked == nil || locked.State != adminStatePending || len(locked.remainingTargets()) > 0 {
 			return err
 		}
-		return closeAdminRequestTx(ctx, tx, locked, adminStateMoot, nil, serverSig)
+		if err := closeAdminRequestTx(ctx, tx, locked, adminStateMoot, nil, serverSig); err != nil {
+			return err
+		}
+		if entry = ledgerClosedEntry(locked, adminStateMoot, ""); entry == nil {
+			return nil
+		}
+		return h.appendLedgerTx(ctx, tx, entry)
 	})
+	if err == nil {
+		h.pushLedgerEntries(entry)
+	}
+	return err
 }

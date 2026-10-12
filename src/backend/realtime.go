@@ -895,6 +895,13 @@ func (cm *realtimeConnectionManager) deliverLocal(userID string, frame []byte) b
 	for _, c := range cm.userConnections[userID] {
 		clients = append(clients, c)
 	}
+	if userID == realtimeAllUsers {
+		for _, conns := range cm.userConnections {
+			for _, c := range conns {
+				clients = append(clients, c)
+			}
+		}
+	}
 	cm.mutex.RUnlock()
 
 	sent := false
@@ -906,6 +913,22 @@ func (cm *realtimeConnectionManager) deliverLocal(userID string, frame []byte) b
 		sent = true
 	}
 	return sent
+}
+
+// realtimeAllUsers addresses a bus frame to every connected user.
+const realtimeAllUsers = "*"
+
+// SendToAll delivers msg to every connected user, on every replica.
+func (cm *realtimeConnectionManager) SendToAll(msg *pb.WSMessage) error {
+	frame, err := marshalWSMessage(msg)
+	if err != nil {
+		return err
+	}
+	if cm.bus != nil {
+		return cm.bus.Publish(realtimeAllUsers, frame)
+	}
+	cm.deliverLocal(realtimeAllUsers, frame)
+	return nil
 }
 
 // HasConnection reports whether any active WebSocket is registered for the user.

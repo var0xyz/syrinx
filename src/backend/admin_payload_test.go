@@ -60,3 +60,24 @@ func TestAdminRequestServerPayloadCanonicalShape(t *testing.T) {
 		t.Errorf("moot server payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestLedgerEntryPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	got := buildLedgerEntryPayload(1, 0, "", "a1@home1234", "Admin invite inv1 created",
+		"admin.create,user.kick", nil, "home1234", "SERVERKEY01", signedAt)
+	want := `{"content":"admin.create,user.kick","id":1,"message":"Admin invite inv1 created",` +
+		`"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",` +
+		`"type":"ledger-entry","userID":"a1@home1234"}`
+	if string(got) != want {
+		t.Errorf("first ledger entry payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+
+	got = buildLedgerEntryPayload(7, 5, "PREVSIG", "", "[r1] Closed. Reason: every target left",
+		"", []string{"u1@home1234", "u2@home1234"}, "home1234", "SERVERKEY01", signedAt)
+	want = `{"id":7,"message":"[r1] Closed. Reason: every target left","prevID":5,"prevSignature":"PREVSIG",` +
+		`"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",` +
+		`"targets":["u1@home1234","u2@home1234"],"type":"ledger-entry"}`
+	if string(got) != want {
+		t.Errorf("chained ledger entry payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

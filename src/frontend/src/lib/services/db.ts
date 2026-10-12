@@ -30,6 +30,7 @@ const STORE_DEFAULTS: Record<string, () => Record<string, unknown>> = {
   removedAccounts: () => ({ note: '' }),
   ripples: () => ({ content: '' }),
   mailbox: () => ({ message: '' }),
+  ledger: () => ({ userID: '', content: '', targets: [] }),
   userLists: () => ({ description: '', memberIds: [] }),
 };
 
@@ -39,9 +40,9 @@ function unwrap<T>(storeName: string, stored: DbWrapper<T>): T {
   return { ...STORE_DEFAULTS[storeName]?.(), ...data } as T;
 }
 
-/** A store's primary key: a single string for most stores, or an array for
- * a store whose keyPath is a compound key. */
-export type DbKey = string | string[];
+/** A store's primary key: a single string for most stores, a number for the
+ * ledger, or an array for a store whose keyPath is a compound key. */
+export type DbKey = string | number | string[];
 
 /** Reports a verification failure that caused `put` to refuse a write.
  * Set by serverConnection at startup — db.ts can't import serverConnection
@@ -77,7 +78,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 32;
+  private readonly version = 33;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -129,6 +130,9 @@ export class IndexedDbService implements DbService {
 
     // Peers this server is federated with, refreshed from /server/info.
     ['federatedServers',   'id'],
+
+    // The server-signed ledger of admin actions, verified as a chain.
+    ['ledger',             'id'],
   ];
 
   async init(): Promise<void> {

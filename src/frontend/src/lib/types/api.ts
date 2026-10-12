@@ -7,6 +7,9 @@ export type Base = {};
 
 export type {
   AccountRemovalCert as AccountRemoval,
+  AdminAuthorization,
+  AdminDecision,
+  AdminRequest,
   BlockCert,
   KeyRevocationCert as KeyRevocation,
   ReedRemovalCert as ReedRemoval,
@@ -15,8 +18,10 @@ export type {
   ThreadRecord,
   ThreadRemoval,
   ThreadRemovalCert,
+  LedgerEntry,
   UserSignature,
 } from '$lib/proto/common_pb';
+export type { AdminRequestList, LedgerPage } from '$lib/proto/admin_pb';
 export type {
   BlockListResponse,
   FollowListResponse,

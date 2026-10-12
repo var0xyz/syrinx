@@ -471,3 +471,33 @@ export function buildAdminRequestServerPayload(
     signedAt
   });
 }
+
+/** Mirror of buildLedgerEntryPayload in identity.go. prevID and
+ * prevSignature are the previous entry's, absent on the first. targets must
+ * already be sorted. */
+export function buildLedgerEntryPayload(
+  id: number,
+  prevID: number | undefined,
+  prevSignature: string,
+  userID: string,
+  message: string,
+  content: string,
+  targets: string[],
+  serverID: string,
+  serverKeyFingerprint: string,
+  signedAt: string
+): string {
+  return canonicalJSON({
+    type: 'ledger-entry',
+    id,
+    prevID: prevID || undefined,
+    prevSignature,
+    userID,
+    message,
+    content,
+    targets,
+    serverID,
+    serverKeyFingerprint,
+    signedAt
+  });
+}

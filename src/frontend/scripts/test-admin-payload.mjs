@@ -53,3 +53,25 @@ assert.equal(
 );
 
 console.log('admin payload parity: ok');
+
+const { buildLedgerEntryPayload } = await import('../src/lib/services/signing.ts');
+
+assert.equal(
+  buildLedgerEntryPayload(1, undefined, '', 'a1@home1234', 'Admin invite inv1 created',
+    'admin.create,user.kick', [], 'home1234', 'SERVERKEY01', '2026-10-12T11:00:00Z'),
+  '{"content":"admin.create,user.kick","id":1,"message":"Admin invite inv1 created",' +
+    '"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",' +
+    '"type":"ledger-entry","userID":"a1@home1234"}',
+  'first ledger entry payload'
+);
+
+assert.equal(
+  buildLedgerEntryPayload(7, 5, 'PREVSIG', '', 'Closed request r1: every target left', '',
+    ['u1@home1234', 'u2@home1234'], 'home1234', 'SERVERKEY01', '2026-10-12T11:00:00Z'),
+  '{"id":7,"message":"Closed request r1: every target left","prevID":5,"prevSignature":"PREVSIG",' +
+    '"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",' +
+    '"targets":["u1@home1234","u2@home1234"],"type":"ledger-entry"}',
+  'chained ledger entry payload'
+);
+
+console.log('ledger payload parity: ok');

@@ -142,3 +142,15 @@ message AdminDecision {
 message AdminAuthorization {
   AdminRequest request = 1;
 }
+
+// One server-signed ledger entry. The server's signature covers the
+// previous entry's signature too, so entries only verify as a chain.
+message LedgerEntry {
+  uint64 id = 1;
+  optional uint64 prev_id = 2 [json_name = "prevID"];
+  string user_id = 3 [json_name = "userID"];
+  string message = 4;
+  string content = 5;
+  repeated string targets = 6;
+  ServerSignature server_signature = 7;
+}

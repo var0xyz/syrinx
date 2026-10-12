@@ -350,6 +350,11 @@ func main() {
 	api.HandleFunc("/admin/requests/{id}/decision", h.DecideAdminRequest).Methods("POST")
 	api.HandleFunc("/admin/requests/{id}/decision", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/ledger", h.GetLedger).Methods("GET")
+	api.HandleFunc("/ledger", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/ledger/{id}", h.GetLedgerEntryHandler).Methods("GET")
+	api.HandleFunc("/ledger/{id}", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/users/{userID}/following", h.GetUserFollowing).Methods("GET")
 	api.HandleFunc("/users/{userID}/following", h.noop).Methods("OPTIONS")
 

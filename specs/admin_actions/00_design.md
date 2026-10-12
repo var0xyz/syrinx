@@ -68,7 +68,7 @@ admin can only grant permissions they hold. Root holds every permission.
 | `broadcast.message` | Broadcasts                                           |
 | `mesh.invite`       | Creating and canceling server invites                |
 | `mesh.connect`      | Approving or rejecting a server connection           |
-| `mesh.disconnect`   | Disconnecting from a peer and purging it             |
+| `mesh.disconnect`   | Disconnecting from a peer                            |
 
 Both the requester and the approver need the action's permission. A request
 stays valid when its requester later loses the permission: they held it

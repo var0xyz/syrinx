@@ -4463,13 +4463,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshInvite) {
 		return
 	}
 
@@ -4561,7 +4555,9 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 
 	secretHash := cryptoHash(secret)
 	now := time.Now().UTC().Truncate(time.Second)
-	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now); err != nil {
+	entry := &ledgerEntry{UserID: caller, Message: fmt.Sprintf("Server invite %s created for %s", inviteID, name)}
+	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now,
+		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) }); err != nil {
 		switch {
 		case errors.Is(err, errFederationInvitationExists):
 			writeError(w, http.StatusConflict, "Invitation already exists")
@@ -4574,6 +4570,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 		}
 		return
 	}
+	h.pushLedgerEntries(entry)
 
 	writeResponse(w, http.StatusCreated, &pb.FederationCreateResponse{
 		InviteId:         inviteID,
@@ -5010,13 +5007,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshConnect) {
 		return
 	}
 	callerIsRoot, err := h.isRoot(r.Context(), caller)
@@ -5031,7 +5022,12 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	serverID, established, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign, h.notifyPeerOfApproval)
+	entry := &ledgerEntry{UserID: caller}
+	serverID, established, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign, h.notifyPeerOfApproval,
+		func(tx *sql.Tx, serverID string) error {
+			entry.Message = fmt.Sprintf("Approved connection to %s", serverID)
+			return h.appendLedgerTx(r.Context(), tx, entry)
+		})
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
 		writeError(w, http.StatusNotFound, "Attempt not found")
@@ -5048,6 +5044,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt approve failed")
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
+		h.pushLedgerEntries(entry)
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, ServerId: serverID, Status: "approved", Established: established})
@@ -5063,13 +5060,7 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshConnect) {
 		return
 	}
 
@@ -5090,7 +5081,12 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	err = h.services.db.RejectFederationAttempt(r.Context(), attemptID, caller, reason, time.Now().UTC().Truncate(time.Second))
+	entry := &ledgerEntry{UserID: caller}
+	err := h.services.db.RejectFederationAttempt(r.Context(), attemptID, caller, reason, time.Now().UTC().Truncate(time.Second),
+		func(tx *sql.Tx, serverID string) error {
+			entry.Message = fmt.Sprintf("Rejected connection to %s", serverID)
+			return h.appendLedgerTx(r.Context(), tx, entry)
+		})
 	switch {
 	case errors.Is(err, errFederationAttemptNotFound):
 		writeError(w, http.StatusNotFound, "Attempt not found")
@@ -5100,6 +5096,7 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("attemptId", attemptID).Msg("federation attempt reject failed")
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
+		h.pushLedgerEntries(entry)
 		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Rejected by %s: %s", caller, reason))
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, Status: "rejected"})
@@ -5115,13 +5112,7 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshDisconnect) {
 		return
 	}
 
@@ -5142,7 +5133,7 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 		return
 	}
 
-	err = h.services.db.RequestFederationServerDisconnect(r.Context(), serverID, caller, reason, time.Now().UTC().Truncate(time.Second))
+	err := h.services.db.RequestFederationServerDisconnect(r.Context(), serverID, caller, reason, time.Now().UTC().Truncate(time.Second))
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
 		writeError(w, http.StatusNotFound, "Server not found")
@@ -5169,13 +5160,7 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshDisconnect) {
 		return
 	}
 	callerIsRoot, err := h.isRoot(r.Context(), caller)
@@ -5190,7 +5175,9 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 		return
 	}
 
-	reason, err := h.services.db.ConfirmFederationServerDisconnect(r.Context(), serverID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot)
+	entry := &ledgerEntry{UserID: caller, Message: fmt.Sprintf("Disconnected from %s", serverID)}
+	reason, err := h.services.db.ConfirmFederationServerDisconnect(r.Context(), serverID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot,
+		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) })
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
 		writeError(w, http.StatusNotFound, "Server not found")
@@ -5202,6 +5189,7 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server disconnect confirm failed")
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
+		h.pushLedgerEntries(entry)
 		h.logFederationServerAsync(serverID, federationLogError,
 			fmt.Sprintf("Disconnected by %s (confirmed): %s", caller, reason))
 		if h.realtimeRelay != nil {
@@ -5231,13 +5219,7 @@ func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *ht
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshDisconnect) {
 		return
 	}
 
@@ -5247,7 +5229,7 @@ func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *ht
 		return
 	}
 
-	err = h.services.db.CancelFederationServerDisconnect(r.Context(), serverID)
+	err := h.services.db.CancelFederationServerDisconnect(r.Context(), serverID)
 	switch {
 	case errors.Is(err, errFederationDisconnectNotRequested):
 		writeError(w, http.StatusConflict, "No disconnect request is pending for this server")
@@ -5362,13 +5344,7 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
+	if !h.requirePermission(w, r, caller, permMeshInvite) {
 		return
 	}
 
@@ -5378,7 +5354,9 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	err = h.services.db.RevokeFederationInvitation(r.Context(), id, caller, time.Now().UTC().Truncate(time.Second))
+	entry := &ledgerEntry{UserID: caller, Message: fmt.Sprintf("Canceled server invite %s", id)}
+	err := h.services.db.RevokeFederationInvitation(r.Context(), id, caller, time.Now().UTC().Truncate(time.Second),
+		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) })
 	switch {
 	case errors.Is(err, errFederationInvitationNotFound):
 		writeError(w, http.StatusNotFound, "Invitation not found")
@@ -5388,6 +5366,7 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("id", id).Msg("federation invitation revoke failed")
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
+		h.pushLedgerEntries(entry)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{InviteId: id, Status: federationStatusCanceled})
 	}
 }

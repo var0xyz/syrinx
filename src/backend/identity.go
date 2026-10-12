@@ -622,3 +622,39 @@ func buildAdminRequestServerPayload(
 		"signedAt":             signedTime(signedAt),
 	})
 }
+
+// identityTypeLedgerEntry is the `type` of a server-signed ledger entry.
+const identityTypeLedgerEntry = "ledger-entry"
+
+// buildLedgerEntryPayload returns the bytes the server signs for a ledger
+// entry. prevID and prevSignature are the previous entry's, absent (0 and
+// "") on the first. targets must already be sorted.
+func buildLedgerEntryPayload(
+	id, prevID uint64,
+	prevSignature,
+	userID,
+	message,
+	content string,
+	targets []string,
+	serverID,
+	serverKeyFingerprint string,
+	signedAt time.Time,
+) []byte {
+	var prev any
+	if prevID != 0 {
+		prev = prevID
+	}
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeLedgerEntry,
+		"id":                   id,
+		"prevID":               prev,
+		"prevSignature":        prevSignature,
+		"userID":               userID,
+		"message":              message,
+		"content":              content,
+		"targets":              targets,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             signedTime(signedAt),
+	})
+}
