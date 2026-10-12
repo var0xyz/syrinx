@@ -46,11 +46,6 @@ func isRootIdentity(userID, serverID string) bool {
 	return userID == rootUserID
 }
 
-// canGrantAdmin reports whether the caller may create admin-granting invites.
-func canGrantAdmin(role string) bool {
-	return isAdmin(role)
-}
-
 // roleForSignup returns the role persisted for a brand-new account with no
 // invite redeem (open signup or root mint). See isRoot's doc comment for
 // why the root comparison must use serverID, not a bare literal match.

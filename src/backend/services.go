@@ -448,6 +448,9 @@ type SignupInput struct {
 	// Invite is the pending invite row to consume (nil when signing up without one).
 	Invite   *inviteRecord
 	DeviceID string
+	// OnAdminClaim runs in the signup transaction when an admin invite is
+	// claimed, after its permissions are granted.
+	OnAdminClaim func(tx *sql.Tx) error
 }
 
 // GetPendingInvite resolves invite canonical id + fragment secret for
@@ -570,6 +573,19 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		}
 		if !ok {
 			return nil, errInvalidInvite
+		}
+	}
+	if in.Invite != nil && signupRole == roleAdmin {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO user_permissions (user_id, permission)
+			SELECT $1, permission FROM invite_permissions WHERE invite_id = $2
+		`, selfIdentity, in.Invite.ID); err != nil {
+			return nil, err
+		}
+		if in.OnAdminClaim != nil {
+			if err := in.OnAdminClaim(tx); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -6537,6 +6553,22 @@ func (s *DataService) insertInvite(
 	userKeyID, userSignatureArmor string,
 	maxInvites int,
 ) error {
+	return s.insertInviteWith(ctx, id, creatorID, tokenHash, createdAt, grantedRole, userKeyID, userSignatureArmor, maxInvites, nil, nil)
+}
+
+// insertInviteWith is insertInvite with an admin invite's permissions, and
+// a hook run in the same transaction (its ledger entry).
+func (s *DataService) insertInviteWith(
+	ctx context.Context,
+	id, creatorID string,
+	tokenHash []byte,
+	createdAt time.Time,
+	grantedRole string,
+	userKeyID, userSignatureArmor string,
+	maxInvites int,
+	permissions []string,
+	hook func(tx *sql.Tx) error,
+) error {
 	if grantedRole == "" {
 		grantedRole = "user"
 	}
@@ -6570,6 +6602,18 @@ func (s *DataService) insertInvite(
 		return err
 	} else if n == 0 {
 		return errInviteLimitReached
+	}
+	for _, p := range permissions {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO invite_permissions (invite_id, permission) VALUES ($1, $2)
+		`, id, p); err != nil {
+			return err
+		}
+	}
+	if hook != nil {
+		if err := hook(tx); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

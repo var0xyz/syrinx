@@ -487,6 +487,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var claimEntry *ledgerEntry
 	user, err := h.services.db.Signup(r.Context(), SignupInput{
 		UserID:             userID,
 		Username:           username,
@@ -499,6 +500,13 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		PublicKeySignature: keySignature,
 		Invite:             invite,
 		DeviceID:           deviceID,
+		OnAdminClaim: func(tx *sql.Tx) error {
+			claimEntry = &ledgerEntry{
+				Message: fmt.Sprintf("Admin invite %s claimed", invite.ID),
+				Targets: []string{string(canonicalID(h.services.db.GetServerID(), userID))},
+			}
+			return h.appendLedgerTx(r.Context(), tx, claimEntry)
+		},
 	})
 	if err != nil {
 		if errors.Is(err, errInvalidInvite) {
@@ -516,6 +524,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
+	h.pushLedgerEntries(claimEntry)
 
 	log.Info().
 		Str("userID", user.ID).
@@ -6231,16 +6240,38 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid grantedRole")
 		return
 	}
+	permissions, err := parsePermissionSet(msg.GetPermissions())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid permissions: "+err.Error())
+		return
+	}
+	var ledger func(tx *sql.Tx) error
+	var entry *ledgerEntry
 	if grantedRole == roleAdmin {
-		callerRole, err := h.services.db.GetUserRole(r.Context(), caller)
+		held, err := h.services.db.GetUserPermissions(r.Context(), caller)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Internal Server Error")
 			return
 		}
-		if !canGrantAdmin(callerRole) {
+		if !slices.Contains(held, permAdminCreate) {
 			writeError(w, http.StatusForbidden, "Cannot grant admin role")
 			return
 		}
+		for _, p := range permissions {
+			if !slices.Contains(held, p) {
+				writeError(w, http.StatusForbidden, "Missing permission "+p)
+				return
+			}
+		}
+		entry = &ledgerEntry{
+			UserID:  caller,
+			Message: fmt.Sprintf("Admin invite %s created", req.ID),
+			Content: formatPermissionSet(permissions),
+		}
+		ledger = func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) }
+	} else if len(permissions) > 0 {
+		writeError(w, http.StatusBadRequest, "Only an admin invite grants permissions")
+		return
 	}
 
 	userPayload := buildInviteUserPayload(
@@ -6265,9 +6296,10 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.insertInvite(
+	if err := h.services.db.insertInviteWith(
 		r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole,
 		req.UserSignature.ID, req.UserSignature.Armor, h.cfg.MaxInvitesPerUser,
+		permissions, ledger,
 	); err != nil {
 		if errors.Is(err, errInviteExists) {
 			writeError(w, http.StatusConflict, "Invite already exists")
@@ -6298,6 +6330,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.pushLedgerEntries(entry)
 	writeResponse(w, http.StatusCreated, &pb.Invite{
 		Id:              req.ID,
 		TokenHash:       tokenHashHex,
@@ -6305,6 +6338,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		GrantedRole:     grantedRole,
 		UserSignature:   pbUserSignature(req.UserSignature),
 		ServerSignature: pbServerSignature(serverSig),
+		Permissions:     formatPermissionSet(permissions),
 	})
 }
 

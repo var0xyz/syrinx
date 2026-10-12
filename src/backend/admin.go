@@ -222,6 +222,12 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 		ex = h.reinstateExecutor()
 	case adminActionKick:
 		ex = h.kickExecutor()
+	case adminActionPromote:
+		ex = h.promoteExecutor()
+	case adminActionPermissions:
+		ex = h.permissionsExecutor()
+	case adminActionDemote:
+		ex = h.demoteExecutor()
 	default:
 		return nil
 	}

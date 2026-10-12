@@ -21,7 +21,7 @@ when schema changes.
 | [02](02_ledger.md) | Public ledger                                | 01                          |
 | [03](03_suspend_reinstate.md) | Suspend / reinstate                          | 01, 02                      |
 | [04](04_kick.md) | Kick (invite-tree selection, removal fanout) | 01, 02                      |
-| [05](05_promote_demote.md) | Promote / demote                             | 01, 02                      |
+| [05](05_promote_demote.md) | Promote, demote and permissions              | 01, 02                      |
 | [06](06_lost_device_rebind.md) | Lost-device key rebind                       | 01, 02                      |
 | [07](07_reserved_usernames.md) | Reserved usernames                           | 00, 02                      |
 | [08](08_flags.md) | Flags                                        | 00                          |
@@ -37,8 +37,8 @@ when schema changes.
 | Step  | Status                   |
 | ----- | ------------------------ |
 | 00    | Proposed (design locked) |
-| 01–04 | Implemented              |
-| 05–10 | Proposed                 |
+| 01–05 | Implemented              |
+| 06–10 | Proposed                 |
 
 ## Locked decisions
 
