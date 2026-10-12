@@ -24,11 +24,11 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   id                    VARCHAR(255) PRIMARY KEY,
   action                VARCHAR(32) NOT NULL
     CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-                      'rebind', 'broadcast')),
+                      'rebind', 'broadcast', 'message')),
   requester_id          VARCHAR(255) NOT NULL REFERENCES identities(id),
   requester_key_id      VARCHAR(255) NOT NULL REFERENCES public_keys(id),
   requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
-  reason                TEXT NOT NULL CHECK (char_length(reason) BETWEEN 1 AND 1000),
+  reason                TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
   params                BYTEA,          -- action-specific, e.g. rebind public key
   created_at            TIMESTAMP NOT NULL,
   state                 VARCHAR(16) NOT NULL DEFAULT 'pending'
@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   closer_key_id         VARCHAR(255) REFERENCES public_keys(id),
   closer_signature_id   INT REFERENCES user_signatures(id),
   server_signature_id   INT REFERENCES server_signatures(id),
-  closed_at             TIMESTAMP
+  closed_at             TIMESTAMP,
+  CONSTRAINT admin_requests_reason CHECK (
+    (action IN ('broadcast', 'message')) = (reason IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS admin_request_targets (
@@ -50,7 +52,10 @@ CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
   ON admin_request_targets (user_id) WHERE NOT dropped;
 ```
 
-- A broadcast has no targets. Every other action has at least one.
+- A broadcast has no targets. A message has exactly one. Every other action
+  has at least one.
+- A broadcast or message has no reason: its text is in `params`. Every
+  other action needs one.
 - `closed_by` is the approver (`executed`, `rejected`), the requester
   (`withdrawn`), or NULL (`moot`, closed by the server).
 - `server_signature_id` is set once the request closes, for every outcome.
@@ -75,7 +80,7 @@ func buildAdminServerPayload(requestID, state, requestSignature, decisionSignatu
 
 - `targets` is sorted before signing, so both sides produce the same bytes.
 - `params` is base64 of the action-specific bytes (the rebind public key,
-  the broadcast body). It is empty for most actions and then dropped,
+  the broadcast or message body). It is empty for most actions and then dropped,
   following the `canonicalJSON` rules.
 - Embedding the request signature in the decision means an approval is
   bound to exactly one request.
@@ -130,7 +135,7 @@ The server rejects a new request when:
 - a target is root, isn't a local user, or already has an account removal;
 - the action and targets don't fit (e.g. `promote` on an admin, `reinstate`
   on someone who isn't suspended, `suspend` on someone already suspended);
-- the reason is empty.
+- the reason is empty, or set on a broadcast or message.
 
 ## Approver eligibility
 
@@ -163,7 +168,8 @@ pending.
 When an account removal is stored, whether a self-deletion or a kick, every
 pending request targeting that user marks the target `dropped`. A request
 whose targets are now all dropped closes as `moot`, with a server signature
-and no decision. A broadcast never becomes moot.
+and no decision. A broadcast never becomes moot; a message whose recipient
+leaves does.
 
 A user who stops being an admin doesn't make their own pending requests
 moot. The requester's role is checked again at approval, and a request

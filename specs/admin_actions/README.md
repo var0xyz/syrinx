@@ -2,9 +2,10 @@
 
 This directory specifies what **admins and root** can do to accounts on their
 own instance: kick, suspend and reinstate, promote and demote, rebind a lost
-key, reserve usernames, review flags and send broadcasts. Every action is
-opened by one admin, approved by another, and recorded in a **public
-ledger** with its reason.
+key, reserve usernames, review flags, send broadcasts and private messages,
+and connect to other servers. Every action is opened by one admin, approved
+by another, and recorded in a **public ledger** with its reason. The one
+exception is a private message to a single user, which is never logged.
 
 Admins do **not** control content. No admin action removes or hides an
 individual reed. The only way content leaves the network is a kick, which
@@ -22,9 +23,9 @@ when schema changes.
 | [04](04_kick.md) | Kick (invite-tree selection, removal fanout) | 01, 02                      |
 | [05](05_promote_demote.md) | Promote / demote                             | 01, 02                      |
 | [06](06_lost_device_rebind.md) | Lost-device key rebind                       | 01, 02                      |
-| [07](07_reserved_usernames.md) | Reserved usernames                           | 00                          |
+| [07](07_reserved_usernames.md) | Reserved usernames                           | 00, 02                      |
 | [08](08_flags.md) | Flags                                        | 00                          |
-| [09](09_broadcasts.md) | Broadcasts                                   | 01, 02                      |
+| [09](09_broadcasts.md) | Broadcasts and private messages              | 01, 02                      |
 | [10](10_admin_spa.md) | Admin SPA                                    | 01–09                       |
 
 ---
@@ -48,8 +49,10 @@ when schema changes.
 | Acting on admins   | Any admin may request; **root must approve**. Nobody acts on root                                                                                                                           |
 | Expiry             | Requests **never expire**                                                                                                                                                                   |
 | Moot requests      | A target that leaves (self-deletes or is kicked by another request) drops out; a request with no targets left is **moot**                                                                   |
-| Reasons            | **Required** on every action, and **public**                                                                                                                                                |
-| Ledger             | Public to every local member: action, targets, requester, approver, reason, server timestamp. Flags never appear in it                                                                      |
+| Reasons            | **Required** on every action except broadcasts and private messages, and **public**                                                                                                                                              |
+| Ledger             | Readable by every **signed-in local member**. One **server-signed** entry per admin action (server timestamp, the acting admin's ID, a message). A request gives two entries: opened (with the reason) and closed (naming the request ID), pushed to every member over the WebSocket and stored locally, so a member can detect a rewritten ledger. Paginated endpoint for backfill on signup |
+| Logged             | **Every** admin action: requests (executed, rejected, withdrawn, moot), key rebinds, broadcasts, mesh invites created/canceled, mesh connections approved/rejected, disconnections, reserved usernames |
+| Not in the ledger  | Private messages and flags                                                                                                                                                                  |
 | Kick               | **Final.** Account and **all its content** removed; username freed; the person may sign up again with a new invite                                                                          |
 | Kick selection     | Admin picks targets from the target's **invite tree** (inviter above, invitees below, shown as a thread)                                                                                    |
 | Kick removal trust | Removal certificate carries **both admins' signatures** + server countersignature; clients verify all three                                                                                 |
@@ -59,9 +62,10 @@ when schema changes.
 | Lost device        | User enters their **user ID** (no username lookup) on a **lost-device page**, mints a key, downloads `<userID>.pub.txt.gz`, hands it to an admin out of band                                |
 | Rebound key        | **Restricted**: can sign only a rotation to a freshly minted key; anything else (reeds included) is refused                                                                                 |
 | Rebind trust       | Old key revoked as **lost** (old reeds stay valid), marked **admin-rebound**; vouches for the old key don't carry over                                                                      |
-| Reserved usernames | **Root only**, case-insensitive, affect **future** signups only, no approval. `root` belongs to the root identity forever, even after root renames                                          |
+| Reserved usernames | **Root only**, case-insensitive, affect **future** signups only, no approval, logged. `root` belongs to the root identity forever, even after root renames                                          |
 | Flags              | Users flag a **reed ID** only; admins load content from the network. Server never sees content                                                                                              |
 | Flag visibility    | Admins see the reporter. Flags on an admin's reed are visible only to **other** admins. Root's reeds can't be flagged                                                                       |
 | Flags vs actions   | No link: an action is taken on an account, never "because of a flag"                                                                                                                        |
-| Broadcasts         | Admin message to every **local** member's mailbox; needs approval; never leaves the instance                                                                                                |
+| Broadcasts         | Admin message to every **local** member's mailbox; needs approval; never leaves the instance; logged                                                                                        |
+| Private messages   | Admin message to **one** local member's mailbox; needs approval like a broadcast; **not** logged                                                                                            |
 | Federation         | No admin action reaches into another server. Refusing a remote user's content is **out of scope**                                                                                           |

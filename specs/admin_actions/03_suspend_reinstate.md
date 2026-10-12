@@ -38,9 +38,9 @@ picker in [10](10_admin_spa.md), the same picker a kick uses.
 
 - **Auth middleware** (`middlewares.go`): after the revoked-key and
   account-removal checks, a suspended user gets `403 {"error":"suspended",
-  "requestID":…}` on every signed operation. The exception is
-  `GET /api/ledger/{requestID}` for their own suspension request, so the
-  client can show them why.
+  "ledgerEntryID":…}` on every signed operation, naming the ledger entry of
+  their suspension. The exception is `GET /api/ledger/{id}` for that
+  entry, in case the client doesn't hold it yet.
 - **WebSocket**: the handshake is refused with the same reason. Suspending
   someone closes their live connections.
 - **Unauthenticated reads** (profiles, keys, reed metadata) keep working.
@@ -53,7 +53,8 @@ effect peers might notice.
 ## SPA
 
 On `403 suspended`, the client shows a suspended screen with the reason
-(fetched from the ledger) instead of the app. Local data is kept.
+(from its local ledger, or fetched by ID) instead of the app. Local data is
+kept.
 
 ## Tests
 

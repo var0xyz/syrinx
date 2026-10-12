@@ -16,35 +16,47 @@ public ledger page belongs to [02](02_ledger.md), and the flag menu item to
 
 ## Routes
 
-Shown in the side nav only when the viewer's role is admin or root:
+The side nav has an **Admin** section, shown only when the viewer's role is
+admin or root, with three items:
 
 | Route | Shows |
 |-------|-------|
-| `/admin/requests` | Pending requests: action, targets, requester, reason. **Approve** / **Reject** (with reason) when the viewer is eligible, a disabled button with the reason when not, **Withdraw** on the viewer's own |
-| `/admin/users/{userID}` | Entry point for acting on a user: invite tree + action bar |
-| `/admin/rebind` | Upload `<userID>.pub.txt.gz`, compare fingerprint, write reason |
-| `/admin/broadcast` | Compose message → opens a broadcast request |
-| `/admin/flags` | Open flags ([08](08_flags.md)) |
+| `/admin/actions` | A pill switch between **Requests** and **Flagged**, like the search page. Requests: pending requests (action, targets, requester, reason) with **Approve** / **Reject** when the viewer is eligible, a disabled button with the reason when not, **Withdraw** on the viewer's own; closed requests below. Flagged: open flags ([08](08_flags.md)) |
+| `/admin/broadcast` | Compose a message for **everyone** or **one user** → opens a `broadcast` or `message` request ([09](09_broadcasts.md)); the viewer's requests awaiting approval below |
+| `/admin/mesh` | Server connections (moved from `/network/mesh`) |
+
+Not in the nav:
+
+| Route | Shows |
+|-------|-------|
 | `/admin/reserved-usernames` | Root only ([07](07_reserved_usernames.md)) |
 
-Profiles get an **Admin** item in their menu that leads to
-`/admin/users/{userID}`.
+**Invites** is a top-level nav item for every member, admins included.
+
+On the profile of a **local** user other than root, admins see an **Admin**
+button (the shield icon, `admin-16.svg`, and its label) next to Follow and
+Block. It opens a modal listing every
+action they can take on that user: suspend or reinstate, kick, promote or
+demote, add a key, send a private message. Picking one asks for what that
+action needs (invite-tree targets for suspend and kick, the key file for a
+rebind, the message for a private message, a reason for the rest), then
+signs and opens the request. **Act on {username}** on a flagged reed opens the same
+modal.
 
 ## Invite-tree picker
 
-On `/admin/users/{userID}`:
+In the profile's admin modal, for suspend and kick:
 
 - The tree from `GET /api/admin/users/{userID}/invite-tree`, drawn like a
   thread: the inviter on top, the user below it, invitees nested under
   whoever invited them.
 - A checkbox per node. The chosen user is pre-checked. Root has no checkbox.
   Admins have one only when the viewer is root, and a lock icon otherwise.
-- Action bar: **Suspend**, **Reinstate**, **Kick**, **Promote**, **Demote**.
-  Each is enabled only when it fits every checked node. Promote and demote
-  are single-target.
-- Choosing an action asks for a reason (required), shows a summary ("Kick 3
-  accounts and all their content; this can't be undone"), then signs and
-  opens the request.
+- A reason is required. A kick shows a summary ("Kick 3 accounts and all
+  their content; this can't be undone") before it signs and opens the
+  request.
+- Promote, demote, add a key and private messages act on the profile's user
+  only.
 
 ## Eligibility hints
 
