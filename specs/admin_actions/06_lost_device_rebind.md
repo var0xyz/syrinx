@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -84,24 +84,30 @@ Schema: `public_keys.restricted BOOLEAN NOT NULL DEFAULT FALSE`.
   `403 {"error":"restricted-key"}`, with one exception: `POST /keys` rotating
   away from that same key. Reeds, profile updates, follows, likes and
   everything else are refused.
-- **WebSocket**: the handshake with a restricted key is accepted only far
-  enough to tell the client to rotate. No subscriptions and no dispatch.
+- **WebSocket**: the handshake with a restricted key is refused. The client
+  finishing a rebind doesn't need the WebSocket until it has rotated.
 - `POST /keys` (`AddPublicKey`) with a restricted revoked key: the normal
   rotation, with the restricted key signing its own revocation (reason
   `rotated`) and the new key. The new key is not restricted.
 
 ## Client
 
-When the SPA finds a `pendingRebind` for a user ID, it tries signing in with
-that key. On success it immediately:
+The lost-device page keeps showing the pending rebind on that device, with
+a **Finish recovery** button. It tries the rotation below; a `404` on the
+restricted key means admins haven't bound it yet. On success it
+immediately:
 
 1. mints a fresh key;
 2. rotates to it via `POST /keys`, signed by the restricted key;
 3. deletes the pending rebind and continues like a keys-only account
    recovery: bootstrap, following list, rehydration of own reeds.
 
-Until the rotation succeeds, the app shows only a "finishing recovery" screen.
-It never opens the composer.
+Until the rotation succeeds, the device only has the lost-device page: the
+pending key isn't a session, so the app never opens. After it, the user goes
+to the mandatory backup page, since they had no backup.
+
+A rotation away from a restricted key skips the 24-hour rotation cooldown:
+the key was registered by the rebind a moment earlier.
 
 ## Vouches
 

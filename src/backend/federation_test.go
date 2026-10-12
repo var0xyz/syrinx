@@ -102,7 +102,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			armor TEXT NOT NULL,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
-			predecessor_id VARCHAR(255) REFERENCES public_keys(id)
+			predecessor_id VARCHAR(255) REFERENCES public_keys(id),
+			restricted BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
 		// GetPublicKey reads a server key's revocation state from these.
 		`CREATE TABLE IF NOT EXISTS private_keys (

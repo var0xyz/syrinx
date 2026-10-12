@@ -78,7 +78,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 33;
+  private readonly version = 34;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -133,6 +133,9 @@ export class IndexedDbService implements DbService {
 
     // The server-signed ledger of admin actions, verified as a chain.
     ['ledger',             'id'],
+
+    // A key minted on the lost-device page, waiting for admins to bind it.
+    ['pendingRebind',      'userID'],
   ];
 
   async init(): Promise<void> {

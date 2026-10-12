@@ -457,6 +457,12 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				writeError(w, http.StatusUnauthorized, "Key is revoked")
 				return
 			}
+			// A rebound key's only use is rotating away from it, on the
+			// unauthenticated /keys path.
+			if publicKey.Restricted {
+				writeError(w, http.StatusForbidden, "restricted-key")
+				return
+			}
 
 			// publicKey.UserID is empty when the caller signed with this
 			// server's own key rather than a user key — skip the

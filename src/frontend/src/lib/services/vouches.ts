@@ -15,6 +15,7 @@ import { findContradiction } from '$lib/utils/vouchContradiction';
 import { classifyKeyChange, type KeyChangeKind } from '$lib/utils/keyChange';
 import { dbService } from './db';
 import { foreignServerOf } from './peerServers';
+import { revocationRepository } from '$lib/repositories/revocation';
 
 export type { TrustMark, KeyChangeKind };
 
@@ -169,6 +170,26 @@ export async function keyChangeFor(
     handoffValid: !!current,
     vouchedKeyRevoked: !!vouched?.revoked,
   });
+}
+
+/** Whether admins replaced a key of subjectUserID's that a vouch held here
+ * names: a lost-device rebind, which no vouch carries over. */
+export async function adminReboundFor(subjectUserID: string): Promise<boolean> {
+  for (const vouch of await vouchesRepository.forSubject(subjectUserID)) {
+    const key = await dbService.get<api.PublicKey>('publicKeys', vouch.subjectKeyId);
+    if (!key?.revoked) continue;
+    let revocation = await revocationRepository.get(vouch.subjectKeyId);
+    if (!revocation) {
+      try {
+        revocation = await apiService.getKeyRevocation(subjectUserID, vouch.subjectKeyId);
+        await revocationRepository.put(revocation);
+      } catch {
+        continue;
+      }
+    }
+    if (revocation.admin) return true;
+  }
+  return false;
 }
 
 /** A live vouch naming a different key for this user, if one exists — a
