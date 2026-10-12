@@ -39,9 +39,10 @@ The file is not signed. Its authenticity is the admins' out-of-band check.
 
 ## Admin upload
 
-In [10](10_admin_spa.md), the admin uploads the file. The SPA decompresses
-it, takes the user ID from the filename, and shows the user and the key
-fingerprint for the admin to compare. Opening the request:
+From **Add a key** in the profile's admin modal ([10](10_admin_spa.md)), the
+admin uploads the file. The SPA decompresses it, refuses it when the user ID
+in the filename isn't the profile's user, and shows the key fingerprint for
+the admin to compare. Opening the request:
 
 - `action = rebind`, `targets = [userID]`, `params` = the armored public key.
 - Rejected when the target is root, removed or suspended, or when the key

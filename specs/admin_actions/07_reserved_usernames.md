@@ -6,13 +6,14 @@ Proposed.
 
 ## Depends on
 
-[00](00_design.md)
+[00](00_design.md), [02](02_ledger.md)
 
 ## Context
 
 Root can keep names like `admin` or `__root__` from being claimed. This is
-the one action with no approval and no ledger entry: it is root only, and it
-doesn't act on anyone.
+the one action with no approval: it is root only, and it doesn't act on
+anyone. Reserving and releasing a name are still logged in the ledger
+([02](02_ledger.md)).
 
 ## Schema
 

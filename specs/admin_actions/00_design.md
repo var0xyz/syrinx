@@ -51,8 +51,8 @@ review) is a **request** with two signatures:
    timestamp, and writes the result to the [ledger](#public-ledger).
 
 A request can also be **rejected** by any eligible approver, or
-**withdrawn** by its requester. Both are final and go in the ledger with
-the reason.
+**withdrawn** by its requester. Both are final and go in the ledger as the
+request's closing entry.
 
 **Approver eligibility**, checked when the approval is submitted, not when
 the request was opened:
@@ -74,14 +74,28 @@ in the ledger, with no approval needed.
 
 ### Public ledger
 
-Every executed, rejected, withdrawn or moot request is an entry that **every
-local member** can read: action, targets, requester, approver, reason,
-outcome and server timestamp. Entries are the signed request and approval
-plus the server countersignature, so a member can verify them, and can see
-that an approval came from a real admin, the same way they would any other
-signed record.
+Every admin action is logged, and every **signed-in local member** can read
+the log. The only admin action left out is a private message. Logged:
 
-Flags and reserved usernames are **not** ledger entries.
+- every closed request: executed, rejected, withdrawn or moot. That covers
+  kicks, suspensions and reinstatements, promotions and demotions, key
+  rebinds (an admin adding a key to an account) and broadcasts;
+- mesh: a server invite created or canceled, a connection approved or
+  rejected by this server's admin (whatever the peer did on their side),
+  and a disconnection;
+- reserved usernames added or released.
+
+Each entry is **signed by the server**: its ID, the ID and signature of the
+entry before it, the server timestamp, the user ID of the one admin who
+acted, and a message built by the server. A request gives two entries: one
+when it is opened, with the reason, and one when it is approved, rejected,
+withdrawn or goes moot, naming the request by its ID. Every member
+gets each new entry over the WebSocket and stores it locally. That local
+copy is the guarantee: the server can't rewrite or drop an entry without
+members noticing when they compare. New members backfill the whole ledger
+from a paginated endpoint at signup.
+
+Private messages and flags are **not** ledger entries.
 
 ### Suspend / reinstate
 
@@ -191,7 +205,7 @@ over to the new key; the voucher has to verify the person again.
 
 ### Reserved usernames
 
-**Root only**, no approval, not in the ledger. Matching is case-insensitive,
+**Root only**, no approval, but logged in the ledger. Matching is case-insensitive,
 the same as the existing `LOWER(username)` uniqueness. A reservation only
 blocks **future** signups and renames; a user who already holds the name
 keeps it.
@@ -216,26 +230,31 @@ reader.
 Flags are private and never appear in the ledger. Acting on an account is
 always a separate request with its own reason; it never references a flag.
 
-### Broadcasts
+### Broadcasts and private messages
 
-An admin writes a message for every **local** member. On approval, the
-server encrypts it into each member's mailbox. Broadcasts are not reeds:
-they don't appear in feeds, can't be replied to, and never reach peers.
-Each broadcast is a ledger entry; its body is the reason.
+An admin writes a message either for every **local** member (a broadcast)
+or for **one** local member (a private message). Both are requests and need
+a second admin's approval. On approval, the server encrypts the message into
+the recipients' mailboxes. Neither is a reed: they don't appear in feeds,
+can't be replied to, and never reach peers.
+
+Neither takes a reason. A broadcast's ledger entry carries its message. A private message
+is **never** in the ledger: only admins see it, through the pending and
+closed requests list.
 
 ## Steps (outline)
 
 | #   | Scope                                                                                                                        |
 | --- | ---------------------------------------------------------------------------------------------------------------------------- |
 | 01  | `admin_requests` / approvals schema, signed request + approval payloads (`canonicalJSON`), eligibility checks, moot handling |
-| 02  | Ledger read API (members only), verification on the SPA side                                                                 |
+| 02  | `ledger_entries`, server-signed entries, `LEDGER_ENTRY` WebSocket push, paginated backfill, local copy and comparison        |
 | 03  | `users.suspended`, auth-middleware + WebSocket refusal, suspend/reinstate execution                                          |
 | 04  | Invite-tree query, kick execution, dual-admin removal certificate, holder verification, fanout, invite revocation            |
 | 05  | Role change execution + fresh profile countersignature                                                                       |
 | 06  | Lost-device page, file format, upload endpoint, restricted key enforcement, admin-rebound revocation, vouch warning          |
 | 07  | `reserved_usernames`, signup/rename check, root-only endpoints                                                               |
 | 08  | `reed_flags`, flag API, visibility rules                                                                                     |
-| 09  | Broadcast execution into `user_mailbox`                                                                                      |
+| 09  | Broadcast and private-message execution into `user_mailbox`                                                                  |
 | 10  | Admin SPA: requests, approvals, tree picker, ledger, flags, broadcasts, reserved names                                       |
 
 ## Security notes

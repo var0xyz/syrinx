@@ -206,8 +206,8 @@ admins may invite other admins. Prerequisite for federation operator actions.
 ## Admin actions (kick, suspend, roles, rebind, ledger)
 
 See [`admin_actions/`](admin_actions/README.md). Two-admin approval for every
-account action, recorded in a public ledger with its reason. No control over
-individual reeds.
+admin action, recorded in a public ledger with its reason (private messages
+excepted). No control over individual reeds.
 
 | #     | Title                                       | Status   |
 | ----- | ------------------------------------------- | -------- |
