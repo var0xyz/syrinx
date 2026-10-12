@@ -11,3 +11,10 @@ message AdminRequestList {
   repeated AdminRequest requests = 1;
   string next_cursor = 2;
 }
+
+// A page of the ledger in chain order. head, the entry with no previous
+// one, is set only on the first page.
+message LedgerPage {
+  optional LedgerEntry head = 1;
+  repeated LedgerEntry tail = 2;
+}

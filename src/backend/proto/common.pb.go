@@ -1146,6 +1146,100 @@ func (x *AdminAuthorization) GetRequest() *AdminRequest {
 	return nil
 }
 
+// One server-signed ledger entry. The server's signature covers the
+// previous entry's signature too, so entries only verify as a chain.
+type LedgerEntry struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	PrevId          *uint64                `protobuf:"varint,2,opt,name=prev_id,json=prevID,proto3,oneof" json:"prev_id,omitempty"`
+	UserId          string                 `protobuf:"bytes,3,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
+	Message         string                 `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	Content         string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
+	Targets         []string               `protobuf:"bytes,6,rep,name=targets,proto3" json:"targets,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LedgerEntry) Reset() {
+	*x = LedgerEntry{}
+	mi := &file_common_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LedgerEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LedgerEntry) ProtoMessage() {}
+
+func (x *LedgerEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LedgerEntry.ProtoReflect.Descriptor instead.
+func (*LedgerEntry) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *LedgerEntry) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *LedgerEntry) GetPrevId() uint64 {
+	if x != nil && x.PrevId != nil {
+		return *x.PrevId
+	}
+	return 0
+}
+
+func (x *LedgerEntry) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *LedgerEntry) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *LedgerEntry) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *LedgerEntry) GetTargets() []string {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+func (x *LedgerEntry) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
 var File_common_proto protoreflect.FileDescriptor
 
 const file_common_proto_rawDesc = "" +
@@ -1244,7 +1338,17 @@ const file_common_proto_rawDesc = "" +
 	"decider_id\x18\x02 \x01(\tR\tdeciderID\x123\n" +
 	"\tsignature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"D\n" +
 	"\x12AdminAuthorization\x12.\n" +
-	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestR\arequestB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestR\arequest\"\xf2\x01\n" +
+	"\vLedgerEntry\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1c\n" +
+	"\aprev_id\x18\x02 \x01(\x04H\x00R\x06prevID\x88\x01\x01\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\tR\x06userID\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\x12\x18\n" +
+	"\acontent\x18\x05 \x01(\tR\acontent\x12\x18\n" +
+	"\atargets\x18\x06 \x03(\tR\atargets\x12B\n" +
+	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignatureB\n" +
+	"\n" +
+	"\b_prev_idB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_common_proto_rawDescOnce sync.Once
@@ -1258,7 +1362,7 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_common_proto_goTypes = []any{
 	(*UserSignature)(nil),      // 0: syrinx.UserSignature
 	(*ServerSignature)(nil),    // 1: syrinx.ServerSignature
@@ -1274,6 +1378,7 @@ var file_common_proto_goTypes = []any{
 	(*AdminRequest)(nil),       // 11: syrinx.AdminRequest
 	(*AdminDecision)(nil),      // 12: syrinx.AdminDecision
 	(*AdminAuthorization)(nil), // 13: syrinx.AdminAuthorization
+	(*LedgerEntry)(nil),        // 14: syrinx.LedgerEntry
 }
 var file_common_proto_depIdxs = []int32{
 	5,  // 0: syrinx.Error.account_removal:type_name -> syrinx.AccountRemovalCert
@@ -1301,11 +1406,12 @@ var file_common_proto_depIdxs = []int32{
 	1,  // 22: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
 	0,  // 23: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
 	11, // 24: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
-	25, // [25:25] is the sub-list for method output_type
-	25, // [25:25] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	1,  // 25: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -1322,13 +1428,14 @@ func file_common_proto_init() {
 	file_common_proto_msgTypes[3].OneofWrappers = []any{}
 	file_common_proto_msgTypes[6].OneofWrappers = []any{}
 	file_common_proto_msgTypes[11].OneofWrappers = []any{}
+	file_common_proto_msgTypes[14].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   14,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

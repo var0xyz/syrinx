@@ -181,7 +181,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// aAdmin is also the invitation's own creator here — passing
 	// callerIsRoot bypasses the different-admin check so this test can
 	// focus on the handshake round-trip itself, not that rule.
-	if _, _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.countersign, a.h.notifyPeerOfApproval); err != nil {
+	if _, _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.countersign, a.h.notifyPeerOfApproval, nil); err != nil {
 		t.Fatal(err)
 	}
 	approvedInv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
@@ -209,7 +209,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// mirrors a real bidirectional federation link.
 	// b is the responder side — no local invitation row to compare bAdmin
 	// against, so this exercises the "unrestricted" branch, not root bypass.
-	if _, _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.countersign, b.h.notifyPeerOfApproval); err != nil {
+	if _, _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.countersign, b.h.notifyPeerOfApproval, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertPeerFrontendURL(t, b.ds, bAttempt.RemoteServerID, "https://app.server-a.example")
@@ -310,7 +310,7 @@ func TestIncomingFederationAttempt_ReplayNotNew(t *testing.T) {
 	aAdmin := seedFederationUser(t, a.ds, "a-admin", "a-admin", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
-	if err := a.ds.InsertFederationInvitation(context.Background(), "inv1", "peer", aAdmin, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
+	if err := a.ds.InsertFederationInvitation(context.Background(), "inv1", "peer", aAdmin, "fp-b", "remote-armor", hash, "cipher-armor", fixed, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.ds.MarkFederationInvitationAccepted(context.Background(), "inv1", federationPeer{

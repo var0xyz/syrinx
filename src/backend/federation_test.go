@@ -217,6 +217,25 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (reed_id, server_id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_permissions (
+			user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			permission VARCHAR(32) NOT NULL,
+			PRIMARY KEY (user_id, permission)
+		)`,
+		`CREATE TABLE IF NOT EXISTS ledger_entries (
+			id BIGSERIAL PRIMARY KEY,
+			prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
+			user_id VARCHAR(255) REFERENCES identities(id),
+			message TEXT NOT NULL,
+			content TEXT,
+			signed_at TIMESTAMP NOT NULL,
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS ledger_entry_targets (
+			entry_id BIGINT NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			PRIMARY KEY (entry_id, user_id)
+		)`,
 	}
 	for _, q := range stmts {
 		if _, err := db.Exec(q); err != nil {
@@ -262,6 +281,14 @@ func seedFederationUser(t *testing.T, ds *DataService, userID, username, role st
 	`, identityID, username, role, userSigID, serverSigID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if role == roleAdmin {
+		for _, perm := range []string{permMeshInvite, permMeshConnect, permMeshDisconnect} {
+			if _, err := ds.db.Exec(`INSERT INTO user_permissions (user_id, permission) VALUES ($1, $2)
+				ON CONFLICT DO NOTHING`, identityID, perm); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	return identityID
 }
@@ -360,6 +387,12 @@ func TestCreateFederationInvitation_Admin(t *testing.T) {
 		t.Fatalf("row=%+v", inv)
 	}
 
+	head, err := ds.GetLedgerHead(context.Background())
+	if err != nil || head == nil || head.UserID != admin1 ||
+		head.Message != "Server invite "+resp.InviteId+" created for Acme staging" {
+		t.Fatalf("ledger head=%+v err=%v, want the invite's entry", head, err)
+	}
+
 	var storedCiphertext string
 	if err := ds.db.QueryRowContext(context.Background(),
 		`SELECT COALESCE(connection_ciphertext, '') FROM federation_invitation WHERE id = $1`, resp.InviteId,
@@ -416,7 +449,7 @@ func TestListFederationInvitations_AllAdminsSeeAll(t *testing.T) {
 	admin2 := seedFederationUser(t, ds, "admin2", "other", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -442,7 +475,7 @@ func TestRevokeFederationInvitation_NewOnly(t *testing.T) {
 	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -508,7 +541,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
 	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	hash := cryptoHash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), "inv1", "Partner prod", admin1, "fp-b", "remote-armor", hash, "cipher-armor", fixed, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -572,7 +605,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 
 	// Approve (by a different admin) creates the servers row and backfills
 	// both the attempt's and the invitation's server_id.
-	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.countersign, peerNotYetApproved); err != nil {
+	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.countersign, peerNotYetApproved, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := ds.db.QueryRowContext(context.Background(),
@@ -599,7 +632,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 func pendingAttemptFromInvitation(t *testing.T, ds *DataService, invID, createdBy string, at time.Time) string {
 	t.Helper()
 	hash := cryptoHash("s")
-	if err := ds.InsertFederationInvitation(context.Background(), invID, "Partner", createdBy, "fp-"+invID, "remote-armor", hash, "cipher-armor", at); err != nil {
+	if err := ds.InsertFederationInvitation(context.Background(), invID, "Partner", createdBy, "fp-"+invID, "remote-armor", hash, "cipher-armor", at, nil); err != nil {
 		t.Fatal(err)
 	}
 	attemptID, err := ds.MarkFederationInvitationAccepted(context.Background(), invID, federationPeer{
@@ -684,7 +717,7 @@ func TestApproveFederationAttempt_RootBypassesSelfApprove(t *testing.T) {
 func establishedPeer(t *testing.T, h *Handlers, ds *DataService, invID, createdBy, approvedBy string, callerIsRoot bool, at time.Time) string {
 	t.Helper()
 	attemptID := pendingAttemptFromInvitation(t, ds, invID, createdBy, at)
-	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.countersign, peerNotYetApproved); err != nil {
+	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.countersign, peerNotYetApproved, nil); err != nil {
 		t.Fatal(err)
 	}
 	return "server-" + invID
@@ -965,5 +998,23 @@ func TestGetForeignHolderServersForReed(t *testing.T) {
 	}
 	if len(got2) != 1 || got2[0] != peerB {
 		t.Fatalf("got %v, want exactly [%s]", got2, peerB)
+	}
+}
+
+func TestCreateFederationInvitation_AdminWithoutPermissionForbidden(t *testing.T) {
+	h, ds, _, remoteKP := testFederationHandlers(t)
+	admin1 := seedFederationUser(t, ds, "admin1", "admin", roleAdmin)
+	if _, err := ds.db.Exec(`DELETE FROM user_permissions WHERE user_id = $1 AND permission = $2`, admin1, permMeshInvite); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := federationWithUID(protoRequest(http.MethodPost, "/api/federation/invitations", &pb.FederationCreateRequest{
+		Name:                 "Acme staging",
+		RemotePublicKeyArmor: remoteKP.PublicKey,
+	}), admin1)
+	h.CreateFederationInvitation(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s, want 403", rr.Code, rr.Body.String())
 	}
 }

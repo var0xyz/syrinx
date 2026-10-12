@@ -76,6 +76,7 @@ message WSMessage {
     UserBlockedAckMessage user_blocked_ack = 56;
     UserUnblockedMessage user_unblocked = 57;
     UserUnblockedAckMessage user_unblocked_ack = 58;
+    LedgerEntryMessage ledger_entry = 59;
   }
 }
 
@@ -152,6 +153,7 @@ enum MessageType {
   USER_BLOCKED_ACK = 67;
   USER_UNBLOCKED = 68;
   USER_UNBLOCKED_ACK = 69;
+  LEDGER_ENTRY = 70;
 }
 
 // Ping message
@@ -485,4 +487,9 @@ message NewRippleMessage {
 message PeerServerLostMessage {
   string server_id = 1;
   string server_name = 2;
+}
+
+// A new ledger entry, pushed to every connected local member.
+message LedgerEntryMessage {
+  LedgerEntry entry = 1;
 }

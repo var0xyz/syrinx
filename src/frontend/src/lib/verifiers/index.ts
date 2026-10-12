@@ -42,8 +42,10 @@ import {
   buildVouchUserPayload,
   buildVouchWithdrawalUserPayload,
   buildVouchWithdrawalServerPayload,
+  buildLedgerEntryPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
+import type { LedgerRecord } from '$lib/repositories/ledger';
 
 export type Verifier<T = unknown> = (data: T) => Promise<boolean>;
 
@@ -1061,6 +1063,44 @@ export async function verifyThreadRemoval(removal: api.ThreadRemoval): Promise<b
   const serverResult = await verify(cert.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyThreadRemoval] server signature failed', serverResult);
+    return false;
+  }
+  return true;
+}
+
+/** A ledger entry, countersigned by this server over the previous entry's
+ * signature. Only verifies when the client holds the entry before it. */
+export async function verifyLedgerRecord(record: LedgerRecord): Promise<boolean> {
+  const { fingerprint, serverID } = splitServerSignatureId(record.serverSignature?.id ?? '');
+  const localServerID = typeof localStorage !== 'undefined' ? localStorage.getItem('serverId') : null;
+  if (!serverID || serverID !== localServerID) {
+    console.error('[verifyLedgerRecord] not signed by this server', record.id);
+    return false;
+  }
+  let prevSignature = '';
+  if (record.prevID !== undefined) {
+    const prev = await dbService.get<LedgerRecord>('ledger', record.prevID);
+    if (!prev) {
+      console.error('[verifyLedgerRecord] previous entry not held', record.id, record.prevID);
+      return false;
+    }
+    prevSignature = prev.serverSignature.armor;
+  }
+  const payload = buildLedgerEntryPayload(
+    record.id,
+    record.prevID,
+    prevSignature,
+    record.userID,
+    record.message,
+    record.content,
+    [...record.targets].sort(),
+    serverID,
+    fingerprint,
+    signedAtHeader(record.serverSignature.signedAt)
+  );
+  const result = await verify(record.serverSignature, payload);
+  if (result.ok === false) {
+    console.error('[verifyLedgerRecord] server signature failed', record.id, result);
     return false;
   }
   return true;

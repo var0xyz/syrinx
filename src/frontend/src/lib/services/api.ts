@@ -24,11 +24,13 @@ import {
   AccountRemovalCertSchema,
   BlockCertSchema,
   ErrorSchema,
+  LedgerEntrySchema,
   ReedRemovalCertSchema,
   RippleSchema,
   ServerSignatureSchema,
   ThreadRemovalSchema,
 } from '$lib/proto/common_pb';
+import { LedgerPageSchema } from '$lib/proto/admin_pb';
 import {
   AddPublicKeyRequestSchema,
   BindDeviceResponseSchema,
@@ -808,6 +810,17 @@ export const apiService = {
 
   async listBlocks(): Promise<api.BlockCert[]> {
     return (await request('/blocks', { method: 'GET' }, BlockListResponseSchema)).blocks;
+  },
+
+  /** The ledger's head and first page, or with after the page that follows
+   * that entry, in chain order. */
+  async getLedger(after?: number): Promise<api.LedgerPage> {
+    const path = after === undefined ? '/ledger' : `/ledger?after=${after}`;
+    return request(path, { method: 'GET' }, LedgerPageSchema);
+  },
+
+  async getLedgerEntry(id: number): Promise<api.LedgerEntry> {
+    return request(`/ledger/${id}`, { method: 'GET' }, LedgerEntrySchema);
   },
 
   async likeReed(reedId: string, signature: string, keyId: string): Promise<api.ReedLike> {
