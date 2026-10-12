@@ -15,6 +15,49 @@ and flag review ([08](08_flags.md)) goes through one request → approval
 pipeline. This step builds the pipeline with no actions behind it. Steps
 03–06 and 09 each plug in one action kind.
 
+## Permissions
+
+Every action needs a permission, held by both the requester and the
+approver. Root holds every permission. An admin holds the ones granted to
+them when they were promoted or invited, or by a later permissions change.
+
+| Permission          | Actions                                              |
+| ------------------- | ---------------------------------------------------- |
+| `admin.create`      | `promote`, granting permissions, admin invites       |
+| `admin.demote`      | `demote`, removing permissions                       |
+| `user.kick`         | `kick`                                               |
+| `user.suspend`      | `suspend`, `reinstate`                               |
+| `user.rebind`       | `rebind` (add a key)                                 |
+| `user.message`      | `message` (private message)                          |
+| `broadcast.message` | `broadcast`                                          |
+| `mesh.invite`       | Creating and canceling server invites                |
+| `mesh.connect`      | Approving or rejecting a server connection           |
+| `mesh.disconnect`   | Disconnecting from a peer and purging it             |
+
+The mesh permissions gate the existing `/api/federation` routes for admins;
+they don't go through requests.
+
+A `permissions` request needs `admin.create` when it adds a permission and
+`admin.demote` when it removes one, both when it does both. Nobody grants a
+permission they don't hold.
+
+```sql
+CREATE TABLE IF NOT EXISTS user_permissions (
+  user_id     VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  permission  VARCHAR(32) NOT NULL CHECK (permission IN (…)),
+  PRIMARY KEY (user_id, permission)
+);
+
+CREATE TABLE IF NOT EXISTS invite_permissions (
+  invite_id   VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
+  permission  VARCHAR(32) NOT NULL CHECK (permission IN (…)),
+  PRIMARY KEY (invite_id, permission)
+);
+```
+
+Root has no rows: its permissions are implied. An admin invite's
+permissions move to `user_permissions` when it is claimed.
+
 ## Schema
 
 In `InitDB` (`db.go`), on the `user_signatures` / `server_signatures` model:
@@ -24,12 +67,11 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   id                    VARCHAR(255) PRIMARY KEY,
   action                VARCHAR(32) NOT NULL
     CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-                      'rebind', 'broadcast', 'message')),
+                      'permissions', 'rebind', 'broadcast', 'message')),
   requester_id          VARCHAR(255) NOT NULL REFERENCES identities(id),
   requester_key_id      VARCHAR(255) NOT NULL REFERENCES public_keys(id),
   requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
   reason                TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
-  params                BYTEA,          -- action-specific, e.g. rebind public key
   created_at            TIMESTAMP NOT NULL,
   state                 VARCHAR(16) NOT NULL DEFAULT 'pending'
     CHECK (state IN ('pending', 'executed', 'rejected', 'withdrawn', 'moot')),
@@ -40,6 +82,11 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   closed_at             TIMESTAMP,
   CONSTRAINT admin_requests_reason CHECK (
     (action IN ('broadcast', 'message')) = (reason IS NULL))
+);
+
+CREATE TABLE IF NOT EXISTS admin_request_content (
+  request_id  VARCHAR(255) PRIMARY KEY REFERENCES admin_requests(id) ON DELETE CASCADE,
+  body        TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS admin_request_targets (
@@ -54,8 +101,14 @@ CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
 
 - A broadcast has no targets. A message has exactly one. Every other action
   has at least one.
-- A broadcast or message has no reason: its text is in `params`. Every
-  other action needs one.
+- A broadcast or message has no reason; every other action needs one.
+- `admin_request_content.body` holds a broadcast's or message's text, a
+  rebind's armored key, or the permission set of a `promote` or
+  `permissions` request. Other actions have no row there.
+- A permission set is written as the permission names, sorted and joined
+  with commas (`broadcast.message,user.kick`), with no duplicates. The
+  names come from a fixed list without commas, so the server refuses any
+  other form. A `permissions` request's set is the target's full new set.
 - `closed_by` is the approver (`executed`, `rejected`), the requester
   (`withdrawn`), or NULL (`moot`, closed by the server).
 - `server_signature_id` is set once the request closes, for every outcome.
@@ -66,8 +119,8 @@ In `identity.go`, one builder per signer, mirrored in `signing.ts`:
 
 ```go
 func buildAdminRequestPayload(requestID, action, requesterID, keyID, reason string,
-    targets []string, params string, createdAt time.Time) []byte
-// {"action","createdAt","keyID","params","reason","requestID","requesterID","targets","type":"admin-request"}
+    targets []string, body string, createdAt time.Time) []byte
+// {"action","body","createdAt","keyID","reason","requestID","requesterID","targets","type":"admin-request"}
 
 func buildAdminDecisionPayload(requestID, decision, deciderID, keyID, requestSignature string) []byte
 // {"decision","deciderID","keyID","requestID","requestSignature","type":"admin-decision"}
@@ -79,9 +132,9 @@ func buildAdminServerPayload(requestID, state, requestSignature, decisionSignatu
 ```
 
 - `targets` is sorted before signing, so both sides produce the same bytes.
-- `params` is base64 of the action-specific bytes (the rebind public key,
-  the broadcast or message body). It is empty for most actions and then dropped,
-  following the `canonicalJSON` rules.
+- `body` is the armored key or the message, as a plain string. It is
+  empty for most actions and then dropped, following the `canonicalJSON`
+  rules.
 - Embedding the request signature in the decision means an approval is
   bound to exactly one request.
 
@@ -96,7 +149,7 @@ message AdminRequest {
   string requester_id = 3 [json_name = "requesterID"];
   string reason = 4;
   repeated string targets = 5;
-  bytes params = 6;
+  string body = 6;
   uint32 created_at = 7;
   UserSignature requester_signature = 8;
   string state = 9;
@@ -131,10 +184,13 @@ All routes need signature auth, and the caller must be admin or root.
 
 The server rejects a new request when:
 
-- the requester isn't admin or root;
+- the requester isn't admin or root, or doesn't hold the action's permission;
+- a permission set grants a permission the requester doesn't hold, or isn't
+  written in the form above;
 - a target is root, isn't a local user, or already has an account removal;
-- the action and targets don't fit (e.g. `promote` on an admin, `reinstate`
-  on someone who isn't suspended, `suspend` on someone already suspended);
+- the action and targets don't fit (e.g. `promote` on an admin,
+  `permissions` on a user who isn't an admin, `reinstate` on someone who
+  isn't suspended, `suspend` on someone already suspended);
 - the reason is empty, or set on a broadcast or message.
 
 ## Approver eligibility
@@ -144,6 +200,7 @@ Checked when a decision of `approve` or `reject` is submitted:
 | Rule | Check |
 |------|-------|
 | Admin or root | `users.role` |
+| Holds the action's permission | `user_permissions`, read **at decision time** |
 | Not the requester, unless root | `decider_id <> requester_id OR decider is root` |
 | Not in the requester's invite subtree | recursive CTE over `users.invite_id → invites.created_by`, from the requester down |
 | Not a target | `admin_request_targets` |
@@ -171,9 +228,9 @@ whose targets are now all dropped closes as `moot`, with a server signature
 and no decision. A broadcast never becomes moot; a message whose recipient
 leaves does.
 
-A user who stops being an admin doesn't make their own pending requests
-moot. The requester's role is checked again at approval, and a request
-from a non-admin can only be rejected or withdrawn.
+A requester who loses a permission, or stops being an admin, doesn't change
+their pending requests: they held the permission when they opened them, so
+the requests stay valid and can still be approved.
 
 ## Tests
 
@@ -181,6 +238,11 @@ from a non-admin can only be rejected or withdrawn.
   `npm run test:admin-payload`).
 - Eligibility: self-approval refused for an admin and allowed for root; a
   direct invitee is refused; a grandchild invitee is refused; a target is
-  refused; an admin target needs root.
+  refused; an admin target needs root; an approver without the action's
+  permission is refused.
+- Permissions: a request without the requester holding the permission is
+  refused; a permission set granting one the requester lacks is refused; an
+  unsorted or duplicated set is refused; a request stays approvable after
+  its requester loses the permission.
 - Moot: self-deletion of the only target closes the request as moot; of one
   of two targets, it drops that target and keeps the request pending.

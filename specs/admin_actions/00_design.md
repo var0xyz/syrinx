@@ -54,12 +54,33 @@ A request can also be **rejected** by any eligible approver, or
 **withdrawn** by its requester. Both are final and go in the ledger as the
 request's closing entry.
 
+**Permissions.** An admin can do only what their permissions allow, and an
+admin can only grant permissions they hold. Root holds every permission.
+
+| Permission          | Allows                                               |
+| ------------------- | ---------------------------------------------------- |
+| `admin.create`      | Promoting, granting permissions, admin invites       |
+| `admin.demote`      | Demoting, removing permissions                       |
+| `user.kick`         | Kicking                                              |
+| `user.suspend`      | Suspending and reinstating                           |
+| `user.rebind`       | Adding a key                                         |
+| `user.message`      | Private messages                                     |
+| `broadcast.message` | Broadcasts                                           |
+| `mesh.invite`       | Creating and canceling server invites                |
+| `mesh.connect`      | Approving or rejecting a server connection           |
+| `mesh.disconnect`   | Disconnecting from a peer and purging it             |
+
+Both the requester and the approver need the action's permission. A request
+stays valid when its requester later loses the permission: they held it
+when they opened it. Reviewing flags needs no permission.
+
 **Approver eligibility**, checked when the approval is submitted, not when
 the request was opened:
 
 | Rule                                                                                               | Why                                                           |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
 | Role is admin or root                                                                              | —                                                             |
+| Holds the action's **permission**                                                                  | —                                                             |
 | Not the requester, **except root**                                                                 | Root approving its own request matches federation today       |
 | Not in the requester's **invite subtree** (anyone the requester invited, directly or further down) | Stops a requester inviting a puppet admin to approve for them |
 | Not a target of the request                                                                        | —                                                             |
@@ -83,11 +104,14 @@ the log. The only admin action left out is a private message. Logged:
 - mesh: a server invite created or canceled, a connection approved or
   rejected by this server's admin (whatever the peer did on their side),
   and a disconnection;
+- admin invites created (with the permissions they grant) and claimed;
 - reserved usernames added or released.
 
 Each entry is **signed by the server**: its ID, the ID and signature of the
 entry before it, the server timestamp, the user ID of the one admin who
-acted, and a message built by the server. A request gives two entries: one
+acted, a message built by the server, the user IDs the entry is about,
+and its content (a broadcast's text, or a permission set). Messages never
+carry usernames. A request gives two entries: one
 when it is opened, with the reason, and one when it is approved, rejected,
 withdrawn or goes moot, naming the request by its ID. Every member
 gets each new entry over the WebSocket and stores it locally. That local
@@ -102,8 +126,12 @@ Private messages and flags are **not** ledger entries.
 **Reversible and local.** While a user is suspended, the server:
 
 - rejects every signed operation from them in the auth middleware (the same
-  place that rejects revoked keys today);
+  place that rejects revoked keys today), ledger reads included;
 - refuses their WebSocket handshake.
+
+Both refusals carry the **suspension certificate**: the approved request
+with its reason, both admin signatures and the server's. That is how the
+user learns why; they see nothing else of the network.
 
 Nothing is sent to peers, and nothing changes for them. The account, keys,
 follows and content stay as they are. Their reeds stay wherever they are
@@ -138,17 +166,18 @@ account's reeds only if:
 
 1. both admin signatures verify against keys those admins held when the
    request and approval were signed;
-2. both signers have a server-countersigned **admin or root role**
-   (profile countersignature);
-3. requester and approver differ, unless the requester is root;
-4. the server countersignature verifies against that server's key, by
+2. requester and approver differ, unless the requester is root;
+3. the server countersignature verifies against that server's key, by
    fingerprint.
 
+Holders don't check the admins' roles or permissions: the home server
+checked them when the kick was approved. Its local members can check that
+afterwards by replaying the ledger, which records every promotion,
+permission change, demotion and admin invite.
+
 This stops a single rogue admin or one stolen admin key. It does **not**
-stop a compromised server: peers learn roles only from the server's profile
-countersignature, so such a server can mint two "admins" of its own. That
-is visible in the public ledger, but not prevented. See
-[Open questions](#open-questions).
+stop a compromised server, which can mint two "admins" of its own. That is
+visible in the public ledger, but not prevented.
 
 **Fanout.** The removal follows the existing account-removal path: live
 dispatch plus `SYNC_REQUEST` catch-up locally, and **one delivery per peer**
@@ -156,12 +185,18 @@ for federated holders.
 
 The kicked user's own unclaimed invites are revoked.
 
-### Promote / demote
+### Promote / demote / permissions
 
-`user → admin` and `admin → user`, approved like any other request. Demoting
-an admin is acting on an admin, so root must approve. The new role goes on a
-fresh profile countersignature, as at signup today. Root's role never
-changes.
+`user → admin` and `admin → user`, approved like any other request. A
+promotion carries the new admin's permissions, and a separate request
+changes an existing admin's permissions. Demoting an admin or changing
+their permissions is acting on an admin, so root must approve. The new role
+goes on a fresh profile countersignature, as at signup today. Root's role
+never changes.
+
+An admin invite grants the admin role with the permissions the inviter
+picks, from among their own. It needs no approval, but its creation and its
+claim are both logged.
 
 ### Lost-device key rebind
 
@@ -270,10 +305,8 @@ closed requests list.
   the requester invites after opening the request is still in their
   subtree, so it can't approve.
 
-## Open questions
+## Decisions
 
-- **Role provenance.** Should a verifier trace an admin's role back to its
-  origin (an admin-signed invite or an approved promotion, back to root)
-  instead of trusting the server's profile countersignature? That would
-  make a kick unforgeable without real admin keys, at the cost of a longer
-  chain to fetch and verify.
+- **Role provenance.** Verifiers don't trace an admin's role back to its
+  origin. They trust that the home server gated the action, and local
+  members can audit that from the ledger.

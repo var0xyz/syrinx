@@ -44,7 +44,7 @@ admin uploads the file. The SPA decompresses it, refuses it when the user ID
 in the filename isn't the profile's user, and shows the key fingerprint for
 the admin to compare. Opening the request:
 
-- `action = rebind`, `targets = [userID]`, `params` = the armored public key.
+- `action = rebind`, `targets = [userID]`, `body` = the armored public key.
 - Rejected when the target is root, removed or suspended, or when the key
   doesn't parse.
 
