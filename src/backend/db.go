@@ -328,19 +328,18 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Two-admin requests. closed_by is the approver, the requester on a
-	// withdrawal, or NULL when the server closes it as moot. params holds the
-	// rebind key or the message body; a broadcast or message has no reason.
+	// withdrawal, or NULL when the server closes it as moot. A broadcast or
+	// message has no reason: its text is in admin_request_content.
 	createAdminRequestsTable := `
 	CREATE TABLE IF NOT EXISTS admin_requests (
 		id VARCHAR(255) PRIMARY KEY,
 		action VARCHAR(32) NOT NULL
 			CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-				'rebind', 'broadcast', 'message')),
+				'permissions', 'rebind', 'broadcast', 'message')),
 		requester_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 		requester_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
 		requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		reason TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
-		params BYTEA,
 		created_at TIMESTAMP NOT NULL,
 		state VARCHAR(16) NOT NULL DEFAULT 'pending'
 			CHECK (state IN ('pending', 'executed', 'rejected', 'withdrawn', 'moot')),
@@ -352,6 +351,14 @@ func InitDB(db *sql.DB) error {
 
 		CONSTRAINT admin_requests_reason CHECK (
 			(action IN ('broadcast', 'message')) = (reason IS NULL))
+	);`
+
+	// The armored key of a rebind, the text of a broadcast or message, or the
+	// permission set of a promote or permissions change.
+	createAdminRequestContentTable := `
+	CREATE TABLE IF NOT EXISTS admin_request_content (
+		request_id VARCHAR(255) PRIMARY KEY REFERENCES admin_requests(id) ON DELETE CASCADE,
+		body TEXT NOT NULL
 	);`
 
 	// dropped marks a target whose account was removed while the request
@@ -392,6 +399,28 @@ func InitDB(db *sql.DB) error {
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_lower_users_username
 		ON users(LOWER(username));
 	`
+
+	// An admin's permissions. Root holds every permission without rows here.
+	createUserPermissionsTable := `
+	CREATE TABLE IF NOT EXISTS user_permissions (
+		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		permission VARCHAR(32) NOT NULL
+			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
+				'user.rebind', 'user.message', 'broadcast.message',
+				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
+		PRIMARY KEY (user_id, permission)
+	);`
+
+	// The permissions an admin invite grants to whoever claims it.
+	createInvitePermissionsTable := `
+	CREATE TABLE IF NOT EXISTS invite_permissions (
+		invite_id VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
+		permission VARCHAR(32) NOT NULL
+			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
+				'user.rebind', 'user.message', 'broadcast.message',
+				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
+		PRIMARY KEY (invite_id, permission)
+	);`
 
 	// A row's existence means the key is revoked, signed by the key's owner
 	// or, for a lost device, by an admin request. successor_signature_id is
@@ -1378,8 +1407,18 @@ func InitDB(db *sql.DB) error {
 		prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
 		user_id VARCHAR(255) REFERENCES identities(id),
 		message TEXT NOT NULL,
+		-- A broadcast's text, or the permission set an entry grants.
+		content TEXT,
 		signed_at TIMESTAMP NOT NULL,
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+	);`
+
+	// The users an entry is about, so messages never carry usernames.
+	createLedgerEntryTargetsTable := `
+	CREATE TABLE IF NOT EXISTS ledger_entry_targets (
+		entry_id BIGINT NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+		PRIMARY KEY (entry_id, user_id)
 	);`
 
 	// Only one entry can start the chain.
@@ -1538,6 +1577,7 @@ func InitDB(db *sql.DB) error {
 		createPrivateKeyRevocationsTable,
 
 		createAdminRequestsTable,
+		createAdminRequestContentTable,
 		createAdminRequestTargetsTable,
 		createAdminRequestTargetsIndexes,
 
@@ -1546,6 +1586,8 @@ func InitDB(db *sql.DB) error {
 
 		createUsersTable,
 		createUserIndexes,
+		createUserPermissionsTable,
+		createInvitePermissionsTable,
 
 		createPublicKeyRevocationsTable,
 
@@ -1706,6 +1748,7 @@ func InitDB(db *sql.DB) error {
 		// Admin
 		createLedgerEntriesTable,
 		createLedgerEntriesIndexes,
+		createLedgerEntryTargetsTable,
 		createReservedUsernamesTable,
 		createReedFlagsTable,
 		createReedFlagsIndexes,
