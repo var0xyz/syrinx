@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file invites.proto.
  */
 export const file_invites: GenFile = /*@__PURE__*/
-  fileDesc("Cg1pbnZpdGVzLnByb3RvEgZzeXJpbngijgEKE0NyZWF0ZUludml0ZVJlcXVlc3QSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgNEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlIrQBCgZJbnZpdGUSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgNEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBiABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIo4BCgxJbnZpdGVTdGF0dXMSCgoCaWQYASABKAkSEgoKY3JlYXRlZF9hdBgCIAEoDRIOCgZzdGF0dXMYAyABKAkSEgoKY2xhaW1lZF9hdBgEIAEoDRIXCgpjbGFpbWVkX2J5GAUgASgJSACIAQESEgoKcmV2b2tlZF9hdBgGIAEoDUINCgtfY2xhaW1lZF9ieSIkChNJbnZpdGVDaGVja1Jlc3BvbnNlEg0KBXZhbGlkGAEgASgIQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("Cg1pbnZpdGVzLnByb3RvEgZzeXJpbngiowEKE0NyZWF0ZUludml0ZVJlcXVlc3QSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgNEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEhMKC3Blcm1pc3Npb25zGAYgASgJIskBCgZJbnZpdGUSCgoCaWQYASABKAkSEgoKdG9rZW5faGFzaBgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgNEhQKDGdyYW50ZWRfcm9sZRgEIAEoCRItCg51c2VyX3NpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBiABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlEhMKC3Blcm1pc3Npb25zGAcgASgJIo4BCgxJbnZpdGVTdGF0dXMSCgoCaWQYASABKAkSEgoKY3JlYXRlZF9hdBgCIAEoDRIOCgZzdGF0dXMYAyABKAkSEgoKY2xhaW1lZF9hdBgEIAEoDRIXCgpjbGFpbWVkX2J5GAUgASgJSACIAQESEgoKcmV2b2tlZF9hdBgGIAEoDUINCgtfY2xhaW1lZF9ieSIkChNJbnZpdGVDaGVja1Jlc3BvbnNlEg0KBXZhbGlkGAEgASgIQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
 
 /**
  * POST /invites. The client mints id and secret; only the secret's
@@ -45,6 +45,13 @@ export type CreateInviteRequest = Message<"syrinx.CreateInviteRequest"> & {
    * @generated from field: syrinx.UserSignature user_signature = 5;
    */
   userSignature?: UserSignature | undefined;
+
+  /**
+   * An admin invite's permission set: sorted, comma-joined names.
+   *
+   * @generated from field: string permissions = 6;
+   */
+  permissions: string;
 };
 
 /**
@@ -87,6 +94,11 @@ export type Invite = Message<"syrinx.Invite"> & {
    * @generated from field: syrinx.ServerSignature server_signature = 6;
    */
   serverSignature?: ServerSignature | undefined;
+
+  /**
+   * @generated from field: string permissions = 7;
+   */
+  permissions: string;
 };
 
 /**

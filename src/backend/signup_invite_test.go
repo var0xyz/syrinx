@@ -115,6 +115,34 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			successor VARCHAR(255) REFERENCES public_keys(id),
 			successor_signature_id INT REFERENCES user_signatures(id)
 		)`,
+		`DROP TABLE IF EXISTS user_permissions CASCADE`,
+		`CREATE TABLE user_permissions (
+			user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			permission VARCHAR(32) NOT NULL,
+			PRIMARY KEY (user_id, permission)
+		)`,
+		`DROP TABLE IF EXISTS ledger_entry_targets CASCADE`,
+		`DROP TABLE IF EXISTS ledger_entries CASCADE`,
+		`CREATE TABLE ledger_entries (
+			id BIGSERIAL PRIMARY KEY,
+			prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
+			user_id VARCHAR(255) REFERENCES identities(id),
+			message TEXT NOT NULL,
+			content TEXT,
+			signed_at TIMESTAMP NOT NULL,
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		)`,
+		`CREATE TABLE ledger_entry_targets (
+			entry_id BIGINT NOT NULL REFERENCES ledger_entries(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			PRIMARY KEY (entry_id, user_id)
+		)`,
+		`DROP TABLE IF EXISTS invite_permissions CASCADE`,
+		`CREATE TABLE invite_permissions (
+			invite_id VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
+			permission VARCHAR(32) NOT NULL,
+			PRIMARY KEY (invite_id, permission)
+		)`,
 		`CREATE TABLE IF NOT EXISTS account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,

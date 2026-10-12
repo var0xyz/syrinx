@@ -14,6 +14,8 @@ message CreateInviteRequest {
   uint32 created_at = 3;
   string granted_role = 4;
   UserSignature user_signature = 5;
+  // An admin invite's permission set: sorted, comma-joined names.
+  string permissions = 6;
 }
 
 message Invite {
@@ -23,6 +25,7 @@ message Invite {
   string granted_role = 4;
   UserSignature user_signature = 5;
   ServerSignature server_signature = 6;
+  string permissions = 7;
 }
 
 // GET /invites/{id}.

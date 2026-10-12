@@ -350,11 +350,28 @@ func TestCreateInvite_UserCannotGrantAdmin(t *testing.T) {
 	}
 }
 
+func TestCreateInvite_AdminWithoutPermissionCannotGrantAdmin(t *testing.T) {
+	h, _ := newInviteTestHandlers(t, "open", maxInvitesUnlimited)
+	kp := signedUpUser(t, h, "admin1", "admin")
+	creator := string(canonicalID(h.services.db.GetServerID(), "admin1"))
+	if _, err := h.services.db.db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, roleAdmin, creator); err != nil {
+		t.Fatal(err)
+	}
+
+	rr := postCreateInvite(h, creator, inviteCreateBody(t, h, creator, kp, "", "", time.Now(), roleAdmin))
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s, want 403", rr.Code, rr.Body.String())
+	}
+}
+
 func TestCreateInvite_AdminCanGrantAdmin(t *testing.T) {
 	h, _ := newInviteTestHandlers(t, "open", maxInvitesUnlimited)
 	kp := signedUpUser(t, h, "admin1", "admin")
 	creator := string(canonicalID(h.services.db.GetServerID(), "admin1"))
 	if _, err := h.services.db.db.Exec(`UPDATE users SET role = $1 WHERE id = $2`, roleAdmin, creator); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.services.db.db.Exec(`INSERT INTO user_permissions (user_id, permission) VALUES ($1, $2)`, creator, permAdminCreate); err != nil {
 		t.Fatal(err)
 	}
 

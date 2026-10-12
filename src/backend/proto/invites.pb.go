@@ -30,6 +30,8 @@ type CreateInviteRequest struct {
 	CreatedAt     uint32                 `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	GrantedRole   string                 `protobuf:"bytes,4,opt,name=granted_role,json=grantedRole,proto3" json:"granted_role,omitempty"`
 	UserSignature *UserSignature         `protobuf:"bytes,5,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	// An admin invite's permission set: sorted, comma-joined names.
+	Permissions   string `protobuf:"bytes,6,opt,name=permissions,proto3" json:"permissions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -99,6 +101,13 @@ func (x *CreateInviteRequest) GetUserSignature() *UserSignature {
 	return nil
 }
 
+func (x *CreateInviteRequest) GetPermissions() string {
+	if x != nil {
+		return x.Permissions
+	}
+	return ""
+}
+
 type Invite struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -107,6 +116,7 @@ type Invite struct {
 	GrantedRole     string                 `protobuf:"bytes,4,opt,name=granted_role,json=grantedRole,proto3" json:"granted_role,omitempty"`
 	UserSignature   *UserSignature         `protobuf:"bytes,5,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,6,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	Permissions     string                 `protobuf:"bytes,7,opt,name=permissions,proto3" json:"permissions,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -181,6 +191,13 @@ func (x *Invite) GetServerSignature() *ServerSignature {
 		return x.ServerSignature
 	}
 	return nil
+}
+
+func (x *Invite) GetPermissions() string {
+	if x != nil {
+		return x.Permissions
+	}
+	return ""
 }
 
 // GET /invites/{id}.
@@ -317,7 +334,7 @@ var File_invites_proto protoreflect.FileDescriptor
 
 const file_invites_proto_rawDesc = "" +
 	"\n" +
-	"\rinvites.proto\x12\x06syrinx\x1a\fcommon.proto\"\xc4\x01\n" +
+	"\rinvites.proto\x12\x06syrinx\x1a\fcommon.proto\"\xe6\x01\n" +
 	"\x13CreateInviteRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -325,7 +342,8 @@ const file_invites_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x03 \x01(\rR\tcreatedAt\x12!\n" +
 	"\fgranted_role\x18\x04 \x01(\tR\vgrantedRole\x12<\n" +
-	"\x0euser_signature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\"\xfb\x01\n" +
+	"\x0euser_signature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12 \n" +
+	"\vpermissions\x18\x06 \x01(\tR\vpermissions\"\x9d\x02\n" +
 	"\x06Invite\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
@@ -334,7 +352,8 @@ const file_invites_proto_rawDesc = "" +
 	"created_at\x18\x03 \x01(\rR\tcreatedAt\x12!\n" +
 	"\fgranted_role\x18\x04 \x01(\tR\vgrantedRole\x12<\n" +
 	"\x0euser_signature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x06 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xc6\x01\n" +
+	"\x10server_signature\x18\x06 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12 \n" +
+	"\vpermissions\x18\a \x01(\tR\vpermissions\"\xc6\x01\n" +
 	"\fInviteStatus\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\n" +
