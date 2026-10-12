@@ -304,7 +304,9 @@ func InitDB(db *sql.DB) error {
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
-		predecessor_id VARCHAR(255) REFERENCES public_keys(id)
+		predecessor_id VARCHAR(255) REFERENCES public_keys(id),
+		-- Bound by an admin rebind: only good for rotating away from itself.
+		restricted BOOLEAN NOT NULL DEFAULT FALSE
 	);`
 
 	createPublicKeyIndexes := `
@@ -325,6 +327,48 @@ func InitDB(db *sql.DB) error {
 		successor_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
+	// Two-admin requests. closed_by is the approver, the requester on a
+	// withdrawal, or NULL when the server closes it as moot. params holds the
+	// rebind key or the message body; a broadcast or message has no reason.
+	createAdminRequestsTable := `
+	CREATE TABLE IF NOT EXISTS admin_requests (
+		id VARCHAR(255) PRIMARY KEY,
+		action VARCHAR(32) NOT NULL
+			CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
+				'rebind', 'broadcast', 'message')),
+		requester_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+		requester_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
+		requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		reason TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
+		params BYTEA,
+		created_at TIMESTAMP NOT NULL,
+		state VARCHAR(16) NOT NULL DEFAULT 'pending'
+			CHECK (state IN ('pending', 'executed', 'rejected', 'withdrawn', 'moot')),
+		closed_by VARCHAR(255) REFERENCES identities(id),
+		closer_key_id VARCHAR(255) REFERENCES public_keys(id),
+		closer_signature_id INT REFERENCES user_signatures(id),
+		server_signature_id INT REFERENCES server_signatures(id),
+		closed_at TIMESTAMP,
+
+		CONSTRAINT admin_requests_reason CHECK (
+			(action IN ('broadcast', 'message')) = (reason IS NULL))
+	);`
+
+	// dropped marks a target whose account was removed while the request
+	// was pending; a request whose targets are all dropped goes moot.
+	createAdminRequestTargetsTable := `
+	CREATE TABLE IF NOT EXISTS admin_request_targets (
+		request_id VARCHAR(255) NOT NULL REFERENCES admin_requests(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+		dropped BOOLEAN NOT NULL DEFAULT FALSE,
+		PRIMARY KEY (request_id, user_id)
+	);`
+
+	createAdminRequestTargetsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
+		ON admin_request_targets(user_id) WHERE NOT dropped;
+	`
+
 	// users is a satellite of identities — profile fields only. id IS
 	// identities.id directly. invite_id points at the claimed invite
 	// (NULL if none); the inviter is reached via invites.created_by.
@@ -339,7 +383,9 @@ func InitDB(db *sql.DB) error {
 		active_key_id VARCHAR(255) REFERENCES public_keys(id),
 		user_signature_id INT REFERENCES user_signatures(id),
 		server_signature_id INT REFERENCES server_signatures(id),
-		invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL
+		invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL,
+		-- The request that suspended the user; NULL when not suspended.
+		suspended_by VARCHAR(255) REFERENCES admin_requests(id)
 	);`
 
 	createUserIndexes := `
@@ -347,18 +393,22 @@ func InitDB(db *sql.DB) error {
 		ON users(LOWER(username));
 	`
 
-	// A row's existence means the key is revoked. successor and
-	// successor_signature_id are written later, once a replacement key is
-	// uploaded — the latter is the OLD key's signature over the new one.
+	// A row's existence means the key is revoked, signed by the key's owner
+	// or, for a lost device, by an admin request. successor_signature_id is
+	// the OLD key's signature over its successor, so a rebind has none.
 	createPublicKeyRevocationsTable := `
 	CREATE TABLE IF NOT EXISTS public_key_revocations (
 		key_id VARCHAR(255) PRIMARY KEY
 			REFERENCES public_keys(id) ON DELETE CASCADE,
 		reason TEXT,
-		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		user_signature_id INT REFERENCES user_signatures(id),
+		admin_request_id VARCHAR(255) REFERENCES admin_requests(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		successor VARCHAR(255) REFERENCES public_keys(id),
-		successor_signature_id INT REFERENCES user_signatures(id)
+		successor_signature_id INT REFERENCES user_signatures(id),
+
+		CONSTRAINT public_key_revocations_signer CHECK (
+			(admin_request_id IS NULL) = (user_signature_id IS NOT NULL))
 	);`
 
 	// reed_identities is to reeds what identities is to users: a thin
@@ -520,17 +570,20 @@ func InitDB(db *sql.DB) error {
 		ON reed_removals(thread_id) WHERE thread_id IS NOT NULL;`
 
 	// Signed account-removal certificates. One cert per user; public keys
-	// remain. public_key_id binds the signing key (same class as reed
-	// removals). note ≤140 enforced by CHECK + API.
+	// remain. Signed by the user (public_key_id + user_signature_id) or, for
+	// a kick, by an admin request. note ≤140 enforced by CHECK + API.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 		note VARCHAR(140) NOT NULL DEFAULT '',
-		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
-		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		public_key_id VARCHAR(255) REFERENCES public_keys(id) ON DELETE CASCADE,
+		user_signature_id INT REFERENCES user_signatures(id),
+		admin_request_id VARCHAR(255) REFERENCES admin_requests(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140)
+		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140),
+		CONSTRAINT account_removals_signer CHECK (
+			(admin_request_id IS NULL) = (public_key_id IS NOT NULL AND user_signature_id IS NOT NULL))
 	);`
 
 	// Encrypted server->user mailbox messages. No plaintext columns — the
@@ -1316,6 +1369,53 @@ func InitDB(db *sql.DB) error {
 		ON invites(created_by);
 	`
 
+	// The public ledger of admin actions, chained: each entry signs prev_id
+	// and that entry's signature; prev_id is NULL only on the first entry.
+	// user_id is NULL when the server acted (a request going moot).
+	createLedgerEntriesTable := `
+	CREATE TABLE IF NOT EXISTS ledger_entries (
+		id BIGSERIAL PRIMARY KEY,
+		prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
+		user_id VARCHAR(255) REFERENCES identities(id),
+		message TEXT NOT NULL,
+		signed_at TIMESTAMP NOT NULL,
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+	);`
+
+	// Only one entry can start the chain.
+	createLedgerEntriesIndexes := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_entries_first
+		ON ledger_entries((prev_id IS NULL)) WHERE prev_id IS NULL;
+	`
+
+	// Usernames nobody can sign up with or rename to, stored lowercased.
+	createReservedUsernamesTable := `
+	CREATE TABLE IF NOT EXISTS reserved_usernames (
+		username VARCHAR(255) PRIMARY KEY,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	);`
+
+	// Signed flags on reeds authored here; reporter_id may be a remote member.
+	// author_id lets visibility be checked without the reed body. created_at
+	// is the timestamp the reporter signed.
+	createReedFlagsTable := `
+	CREATE TABLE IF NOT EXISTS reed_flags (
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		reporter_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		note VARCHAR(280) NOT NULL DEFAULT '',
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		created_at TIMESTAMP NOT NULL,
+		dismissed_at TIMESTAMP,
+		PRIMARY KEY (reed_id, reporter_id)
+	);`
+
+	createReedFlagsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_reed_flags_open
+		ON reed_flags(created_at) WHERE dismissed_at IS NULL;
+	`
+
 	// federation_invitation covers the whole handshake lifecycle: new ->
 	// accepted/canceled, accepted -> approved/rejected, approved -> revoked.
 	// fingerprint/public_key_armor are the peer's unverified key, promoted into public_keys/servers only once approved.
@@ -1436,6 +1536,10 @@ func InitDB(db *sql.DB) error {
 		createPublicKeysTable,
 		createPublicKeyIndexes,
 		createPrivateKeyRevocationsTable,
+
+		createAdminRequestsTable,
+		createAdminRequestTargetsTable,
+		createAdminRequestTargetsIndexes,
 
 		createInvitesTable,
 		createInvitesIndexes,
@@ -1598,6 +1702,13 @@ func InitDB(db *sql.DB) error {
 		createFederationAttemptLogTable,
 
 		createFederationServerLogTable,
+
+		// Admin
+		createLedgerEntriesTable,
+		createLedgerEntriesIndexes,
+		createReservedUsernamesTable,
+		createReedFlagsTable,
+		createReedFlagsIndexes,
 	}
 
 	for i, query := range queries {
