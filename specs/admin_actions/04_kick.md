@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -27,8 +27,8 @@ The same endpoint feeds the suspend picker ([03](03_suspend_reinstate.md)).
 
 ## Schema
 
-`account_removals` gains the admin variant. Exactly one of user signature or
-admin request is set:
+`account_removals` gains the admin variant. Exactly one of the user's
+signature, this server's admin request, or a peer's signed approval is set:
 
 ```sql
 CREATE TABLE IF NOT EXISTS account_removals (
@@ -37,10 +37,13 @@ CREATE TABLE IF NOT EXISTS account_removals (
   public_key_id       VARCHAR(255) REFERENCES public_keys(id) ON DELETE CASCADE,
   user_signature_id   INT REFERENCES user_signatures(id),
   admin_request_id    VARCHAR(255) REFERENCES admin_requests(id),
+  admin_authorization BYTEA,          -- a peer's kick, as received
   server_signature_id INT NOT NULL REFERENCES server_signatures(id),
   CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140),
   CONSTRAINT account_removals_signer CHECK (
-    (admin_request_id IS NULL) = (public_key_id IS NOT NULL AND user_signature_id IS NOT NULL))
+    (CASE WHEN public_key_id IS NOT NULL AND user_signature_id IS NOT NULL THEN 1 ELSE 0 END) +
+    (CASE WHEN admin_request_id IS NOT NULL THEN 1 ELSE 0 END) +
+    (CASE WHEN admin_authorization IS NOT NULL THEN 1 ELSE 0 END) = 1)
 );
 ```
 
@@ -77,6 +80,11 @@ once per peer.
 
 A kicked user's devices get `ACCOUNT_REMOVED` like any holder. The auth
 middleware already refuses an account with a removal.
+
+A peer keeps a kick of a remote user for its own members, who may hold
+that user's reeds and get the removal on catch-up. It keeps the signed
+approval exactly as it arrived, in `account_removals.admin_authorization`,
+not as a request of its own: no admin action ever happens on a peer.
 
 ## Holder verification
 

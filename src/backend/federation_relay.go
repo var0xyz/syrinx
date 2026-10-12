@@ -1653,6 +1653,9 @@ func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, remov
 		ServerFingerprint: cert.ServerFingerprint,
 		ServerSignedAt:    unixOrZero(cert.ServerSignedAt),
 	}
+	if cert.Admin != nil {
+		payload.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(cert.Admin)}
+	}
 	for _, serverID := range serverIDs {
 		peer, err := h.services.db.GetServerByID(ctx, serverID)
 		if err != nil || peer == nil {
@@ -1685,7 +1688,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		return
 	}
 	req.UserId = strings.TrimSpace(req.UserId)
-	if req.UserId == "" || req.UserSignature == "" || req.ServerSignature == "" {
+	if req.UserId == "" || (req.UserSignature == "" && req.Admin == nil) || req.ServerSignature == "" {
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
 		writeError(w, http.StatusBadRequest, "user_id, user_signature, and server_signature are required")
 		return
@@ -1704,6 +1707,11 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		log.Error().Err(err).Str("userID", req.UserId).Msg("Failed to upsert remote identity for account removal")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
 		internalServerError(w)
+		return
+	}
+
+	if req.Admin != nil {
+		h.acceptForeignKick(w, r, peerServerID, &req)
 		return
 	}
 
@@ -1756,6 +1764,51 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	}
 
 	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign account removal")
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// acceptForeignKick verifies a peer's kick of one of its users, both admin
+// signatures and the peer's countersignature, then stores and fans it out.
+func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, peerServerID string, req *pb.RelayAccountRemovalNotifyPayload) {
+	log := h.services.log.GetLogger(r.Context())
+	fail := func(status int, msg string, err error) {
+		log.Warn().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg(msg)
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		writeError(w, status, msg)
+	}
+	admin, err := h.verifyForeignAdminAuthorization(r.Context(), peerServerID, req.Admin, adminActionKick, req.UserId)
+	if err != nil {
+		fail(http.StatusBadRequest, "Kick failed verification", err)
+		return
+	}
+	serverSig := ServerSignature{ID: req.ServerFingerprint, Armor: req.ServerSignature, SignedAt: timeFromUnix(req.ServerSignedAt)}
+	if err := h.verifyPeerCountersignature(r.Context(), peerServerID, serverSig, func(serverFP string) []byte {
+		return buildAccountKickServerPayload(peerServerID, req.UserId, admin.ID, admin.RequesterSignature.Armor,
+			admin.Decision.Signature.Armor, serverFP, serverSig.SignedAt)
+	}); err != nil {
+		fail(http.StatusBadRequest, "Kick countersignature failed verification", err)
+		return
+	}
+
+	cert := accountRemovalCert{
+		UserID:            req.UserId,
+		ServerSignature:   req.ServerSignature,
+		ServerFingerprint: req.ServerFingerprint,
+		ServerSignedAt:    serverSig.SignedAt,
+		Admin:             admin,
+	}
+	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
+		log.Error().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Failed to store foreign kick")
+		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		internalServerError(w)
+		return
+	}
+	if h.realtimeRelay != nil {
+		wire := newAccountRemovalWire(peerServerID, cert)
+		h.realtimeRelay.HandleForeignAccountRemoval(req.UserId, &wire)
+	}
+	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign kick")
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
 	w.WriteHeader(http.StatusNoContent)
 }

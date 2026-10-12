@@ -35,6 +35,13 @@ func newAdminFixture(t *testing.T) *adminFixture {
 	t.Helper()
 	db := newTestDatabase(t, InitDB)
 	h := newInviteModeHandlers(t, db)
+	broadcasts := make(chan realtimeBroadcastMessage, 64)
+	h.broadcastChan = broadcasts
+	go func() {
+		for range broadcasts {
+		}
+	}()
+	t.Cleanup(func() { close(broadcasts) })
 	f := &adminFixture{h: h, ds: h.services.db, db: db, srv: h.services.db.GetServerID(),
 		ids: map[string]string{}, keys: map[string]cryptoKeyPair{}}
 	for name, bare := range map[string]string{"root": rootUserID, "a1": "a1", "a2": "a2", "a3": "a3", "u1": "u1", "u2": "u2"} {

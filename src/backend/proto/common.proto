@@ -57,14 +57,16 @@ message ReedRemovalCert {
   ServerSignature server_signature = 5;
 }
 
-// Cryptographic certificate proving an account's removal, signed by
-// both the removed user and their home server.
+// Cryptographic certificate proving an account's removal, signed by the
+// removed user, or for a kick by two admins (admin), and by their home
+// server.
 message AccountRemovalCert {
   string server_id = 1 [json_name = "serverID"];
   string user_id = 2 [json_name = "userID"];
   string note = 3;
   UserSignature user_signature = 4;
   ServerSignature server_signature = 5;
+  optional AdminAuthorization admin = 6;
 }
 
 // A user key's signed revocation: the revoked key's signature and its home

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWRCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZUIgWh5naXRodWIuY29tL2FsdmFyby9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -62,4 +62,73 @@ export type LedgerPage = Message<"syrinx.LedgerPage"> & {
  */
 export const LedgerPageSchema: GenMessage<LedgerPage> = /*@__PURE__*/
   messageDesc(file_admin, 1);
+
+/**
+ * One user in an invite tree. invited_by is empty on the inviter at the
+ * top; depth is 0 for that inviter, 1 for the user the tree is about.
+ *
+ * @generated from message syrinx.InviteTreeNode
+ */
+export type InviteTreeNode = Message<"syrinx.InviteTreeNode"> & {
+  /**
+   * @generated from field: string user_id = 1 [json_name = "userID"];
+   */
+  userId: string;
+
+  /**
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string role = 3;
+   */
+  role: string;
+
+  /**
+   * @generated from field: uint32 depth = 4;
+   */
+  depth: number;
+
+  /**
+   * @generated from field: string invited_by = 5;
+   */
+  invitedBy: string;
+
+  /**
+   * @generated from field: bool suspended = 6;
+   */
+  suspended: boolean;
+
+  /**
+   * @generated from field: bool removed = 7;
+   */
+  removed: boolean;
+};
+
+/**
+ * Describes the message syrinx.InviteTreeNode.
+ * Use `create(InviteTreeNodeSchema)` to create a new message.
+ */
+export const InviteTreeNodeSchema: GenMessage<InviteTreeNode> = /*@__PURE__*/
+  messageDesc(file_admin, 2);
+
+/**
+ * A user's inviter, the user, and everyone below them, in thread order.
+ *
+ * @generated from message syrinx.InviteTree
+ */
+export type InviteTree = Message<"syrinx.InviteTree"> & {
+  /**
+   * @generated from field: repeated syrinx.InviteTreeNode nodes = 1;
+   */
+  nodes: InviteTreeNode[];
+};
+
+/**
+ * Describes the message syrinx.InviteTree.
+ * Use `create(InviteTreeSchema)` to create a new message.
+ */
+export const InviteTreeSchema: GenMessage<InviteTree> = /*@__PURE__*/
+  messageDesc(file_admin, 3);
 

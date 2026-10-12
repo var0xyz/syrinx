@@ -2672,8 +2672,10 @@ type RelayAccountRemovalNotifyPayload struct {
 	ServerSignature   string                 `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	ServerFingerprint string                 `protobuf:"bytes,6,opt,name=server_fingerprint,json=serverFingerprint,proto3" json:"server_fingerprint,omitempty"`
 	ServerSignedAt    uint32                 `protobuf:"varint,7,opt,name=server_signed_at,json=serverSignedAt,proto3" json:"server_signed_at,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Set on a kick, in place of the user's signature.
+	Admin         *AdminAuthorization `protobuf:"bytes,8,opt,name=admin,proto3,oneof" json:"admin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RelayAccountRemovalNotifyPayload) Reset() {
@@ -2753,6 +2755,13 @@ func (x *RelayAccountRemovalNotifyPayload) GetServerSignedAt() uint32 {
 		return x.ServerSignedAt
 	}
 	return 0
+}
+
+func (x *RelayAccountRemovalNotifyPayload) GetAdmin() *AdminAuthorization {
+	if x != nil {
+		return x.Admin
+	}
+	return nil
 }
 
 type RelayUnblockPayload struct {
@@ -3132,7 +3141,7 @@ const file_federation_proto_rawDesc = "" +
 	"\x04cert\x18\x01 \x01(\v2\x1c.syrinx.RelayReedRemovalCertR\x04cert\x12$\n" +
 	"\x0eparent_reed_id\x18\x02 \x01(\tR\fparentReedId\"3\n" +
 	"\x19RelayRealtimeResetPayload\x12\x16\n" +
-	"\x06reason\x18\x01 \x01(\tR\x06reason\"\x9a\x02\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\"\xdb\x02\n" +
 	" RelayAccountRemovalNotifyPayload\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04note\x18\x02 \x01(\tR\x04note\x12%\n" +
@@ -3140,7 +3149,9 @@ const file_federation_proto_rawDesc = "" +
 	"\vuser_key_id\x18\x04 \x01(\tR\tuserKeyId\x12)\n" +
 	"\x10server_signature\x18\x05 \x01(\tR\x0fserverSignature\x12-\n" +
 	"\x12server_fingerprint\x18\x06 \x01(\tR\x11serverFingerprint\x12(\n" +
-	"\x10server_signed_at\x18\a \x01(\rR\x0eserverSignedAt\"V\n" +
+	"\x10server_signed_at\x18\a \x01(\rR\x0eserverSignedAt\x125\n" +
+	"\x05admin\x18\b \x01(\v2\x1a.syrinx.AdminAuthorizationH\x00R\x05admin\x88\x01\x01B\b\n" +
+	"\x06_admin\"V\n" +
 	"\x13RelayUnblockPayload\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12&\n" +
 	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserId\"?\n" +
@@ -3217,8 +3228,9 @@ var file_federation_proto_goTypes = []any{
 	(*ThreadRecord)(nil),                     // 47: syrinx.ThreadRecord
 	(*WSMessage)(nil),                        // 48: syrinx.WSMessage
 	(*UserSearchResult)(nil),                 // 49: syrinx.UserSearchResult
-	(*Vouch)(nil),                            // 50: syrinx.Vouch
-	(*VouchWithdrawal)(nil),                  // 51: syrinx.VouchWithdrawal
+	(*AdminAuthorization)(nil),               // 50: syrinx.AdminAuthorization
+	(*Vouch)(nil),                            // 51: syrinx.Vouch
+	(*VouchWithdrawal)(nil),                  // 52: syrinx.VouchWithdrawal
 }
 var file_federation_proto_depIdxs = []int32{
 	2,  // 0: syrinx.FederationInvitationList.invitations:type_name -> syrinx.FederationInvitation
@@ -3235,13 +3247,14 @@ var file_federation_proto_depIdxs = []int32{
 	36, // 11: syrinx.RelayNewReedPayload.reply:type_name -> syrinx.RelayNewReedReply
 	37, // 12: syrinx.RelayNewReedPayload.echo:type_name -> syrinx.RelayNewReedEcho
 	39, // 13: syrinx.RelayReedRemovalPayload.cert:type_name -> syrinx.RelayReedRemovalCert
-	50, // 14: syrinx.RelayVouchReferencePayload.cert:type_name -> syrinx.Vouch
-	51, // 15: syrinx.RelayVouchWithdrawalPayload.withdrawal:type_name -> syrinx.VouchWithdrawal
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	50, // 14: syrinx.RelayAccountRemovalNotifyPayload.admin:type_name -> syrinx.AdminAuthorization
+	51, // 15: syrinx.RelayVouchReferencePayload.cert:type_name -> syrinx.Vouch
+	52, // 16: syrinx.RelayVouchWithdrawalPayload.withdrawal:type_name -> syrinx.VouchWithdrawal
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_federation_proto_init() }
@@ -3255,6 +3268,7 @@ func file_federation_proto_init() {
 	file_federation_proto_msgTypes[2].OneofWrappers = []any{}
 	file_federation_proto_msgTypes[5].OneofWrappers = []any{}
 	file_federation_proto_msgTypes[7].OneofWrappers = []any{}
+	file_federation_proto_msgTypes[42].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

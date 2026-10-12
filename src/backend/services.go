@@ -6131,6 +6131,10 @@ type accountRemovalCert struct {
 	ServerSignature   string
 	ServerFingerprint string
 	ServerSignedAt    time.Time
+	// On a kick, the admins' request that signs in place of the user.
+	// AdminRequestID is set when the request is this server's own.
+	AdminRequestID string
+	Admin          *adminRequest
 }
 
 // validateAccountNote returns an error if note exceeds maxAccountNoteLen.
@@ -6146,39 +6150,29 @@ func validateAccountNote(note string) error {
 // errRemovalConflict. cert.UserID is bare and is converted internally
 // before touching account_removals.
 func insertAccountRemovalCert(ctx context.Context, db *sql.DB, cert accountRemovalCert, serverID string) error {
-	if err := validateAccountNote(cert.Note); err != nil {
-		return err
-	}
-	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
-	selfIdentity := canonicalID(serverID, cert.UserID)
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := storeAccountRemovalTx(ctx, tx, cert, canonicalID(serverID, cert.UserID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// storeAccountRemovalTx stores a local account's removal in tx and frees
+// its username. A kick is the same, signed by its admin request.
+func storeAccountRemovalTx(ctx context.Context, tx *sql.Tx, cert accountRemovalCert, selfIdentity identityID) error {
+	if err := validateAccountNote(cert.Note); err != nil {
+		return err
+	}
+	cert.ServerSignedAt = cert.ServerSignedAt.UTC().Truncate(time.Second)
 
 	existing, err := loadAccountCertTx(ctx, tx, selfIdentity, true)
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := insertUserSignature(
-			ctx, tx, cert.UserKeyID, cert.UserSignature,
-		)
-		if err != nil {
-			return err
-		}
-		serverSigID, err := insertServerSignature(
-			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
-		)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO account_removals (
-				user_id, note, public_key_id,
-				user_signature_id, server_signature_id
-			) VALUES ($1, $2, $3, $4, $5)
-		`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID); err != nil {
+		if err := insertAccountRemovalRowTx(ctx, tx, cert, selfIdentity); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
 		}
 		// Clear the username so it becomes reclaimable by a future signup.
@@ -6206,24 +6200,67 @@ func insertAccountRemovalCert(ctx context.Context, db *sql.DB, cert accountRemov
 		`, profileServerSigID); err != nil {
 			return fmt.Errorf("delete stale profile server signature: %w", err)
 		}
-
-		if err := bumpActiveUsers(ctx, tx, -1); err != nil {
-			return err
-		}
+		return bumpActiveUsers(ctx, tx, -1)
 	case err != nil:
 		return err
 	default:
-		if existing.Note != cert.Note ||
-			existing.UserSignature != cert.UserSignature ||
-			existing.UserKeyID != cert.UserKeyID ||
-			existing.ServerSignature != cert.ServerSignature ||
-			existing.ServerFingerprint != cert.ServerFingerprint ||
-			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
-			return errRemovalConflict
-		}
+		return sameAccountRemoval(existing, cert)
 	}
+}
 
-	return tx.Commit()
+// insertAccountRemovalRowTx writes the account_removals row, signed by the
+// user or, on a kick, by its admin request: this server's own, or a peer's
+// kept as the signed approval it arrived as.
+func insertAccountRemovalRowTx(ctx context.Context, tx *sql.Tx, cert accountRemovalCert, selfIdentity identityID) error {
+	serverSigID, err := insertServerSignature(ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt)
+	if err != nil {
+		return err
+	}
+	if cert.AdminRequestID != "" {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO account_removals (user_id, note, admin_request_id, server_signature_id)
+			VALUES ($1, $2, $3, $4)
+		`, selfIdentity, cert.Note, cert.AdminRequestID, serverSigID)
+		return err
+	}
+	if cert.Admin != nil {
+		authorization, err := marshalAdminAuthorization(cert.Admin)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO account_removals (user_id, note, admin_authorization, server_signature_id)
+			VALUES ($1, $2, $3, $4)
+		`, selfIdentity, cert.Note, authorization, serverSigID)
+		return err
+	}
+	userSigID, err := insertUserSignature(ctx, tx, cert.UserKeyID, cert.UserSignature)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO account_removals (
+			user_id, note, public_key_id,
+			user_signature_id, server_signature_id
+		) VALUES ($1, $2, $3, $4, $5)
+	`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID)
+	return err
+}
+
+// sameAccountRemoval refuses a cert that differs from the one stored.
+func sameAccountRemoval(existing *accountRemovalCert, cert accountRemovalCert) error {
+	if existing.Note != cert.Note ||
+		existing.UserSignature != cert.UserSignature ||
+		existing.UserKeyID != cert.UserKeyID ||
+		existing.AdminRequestID != cert.AdminRequestID ||
+		(existing.Admin == nil) != (cert.Admin == nil) ||
+		(existing.Admin != nil && existing.Admin.ID != cert.Admin.ID) ||
+		existing.ServerSignature != cert.ServerSignature ||
+		existing.ServerFingerprint != cert.ServerFingerprint ||
+		!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
+		return errRemovalConflict
+	}
+	return nil
 }
 
 // insertForeignAccountRemovalCert stores an account-removal cert for a
@@ -6232,7 +6269,7 @@ func insertAccountRemovalCert(ctx context.Context, db *sql.DB, cert accountRemov
 // form (unlike insertAccountRemovalCert's bare input). Only writes the
 // account_removals row: no username reclaim, no signature cleanup, no
 // active-user count change, since none of those apply to an account
-// this server never owned.
+// this server never owned. A kick's request is stored with it.
 func insertForeignAccountRemovalCert(ctx context.Context, db *sql.DB, cert accountRemovalCert) error {
 	if err := validateAccountNote(cert.Note); err != nil {
 		return err
@@ -6249,36 +6286,14 @@ func insertForeignAccountRemovalCert(ctx context.Context, db *sql.DB, cert accou
 	existing, err := loadAccountCertTx(ctx, tx, selfIdentity, true)
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := insertUserSignature(
-			ctx, tx, cert.UserKeyID, cert.UserSignature,
-		)
-		if err != nil {
-			return err
-		}
-		serverSigID, err := insertServerSignature(
-			ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt,
-		)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO account_removals (
-				user_id, note, public_key_id,
-				user_signature_id, server_signature_id
-			) VALUES ($1, $2, $3, $4, $5)
-		`, selfIdentity, cert.Note, cert.UserKeyID, userSigID, serverSigID); err != nil {
+		if err := insertAccountRemovalRowTx(ctx, tx, cert, selfIdentity); err != nil {
 			return fmt.Errorf("insert foreign account removal: %w", err)
 		}
 	case err != nil:
 		return err
 	default:
-		if existing.Note != cert.Note ||
-			existing.UserSignature != cert.UserSignature ||
-			existing.UserKeyID != cert.UserKeyID ||
-			existing.ServerSignature != cert.ServerSignature ||
-			existing.ServerFingerprint != cert.ServerFingerprint ||
-			!existing.ServerSignedAt.Equal(cert.ServerSignedAt) {
-			return errRemovalConflict
+		if err := sameAccountRemoval(existing, cert); err != nil {
+			return err
 		}
 	}
 
@@ -6318,41 +6333,52 @@ func hasAccountRemoval(ctx context.Context, db *sql.DB, userID, serverID string)
 	return true, nil
 }
 
-func loadAccountCertTx(ctx context.Context, q reedQuerier, selfIdentity identityID, forUpdate bool) (*accountRemovalCert, error) {
+func loadAccountCertTx(ctx context.Context, q adminQuerier, selfIdentity identityID, forUpdate bool) (*accountRemovalCert, error) {
 	query := `
-		SELECT note, public_key_id, user_signature_id, server_signature_id
+		SELECT note, public_key_id, user_signature_id, admin_request_id, admin_authorization, server_signature_id
 		FROM account_removals
 		WHERE user_id = $1`
 	if forUpdate {
 		query += ` FOR UPDATE`
 	}
-	var note, userFP string
-	var userSigID, serverSigID int64
-	err := q.QueryRowContext(ctx, query, selfIdentity).Scan(&note, &userFP, &userSigID, &serverSigID)
+	var note string
+	var userFP, adminRequestID sql.NullString
+	var userSigID sql.NullInt64
+	var serverSigID int64
+	var authorization []byte
+	err := q.QueryRowContext(ctx, query, selfIdentity).Scan(&note, &userFP, &userSigID, &adminRequestID, &authorization, &serverSigID)
 	if err != nil {
 		return nil, err
 	}
-	dbtx, ok := q.(signingDBTX)
-	if !ok {
-		return nil, fmt.Errorf("account removal load: querier is not signingDBTX")
-	}
-	userRow, err := getUserSignatureRow(ctx, dbtx, userSigID)
+	serverRow, err := getServerSignatureRow(ctx, q, serverSigID)
 	if err != nil {
 		return nil, err
 	}
-	serverRow, err := getServerSignatureRow(ctx, dbtx, serverSigID)
-	if err != nil {
-		return nil, err
-	}
-	return &accountRemovalCert{
+	cert := &accountRemovalCert{
 		UserID:            string(selfIdentity),
 		Note:              note,
-		UserKeyID:         userFP,
-		UserSignature:     userRow.Signature,
 		ServerSignature:   serverRow.Signature,
 		ServerFingerprint: serverRow.PrivateKeyID,
 		ServerSignedAt:    serverRow.SignedAt,
-	}, nil
+	}
+	if adminRequestID.Valid {
+		cert.AdminRequestID = adminRequestID.String
+		cert.Admin, err = getAdminRequestQ(ctx, q, adminRequestID.String, false)
+		return cert, err
+	}
+	if authorization != nil {
+		if cert.Admin, err = unmarshalAdminAuthorization(authorization); err != nil {
+			return nil, fmt.Errorf("read kick authorization: %w", err)
+		}
+		return cert, nil
+	}
+	userRow, err := getUserSignatureRow(ctx, q, userSigID.Int64)
+	if err != nil {
+		return nil, err
+	}
+	cert.UserKeyID = userFP.String
+	cert.UserSignature = userRow.Signature
+	return cert, nil
 }
 
 // =========== //

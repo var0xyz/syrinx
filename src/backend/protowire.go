@@ -190,14 +190,21 @@ func pbServerKeyRevocation(r *serverKeyRevocationWire) *pb.ServerKeyRevocation {
 	}
 }
 
+// pbAccountRemoval converts a removal; a kick carries its admin request in
+// place of the user's signature.
 func pbAccountRemoval(a AccountRemoval) *pb.AccountRemovalCert {
-	return &pb.AccountRemovalCert{
+	out := &pb.AccountRemovalCert{
 		ServerId:        a.ServerID,
 		UserId:          a.UserID,
 		Note:            a.Note,
-		UserSignature:   pbUserSignature(a.UserSignature),
 		ServerSignature: pbServerSignature(a.ServerSignature),
 	}
+	if a.Admin != nil {
+		out.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(a.Admin)}
+	} else {
+		out.UserSignature = pbUserSignature(a.UserSignature)
+	}
+	return out
 }
 
 func pbReedRemoval(r ReedRemoval) *pb.ReedRemovalCert {

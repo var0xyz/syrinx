@@ -75,3 +75,16 @@ assert.equal(
 );
 
 console.log('ledger payload parity: ok');
+
+const { buildAccountKickServerPayload } = await import('../src/lib/services/signing.ts');
+
+assert.equal(
+  buildAccountKickServerPayload('home1234', 'u1@home1234', requestID, 'REQSIG', 'DECSIG', 'SERVERKEY01',
+    '2026-10-12T12:00:00Z'),
+  '{"decisionSignature":"DECSIG","requestID":"5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50",' +
+    '"requestSignature":"REQSIG","serverID":"home1234","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-12T12:00:00Z","type":"account-kick","userID":"u1@home1234"}',
+  'kick server payload'
+);
+
+console.log('kick payload parity: ok');

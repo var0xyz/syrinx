@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
+	"google.golang.org/protobuf/proto"
 
 	pb "syrinx/proto"
 )
@@ -115,31 +116,6 @@ const maxAdminReasonChars = 1000
 // adminRequestClockSkew bounds how far a request's signed createdAt may be
 // from the server's clock.
 const adminRequestClockSkew = 5 * time.Minute
-
-// adminRequest is a request as stored. Targets are every signed target,
-// sorted; Dropped are those whose accounts were removed while pending.
-type adminRequest struct {
-	ID                 string
-	Action             string
-	RequesterID        string
-	Reason             string
-	Targets            []string
-	Dropped            []string
-	Body               string
-	CreatedAt          time.Time
-	RequesterSignature UserSignature
-	State              string
-	Decision           *adminDecision
-	ServerSignature    *ServerSignature
-}
-
-// adminDecision is the signed approval, rejection or withdrawal that
-// closed a request.
-type adminDecision struct {
-	Decision  string
-	DeciderID string
-	Signature UserSignature
-}
 
 // remainingTargets are the targets that haven't been dropped.
 func (r *adminRequest) remainingTargets() []string {
@@ -244,6 +220,8 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 		ex = h.suspendExecutor()
 	case adminActionReinstate:
 		ex = h.reinstateExecutor()
+	case adminActionKick:
+		ex = h.kickExecutor()
 	default:
 		return nil
 	}
@@ -1040,6 +1018,7 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if ex != nil {
+			locked.Decision = decision
 			if ex.validate != nil {
 				if err := ex.validate(r.Context(), tx, locked); err != nil {
 					return err
@@ -1125,4 +1104,93 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 		h.pushLedgerEntries(entry)
 	}
 	return err
+}
+
+// adminRequestFromPB reads a request as it travels in a certificate.
+func adminRequestFromPB(msg *pb.AdminRequest) *adminRequest {
+	req := &adminRequest{
+		ID:          msg.GetId(),
+		Action:      msg.GetAction(),
+		RequesterID: msg.GetRequesterId(),
+		Reason:      msg.GetReason(),
+		Targets:     slices.Clone(msg.GetTargets()),
+		Dropped:     slices.Clone(msg.GetDroppedTargets()),
+		Body:        msg.GetBody(),
+		CreatedAt:   timeFromUnix(msg.GetCreatedAt()),
+		RequesterSignature: UserSignature{
+			ID:    msg.GetRequesterSignature().GetId(),
+			Armor: msg.GetRequesterSignature().GetArmor(),
+		},
+		State: msg.GetState(),
+	}
+	if d := msg.GetDecision(); d != nil {
+		req.Decision = &adminDecision{
+			Decision:  d.GetDecision(),
+			DeciderID: d.GetDeciderId(),
+			Signature: UserSignature{ID: d.GetSignature().GetId(), Armor: d.GetSignature().GetArmor()},
+		}
+	}
+	if sig := msg.GetServerSignature(); sig != nil {
+		req.ServerSignature = &ServerSignature{ID: sig.GetId(), Armor: sig.GetArmor(), SignedAt: timeFromUnix(sig.GetSignedAt())}
+	}
+	return req
+}
+
+// verifyForeignAdminAuthorization checks that two of peerServerID's admins
+// approved action on target: both signatures, by keys of theirs. Their
+// roles and permissions are the peer's to have checked.
+func (h *Handlers) verifyForeignAdminAuthorization(ctx context.Context, peerServerID string, auth *pb.AdminAuthorization, action, target string) (*adminRequest, error) {
+	if auth.GetRequest() == nil {
+		return nil, fmt.Errorf("no admin request")
+	}
+	req := adminRequestFromPB(auth.GetRequest())
+	if req.Action != action || req.State != adminStateExecuted || req.Decision == nil ||
+		req.Decision.Decision != adminDecisionApprove || req.ServerSignature == nil {
+		return nil, fmt.Errorf("not an approved %s request", action)
+	}
+	if !slices.Contains(req.Targets, target) {
+		return nil, fmt.Errorf("%s isn't a target of the request", target)
+	}
+	if req.Decision.DeciderID == req.RequesterID && !isRootIdentity(req.RequesterID, peerServerID) {
+		return nil, fmt.Errorf("the requester approved their own request")
+	}
+	signers := []struct {
+		userID string
+		sig    UserSignature
+		bytes  []byte
+	}{
+		{req.RequesterID, req.RequesterSignature, req.payload()},
+		{req.Decision.DeciderID, req.Decision.Signature, buildAdminDecisionPayload(req.ID, req.Decision.Decision,
+			req.Decision.DeciderID, req.Decision.Signature.ID, req.RequesterSignature.Armor)},
+	}
+	for _, s := range signers {
+		if !requesterKeyBelongsTo(s.sig.ID, s.userID, peerServerID) {
+			return nil, fmt.Errorf("key %s isn't %s's", s.sig.ID, s.userID)
+		}
+		key, err := h.resolvePublicKey(ctx, s.sig.ID)
+		if err != nil || key == nil {
+			return nil, fmt.Errorf("resolve %s's key: %v", s.userID, err)
+		}
+		if err := h.services.crypto.verifySignature(string(s.bytes), s.sig.Armor, key.Armor); err != nil {
+			return nil, fmt.Errorf("%s's signature: %w", s.userID, err)
+		}
+	}
+	return req, nil
+}
+
+// marshalAdminAuthorization is a peer's approved request as it's kept: the
+// signed authorization it arrived as.
+func marshalAdminAuthorization(req *adminRequest) ([]byte, error) {
+	return proto.Marshal(&pb.AdminAuthorization{Request: pbAdminRequest(req)})
+}
+
+func unmarshalAdminAuthorization(b []byte) (*adminRequest, error) {
+	var auth pb.AdminAuthorization
+	if err := proto.Unmarshal(b, &auth); err != nil {
+		return nil, err
+	}
+	if auth.GetRequest() == nil {
+		return nil, fmt.Errorf("no admin request")
+	}
+	return adminRequestFromPB(auth.GetRequest()), nil
 }

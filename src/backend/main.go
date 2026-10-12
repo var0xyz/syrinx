@@ -349,6 +349,8 @@ func main() {
 	api.HandleFunc("/admin/requests/{id}", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/admin/requests/{id}/decision", h.DecideAdminRequest).Methods("POST")
 	api.HandleFunc("/admin/requests/{id}/decision", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/users/{userID}/invite-tree", h.GetInviteTree).Methods("GET")
+	api.HandleFunc("/admin/users/{userID}/invite-tree", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/ledger", h.GetLedger).Methods("GET")
 	api.HandleFunc("/ledger", h.noop).Methods("OPTIONS")

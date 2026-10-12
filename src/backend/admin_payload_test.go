@@ -81,3 +81,15 @@ func TestLedgerEntryPayloadCanonicalShape(t *testing.T) {
 		t.Errorf("chained ledger entry payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestAccountKickServerPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	got := buildAccountKickServerPayload("home1234", "u1@home1234", "5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50",
+		"REQSIG", "DECSIG", "SERVERKEY01", signedAt)
+	want := `{"decisionSignature":"DECSIG","requestID":"5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50",` +
+		`"requestSignature":"REQSIG","serverID":"home1234","serverKeyFingerprint":"SERVERKEY01",` +
+		`"signedAt":"2026-10-12T12:00:00Z","type":"account-kick","userID":"u1@home1234"}`
+	if string(got) != want {
+		t.Errorf("kick server payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
