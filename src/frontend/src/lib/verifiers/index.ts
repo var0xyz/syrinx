@@ -43,6 +43,9 @@ import {
   buildVouchWithdrawalUserPayload,
   buildVouchWithdrawalServerPayload,
   buildLedgerEntryPayload,
+  buildAdminRequestPayload,
+  buildAdminDecisionPayload,
+  buildAdminRequestServerPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -1101,6 +1104,90 @@ export async function verifyLedgerRecord(record: LedgerRecord): Promise<boolean>
   const result = await verify(record.serverSignature, payload);
   if (result.ok === false) {
     console.error('[verifyLedgerRecord] server signature failed', record.id, result);
+    return false;
+  }
+  return true;
+}
+
+/** An admin's signature over payload, by keyID. With cachedOnly a key not
+ * already held is skipped rather than fetched: true, unchecked. */
+async function verifyAdminSignature(
+  userID: string,
+  signature: api.UserSignature | undefined,
+  payload: string,
+  cachedOnly: boolean
+): Promise<boolean> {
+  if (!signature?.id || !signature.armor) return false;
+  const owner = parseKeyId(signature.id);
+  if (!owner || `${owner.userId}@${owner.serverId}` !== userID) return false;
+  const key = cachedOnly
+    ? await dbService.get<api.PublicKey>('publicKeys', signature.id)
+    : await resolvePublicKey(userID, signature.id);
+  if (!key?.armor) return cachedOnly;
+  return cryptoService.verifySignature(payload, signature.armor, key.armor);
+}
+
+/** An approved request of action: both admins' signatures and their home
+ * server's countersignature. Roles and permissions are the server's to
+ * check. cachedKeysOnly is for a suspended client, which can't fetch keys. */
+export async function verifyAdminAuthorization(
+  auth: api.AdminAuthorization | undefined,
+  action: string,
+  opts: { cachedKeysOnly?: boolean } = {}
+): Promise<boolean> {
+  const req = auth?.request;
+  const decision = req?.decision;
+  if (!req || req.action !== action || req.state !== 'executed' || decision?.decision !== 'approve' || !req.serverSignature) {
+    console.error('[verifyAdminAuthorization] not an approved request of', action);
+    return false;
+  }
+  const serverID = parseCanonicalId(req.requesterId)?.[1];
+  const { fingerprint, serverID: signerServerID } = splitServerSignatureId(req.serverSignature.id);
+  if (!serverID || signerServerID !== serverID) {
+    console.error('[verifyAdminAuthorization] not countersigned by the requester’s server');
+    return false;
+  }
+  if (decision.deciderId === req.requesterId && req.requesterId !== `1@${serverID}`) {
+    console.error('[verifyAdminAuthorization] requester approved their own request');
+    return false;
+  }
+  const requestPayload = buildAdminRequestPayload(
+    req.id,
+    req.action,
+    req.requesterId,
+    req.requesterSignature?.id ?? '',
+    req.reason,
+    [...req.targets].sort(),
+    req.body,
+    signedAtHeader(req.createdAt)
+  );
+  const decisionPayload = buildAdminDecisionPayload(
+    req.id,
+    decision.decision,
+    decision.deciderId,
+    decision.signature?.id ?? '',
+    req.requesterSignature?.armor ?? ''
+  );
+  const cachedOnly = !!opts.cachedKeysOnly;
+  if (
+    !(await verifyAdminSignature(req.requesterId, req.requesterSignature, requestPayload, cachedOnly)) ||
+    !(await verifyAdminSignature(decision.deciderId, decision.signature, decisionPayload, cachedOnly))
+  ) {
+    console.error('[verifyAdminAuthorization] admin signature failed', req.id);
+    return false;
+  }
+  const serverPayload = buildAdminRequestServerPayload(
+    req.id,
+    req.state,
+    req.requesterSignature?.armor ?? '',
+    decision.signature?.armor ?? '',
+    serverID,
+    fingerprint,
+    signedAtHeader(req.serverSignature.signedAt)
+  );
+  const result = await verify(req.serverSignature, serverPayload);
+  if (result.ok === false) {
+    console.error('[verifyAdminAuthorization] server signature failed', req.id, result);
     return false;
   }
   return true;

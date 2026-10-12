@@ -80,7 +80,8 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL
+			invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL,
+			suspended_by VARCHAR(255)
 		)`,
 		`CREATE TABLE public_keys (
 			id VARCHAR(255) PRIMARY KEY,

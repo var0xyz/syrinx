@@ -796,8 +796,19 @@ func (cm *realtimeConnectionManager) unregisterClient(client *realtimeClient) bo
 	return stillOnline
 }
 
-// DisconnectUser closes every active WebSocket for userID (e.g. after device rebind).
+// DisconnectUser closes every active WebSocket for userID, here and on
+// every other replica (e.g. after a device rebind or a suspension).
 func (cm *realtimeConnectionManager) DisconnectUser(userID string) {
+	cm.disconnectLocal(userID)
+	if cm.bus != nil {
+		if err := cm.bus.PublishDisconnect(userID); err != nil {
+			log.Error().Err(err).Str("userID", userID).Msg("Failed to publish disconnect")
+		}
+	}
+}
+
+// disconnectLocal closes userID's sockets held by this replica.
+func (cm *realtimeConnectionManager) disconnectLocal(userID string) {
 	cm.mutex.Lock()
 	userConns, exists := cm.userConnections[userID]
 	if !exists || len(userConns) == 0 {
@@ -1435,7 +1446,7 @@ func (rs *realtimeService) HandleForeignKeyRevocation(rev KeyRevocation) {
 	rs.fanoutKeyRevocation(rev.ID, &rev)
 }
 
-// DisconnectUser closes all of userID's WebSocket connections on this
+// DisconnectUser closes all of userID's WebSocket connections, on every
 // replica. userID is the "userID@serverID" form the registry is keyed by.
 func (rs *realtimeService) DisconnectUser(userID string) {
 	rs.connManager.DisconnectUser(userID)
@@ -2130,6 +2141,11 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	log.Info().
 		Str("userID", userID).
 		Msg("WebSocket authentication successful")
+
+	if refuseIfSuspended(r.Context(), w, rs.db, userID) {
+		log.Info().Str("userID", userID).Msg("WebSocket rejected: suspended")
+		return
+	}
 
 	deviceID := r.URL.Query().Get("deviceId")
 	if rs.deviceMismatch(userID, deviceID) {

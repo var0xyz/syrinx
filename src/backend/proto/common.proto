@@ -30,6 +30,7 @@ message Error {
     ReedRemovalCert reed_removal = 3;
     ThreadRemoval thread_removal = 4;
     BlockCert block = 5;
+    AdminAuthorization suspension = 6;
   }
 }
 

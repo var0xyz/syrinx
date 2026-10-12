@@ -219,7 +219,7 @@ func main() {
 
 	var rtBus *realtimeBus
 	if cfg.RealtimeBusEnabled {
-		rtBus, err = newRealtimeBus(dbURL, db, rtService.DeliverLocal)
+		rtBus, err = newRealtimeBus(dbURL, db, rtService.DeliverLocal, rtService.connManager.disconnectLocal)
 		if err != nil {
 			log.Fatal().Err(err).Msg("[ERR] Failed to start realtime bus")
 		}
