@@ -267,6 +267,51 @@ func (x *InviteTree) GetNodes() []*InviteTreeNode {
 	return nil
 }
 
+// The usernames root has reserved, lowercased.
+type ReservedUsernameList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Usernames     []string               `protobuf:"bytes,1,rep,name=usernames,proto3" json:"usernames,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReservedUsernameList) Reset() {
+	*x = ReservedUsernameList{}
+	mi := &file_admin_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReservedUsernameList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReservedUsernameList) ProtoMessage() {}
+
+func (x *ReservedUsernameList) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReservedUsernameList.ProtoReflect.Descriptor instead.
+func (*ReservedUsernameList) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ReservedUsernameList) GetUsernames() []string {
+	if x != nil {
+		return x.Usernames
+	}
+	return nil
+}
+
 var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
@@ -292,7 +337,9 @@ const file_admin_proto_rawDesc = "" +
 	"\aremoved\x18\a \x01(\bR\aremoved\":\n" +
 	"\n" +
 	"InviteTree\x12,\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodesB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
+	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"4\n" +
+	"\x14ReservedUsernameList\x12\x1c\n" +
+	"\tusernames\x18\x01 \x03(\tR\tusernamesB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once
@@ -306,19 +353,20 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_admin_proto_goTypes = []any{
-	(*AdminRequestList)(nil), // 0: syrinx.AdminRequestList
-	(*LedgerPage)(nil),       // 1: syrinx.LedgerPage
-	(*InviteTreeNode)(nil),   // 2: syrinx.InviteTreeNode
-	(*InviteTree)(nil),       // 3: syrinx.InviteTree
-	(*AdminRequest)(nil),     // 4: syrinx.AdminRequest
-	(*LedgerEntry)(nil),      // 5: syrinx.LedgerEntry
+	(*AdminRequestList)(nil),     // 0: syrinx.AdminRequestList
+	(*LedgerPage)(nil),           // 1: syrinx.LedgerPage
+	(*InviteTreeNode)(nil),       // 2: syrinx.InviteTreeNode
+	(*InviteTree)(nil),           // 3: syrinx.InviteTree
+	(*ReservedUsernameList)(nil), // 4: syrinx.ReservedUsernameList
+	(*AdminRequest)(nil),         // 5: syrinx.AdminRequest
+	(*LedgerEntry)(nil),          // 6: syrinx.LedgerEntry
 }
 var file_admin_proto_depIdxs = []int32{
-	4, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
-	5, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
-	5, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
+	5, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
+	6, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
+	6, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
 	2, // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
 	4, // [4:4] is the sub-list for method output_type
 	4, // [4:4] is the sub-list for method input_type
@@ -340,7 +388,7 @@ func file_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

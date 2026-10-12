@@ -351,6 +351,11 @@ func main() {
 	api.HandleFunc("/admin/requests/{id}/decision", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/admin/users/{userID}/invite-tree", h.GetInviteTree).Methods("GET")
 	api.HandleFunc("/admin/users/{userID}/invite-tree", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/reserved-usernames", h.ListReservedUsernames).Methods("GET")
+	api.HandleFunc("/admin/reserved-usernames", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/reserved-usernames/{username}", h.ReserveUsername).Methods("PUT")
+	api.HandleFunc("/admin/reserved-usernames/{username}", h.ReleaseUsername).Methods("DELETE")
+	api.HandleFunc("/admin/reserved-usernames/{username}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/ledger", h.GetLedger).Methods("GET")
 	api.HandleFunc("/ledger", h.noop).Methods("OPTIONS")

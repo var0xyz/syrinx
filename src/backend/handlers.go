@@ -400,7 +400,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	exists, err := h.services.db.UsernameExists(r.Context(), username, "")
+	exists, err := h.services.db.UsernameExists(r.Context(), username, string(canonicalID(h.services.db.GetServerID(), userID)))
 	if err != nil {
 		log.Error().
 			Str("username", username).
