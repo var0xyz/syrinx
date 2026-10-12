@@ -80,6 +80,31 @@ type ServerSignature struct {
 	SignedAt time.Time `json:"timestamp"`
 }
 
+// adminRequest is a request as stored. Targets are every signed target,
+// sorted; Dropped are those whose accounts were removed while pending.
+type adminRequest struct {
+	ID                 string
+	Action             string
+	RequesterID        string
+	Reason             string
+	Targets            []string
+	Dropped            []string
+	Body               string
+	CreatedAt          time.Time
+	RequesterSignature UserSignature
+	State              string
+	Decision           *adminDecision
+	ServerSignature    *ServerSignature
+}
+
+// adminDecision is the signed approval, rejection or withdrawal that
+// closed a request.
+type adminDecision struct {
+	Decision  string
+	DeciderID string
+	Signature UserSignature
+}
+
 // Key is the wire shape of a public key — a local user's or this server's
 // own (peer servers' keys are never stored; foreign ids proxy live instead).
 // Revoked is computed on read; Predecessor is the replaced key's id (rotation only).
@@ -144,6 +169,7 @@ type AccountRemoval struct {
 	Note            string          `json:"note"`
 	UserSignature   UserSignature   `json:"userSignature"`
 	ServerSignature ServerSignature `json:"serverSignature"`
+	Admin           *adminRequest   `json:"-"`
 }
 
 // LikeCert is both the stored and wire shape of a signed reed-like
@@ -600,7 +626,8 @@ func InitDB(db *sql.DB) error {
 
 	// Signed account-removal certificates. One cert per user; public keys
 	// remain. Signed by the user (public_key_id + user_signature_id) or, for
-	// a kick, by an admin request. note ≤140 enforced by CHECK + API.
+	// a kick, by two admins: this server's own request, or a peer's signed
+	// approval as received (admin_authorization). note ≤140, CHECK + API.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -608,11 +635,14 @@ func InitDB(db *sql.DB) error {
 		public_key_id VARCHAR(255) REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT REFERENCES user_signatures(id),
 		admin_request_id VARCHAR(255) REFERENCES admin_requests(id),
+		admin_authorization BYTEA,
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
 		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140),
 		CONSTRAINT account_removals_signer CHECK (
-			(admin_request_id IS NULL) = (public_key_id IS NOT NULL AND user_signature_id IS NOT NULL))
+			(CASE WHEN public_key_id IS NOT NULL AND user_signature_id IS NOT NULL THEN 1 ELSE 0 END) +
+			(CASE WHEN admin_request_id IS NOT NULL THEN 1 ELSE 0 END) +
+			(CASE WHEN admin_authorization IS NOT NULL THEN 1 ELSE 0 END) = 1)
 	);`
 
 	// Encrypted server->user mailbox messages. No plaintext columns — the

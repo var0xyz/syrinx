@@ -309,6 +309,8 @@ message RelayAccountRemovalNotifyPayload {
   string server_signature = 5;
   string server_fingerprint = 6;
   uint32 server_signed_at = 7;
+  // Set on a kick, in place of the user's signature.
+  optional AdminAuthorization admin = 8;
 }
 
 message RelayUnblockPayload {

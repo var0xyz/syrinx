@@ -658,3 +658,30 @@ func buildLedgerEntryPayload(
 		"signedAt":             signedTime(signedAt),
 	})
 }
+
+// identityTypeAccountKick is the `type` of a kick's server signature, so a
+// self-deletion's can't stand in for one.
+const identityTypeAccountKick = "account-kick"
+
+// buildAccountKickServerPayload returns the bytes the server countersigns
+// for a kick, binding the two admins' signatures.
+func buildAccountKickServerPayload(
+	serverID,
+	userID,
+	requestID,
+	requestSignature,
+	decisionSignature,
+	serverKeyFingerprint string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeAccountKick,
+		"serverID":             serverID,
+		"userID":               userID,
+		"requestID":            requestID,
+		"requestSignature":     requestSignature,
+		"decisionSignature":    decisionSignature,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             signedTime(signedAt),
+	})
+}

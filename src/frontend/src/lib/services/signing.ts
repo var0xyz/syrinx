@@ -501,3 +501,25 @@ export function buildLedgerEntryPayload(
     signedAt
   });
 }
+
+/** Mirror of buildAccountKickServerPayload in identity.go. */
+export function buildAccountKickServerPayload(
+  serverID: string,
+  userID: string,
+  requestID: string,
+  requestSignature: string,
+  decisionSignature: string,
+  serverKeyFingerprint: string,
+  signedAt: string
+): string {
+  return canonicalJSON({
+    type: 'account-kick',
+    serverID,
+    userID,
+    requestID,
+    requestSignature,
+    decisionSignature,
+    serverKeyFingerprint,
+    signedAt
+  });
+}

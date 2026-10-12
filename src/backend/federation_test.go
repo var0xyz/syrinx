@@ -139,6 +139,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			note VARCHAR(140) NOT NULL DEFAULT '',
 			public_key_id VARCHAR(255) NOT NULL DEFAULT '',
 			user_signature_id INT,
+			admin_request_id VARCHAR(255),
+			admin_authorization BYTEA,
 			server_signature_id INT
 		)`,
 		// created_by/reviewed_by FK identities(id) now — ListFederationInvitations

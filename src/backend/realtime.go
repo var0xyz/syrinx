@@ -43,6 +43,7 @@ type accountRemovalWire struct {
 	Note            string          `json:"note"`
 	UserSignature   UserSignature   `json:"userSignature"`
 	ServerSignature ServerSignature `json:"serverSignature"`
+	Admin           *adminRequest   `json:"-"`
 }
 
 // pbUserSignature/pbServerSignature convert the JSON signature blocks
@@ -67,13 +68,7 @@ func pbReedRemovalCert(w reedRemovalWire) *pb.ReedRemovalCert {
 }
 
 func pbAccountRemovalCert(w accountRemovalWire) *pb.AccountRemovalCert {
-	return &pb.AccountRemovalCert{
-		ServerId:        w.ServerID,
-		UserId:          w.UserID,
-		Note:            w.Note,
-		UserSignature:   pbUserSignature(w.UserSignature),
-		ServerSignature: pbServerSignature(w.ServerSignature),
-	}
+	return pbAccountRemoval(AccountRemoval(w))
 }
 
 func pbRipple(r RippleWire) *pb.Ripple {
@@ -132,6 +127,7 @@ func newAccountRemovalWire(serverID string, cert accountRemovalCert) accountRemo
 			Armor:    cert.ServerSignature,
 			SignedAt: cert.ServerSignedAt.UTC(),
 		},
+		Admin: cert.Admin,
 	}
 }
 

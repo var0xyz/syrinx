@@ -463,8 +463,9 @@ func (x *ReedRemovalCert) GetServerSignature() *ServerSignature {
 	return nil
 }
 
-// Cryptographic certificate proving an account's removal, signed by
-// both the removed user and their home server.
+// Cryptographic certificate proving an account's removal, signed by the
+// removed user, or for a kick by two admins (admin), and by their home
+// server.
 type AccountRemovalCert struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ServerId        string                 `protobuf:"bytes,1,opt,name=server_id,json=serverID,proto3" json:"server_id,omitempty"`
@@ -472,6 +473,7 @@ type AccountRemovalCert struct {
 	Note            string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
 	UserSignature   *UserSignature         `protobuf:"bytes,4,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	Admin           *AdminAuthorization    `protobuf:"bytes,6,opt,name=admin,proto3,oneof" json:"admin,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -537,6 +539,13 @@ func (x *AccountRemovalCert) GetUserSignature() *UserSignature {
 func (x *AccountRemovalCert) GetServerSignature() *ServerSignature {
 	if x != nil {
 		return x.ServerSignature
+	}
+	return nil
+}
+
+func (x *AccountRemovalCert) GetAdmin() *AdminAuthorization {
+	if x != nil {
+		return x.Admin
 	}
 	return nil
 }
@@ -1295,13 +1304,15 @@ const file_common_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x17\n" +
 	"\areed_id\x18\x03 \x01(\tR\x06reedID\x12<\n" +
 	"\x0euser_signature\x18\x04 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xe0\x01\n" +
+	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xa1\x02\n" +
 	"\x12AccountRemovalCert\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverID\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x12\n" +
 	"\x04note\x18\x03 \x01(\tR\x04note\x12<\n" +
 	"\x0euser_signature\x18\x04 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xd5\x02\n" +
+	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x125\n" +
+	"\x05admin\x18\x06 \x01(\v2\x1a.syrinx.AdminAuthorizationH\x00R\x05admin\x88\x01\x01B\b\n" +
+	"\x06_admin\"\xd5\x02\n" +
 	"\x11KeyRevocationCert\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x16\n" +
@@ -1411,27 +1422,28 @@ var file_common_proto_depIdxs = []int32{
 	1,  // 8: syrinx.ReedRemovalCert.server_signature:type_name -> syrinx.ServerSignature
 	0,  // 9: syrinx.AccountRemovalCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 10: syrinx.AccountRemovalCert.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 11: syrinx.KeyRevocationCert.user_signature:type_name -> syrinx.UserSignature
-	1,  // 12: syrinx.KeyRevocationCert.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 13: syrinx.ThreadRecord.user_signature:type_name -> syrinx.UserSignature
-	1,  // 14: syrinx.ThreadRecord.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 15: syrinx.ThreadRemovalCert.user_signature:type_name -> syrinx.UserSignature
-	1,  // 16: syrinx.ThreadRemovalCert.server_signature:type_name -> syrinx.ServerSignature
-	8,  // 17: syrinx.ThreadRemoval.cert:type_name -> syrinx.ThreadRemovalCert
-	7,  // 18: syrinx.ThreadRemoval.record:type_name -> syrinx.ThreadRecord
-	0,  // 19: syrinx.BlockCert.user_signature:type_name -> syrinx.UserSignature
-	1,  // 20: syrinx.BlockCert.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 21: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
-	12, // 22: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
-	1,  // 23: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 24: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
-	11, // 25: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
-	1,  // 26: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	13, // 11: syrinx.AccountRemovalCert.admin:type_name -> syrinx.AdminAuthorization
+	0,  // 12: syrinx.KeyRevocationCert.user_signature:type_name -> syrinx.UserSignature
+	1,  // 13: syrinx.KeyRevocationCert.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 14: syrinx.ThreadRecord.user_signature:type_name -> syrinx.UserSignature
+	1,  // 15: syrinx.ThreadRecord.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 16: syrinx.ThreadRemovalCert.user_signature:type_name -> syrinx.UserSignature
+	1,  // 17: syrinx.ThreadRemovalCert.server_signature:type_name -> syrinx.ServerSignature
+	8,  // 18: syrinx.ThreadRemoval.cert:type_name -> syrinx.ThreadRemovalCert
+	7,  // 19: syrinx.ThreadRemoval.record:type_name -> syrinx.ThreadRecord
+	0,  // 20: syrinx.BlockCert.user_signature:type_name -> syrinx.UserSignature
+	1,  // 21: syrinx.BlockCert.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 22: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
+	12, // 23: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
+	1,  // 24: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 25: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
+	11, // 26: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
+	1,  // 27: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -1447,6 +1459,7 @@ func file_common_proto_init() {
 		(*Error_Suspension)(nil),
 	}
 	file_common_proto_msgTypes[3].OneofWrappers = []any{}
+	file_common_proto_msgTypes[5].OneofWrappers = []any{}
 	file_common_proto_msgTypes[6].OneofWrappers = []any{}
 	file_common_proto_msgTypes[11].OneofWrappers = []any{}
 	file_common_proto_msgTypes[14].OneofWrappers = []any{}

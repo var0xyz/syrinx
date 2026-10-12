@@ -37,8 +37,8 @@ when schema changes.
 | Step  | Status                   |
 | ----- | ------------------------ |
 | 00    | Proposed (design locked) |
-| 01–03 | Implemented              |
-| 04–10 | Proposed                 |
+| 01–04 | Implemented              |
+| 05–10 | Proposed                 |
 
 ## Locked decisions
 

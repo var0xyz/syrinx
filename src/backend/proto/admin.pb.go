@@ -128,6 +128,145 @@ func (x *LedgerPage) GetTail() []*LedgerEntry {
 	return nil
 }
 
+// One user in an invite tree. invited_by is empty on the inviter at the
+// top; depth is 0 for that inviter, 1 for the user the tree is about.
+type InviteTreeNode struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Role          string                 `protobuf:"bytes,3,opt,name=role,proto3" json:"role,omitempty"`
+	Depth         uint32                 `protobuf:"varint,4,opt,name=depth,proto3" json:"depth,omitempty"`
+	InvitedBy     string                 `protobuf:"bytes,5,opt,name=invited_by,json=invitedBy,proto3" json:"invited_by,omitempty"`
+	Suspended     bool                   `protobuf:"varint,6,opt,name=suspended,proto3" json:"suspended,omitempty"`
+	Removed       bool                   `protobuf:"varint,7,opt,name=removed,proto3" json:"removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InviteTreeNode) Reset() {
+	*x = InviteTreeNode{}
+	mi := &file_admin_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InviteTreeNode) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InviteTreeNode) ProtoMessage() {}
+
+func (x *InviteTreeNode) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InviteTreeNode.ProtoReflect.Descriptor instead.
+func (*InviteTreeNode) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *InviteTreeNode) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *InviteTreeNode) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *InviteTreeNode) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *InviteTreeNode) GetDepth() uint32 {
+	if x != nil {
+		return x.Depth
+	}
+	return 0
+}
+
+func (x *InviteTreeNode) GetInvitedBy() string {
+	if x != nil {
+		return x.InvitedBy
+	}
+	return ""
+}
+
+func (x *InviteTreeNode) GetSuspended() bool {
+	if x != nil {
+		return x.Suspended
+	}
+	return false
+}
+
+func (x *InviteTreeNode) GetRemoved() bool {
+	if x != nil {
+		return x.Removed
+	}
+	return false
+}
+
+// A user's inviter, the user, and everyone below them, in thread order.
+type InviteTree struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Nodes         []*InviteTreeNode      `protobuf:"bytes,1,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InviteTree) Reset() {
+	*x = InviteTree{}
+	mi := &file_admin_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InviteTree) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InviteTree) ProtoMessage() {}
+
+func (x *InviteTree) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InviteTree.ProtoReflect.Descriptor instead.
+func (*InviteTree) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *InviteTree) GetNodes() []*InviteTreeNode {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
 var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
@@ -141,7 +280,19 @@ const file_admin_proto_rawDesc = "" +
 	"LedgerPage\x12,\n" +
 	"\x04head\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryH\x00R\x04head\x88\x01\x01\x12'\n" +
 	"\x04tail\x18\x02 \x03(\v2\x13.syrinx.LedgerEntryR\x04tailB\a\n" +
-	"\x05_headB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
+	"\x05_head\"\xc6\x01\n" +
+	"\x0eInviteTreeNode\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
+	"\x04role\x18\x03 \x01(\tR\x04role\x12\x14\n" +
+	"\x05depth\x18\x04 \x01(\rR\x05depth\x12\x1d\n" +
+	"\n" +
+	"invited_by\x18\x05 \x01(\tR\tinvitedBy\x12\x1c\n" +
+	"\tsuspended\x18\x06 \x01(\bR\tsuspended\x12\x18\n" +
+	"\aremoved\x18\a \x01(\bR\aremoved\":\n" +
+	"\n" +
+	"InviteTree\x12,\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodesB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once
@@ -155,22 +306,25 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_admin_proto_goTypes = []any{
 	(*AdminRequestList)(nil), // 0: syrinx.AdminRequestList
 	(*LedgerPage)(nil),       // 1: syrinx.LedgerPage
-	(*AdminRequest)(nil),     // 2: syrinx.AdminRequest
-	(*LedgerEntry)(nil),      // 3: syrinx.LedgerEntry
+	(*InviteTreeNode)(nil),   // 2: syrinx.InviteTreeNode
+	(*InviteTree)(nil),       // 3: syrinx.InviteTree
+	(*AdminRequest)(nil),     // 4: syrinx.AdminRequest
+	(*LedgerEntry)(nil),      // 5: syrinx.LedgerEntry
 }
 var file_admin_proto_depIdxs = []int32{
-	2, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
-	3, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
-	3, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	4, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
+	5, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
+	5, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
+	2, // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_admin_proto_init() }
@@ -186,7 +340,7 @@ func file_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

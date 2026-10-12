@@ -18,3 +18,20 @@ message LedgerPage {
   optional LedgerEntry head = 1;
   repeated LedgerEntry tail = 2;
 }
+
+// One user in an invite tree. invited_by is empty on the inviter at the
+// top; depth is 0 for that inviter, 1 for the user the tree is about.
+message InviteTreeNode {
+  string user_id = 1 [json_name = "userID"];
+  string username = 2;
+  string role = 3;
+  uint32 depth = 4;
+  string invited_by = 5 [json_name = "invitedBy"];
+  bool suspended = 6;
+  bool removed = 7;
+}
+
+// A user's inviter, the user, and everyone below them, in thread order.
+message InviteTree {
+  repeated InviteTreeNode nodes = 1;
+}

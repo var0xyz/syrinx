@@ -1282,11 +1282,24 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	noteHas := strings.TrimSpace(note) != ""
 	h.metrics.UserDeleted(r.Context(), userID, noteHas)
 
-	if err := h.services.db.DeleteMentionsByAuthor(r.Context(), userID); err != nil {
+	h.afterAccountRemoval(r.Context(), userID, cert)
+
+	log.Info().Str("userID", userID).Msg("Account removal accepted")
+	writeResponse(w, http.StatusOK, pbAccountRemoval(h.accountRemovalWire(&cert)))
+}
+
+// afterAccountRemoval runs a stored removal's fan-out: local indexes,
+// connected clients, the peers holding the account's content, and the
+// admin requests it was a target of.
+func (h *Handlers) afterAccountRemoval(ctx context.Context, userID string, cert accountRemovalCert) {
+	log := h.services.log.GetLogger(ctx)
+	serverID := h.services.db.GetServerID()
+
+	if err := h.services.db.DeleteMentionsByAuthor(ctx, userID); err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error clearing mention index for removed account")
 	}
 
-	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(r.Context(), userID)
+	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(ctx, userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error clearing echo index for removed account")
 	} else {
@@ -1299,7 +1312,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	threadTargets, err := h.services.db.ReplyCountNotifyTargetsForAuthor(r.Context(), userID)
+	threadTargets, err := h.services.db.ReplyCountNotifyTargetsForAuthor(ctx, userID)
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error resolving reply count targets for removed account")
 	} else {
@@ -1322,9 +1335,6 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 	go h.notifyForeignAccountRemovalToPeers(context.Background(), userID, cert)
 	go h.dropFromAdminRequests(context.Background(), userID)
-
-	log.Info().Str("userID", userID).Msg("Account removal accepted")
-	writeResponse(w, http.StatusOK, pbAccountRemoval(h.accountRemovalWire(&cert)))
 }
 
 func (h *Handlers) accountRemovalWire(cert *accountRemovalCert) AccountRemoval {
@@ -1342,6 +1352,7 @@ func (h *Handlers) accountRemovalWire(cert *accountRemovalCert) AccountRemoval {
 			Armor:    cert.ServerSignature,
 			SignedAt: cert.ServerSignedAt,
 		},
+		Admin: cert.Admin,
 	}
 }
 

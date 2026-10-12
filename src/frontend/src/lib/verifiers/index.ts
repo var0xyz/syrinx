@@ -46,6 +46,7 @@ import {
   buildAdminRequestPayload,
   buildAdminDecisionPayload,
   buildAdminRequestServerPayload,
+  buildAccountKickServerPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -883,6 +884,7 @@ export async function verifyOwnBlock(cert: api.BlockCert): Promise<boolean> {
 const MAX_ACCOUNT_NOTE_LEN = 140;
 
 export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<boolean> {
+  if (cert?.admin) return verifyKick(cert);
   if (!cert || cert.$typeName !== 'syrinx.AccountRemovalCert' || !cert.userSignature?.armor || !cert.serverSignature) {
     console.error('[verifyAccountRemoval] missing fields or wrong type', cert?.$typeName);
     return false;
@@ -1188,6 +1190,41 @@ export async function verifyAdminAuthorization(
   const result = await verify(req.serverSignature, serverPayload);
   if (result.ok === false) {
     console.error('[verifyAdminAuthorization] server signature failed', req.id, result);
+    return false;
+  }
+  return true;
+}
+
+/** A kick: an account removal two admins signed in place of the user, and
+ * their server countersigned. */
+async function verifyKick(cert: api.AccountRemoval): Promise<boolean> {
+  const req = cert.admin?.request;
+  if (!req?.decision || !cert.serverSignature || cert.note) {
+    console.error('[verifyKick] missing fields');
+    return false;
+  }
+  if (parseCanonicalId(cert.userId)?.[1] !== cert.serverId || !req.targets.includes(cert.userId)) {
+    console.error('[verifyKick] the kicked user isn’t a target of the request', cert.userId);
+    return false;
+  }
+  if (!(await verifyAdminAuthorization(cert.admin, 'kick'))) return false;
+  const { fingerprint, serverID } = splitServerSignatureId(cert.serverSignature.id);
+  if (serverID !== cert.serverId) {
+    console.error('[verifyKick] not countersigned by the kicked user’s server');
+    return false;
+  }
+  const payload = buildAccountKickServerPayload(
+    cert.serverId,
+    cert.userId,
+    req.id,
+    req.requesterSignature?.armor ?? '',
+    req.decision.signature?.armor ?? '',
+    fingerprint,
+    signedAtHeader(cert.serverSignature.signedAt)
+  );
+  const result = await verify(cert.serverSignature, payload);
+  if (result.ok === false) {
+    console.error('[verifyKick] server signature failed', result);
     return false;
   }
   return true;

@@ -30,6 +30,7 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 |--------|----------|------------|------------------------------------------------------------------------|
 | H1     | High     | design     | Server is the sole authority binding keys to identities               |
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
+| M10    | Medium   | design     | Account purge without the author's signature (kick)                    |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | L4     | Low      | server     | WebSocket handshake replays within its timestamp window                |
@@ -110,6 +111,17 @@ Clients invalidate cached profiles when `profileTimestamp` is newer than the
 stored `serverSignature.timestamp`.
 
 ---
+
+### M10 — Account purge without the author's signature (kick)
+**Where:** `kickExecutor` (`admin_kick.go`), `acceptForeignKick`
+(`federation_relay.go`), `verifyKick` (`src/frontend/src/lib/verifiers/index.ts`).
+A kick purges an account and all its content on every holder, signed by two
+admins instead of the author. Holders verify both admin signatures and the
+home server's countersignature, so one rogue admin or one stolen admin key
+can't kick anyone, and every kick is in the public ledger.
+**Residual:** holders trust the home server on who is an admin. A
+compromised server can mint two admins of its own and kick anyone; local
+members can see it in the ledger, but peers can't prevent it.
 
 ## Low
 
