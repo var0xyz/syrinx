@@ -1,5 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
+  import { page } from '$app/stores';
+  import AdminActionsModal from '$lib/components/AdminActionsModal.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import BlockButton from '$lib/components/BlockButton.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -16,7 +18,7 @@
   import TrustSection from '$lib/components/TrustSection.svelte';
   import TrustMark from '$lib/components/TrustMark.svelte';
   import { vouchLinkFor } from '$lib/services/vouchVerify';
-  import { parseKeyId } from '$lib/utils/identityRef';
+  import { parseKeyId, parseCanonicalId } from '$lib/utils/identityRef';
 
   /** Opened by tapping the trust mark; the section owns the evidence. */
   let showTrustDetails = false;
@@ -33,6 +35,13 @@
   export let followListMode = 'following';
 
   const dispatch = createEventDispatcher();
+
+  // Admins act only on local accounts, and never on root.
+  let adminActionsOpen = false;
+  $: viewerRole = $page.data?.user?.role;
+  $: isLocalUser = parseCanonicalId(user?.id)?.[1] === (localStorage.getItem('serverId') || '');
+  $: showAdmin =
+    !isOwner && (viewerRole === 'admin' || viewerRole === 'root') && isLocalUser && user?.role !== 'root';
 
   // The code the owner shows so someone can verify their key in person.
   // The fingerprint comes from this device, not from the server's report of
@@ -280,16 +289,37 @@
       {/if}
     </div>
   {:else}
-    <div class="profile-actions">
+    <div class="profile-actions" class:with-admin={showAdmin}>
       <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
         {following ? 'Unfollow' : 'Follow'}
       </button>
       {#if user?.id}
         <BlockButton userID={user.id} username={user.username} />
       {/if}
+      {#if showAdmin}
+        <button
+          class="action-btn secondary admin-btn"
+          aria-label="Admin actions"
+          on:click={() => (adminActionsOpen = true)}
+        >
+          <span class="admin-icon" aria-hidden="true"></span>
+          <span class="admin-label">Admin</span>
+        </button>
+      {/if}
     </div>
   {/if}
 </div>
+
+{#if showAdmin}
+  <AdminActionsModal
+    open={adminActionsOpen}
+    userID={user.id}
+    username={user.username}
+    role={user.role}
+    viewerIsRoot={viewerRole === 'root'}
+    on:close={() => (adminActionsOpen = false)}
+  />
+{/if}
 
 <VouchServerPicker
   open={vouchPickerOpen}
@@ -519,10 +549,37 @@
     background: var(--border);
   }
 
+  .admin-btn {
+    width: auto;
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .admin-icon {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    background-color: currentColor;
+    -webkit-mask: url('/icons/admin-16.svg') center / contain no-repeat;
+    mask: url('/icons/admin-16.svg') center / contain no-repeat;
+    flex-shrink: 0;
+  }
+
   @media (max-width: 768px) {
     .profile-actions {
       flex-direction: column;
       gap: 0.5rem;
+    }
+
+    /* One row: Follow takes the space left over by Block and Admin. */
+    .profile-actions.with-admin {
+      flex-direction: row;
+    }
+
+    .profile-actions.with-admin > :global(*:first-child) {
+      flex: 1;
     }
 
     /* The owner's row is Edit Profile + Verify Identity, which fit side by

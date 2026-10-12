@@ -6,5 +6,5 @@ export async function load({ parent }) {
   if (!user) {
     throw redirect(307, '/');
   }
-  throw redirect(307, '/network/users');
+  throw redirect(307, '/admin/actions');
 }

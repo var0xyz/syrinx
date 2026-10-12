@@ -23,7 +23,7 @@
   // Coarse top-level hint for routes the URL alone can't map to a nav
   // destination (reed detail, pipe, mesh peer/attempt, error page) — leave
   // unset to derive purely from the URL. Never implies a sub-item.
-  /** @type {'reeds' | 'feeds' | 'lists' | 'interactions' | 'search' | 'network' | 'invites' | 'account' | ''} */
+  /** @type {'reeds' | 'feeds' | 'lists' | 'interactions' | 'search' | 'invites' | 'admin' | 'account' | ''} */
   export let currentPage = '';
 
   $: path = $page.url.pathname;
@@ -53,12 +53,13 @@
 
   $: searchActive = currentPage === 'search' || path.startsWith('/search');
 
-  $: networkActive = currentPage === 'network' || path.startsWith('/network/');
-  $: usersSubActive = path.startsWith('/network/users');
-  $: meshSubActive = path === '/network/mesh';
-  $: networkSubOpen = usersSubActive || meshSubActive;
-
   $: invitesActive = currentPage === 'invites' || path === '/invites';
+
+  $: adminActive = currentPage === 'admin' || path.startsWith('/admin/');
+  $: actionsSubActive = path === '/admin/actions';
+  $: broadcastAdminSubActive = path === '/admin/broadcast';
+  $: meshSubActive = path === '/admin/mesh';
+  $: adminSubOpen = actionsSubActive || broadcastAdminSubActive || meshSubActive;
 
   $: accountActive = currentPage === 'account' || path === '/account';
 </script>
@@ -116,19 +117,22 @@
     <span class="sn-icon">🔍</span>Search
   </a>
 
+  <a href="/invites" class="sn-btn" class:active={invitesActive}>
+    <span class="sn-icon">✉️</span>Invites
+  </a>
+
   {#if isAdmin}
-    <a href="/network/users" class="sn-btn" class:in-section={networkActive} class:active={networkActive && !networkSubOpen}>
-      <span class="sn-icon">🌐</span>Network
+    <a href="/admin/actions" class="sn-btn" class:in-section={adminActive} class:active={adminActive && !adminSubOpen}>
+      <span class="sn-icon">🛡️</span>Admin
     </a>
-    <a href="/network/users" class="sn-sub" class:active={usersSubActive}>
-      <span class="sn-dot"></span>Users
+    <a href="/admin/actions" class="sn-sub" class:active={actionsSubActive}>
+      <span class="sn-dot"></span>Actions
     </a>
-    <a href="/network/mesh" class="sn-sub" class:active={meshSubActive}>
+    <a href="/admin/broadcast" class="sn-sub" class:active={broadcastAdminSubActive}>
+      <span class="sn-dot"></span>Broadcast
+    </a>
+    <a href="/admin/mesh" class="sn-sub" class:active={meshSubActive}>
       <span class="sn-dot"></span>Mesh
-    </a>
-  {:else}
-    <a href="/invites" class="sn-btn" class:active={invitesActive}>
-      <span class="sn-icon">✉️</span>Invites
     </a>
   {/if}
 
@@ -138,6 +142,7 @@
   </a>
 
   <ServerVersionInfo className="sn-version" />
+  <a href="/ledger" class="sn-ledger">Ledger</a>
 </nav>
 
 <NewReedModal open={isComposeOpen} on:close={() => (isComposeOpen = false)} />
@@ -279,6 +284,17 @@
     border-radius: 50%;
     background: var(--error);
     flex-shrink: 0;
+  }
+
+  .sn-ledger {
+    padding: 0 0.7rem;
+    color: var(--muted);
+    font-size: 0.68rem;
+    text-decoration: underline;
+  }
+
+  .sn-ledger:hover {
+    color: var(--fg);
   }
 
   :global(.sn-version) {

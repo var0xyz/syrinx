@@ -16,8 +16,9 @@
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   const tabs = [
-    { href: '/network/users', label: 'Users' },
-    { href: '/network/mesh', label: 'Mesh' },
+    { href: '/admin/actions', label: 'Actions' },
+    { href: '/admin/broadcast', label: 'Broadcast' },
+    { href: '/admin/mesh', label: 'Mesh' },
   ];
 
   let user: api.User | null = null;
@@ -261,7 +262,7 @@
 </script>
 
 <Auth>
-  <SideNav currentPage="network" />
+  <SideNav currentPage="admin" />
   <div class="mesh-container">
     <SectionTabs {tabs} active="mesh" />
     <div class="mesh-content">
@@ -427,7 +428,7 @@
       {/if}
     </div>
 
-    <BottomToolbar currentPage="network" />
+    <BottomToolbar currentPage="admin" />
   </div>
 
   {#if showCreateModal}
