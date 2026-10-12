@@ -68,23 +68,22 @@
       <span class="icon">🔍</span>
       <span class="label">Search</span>
     </a>
+    <a
+      href="/invites"
+      class="toolbar-btn"
+      class:active={$currentToolbarPage === 'invites'}
+    >
+      <span class="icon">✉️</span>
+      <span class="label">Invites</span>
+    </a>
     {#if isAdmin}
       <a
-        href="/network"
+        href="/admin"
         class="toolbar-btn"
-        class:active={$currentToolbarPage === 'network'}
+        class:active={$currentToolbarPage === 'admin'}
       >
-        <span class="icon">🌐</span>
-        <span class="label">Network</span>
-      </a>
-    {:else}
-      <a
-        href="/invites"
-        class="toolbar-btn"
-        class:active={$currentToolbarPage === 'invites'}
-      >
-        <span class="icon">✉️</span>
-        <span class="label">Invites</span>
+        <span class="icon">🛡️</span>
+        <span class="label">Admin</span>
       </a>
     {/if}
     <a

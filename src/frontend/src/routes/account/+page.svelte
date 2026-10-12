@@ -584,6 +584,7 @@
     </div>
 
     <ServerVersionInfo className="app-version" />
+    <p class="ledger-link"><a href="/ledger">Ledger</a></p>
 
     <p class="update-check">
       {#if updateCheck === 'idle'}
@@ -654,8 +655,19 @@
     margin: 0 0 1rem;
   }
 
+  .ledger-link {
+    margin: 0 0 1rem;
+    text-align: center;
+    font-size: 0.75rem;
+  }
+
+  .ledger-link a {
+    color: var(--muted);
+  }
+
   @media (min-width: 768px) {
-    :global(.app-version) {
+    :global(.app-version),
+    .ledger-link {
       display: none;
     }
   }
