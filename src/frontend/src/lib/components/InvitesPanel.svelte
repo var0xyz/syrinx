@@ -252,6 +252,7 @@
   function statusLabel(status: string) {
     if (status === 'claimed') return 'Claimed';
     if (status === 'revoked') return 'Revoked';
+    if (status === 'expired') return 'Expired';
     return 'Pending';
   }
 </script>
@@ -374,7 +375,7 @@
     <div class="modal role-modal">
       <h2 id="invite-role-title">New invite</h2>
       {#if roleStep === 'permissions'}
-        <p class="role-modal-lead">Choose what the new admin may do. You can only grant what you hold.</p>
+        <p class="role-modal-lead">Choose what the new admin may do. You can only grant what you hold. The invite expires 24 hours after you create it.</p>
         <PermissionPicker available={heldPermissions} bind:selected={granted} />
       {:else}
       <p class="role-modal-lead">Choose what role the person gets when they sign up.</p>
@@ -405,7 +406,7 @@
           <span class="role-indicator" aria-hidden="true"></span>
           <span class="role-option-body">
             <span class="role-option-title">Admin</span>
-            <span class="role-option-desc">Can invite admins and perform operator actions on this server.</span>
+            <span class="role-option-desc">Can invite admins and perform operator actions on this server. Expires in 24 hours.</span>
           </span>
         </button>
       </div>
@@ -666,7 +667,8 @@
     color: #27ae60;
   }
 
-  .badge[data-status='revoked'] {
+  .badge[data-status='revoked'],
+  .badge[data-status='expired'] {
     color: var(--muted);
   }
 

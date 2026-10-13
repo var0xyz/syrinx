@@ -1,6 +1,6 @@
 # Invites
 
-Invites are how closed communities grow without email verification, phone numbers, or a central approval queue. A signed-in member creates a **single-use link** and shares it; whoever opens that link can register on an invite-gated server. After a successful signup, the new account carries a countersigned **`invitedBy`** binding—the durable record of who brought them in. The row in the `invites` table is just operational state (pending, claimed, or revoked).
+Invites are how closed communities grow without email verification, phone numbers, or a central approval queue. A signed-in member creates a **single-use link** and shares it; whoever opens that link can register on an invite-gated server. After a successful signup, the new account carries a countersigned **`invitedBy`** binding—the durable record of who brought them in. The row in the `invites` table is just operational state (pending, claimed, revoked, or expired).
 
 For signup modes and recovery, see [Identity, invites & recovery](/identity). This page walks through how invites work and why the redeem secret never lives on the server.
 
@@ -61,7 +61,7 @@ When the signup page loads with both `?invite=` and `#secret` present:
 
 1. The client calls `GET /api/invites/check?uid=&iid=&secret=`.
 2. The server hashes the secret, loads the row, and returns `{ valid: true }` only if the invite is **pending** and the id matches.
-3. Claimed and revoked invites return `valid: false` with no further detail.
+3. Claimed, revoked and expired invites return `valid: false` with no further detail.
 
 This is a **preflight** so the UI can reject a bad link before key generation. **Signup is authoritative** — it performs the same validation again. If the check fails to reach the server, signup can still run; an invalid invite is rejected there.
 
@@ -83,13 +83,17 @@ All of the above succeeds or fails together — if signup fails, the invite stay
 2. Claimed invites cannot be revoked.
 3. The hash row stays in the database, but check and redeem treat it as invalid.
 
+### Admin invites expire
+
+An admin invite expires **24 hours** after it is created. After that, check and redeem treat it as invalid, just like a revoked one. The public ledger records an admin invite's creation and claim, but shows only the first two groups of its id (`01a1348c-dc77-****-****-************`). Those groups are the UUIDv7 timestamp, so readers learn when an invite was made but get no id to try secrets against.
+
 ## Why the secret stays on the client
 
 At create time the server only needs to record that a member opened a redeem slot and to countersign that fact. It never receives the secret itself.
 
 - Create requests carry only the hash, so observers of mint-time traffic learn nothing redeemable.
 - The inviter chooses how to share the link; the server is not an invite inbox.
-- Pending invites live on the inviter’s device. Status refresh uses `GET /api/invites/{id}`; the secret stays local until the invite is claimed or revoked.
+- Pending invites live on the inviter’s device. Status refresh uses `GET /api/invites/{id}`; the secret stays local until the invite is claimed, revoked or expired.
 
 What the server keeps is `token_hash`, the creator, and claim/revoke timestamps — not the secret, and not anything reversible.
 
@@ -129,7 +133,7 @@ Invite redeem tokens are not canonical signed envelopes like reeds or removal ce
 ## On the inviter’s device
 
 - Inviters keep invite records in **IndexedDB**, including the secret while status is `pending`.
-- Once an invite is claimed or revoked, the client drops the secret.
+- Once an invite is claimed, revoked or expired, the client drops the secret.
 - On load, the SPA refreshes **pending** rows from the server; finished rows are left as-is.
 
 ## In the UI
