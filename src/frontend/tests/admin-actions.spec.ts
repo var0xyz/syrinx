@@ -237,6 +237,7 @@ test('flags, a suspension and a broadcast', async ({ browser }) => {
   const suspendReason = `Rude in every thread ${uniqueName('')}`;
   const broadcastText = `Maintenance tonight ${uniqueName('')}`;
   const flagNote = `Scam link ${uniqueName('')}`;
+  const dismissReason = `Not a scam ${uniqueName('')}`;
 
   const root = await newPage(browser);
   await importRoot(root);
@@ -265,13 +266,17 @@ test('flags, a suspension and a broadcast', async ({ browser }) => {
   await expect(reader.getByRole('menuitem', { name: 'Already flagged' })).toBeDisabled();
   await reader.keyboard.press('Escape');
 
-  // The admin sees the flag with its note and dismisses it.
+  // The admin sees the flag with its note and dismisses it with a reason.
   await admin.goto('/admin/actions');
   await admin.getByRole('radio', { name: 'Flagged' }).or(admin.getByText('Flagged', { exact: true })).first().click();
   const flagged = admin.locator('.flag', { hasText: flagNote });
   await expect(flagged).toBeVisible({ timeout: 30000 });
   await flagged.getByRole('button', { name: 'Dismiss' }).click();
-  await expect(flagged).toHaveCount(0);
+  await flagged.locator('.dismiss-field textarea').fill(dismissReason);
+  await flagged.getByRole('button', { name: 'Dismiss' }).click();
+  const dismissedCard = admin.locator('.flag', { hasText: dismissReason });
+  await expect(dismissedCard).toContainText('Dismissed by', { timeout: 30000 });
+  await expect(dismissedCard.getByRole('button', { name: 'Dismiss' })).toHaveCount(0);
 
   // A suspension, once root approves, locks the author out.
   await admin.goto(`/profile/${authorID}`);

@@ -4,6 +4,8 @@ package main
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,7 +42,23 @@ func (f *adminFixture) flag(t *testing.T, reporter, reedID, note string) int {
 
 func (f *adminFixture) openFlags(t *testing.T, viewer string) *pb.FlaggedReedList {
 	t.Helper()
-	rr := f.serve(t, f.h.ListFlags, http.MethodGet, "/api/admin/flags", viewer, nil, nil)
+	return f.listFlags(t, viewer, "/api/admin/flags")
+}
+
+func (f *adminFixture) dismissedFlags(t *testing.T, viewer string) *pb.FlaggedReedList {
+	t.Helper()
+	return f.listFlags(t, viewer, "/api/admin/flags?state=dismissed")
+}
+
+func (f *adminFixture) dismiss(t *testing.T, viewer, reedID, reason string) *httptest.ResponseRecorder {
+	t.Helper()
+	return f.serve(t, f.h.DismissFlags, http.MethodPost, "/api/admin/flags/"+reedID+"/dismiss", viewer,
+		&pb.DismissFlagsRequest{Reason: reason}, map[string]string{"reedID": reedID})
+}
+
+func (f *adminFixture) listFlags(t *testing.T, viewer, path string) *pb.FlaggedReedList {
+	t.Helper()
+	rr := f.serve(t, f.h.ListFlags, http.MethodGet, path, viewer, nil, nil)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("list flags as %s: %d %s", viewer, rr.Code, rr.Body.String())
 	}
@@ -108,16 +126,50 @@ func TestFlags_VisibilityAndDismiss(t *testing.T) {
 		t.Errorf("a member listing flags: %d, want 403", code)
 	}
 
-	if code := f.serve(t, f.h.DismissFlags, http.MethodPost, "/api/admin/flags/"+adminReed+"/dismiss", "a1", nil,
-		map[string]string{"reedID": adminReed}).Code; code != http.StatusNotFound {
+	if code := f.dismiss(t, "a1", adminReed, "Fine").Code; code != http.StatusNotFound {
 		t.Errorf("an admin dismissing flags on their own reed: %d, want 404", code)
 	}
-	if code := f.serve(t, f.h.DismissFlags, http.MethodPost, "/api/admin/flags/"+userReed+"/dismiss", "a2", nil,
-		map[string]string{"reedID": userReed}).Code; code != http.StatusNoContent {
-		t.Fatalf("dismiss: %d", code)
+	if code := f.dismiss(t, "a2", userReed, "  ").Code; code != http.StatusBadRequest {
+		t.Errorf("dismiss without a reason: %d, want 400", code)
+	}
+	if code := f.dismiss(t, "a2", userReed, strings.Repeat("x", maxDismissalReasonChars+1)).Code; code != http.StatusBadRequest {
+		t.Errorf("dismiss with an overlong reason: %d, want 400", code)
+	}
+	if rr := f.dismiss(t, "a2", userReed, "Not a scam"); rr.Code != http.StatusOK {
+		t.Fatalf("dismiss: %d %s", rr.Code, rr.Body.String())
 	}
 	if got := seen(f.openFlags(t, "a2")); got[userReed] {
 		t.Errorf("a dismissed reed is still open: %v", got)
+	}
+	if code := f.dismiss(t, "a2", userReed, "Again").Code; code != http.StatusNotFound {
+		t.Errorf("dismissing an already dismissed reed: %d, want 404", code)
+	}
+
+	dismissed := f.dismissedFlags(t, "a1").Reeds
+	if len(dismissed) != 1 || dismissed[0].ReedId != userReed {
+		t.Fatalf("dismissed = %+v, want the user's reed", dismissed)
+	}
+	d := dismissed[0]
+	if d.Dismissal.GetReason() != "Not a scam" || d.Dismissal.GetDismissedBy() != f.ids["a2"] || d.Dismissal.GetDismissedAt() == 0 {
+		t.Errorf("dismissal = %+v", d.Dismissal)
+	}
+	if len(d.Flags) != 1 || d.Flags[0].Note != "Scam link" {
+		t.Errorf("dismissed flags = %+v, want the closed flag", d.Flags)
+	}
+	if entries := f.ledger(t); len(entries) != 0 {
+		t.Errorf("ledger = %+v, want no entry for a dismissal", entries)
+	}
+
+	if code := f.flag(t, "a3", userReed, "Still spam"); code != http.StatusCreated {
+		t.Fatalf("flag after a dismissal: %d", code)
+	}
+	if rr := f.dismiss(t, "a1", userReed, "Still fine"); rr.Code != http.StatusOK {
+		t.Fatalf("second dismiss: %d", rr.Code)
+	}
+	dismissed = f.dismissedFlags(t, "a2").Reeds
+	if len(dismissed) != 2 || dismissed[0].Dismissal.GetReason() != "Still fine" ||
+		len(dismissed[0].Flags) != 1 || dismissed[0].Flags[0].Note != "Still spam" {
+		t.Errorf("dismissed = %+v, want the second dismissal first with only its own flag", dismissed)
 	}
 }
 

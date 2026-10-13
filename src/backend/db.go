@@ -1468,6 +1468,18 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);`
 
+	// An admin closing a reed's open flags, with their reason. Not in the
+	// ledger; a reed flagged again later gets a dismissal of its own.
+	createFlagDismissalsTable := `
+	CREATE TABLE IF NOT EXISTS flag_dismissals (
+		id BIGSERIAL PRIMARY KEY,
+		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		dismissed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
+		reason VARCHAR(140) NOT NULL,
+		dismissed_at TIMESTAMP NOT NULL
+	);`
+
 	// Signed flags on reeds authored here; reporter_id may be a remote member.
 	// author_id lets visibility be checked without the reed body. created_at
 	// is the timestamp the reporter signed.
@@ -1476,17 +1488,21 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		reporter_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		note VARCHAR(280) NOT NULL DEFAULT '',
+		note VARCHAR(140) NOT NULL DEFAULT '',
 		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		created_at TIMESTAMP NOT NULL,
-		dismissed_at TIMESTAMP,
+		dismissal_id BIGINT REFERENCES flag_dismissals(id) ON DELETE CASCADE,
 		PRIMARY KEY (reed_id, reporter_id)
 	);`
 
 	createReedFlagsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_flags_open
-		ON reed_flags(created_at) WHERE dismissed_at IS NULL;
+		ON reed_flags(created_at) WHERE dismissal_id IS NULL;
+	CREATE INDEX IF NOT EXISTS idx_reed_flags_dismissal
+		ON reed_flags(dismissal_id) WHERE dismissal_id IS NOT NULL;
+	CREATE INDEX IF NOT EXISTS idx_flag_dismissals_recent
+		ON flag_dismissals(dismissed_at DESC, id DESC);
 	`
 
 	// federation_invitation covers the whole handshake lifecycle: new ->
@@ -1784,6 +1800,7 @@ func InitDB(db *sql.DB) error {
 		createLedgerEntriesIndexes,
 		createLedgerEntryTargetsTable,
 		createReservedUsernamesTable,
+		createFlagDismissalsTable,
 		createReedFlagsTable,
 		createReedFlagsIndexes,
 	}

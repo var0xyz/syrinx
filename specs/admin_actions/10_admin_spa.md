@@ -118,5 +118,5 @@ points it at another SPA port.
 - A lost device mints a key, an admin uploads it, root approves, and the
   device finishes recovery signed in as the member.
 - A member flags a reed and can't flag it again; an admin dismisses the
-  flag. A suspended member sees the suspended screen. An approved broadcast
+  flag with a reason and it moves to the dismissed section. A suspended member sees the suspended screen. An approved broadcast
   reaches a member's mailbox.

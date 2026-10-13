@@ -23,6 +23,7 @@ export type {
 } from '$lib/proto/common_pb';
 export type {
   AdminRequestList,
+  FlagDismissal,
   FlaggedReed,
   FlaggedReedList,
   InviteTree,
