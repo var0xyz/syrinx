@@ -13,6 +13,8 @@
   export let username = '';
   export let content = '';
   export let showProfile = true;
+  /** Off where the page already has its own Share button. */
+  export let showShare = true;
   /** Appended after the shared options (pin, unlike, delete, …). */
   export let extraOptions = [];
 
@@ -27,7 +29,7 @@
   $: if (canFlag) void $flagsChanged, isFlagged(reedRef).then((v) => (flagged = v));
 
   $: options = [
-    ...(reedRef
+    ...(reedRef && showShare
       ? [{ label: 'Share', icon: '/icons/share-24.svg', onSelect: () => shareReed(reedRef, username || userID, content) }]
       : []),
     ...(showProfile && userID
