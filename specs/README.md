@@ -48,7 +48,7 @@ Each table below has a **Status** column per step. Values:
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
 | Blocking              | Implemented | —                                                      |
-| Admin actions         | In progress | 10 (01–09 implemented)                                 |
+| Admin actions         | Implemented | —                                                      |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -211,7 +211,7 @@ excepted). No control over individual reeds.
 
 | #     | Title                                       | Status   |
 | ----- | ------------------------------------------- | -------- |
-| 00    | Design + locked model                       | Proposed |
+| 00    | Design + locked model                       | Implemented |
 | 01    | Requests, approvals, permissions            | Implemented |
 | 02    | Public ledger                               | Implemented |
 | 03    | Suspend / reinstate                         | Implemented |
@@ -221,7 +221,7 @@ excepted). No control over individual reeds.
 | 07    | Reserved usernames                          | Implemented |
 | 08    | Flags                                       | Implemented |
 | 09    | Broadcasts and private messages             | Implemented |
-| 10    | Admin SPA                                   | Proposed |
+| 10    | Admin SPA                                   | Implemented |
 
 ## Federation (explicit peering + cross-server content)
 

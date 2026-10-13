@@ -24,6 +24,8 @@ import {
   AccountRemovalCertSchema,
   BlockCertSchema,
   AdminAuthorizationSchema,
+  AdminDecisionSchema,
+  AdminRequestSchema,
   ErrorSchema,
   LedgerEntrySchema,
   ReedRemovalCertSchema,
@@ -31,7 +33,15 @@ import {
   ServerSignatureSchema,
   ThreadRemovalSchema,
 } from '$lib/proto/common_pb';
-import { LedgerPageSchema, ReedFlagSchema } from '$lib/proto/admin_pb';
+import {
+  AdminRequestListSchema,
+  FlaggedReedListSchema,
+  InviteTreeSchema,
+  LedgerPageSchema,
+  ReedFlagSchema,
+  ReservedUsernameListSchema,
+  UserPermissionsSchema,
+} from '$lib/proto/admin_pb';
 import {
   AddPublicKeyRequestSchema,
   BindDeviceResponseSchema,
@@ -841,6 +851,52 @@ export const apiService = {
 
   async getLedgerEntry(id: number): Promise<api.LedgerEntry> {
     return request(`/ledger/${id}`, { method: 'GET' }, LedgerEntrySchema);
+  },
+
+  /** One page of this server's admin requests, newest first. */
+  async listAdminRequests(state: 'pending' | 'closed', cursor = ''): Promise<api.AdminRequestList> {
+    const query = cursor ? `state=${state}&cursor=${encodeURIComponent(cursor)}` : `state=${state}`;
+    return request(`/admin/requests?${query}`, { method: 'GET' }, AdminRequestListSchema);
+  },
+
+  async getAdminRequest(id: string): Promise<api.AdminRequest> {
+    return request(`/admin/requests/${encodeURIComponent(id)}`, { method: 'GET' }, AdminRequestSchema);
+  },
+
+  async openAdminRequest(req: MessageInitShape<typeof AdminRequestSchema>): Promise<api.AdminRequest> {
+    return request('/admin/requests', protoBody('POST', AdminRequestSchema, req), AdminRequestSchema);
+  },
+
+  async decideAdminRequest(
+    id: string,
+    decision: MessageInitShape<typeof AdminDecisionSchema>
+  ): Promise<api.AdminRequest> {
+    return request(`/admin/requests/${id}/decision`, protoBody('POST', AdminDecisionSchema, decision), AdminRequestSchema);
+  },
+
+  async getInviteTree(userId: string): Promise<api.InviteTree> {
+    return request(`/admin/users/${userId}/invite-tree`, { method: 'GET' }, InviteTreeSchema);
+  },
+
+  async getUserPermissions(userId: string): Promise<api.UserPermissions> {
+    return request(`/admin/users/${userId}/permissions`, { method: 'GET' }, UserPermissionsSchema);
+  },
+
+  async listFlags(cursor = ''): Promise<api.FlaggedReedList> {
+    const path = cursor ? `/admin/flags?cursor=${encodeURIComponent(cursor)}` : '/admin/flags';
+    return request(path, { method: 'GET' }, FlaggedReedListSchema);
+  },
+
+  async dismissFlags(reedId: string): Promise<void> {
+    await send(`/admin/flags/${reedId}/dismiss`, { method: 'POST' });
+  },
+
+  async listReservedUsernames(): Promise<string[]> {
+    return (await request('/admin/reserved-usernames', { method: 'GET' }, ReservedUsernameListSchema)).usernames;
+  },
+
+  async setReservedUsername(username: string, reserved: boolean): Promise<void> {
+    await send(`/admin/reserved-usernames/${encodeURIComponent(username)}`, { method: reserved ? 'PUT' : 'DELETE' });
   },
 
   /** A signed flag; the server hands one on a remote reed to its home server. */

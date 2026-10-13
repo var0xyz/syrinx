@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -6,199 +7,46 @@
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import ModeSwitch from '$lib/components/ModeSwitch.svelte';
   import AdminActionsModal from '$lib/components/AdminActionsModal.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import Username from '$lib/components/Username.svelte';
+  import { apiService } from '$lib/services/api';
+  import { cryptoService } from '$lib/services/crypto';
+  import { serverConnection } from '$lib/services/serverConnection';
+  import {
+    ACTION_PERMISSION,
+    adminRequestsChanged,
+    decideAdminRequest,
+    decisionBlocker,
+    syncClosedAdminRequests,
+  } from '$lib/services/admin';
+  import { adminRequestsRepository } from '$lib/repositories/adminRequests';
+  import { parsePermissionSet } from '$lib/utils/permissions';
+  import { parseCanonicalId } from '$lib/utils/identityRef';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
+  import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
+  import type * as api from '$lib/types/api';
 
-  // Mockup: sample data only, nothing here talks to the server yet.
-  type Action = 'suspend' | 'reinstate' | 'kick' | 'promote' | 'demote' | 'rebind' | 'broadcast' | 'message';
-  type State = 'pending' | 'executed' | 'rejected' | 'withdrawn' | 'moot';
+  type Decision = 'approve' | 'reject' | 'withdraw';
 
-  interface MockRequest {
-    id: string;
-    action: Action;
-    requester: string;
-    targets: string[];
-    droppedTargets?: string[];
-    reason: string;
-    createdAt: Date;
-    state: State;
-    closedBy?: string;
-    closedAt?: Date;
-    // Why the viewer can't approve, mirroring the server's eligibility rules.
-    ineligible?: string;
-    own?: boolean;
-    fingerprint?: string;
-  }
-
-  interface MockReport {
-    reporter: string;
-    reporterServer?: string;
-    note?: string;
-    at: Date;
-  }
-
-  interface MockFlag {
-    reedID: string;
-    author: string;
-    content: string | null;
-    reports: MockReport[];
-  }
-
-  const tabs = [
-    { href: '/admin/actions', label: 'Actions' },
-    { href: '/admin/broadcast', label: 'Broadcast' },
-    { href: '/admin/mesh', label: 'Mesh' },
-  ];
+  $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
   const modeOptions = [
     { value: 'requests', label: 'Requests' },
     { value: 'flagged', label: 'Flagged' },
   ];
 
-  let mode: 'requests' | 'flagged' = 'requests';
-
-  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000);
-
-  let requests: MockRequest[] = [
-    {
-      id: 'r1',
-      action: 'kick',
-      requester: 'marta',
-      targets: ['spamlord', 'spamlord_2', 'spamlord_3'],
-      reason: 'Three accounts from the same invite posting scam links in every pipe since Tuesday.',
-      createdAt: ago(42),
-      state: 'pending',
-    },
-    {
-      id: 'r2',
-      action: 'rebind',
-      requester: 'jonas',
-      targets: ['oldfriend'],
-      reason: 'Lost their phone on a trip, no backup. Verified in person at the meetup, read back the fingerprint.',
-      fingerprint: '7F3A 91C2 0B44 E1D8 5A7C  3E90 12BF 64D1 A8C3 2F06',
-      createdAt: ago(60 * 5),
-      state: 'pending',
-    },
-    {
-      id: 'r3',
-      action: 'demote',
-      requester: 'marta',
-      targets: ['ines'],
-      reason: 'Ines asked to step down as admin while she is away for a few months.',
-      createdAt: ago(60 * 26),
-      state: 'pending',
-      ineligible: 'Needs root: the target is an admin',
-    },
-    {
-      id: 'r4',
-      action: 'broadcast',
-      requester: 'you',
-      targets: [],
-      reason: 'The server will be down for maintenance on Saturday from 02:00 to 04:00 UTC.',
-      createdAt: ago(60 * 3),
-      state: 'pending',
-      own: true,
-      ineligible: 'You opened this request',
-    },
-    {
-      id: 'r9',
-      action: 'message',
-      requester: 'jonas',
-      targets: ['hotheaded'],
-      reason: 'Hi, a few members raised your replies in the newcomers pipe. Can we talk this week before anything else happens?',
-      createdAt: ago(60 * 2),
-      state: 'pending',
-    },
-    {
-      id: 'r5',
-      action: 'suspend',
-      requester: 'pablo',
-      targets: ['hotheaded'],
-      droppedTargets: ['leftalready'],
-      reason: 'Repeated harassment in replies after two warnings. Suspending while we talk to them.',
-      createdAt: ago(60 * 30),
-      state: 'pending',
-      ineligible: "You're in pablo's invite tree",
-    },
-    {
-      id: 'r6',
-      action: 'promote',
-      requester: 'jonas',
-      targets: ['lucia'],
-      reason: 'Lucia has been helping new members for months and agreed to take on admin duties.',
-      createdAt: ago(60 * 24 * 3),
-      state: 'executed',
-      closedBy: 'marta',
-      closedAt: ago(60 * 24 * 2),
-    },
-    {
-      id: 'r7',
-      action: 'kick',
-      requester: 'pablo',
-      targets: ['grumpy'],
-      reason: 'Rude in a single thread.',
-      createdAt: ago(60 * 24 * 6),
-      state: 'rejected',
-      closedBy: 'jonas',
-      closedAt: ago(60 * 24 * 5),
-    },
-    {
-      id: 'r8',
-      action: 'reinstate',
-      requester: 'marta',
-      targets: ['nightowl'],
-      reason: 'Agreed to the rules after the suspension call.',
-      createdAt: ago(60 * 24 * 9),
-      state: 'moot',
-      closedAt: ago(60 * 24 * 8),
-    },
-  ];
-
-  let flags: MockFlag[] = [
-    {
-      reedID: 'f1',
-      author: 'spamlord',
-      content: 'Double your coins in 24h!! DM me for the link, only 10 spots left 🚀🚀',
-      reports: [
-        { reporter: 'lucia', note: 'Same message in three pipes', at: ago(30) },
-        { reporter: 'oldfriend', at: ago(55) },
-        { reporter: 'nightowl', note: 'Scam', at: ago(90) },
-      ],
-    },
-    {
-      reedID: 'f2',
-      author: 'hotheaded',
-      content: 'Nobody asked for your opinion, go back to whatever hole you crawled out of.',
-      reports: [
-        { reporter: 'ines', note: 'Reply to a new member', at: ago(60 * 4) },
-        { reporter: 'kim', reporterServer: 'mom.example.org', note: 'Said this to me too', at: ago(60 * 5) },
-      ],
-    },
-    {
-      reedID: 'f3',
-      author: 'wanderer',
-      content: null,
-      reports: [{ reporter: 'theo', reporterServer: 'mom.example.org', at: ago(60 * 20) }],
-    },
-  ];
-
-  let actingOn: string | null = null;
-
-  function dismiss(reedID: string) {
-    flags = flags.filter((f) => f.reedID !== reedID);
-  }
-
-  const actionLabel: Record<Action, string> = {
+  const actionLabel: Record<string, string> = {
     suspend: 'Suspend',
     reinstate: 'Reinstate',
     kick: 'Kick',
     promote: 'Promote',
     demote: 'Demote',
+    permissions: 'Permissions',
     rebind: 'Key rebind',
     broadcast: 'Broadcast',
     message: 'Message',
   };
 
-  const stateLabel: Record<State, string> = {
+  const stateLabel: Record<string, string> = {
     pending: 'Pending',
     executed: 'Executed',
     rejected: 'Rejected',
@@ -206,8 +54,100 @@
     moot: 'Moot',
   };
 
-  function summary(r: MockRequest): string {
-    const n = r.targets.length;
+  const decisionLabel: Record<Decision, string> = { approve: 'Approve', reject: 'Reject', withdraw: 'Withdraw' };
+
+  let mode: 'requests' | 'flagged' = 'requests';
+  let pending: api.AdminRequest[] = [];
+  let pendingLoaded = false;
+  let pendingError = '';
+  let closed: api.AdminRequest[] = [];
+  const CLOSED_PAGE = 50;
+  let closedShown = CLOSED_PAGE;
+  let flags: api.FlaggedReed[] = [];
+  let contents: Record<string, string | null> = {};
+  let fingerprints: Record<string, string> = {};
+  let loadError = '';
+  let actingOn: string | null = null;
+
+  // One open confirmation at a time.
+  let deciding: { id: string; decision: Decision } | null = null;
+  let decisionError = '';
+  let submitting = false;
+
+  $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
+  $: viewerID = $page.data?.user?.id ?? '';
+  $: serverID = parseCanonicalId(viewerID)?.[1] ?? '';
+  // The permissions read at app load; the server checks every decision.
+  $: viewer = {
+    role: $page.data?.user?.role ?? '',
+    permissions: Object.values(ACTION_PERMISSION).filter((p) => holds($page.data?.user, $adminPermissions, p)),
+  };
+
+  onMount(() => {
+    if (!isAdmin) return;
+    void loadClosed();
+    void loadFlags().catch((err) => (loadError = err instanceof Error ? err.message : 'Could not load flags.'));
+  });
+
+  $: $adminRequestsChanged, isAdmin && void loadRequests();
+
+  // Open requests are always read from the server: deciding needs it anyway.
+  async function loadRequests(): Promise<void> {
+    try {
+      pending = (await apiService.listAdminRequests('pending')).requests;
+      pendingError = '';
+    } catch (err) {
+      pendingError = err instanceof Error ? err.message : 'Could not load open requests.';
+      return;
+    } finally {
+      pendingLoaded = true;
+    }
+    fingerprintsFor(pending);
+    await syncClosedAdminRequests(pending.map((r) => r.id)).catch((err) => console.error('Closed request sync failed:', err));
+    await loadClosed();
+  }
+
+  // Closed requests never change, so they come from the local copy.
+  async function loadClosed(): Promise<void> {
+    closed = await adminRequestsRepository.getAll();
+    fingerprintsFor(closed);
+  }
+
+  function fingerprintsFor(reqs: api.AdminRequest[]): void {
+    for (const r of reqs) {
+      if (r.action === 'rebind' && !fingerprints[r.id]) {
+        cryptoService.fingerprintOf(r.body).then((fp) => (fingerprints = { ...fingerprints, [r.id]: grouped(fp) })).catch(() => {});
+      }
+    }
+  }
+
+  async function loadFlags(): Promise<void> {
+    flags = (await apiService.listFlags()).reeds;
+    for (const f of flags) {
+      if (f.reedId in contents) continue;
+      contents = { ...contents, [f.reedId]: null };
+      serverConnection
+        .requestReedContent(f.reedId)
+        .then((reed) => (contents = { ...contents, [f.reedId]: reed.content ?? '' }))
+        .catch(() => {});
+    }
+  }
+
+  async function dismiss(reedId: string): Promise<void> {
+    await apiService.dismissFlags(reedId);
+    flags = flags.filter((f) => f.reedId !== reedId);
+  }
+
+  function grouped(fingerprint: string): string {
+    return (fingerprint.toUpperCase().match(/.{1,4}/g) ?? []).join(' ');
+  }
+
+  function remaining(r: api.AdminRequest): string[] {
+    return r.targets.filter((t) => !r.droppedTargets.includes(t));
+  }
+
+  function summary(r: api.AdminRequest): string {
+    const n = remaining(r).length;
     const accounts = n === 1 ? '1 account' : `${n} accounts`;
     switch (r.action) {
       case 'kick':
@@ -217,7 +157,9 @@
       case 'reinstate':
         return `Lifts the suspension on ${accounts}.`;
       case 'promote':
-        return 'Makes this user an admin.';
+        return 'Makes this user an admin with the permissions below.';
+      case 'permissions':
+        return 'Replaces this admin’s permissions with the ones below.';
       case 'demote':
         return 'Makes this admin a regular user and revokes their unclaimed admin invites.';
       case 'rebind':
@@ -227,68 +169,103 @@
       case 'message':
         return 'Sends this message privately to their mailbox. It stays out of the ledger.';
     }
+    return '';
   }
 
-  $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
+  function closedAt(r: api.AdminRequest): Date | undefined {
+    return fromUnix(r.serverSignature?.signedAt ?? r.createdAt);
+  }
 
-  $: pending = requests.filter((r) => r.state === 'pending');
-  $: closed = requests
-    .filter((r) => r.state !== 'pending')
-    .sort((a, b) => (b.closedAt?.getTime() ?? 0) - (a.closedAt?.getTime() ?? 0));
-
-  // One open confirmation at a time.
-  let deciding: { id: string; decision: 'approve' | 'reject' | 'withdraw' } | null = null;
-
-  function openDecision(id: string, decision: 'approve' | 'reject' | 'withdraw') {
+  function openDecision(id: string, decision: Decision): void {
     deciding = { id, decision };
+    decisionError = '';
   }
 
-  function submitDecision() {
+  async function submitDecision(r: api.AdminRequest): Promise<void> {
     if (!deciding) return;
-    const { id, decision } = deciding;
-    const state: State = decision === 'approve' ? 'executed' : decision === 'reject' ? 'rejected' : 'withdrawn';
-    requests = requests.map((r) => (r.id === id ? { ...r, state, closedBy: 'you', closedAt: new Date() } : r));
-    deciding = null;
+    submitting = true;
+    decisionError = '';
+    try {
+      await decideAdminRequest(r, deciding.decision);
+      deciding = null;
+    } catch (err) {
+      decisionError = err instanceof Error ? err.message : 'The decision was refused.';
+    } finally {
+      submitting = false;
+    }
   }
 
-  const decisionLabel = { approve: 'Approve', reject: 'Reject', withdraw: 'Withdraw' };
+  /** The server a remote reporter belongs to, null for a local one. */
+  function remoteServer(userID: string): string | null {
+    const server = parseCanonicalId(userID)?.[1];
+    return server && server !== serverID ? server : null;
+  }
+
+  function reedHref(reedId: string): string {
+    return `/reed/${reedId}`;
+  }
 </script>
 
-{#snippet requestCard(r: MockRequest)}
+{#snippet requestCard(r: api.AdminRequest)}
+  {@const blocker = decisionBlocker(r, viewer, viewerID)}
+  {@const own = r.requesterId === viewerID}
+  {@const permissions = r.action === 'promote' || r.action === 'permissions' ? parsePermissionSet(r.body) : null}
   <li class="request" data-action={r.action}>
     <div class="request-head">
-      <span class="action-badge" data-action={r.action}>{actionLabel[r.action]}</span>
+      <span class="action-badge" data-action={r.action}>{actionLabel[r.action] ?? r.action}</span>
       {#if r.state !== 'pending'}
-        <span class="state-badge" data-state={r.state}>{stateLabel[r.state]}</span>
+        <span class="state-badge" data-state={r.state}>{stateLabel[r.state] ?? r.state}</span>
       {/if}
-      <span class="meta when">{formatRelativeTime(r.closedAt ?? r.createdAt)}</span>
+      {#if r.action === 'message'}<span class="state-badge">Private</span>{/if}
     </div>
 
     {#if r.targets.length > 0}
       <p class="targets">
-        {#each r.targets as t, i (t)}{#if i > 0}, {/if}<span class="name">{t}</span>{/each}{#each r.droppedTargets ?? [] as t (t)}, <span class="name dropped" title="Left before approval">{t}</span>{/each}
+        {#each remaining(r) as t, i (t)}{#if i > 0}, {/if}<span class="name"><Username userID={t} color="var(--primary)" /></span>{/each}{#each r.droppedTargets as t (t)}, <span class="name dropped" title="Left before approval"><Username userID={t} linked={false} color="var(--muted)" /></span>{/each}
       </p>
     {:else}
       <p class="targets everyone">Every local member</p>
     {/if}
 
-    <blockquote class="reason">{r.reason}</blockquote>
+    {#if r.action === 'broadcast' || r.action === 'message'}
+      <blockquote class="reason">{r.body}</blockquote>
+    {:else}
+      <blockquote class="reason">{r.reason}</blockquote>
+    {/if}
 
-    {#if r.fingerprint}
+    {#if permissions}
+      <ul class="permissions">
+        {#each permissions as p (p)}<li>{p}</li>{:else}<li class="none">No permissions</li>{/each}
+      </ul>
+    {/if}
+
+    {#if r.action === 'rebind'}
       <div class="fingerprint">
         <span class="meta">New key fingerprint</span>
-        <code>{r.fingerprint}</code>
+        <code>{fingerprints[r.id] ?? '…'}</code>
       </div>
     {/if}
 
     <p class="meta">
-      Requested by <span class="name">{r.requester}</span>
-      {#if r.state === 'executed' || r.state === 'rejected'}
-        · {r.state === 'executed' ? 'approved' : 'rejected'} by <span class="name">{r.closedBy}</span>
-      {:else if r.state === 'moot'}
-        · closed by the server: every target left
-      {/if}
+      Requested by <span class="name"><Username userID={r.requesterId} color="var(--primary)" /></span>
+      {formatRelativeTime(fromUnix(r.createdAt) ?? new Date())}
     </p>
+    {#if r.state !== 'pending'}
+      {@const when = formatRelativeTime(closedAt(r) ?? new Date())}
+      <p class="meta">
+        {#if (r.state === 'executed' || r.state === 'rejected') && r.decision}
+          {r.state === 'executed' ? 'Approved' : 'Rejected'} by
+          <span class="name"><Username userID={r.decision.deciderId} color="var(--primary)" /></span>
+          {when}
+        {:else if r.state === 'withdrawn'}
+          Withdrawn {when}
+        {:else if r.state === 'moot'}
+          Closed by the server {when}: every target left
+        {:else}
+          {stateLabel[r.state] ?? r.state} {when}
+        {/if}
+      </p>
+    {/if}
 
     {#if r.state === 'pending'}
       {#if deciding?.id === r.id}
@@ -296,6 +273,7 @@
           {#if deciding.decision === 'approve'}
             <p class="decision-summary">{summary(r)}</p>
           {/if}
+          {#if decisionError}<p class="decision-error" role="alert">{decisionError}</p>{/if}
           <div class="decision-actions">
             <button class="btn secondary" type="button" on:click={() => (deciding = null)}>Cancel</button>
             <button
@@ -303,7 +281,8 @@
               class:primary={deciding.decision === 'approve'}
               class:danger={deciding.decision !== 'approve'}
               type="button"
-              on:click={submitDecision}
+              disabled={submitting}
+              on:click={() => submitDecision(r)}
             >
               Sign and {decisionLabel[deciding.decision].toLowerCase()}
             </button>
@@ -311,30 +290,21 @@
         </div>
       {:else}
         <div class="request-actions">
-          {#if r.own}
+          {#if own}
             <button class="btn secondary" type="button" on:click={() => openDecision(r.id, 'withdraw')}>
               Withdraw
             </button>
-          {:else}
-            <button
-              class="btn secondary"
-              type="button"
-              disabled={!!r.ineligible}
-              on:click={() => openDecision(r.id, 'reject')}
-            >
+          {/if}
+          {#if !own || viewer.role === 'root'}
+            <button class="btn secondary" type="button" disabled={!!blocker} on:click={() => openDecision(r.id, 'reject')}>
               Reject
             </button>
-            <button
-              class="btn primary"
-              type="button"
-              disabled={!!r.ineligible}
-              on:click={() => openDecision(r.id, 'approve')}
-            >
+            <button class="btn primary" type="button" disabled={!!blocker} on:click={() => openDecision(r.id, 'approve')}>
               Approve
             </button>
           {/if}
-          {#if r.ineligible}
-            <span class="ineligible">{r.ineligible}</span>
+          {#if blocker && !own}
+            <span class="ineligible">{blocker}</span>
           {/if}
         </div>
       {/if}
@@ -350,14 +320,16 @@
       {#if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
       {:else}
-        <p class="mock-banner">Mockup: sample data, nothing is sent to the server.</p>
-
         <div class="mode-picker">
           <ModeSwitch options={modeOptions} bind:value={mode} />
         </div>
 
         {#if mode === 'requests'}
-          {#if pending.length === 0}
+          {#if pendingError}
+            <p class="error" role="alert">{pendingError}</p>
+          {:else if !pendingLoaded}
+            <!-- Open requests come from the server; nothing to show until then. -->
+          {:else if pending.length === 0}
             <div class="empty-state">
               <div class="empty-icon">🛡️</div>
               <h3>Nothing to review</h3>
@@ -373,57 +345,61 @@
           {#if closed.length > 0}
             <h2 class="section-title">Closed</h2>
             <ul class="request-list">
-              {#each closed as r (r.id)}
+              {#each closed.slice(0, closedShown) as r (r.id)}
                 {@render requestCard(r)}
               {/each}
             </ul>
+            {#if closed.length > closedShown}
+              <button class="btn secondary more" type="button" on:click={() => (closedShown += CLOSED_PAGE)}>Load more</button>
+            {/if}
           {/if}
+        {:else if loadError}
+          <p class="error" role="alert">{loadError}</p>
+        {:else if flags.length === 0}
+          <div class="empty-state">
+            <div class="empty-icon">🚩</div>
+            <h3>No open flags</h3>
+          </div>
         {:else}
-          {#if flags.length === 0}
-            <div class="empty-state">
-              <div class="empty-icon">🚩</div>
-              <h3>No open flags</h3>
-              </div>
-          {:else}
-            <ul class="flag-list">
-              {#each flags as f (f.reedID)}
-                <li class="flag">
-                  <div class="flag-head">
-                    <span class="author name">{f.author}</span>
-                    <span class="report-count">
-                      {f.reports.length} {f.reports.length === 1 ? 'flag' : 'flags'}
-                    </span>
-                  </div>
+          <ul class="flag-list">
+            {#each flags as f (f.reedId)}
+              <li class="flag">
+                <div class="flag-head">
+                  <span class="author name"><Username userID={f.authorId} color="var(--primary)" /></span>
+                  <span class="report-count">
+                    {f.flags.length} {f.flags.length === 1 ? 'flag' : 'flags'}
+                  </span>
+                </div>
 
-                  {#if f.content}
-                    <blockquote class="content">{f.content}</blockquote>
-                  {:else}
-                    <p class="content loading">Retrieving from the network…</p>
-                  {/if}
+                {#if contents[f.reedId]}
+                  <blockquote class="content">{contents[f.reedId]}</blockquote>
+                {:else}
+                  <p class="content loading">Retrieving from the network…</p>
+                {/if}
 
-                  <ul class="reports">
-                    {#each f.reports as rep (`${rep.reporter}@${rep.reporterServer ?? ''}`)}
-                      <li>
-                        <span class="name">{rep.reporter}</span>{#if rep.reporterServer}<span class="server">({rep.reporterServer})</span>{/if}
-                        {#if rep.note}<span class="note">“{rep.note}”</span>{/if}
-                        <span class="report-when">{formatRelativeTime(rep.at)}</span>
-                      </li>
-                    {/each}
-                  </ul>
+                <ul class="reports">
+                  {#each f.flags as rep (rep.reporterId)}
+                    {@const server = remoteServer(rep.reporterId)}
+                    <li>
+                      <span class="name"><Username userID={rep.reporterId} color="var(--primary)" /></span>{#if server}<span class="server">({server})</span>{/if}
+                      {#if rep.note}<span class="note">“{rep.note}”</span>{/if}
+                      <span class="report-when">{formatRelativeTime(fromUnix(rep.createdAt) ?? new Date())}</span>
+                    </li>
+                  {/each}
+                </ul>
 
-                  <div class="flag-actions">
-                    <button class="btn secondary" type="button" disabled>Open reed</button>
-                    <button class="btn secondary" type="button" on:click={() => (actingOn = f.author)}>
-                      Act on <span class="name">{f.author}</span>
-                    </button>
-                    <button class="btn secondary dismiss" type="button" on:click={() => dismiss(f.reedID)}>
-                      Dismiss
-                    </button>
-                  </div>
-                </li>
-              {/each}
-            </ul>
-          {/if}
+                <div class="flag-actions">
+                  <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
+                  <button class="btn secondary" type="button" on:click={() => (actingOn = f.authorId)}>
+                    Act on <span class="name"><Username userID={f.authorId} linked={false} color="var(--primary)" /></span>
+                  </button>
+                  <button class="btn secondary dismiss" type="button" on:click={() => dismiss(f.reedId)}>
+                    Dismiss
+                  </button>
+                </div>
+              </li>
+            {/each}
+          </ul>
         {/if}
       {/if}
     </div>
@@ -432,13 +408,7 @@
   </div>
 
   {#if actingOn}
-    <AdminActionsModal
-      open
-      userID={actingOn}
-      username={actingOn}
-      viewerIsRoot={$page.data?.user?.role === 'root'}
-      on:close={() => (actingOn = null)}
-    />
+    <AdminActionsModal open userID={actingOn} on:close={() => (actingOn = null)} />
   {/if}
 </Auth>
 
@@ -468,15 +438,6 @@
     margin: 0 auto;
     width: 100%;
     padding: 1rem;
-  }
-
-  .mock-banner {
-    margin: 0 0 1rem;
-    padding: 0.5rem 0.75rem;
-    border: 1px dashed var(--border);
-    border-radius: 8px;
-    color: var(--muted);
-    font-size: 0.8rem;
   }
 
 
@@ -621,10 +582,6 @@
     gap: 0.5rem;
   }
 
-  .when {
-    margin-left: auto;
-  }
-
   .action-badge,
   .state-badge {
     font-size: 0.75rem;
@@ -717,6 +674,40 @@
 
   .decision-actions {
     justify-content: flex-end;
+  }
+
+  .decision-error {
+    margin: 0;
+    color: var(--error);
+    font-size: 0.85rem;
+  }
+
+  .permissions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .permissions li {
+    padding: 0 0.5rem;
+    border-radius: 999px;
+    background: var(--input-bg);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .more {
+    margin-top: 0.75rem;
+  }
+
+  a.btn {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
   }
 
   .ineligible {

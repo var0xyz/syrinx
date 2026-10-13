@@ -503,6 +503,59 @@ func (x *FlaggedReedList) GetNextCursor() string {
 	return ""
 }
 
+// A user's role and the admin permissions they hold, sorted.
+type UserPermissions struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`
+	Permissions   []string               `protobuf:"bytes,2,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserPermissions) Reset() {
+	*x = UserPermissions{}
+	mi := &file_admin_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserPermissions) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserPermissions) ProtoMessage() {}
+
+func (x *UserPermissions) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserPermissions.ProtoReflect.Descriptor instead.
+func (*UserPermissions) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UserPermissions) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *UserPermissions) GetPermissions() []string {
+	if x != nil {
+		return x.Permissions
+	}
+	return nil
+}
+
 var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
@@ -546,7 +599,10 @@ const file_admin_proto_rawDesc = "" +
 	"\x0fFlaggedReedList\x12)\n" +
 	"\x05reeds\x18\x01 \x03(\v2\x13.syrinx.FlaggedReedR\x05reeds\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursorB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"nextCursor\"G\n" +
+	"\x0fUserPermissions\x12\x12\n" +
+	"\x04role\x18\x01 \x01(\tR\x04role\x12 \n" +
+	"\vpermissions\x18\x02 \x03(\tR\vpermissionsB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once
@@ -560,7 +616,7 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_admin_proto_goTypes = []any{
 	(*AdminRequestList)(nil),     // 0: syrinx.AdminRequestList
 	(*LedgerPage)(nil),           // 1: syrinx.LedgerPage
@@ -570,16 +626,17 @@ var file_admin_proto_goTypes = []any{
 	(*ReedFlag)(nil),             // 5: syrinx.ReedFlag
 	(*FlaggedReed)(nil),          // 6: syrinx.FlaggedReed
 	(*FlaggedReedList)(nil),      // 7: syrinx.FlaggedReedList
-	(*AdminRequest)(nil),         // 8: syrinx.AdminRequest
-	(*LedgerEntry)(nil),          // 9: syrinx.LedgerEntry
-	(*UserSignature)(nil),        // 10: syrinx.UserSignature
+	(*UserPermissions)(nil),      // 8: syrinx.UserPermissions
+	(*AdminRequest)(nil),         // 9: syrinx.AdminRequest
+	(*LedgerEntry)(nil),          // 10: syrinx.LedgerEntry
+	(*UserSignature)(nil),        // 11: syrinx.UserSignature
 }
 var file_admin_proto_depIdxs = []int32{
-	8,  // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
-	9,  // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
-	9,  // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
+	9,  // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
+	10, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
+	10, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
 	2,  // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
-	10, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
+	11, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
 	5,  // 5: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
 	6,  // 6: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
 	7,  // [7:7] is the sub-list for method output_type
@@ -602,7 +659,7 @@ func file_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

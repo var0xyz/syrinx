@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSIpChRSZXNlcnZlZFVzZXJuYW1lTGlzdBIRCgl1c2VybmFtZXMYASADKAkikAEKCFJlZWRGbGFnEhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBIfCgtyZXBvcnRlcl9pZBgCIAEoCVIKcmVwb3J0ZXJJRBIMCgRub3RlGAMgASgJEhIKCmNyZWF0ZWRfYXQYBCABKA0SKAoJc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUiZAoLRmxhZ2dlZFJlZWQSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEhsKCWF1dGhvcl9pZBgCIAEoCVIIYXV0aG9ySUQSHwoFZmxhZ3MYAyADKAsyEC5zeXJpbnguUmVlZEZsYWciSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSIpChRSZXNlcnZlZFVzZXJuYW1lTGlzdBIRCgl1c2VybmFtZXMYASADKAkikAEKCFJlZWRGbGFnEhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBIfCgtyZXBvcnRlcl9pZBgCIAEoCVIKcmVwb3J0ZXJJRBIMCgRub3RlGAMgASgJEhIKCmNyZWF0ZWRfYXQYBCABKA0SKAoJc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUiZAoLRmxhZ2dlZFJlZWQSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEhsKCWF1dGhvcl9pZBgCIAEoCVIIYXV0aG9ySUQSHwoFZmxhZ3MYAyADKAsyEC5zeXJpbnguUmVlZEZsYWciSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJIjQKD1VzZXJQZXJtaXNzaW9ucxIMCgRyb2xlGAEgASgJEhMKC3Blcm1pc3Npb25zGAIgAygJQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -241,4 +241,28 @@ export type FlaggedReedList = Message<"syrinx.FlaggedReedList"> & {
  */
 export const FlaggedReedListSchema: GenMessage<FlaggedReedList> = /*@__PURE__*/
   messageDesc(file_admin, 7);
+
+/**
+ * A user's role and the admin permissions they hold, sorted.
+ *
+ * @generated from message syrinx.UserPermissions
+ */
+export type UserPermissions = Message<"syrinx.UserPermissions"> & {
+  /**
+   * @generated from field: string role = 1;
+   */
+  role: string;
+
+  /**
+   * @generated from field: repeated string permissions = 2;
+   */
+  permissions: string[];
+};
+
+/**
+ * Describes the message syrinx.UserPermissions.
+ * Use `create(UserPermissionsSchema)` to create a new message.
+ */
+export const UserPermissionsSchema: GenMessage<UserPermissions> = /*@__PURE__*/
+  messageDesc(file_admin, 8);
 

@@ -236,6 +236,11 @@ export class CryptoService {
     return getFingerprint(publicKey);
   }
 
+  /** The fingerprint of an armored public key, as the server reads it. */
+  async fingerprintOf(publicKey: string): Promise<string> {
+    return getFingerprint(publicKey);
+  }
+
   /**
    * Extract identity from a public key
    */

@@ -62,3 +62,9 @@ message FlaggedReedList {
   repeated FlaggedReed reeds = 1;
   string next_cursor = 2;
 }
+
+// A user's role and the admin permissions they hold, sorted.
+message UserPermissions {
+  string role = 1;
+  repeated string permissions = 2;
+}

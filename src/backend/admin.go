@@ -1212,3 +1212,32 @@ func unmarshalAdminAuthorization(b []byte) (*adminRequest, error) {
 	}
 	return adminRequestFromPB(auth.GetRequest()), nil
 }
+
+// GetUserPermissions handles GET /admin/users/{userID}/permissions: an
+// admin may read anyone's, every user their own.
+func (h *Handlers) GetUserPermissions(w http.ResponseWriter, r *http.Request) {
+	callerID, callerRole, ok := h.adminCaller(w, r)
+	if !ok {
+		return
+	}
+	userID := mux.Vars(r)["userID"]
+	if userID != callerID && !isAdmin(callerRole) {
+		writeError(w, http.StatusForbidden, "Admin required")
+		return
+	}
+	role, err := h.services.db.GetUserRole(r.Context(), userID)
+	if err != nil {
+		h.writeAdminError(w, r, err, "Error loading role")
+		return
+	}
+	if role == "" {
+		writeError(w, http.StatusNotFound, "User not found")
+		return
+	}
+	perms, err := h.services.db.GetUserPermissions(r.Context(), userID)
+	if err != nil {
+		h.writeAdminError(w, r, err, "Error loading permissions")
+		return
+	}
+	writeResponse(w, http.StatusOK, &pb.UserPermissions{Role: role, Permissions: perms})
+}

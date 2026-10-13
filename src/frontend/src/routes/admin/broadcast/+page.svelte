@@ -5,59 +5,86 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import ModeSwitch from '$lib/components/ModeSwitch.svelte';
-  import { formatRelativeTime } from '$lib/utils/time';
+  import Username from '$lib/components/Username.svelte';
+  import UserPicker from '$lib/components/UserPicker.svelte';
+  import { apiService } from '$lib/services/api';
+  import { adminRequestsChanged, openAdminRequest } from '$lib/services/admin';
+  import { parseCanonicalId } from '$lib/utils/identityRef';
+  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
+  import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
+  import type * as api from '$lib/types/api';
 
-  // Mockup: sending only adds to the local list below, nothing reaches the server.
-  interface SentRequest {
-    id: string;
-    recipient: string | null;
-    message: string;
-    createdAt: Date;
-  }
+  const MAX_LENGTH = 140;
 
-  const MAX_LENGTH = 1000;
-
-  const tabs = [
-    { href: '/admin/actions', label: 'Actions' },
-    { href: '/admin/broadcast', label: 'Broadcast' },
-    { href: '/admin/mesh', label: 'Mesh' },
-  ];
-
-  const recipientOptions = [
-    { value: 'everyone', label: 'Everyone' },
-    { value: 'user', label: 'One user' },
-  ];
+  $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
   $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
+  $: viewerID = $page.data?.user?.id ?? '';
+  $: serverID = parseCanonicalId(viewerID)?.[1] ?? '';
 
   let recipientMode: 'everyone' | 'user' = 'everyone';
   let username = '';
+  let recipientID = '';
   let message = '';
-  let sent: SentRequest[] = [
-    {
-      id: 's1',
-      recipient: null,
-      message: 'The server will be down for maintenance on Saturday from 02:00 to 04:00 UTC.',
-      createdAt: new Date(Date.now() - 3 * 60 * 60_000),
-    },
+  let sending = false;
+  let error = '';
+  let sent: api.AdminRequest[] = [];
+
+  // Permissions only pick which options show; the server checks the send.
+  $: canBroadcast = holds($page.data?.user, $adminPermissions, 'broadcast.message');
+  $: canMessage = holds($page.data?.user, $adminPermissions, 'user.message');
+  $: recipientOptions = [
+    ...(canBroadcast || !canMessage ? [{ value: 'everyone', label: 'Everyone' }] : []),
+    ...(canMessage || !canBroadcast ? [{ value: 'user', label: 'One user' }] : []),
   ];
-
+  $: if (!canBroadcast && canMessage) recipientMode = 'user';
   $: canSend =
-    message.trim().length > 0 && (recipientMode === 'everyone' || username.trim().length > 0);
+    !sending &&
+    message.trim().length > 0 &&
+    (recipientMode === 'everyone' || username.trim().length > 0);
 
-  function send() {
+  $: $adminRequestsChanged, isAdmin && void loadSent();
+
+  async function loadSent(): Promise<void> {
+    const open = await apiService.listAdminRequests('pending');
+    sent = open.requests.filter(
+      (r) => r.requesterId === viewerID && (r.action === 'broadcast' || r.action === 'message')
+    );
+  }
+
+  /** The local member named name, case-insensitively. */
+  async function recipient(name: string): Promise<string | null> {
+    const wanted = name.trim().replace(/^@/, '').toLowerCase();
+    const { users } = await apiService.searchUsers(wanted, 20);
+    const match = users.find(
+      (u) => u.username.toLowerCase() === wanted && parseCanonicalId(u.id)?.[1] === serverID
+    );
+    return match?.id ?? null;
+  }
+
+  async function send(): Promise<void> {
     if (!canSend) return;
-    sent = [
-      {
-        id: crypto.randomUUID(),
-        recipient: recipientMode === 'user' ? username.trim() : null,
-        message: message.trim(),
-        createdAt: new Date(),
-      },
-      ...sent,
-    ];
-    message = '';
-    username = '';
+    sending = true;
+    error = '';
+    try {
+      if (recipientMode === 'everyone') {
+        await openAdminRequest('broadcast', [], '', message.trim());
+      } else {
+        const to = recipientID || (await recipient(username));
+        if (!to) {
+          error = `No member here is named ${username.trim()}.`;
+          return;
+        }
+        await openAdminRequest('message', [to], '', message.trim());
+      }
+      message = '';
+      username = '';
+      recipientID = '';
+    } catch (err) {
+      error = err instanceof Error ? err.message : 'The request was refused.';
+    } finally {
+      sending = false;
+    }
   }
 </script>
 
@@ -69,28 +96,32 @@
       {#if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
       {:else}
-        <p class="mock-banner">Mockup: sample data, nothing is sent to the server.</p>
-
         <form class="composer" on:submit|preventDefault={send}>
-          <div class="recipient-picker">
-            <ModeSwitch options={recipientOptions} bind:value={recipientMode} />
-          </div>
+          {#if recipientOptions.length > 1}
+            <div class="recipient-picker">
+              <ModeSwitch options={recipientOptions} bind:value={recipientMode} />
+            </div>
+          {/if}
 
           {#if recipientMode === 'user'}
             <label class="field">
               <span>To</span>
-              <input type="text" bind:value={username} placeholder="Username" autocomplete="off" spellcheck="false" />
+              <UserPicker bind:value={username} bind:userID={recipientID} {serverID} />
             </label>
           {/if}
 
           <label class="field">
             <span>Message</span>
-            <textarea bind:value={message} rows="6" maxlength={MAX_LENGTH}></textarea>
+            <textarea bind:value={message} rows="4" maxlength={MAX_LENGTH}></textarea>
           </label>
+
+          {#if error}<p class="error" role="alert">{error}</p>{/if}
 
           <div class="composer-footer">
             <span class="char-count">{message.length}/{MAX_LENGTH}</span>
-            <button class="btn primary" type="submit" disabled={!canSend}>Send for approval</button>
+            <button class="btn primary" type="submit" disabled={!canSend}>
+              {sending ? 'Signing…' : 'Send for approval'}
+            </button>
           </div>
         </form>
 
@@ -100,11 +131,15 @@
             {#each sent as s (s.id)}
               <li class="sent">
                 <div class="sent-head">
-                  <span class="recipient" class:name={!!s.recipient}>{s.recipient ?? 'Everyone'}</span>
-                  {#if s.recipient}<span class="badge">Private</span>{/if}
-                  <span class="when">{formatRelativeTime(s.createdAt)}</span>
+                  {#if s.action === 'message'}
+                    <span class="recipient name"><Username userID={s.targets[0]} color="var(--primary)" /></span>
+                    <span class="badge">Private</span>
+                  {:else}
+                    <span class="recipient">Everyone</span>
+                  {/if}
+                  <span class="when">{formatRelativeTime(fromUnix(s.createdAt) ?? new Date())}</span>
                 </div>
-                <blockquote class="message">{s.message}</blockquote>
+                <blockquote class="message">{s.body}</blockquote>
               </li>
             {/each}
           </ul>
@@ -144,15 +179,6 @@
     padding: 1rem;
   }
 
-  .mock-banner {
-    margin: 0 0 1rem;
-    padding: 0.5rem 0.75rem;
-    border: 1px dashed var(--border);
-    border-radius: 8px;
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-
   .composer {
     display: flex;
     flex-direction: column;
@@ -176,7 +202,7 @@
     color: var(--muted);
   }
 
-  .field input,
+  .field :global(input),
   .field textarea {
     padding: 0.5rem;
     border: 1px solid var(--border);
@@ -244,6 +270,11 @@
 
   .recipient.name {
     color: var(--primary);
+  }
+
+  .composer .error {
+    margin: 0;
+    font-size: 0.85rem;
   }
 
   .badge {

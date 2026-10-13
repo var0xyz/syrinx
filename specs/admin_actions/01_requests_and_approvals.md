@@ -185,6 +185,7 @@ All routes need signature auth, and the caller must be admin or root.
 | `POST /api/admin/requests` | Open a request (body: `AdminRequest` with requester signature) |
 | `GET /api/admin/requests?state=pending` | List requests, newest first, keyset cursor |
 | `GET /api/admin/requests/{id}` | One request |
+| `GET /api/admin/users/{userID}/permissions` | A user's role and permissions (any admin, or the user themselves) |
 | `POST /api/admin/requests/{id}/decision` | Approve, reject or withdraw (body: `AdminDecision`) |
 
 The server rejects a new request when:

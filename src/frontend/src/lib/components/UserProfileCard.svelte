@@ -311,14 +311,7 @@
 </div>
 
 {#if showAdmin}
-  <AdminActionsModal
-    open={adminActionsOpen}
-    userID={user.id}
-    username={user.username}
-    role={user.role}
-    viewerIsRoot={viewerRole === 'root'}
-    on:close={() => (adminActionsOpen = false)}
-  />
+  <AdminActionsModal open={adminActionsOpen} userID={user.id} on:close={() => (adminActionsOpen = false)} />
 {/if}
 
 <VouchServerPicker

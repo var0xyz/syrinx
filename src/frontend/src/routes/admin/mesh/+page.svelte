@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { authService } from '$lib/services/auth';
   import { apiService } from '$lib/services/api';
   import type * as api from '$lib/types/api';
   import { notificationStore } from '$lib/stores/notifications';
@@ -14,19 +14,16 @@
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
+  import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
 
-  const tabs = [
-    { href: '/admin/actions', label: 'Actions' },
-    { href: '/admin/broadcast', label: 'Broadcast' },
-    { href: '/admin/mesh', label: 'Mesh' },
-  ];
+  $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
-  let user: api.User | null = null;
-  let isAdmin = false;
+  $: viewer = $page.data?.user;
+  $: isAdmin = viewer?.role === 'admin' || viewer?.role === 'root';
   let invitations: api.FederationInvitation[] = [];
   let attempts: api.FederationAttempt[] = [];
   let servers: api.FederationServer[] = [];
-  let loading = true;
+  let loaded = false;
   let remotePublicKey = '';
   let inviteName = '';
   let creating = false;
@@ -41,15 +38,9 @@
   let modalError = '';
 
   onMount(async () => {
-    user = await authService.getCurrentUser();
-    if (!user) return;
-    isAdmin = user.role === 'admin' || user.role === 'root';
-    if (!isAdmin) {
-      loading = false;
-      return;
-    }
+    if (!isAdmin) return;
     await refreshList();
-    loading = false;
+    loaded = true;
   });
 
   async function refreshList() {
@@ -266,9 +257,7 @@
   <div class="mesh-container">
     <SectionTabs {tabs} active="mesh" />
     <div class="mesh-content">
-      {#if loading}
-        <p class="muted">Loading…</p>
-      {:else if !isAdmin}
+      {#if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
       {:else}
         <div class="lead-row">
@@ -282,17 +271,19 @@
               <span class="icon-copy" aria-hidden="true"></span>
               Copy this server’s public key
             </button>
-            <button
-              class="btn secondary lead-action-btn"
-              on:click={openAcceptModal}
-            >
-              <span class="icon-connect" aria-hidden="true"></span>
-              Paste connection string
-            </button>
+            {#if holds(viewer, $adminPermissions, 'mesh.connect')}
+              <button
+                class="btn secondary lead-action-btn"
+                on:click={openAcceptModal}
+              >
+                <span class="icon-connect" aria-hidden="true"></span>
+                Paste connection string
+              </button>
+            {/if}
           </div>
         </div>
 
-        {#if invitations.length === 0 && attempts.length === 0 && servers.length === 0}
+        {#if loaded && invitations.length === 0 && attempts.length === 0 && servers.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🔗</div>
             <h3>No federation invites yet</h3>
@@ -335,7 +326,7 @@
                       on:click={() => copyConnectionString(inv.connectionString!)}
                     />
                   {/if}
-                  {#if inv.status === 'new'}
+                  {#if inv.status === 'new' && holds(viewer, $adminPermissions, 'mesh.invite')}
                     <button
                       class="btn danger"
                       disabled={revokingId === inv.inviteId}
@@ -407,24 +398,26 @@
           </ul>
         {/if}
 
-        <button
-          class="floating-create-btn"
-          disabled={creating}
-          on:click={openCreateModal}
-          aria-label={creating ? 'Creating invite' : 'Create federation invite'}
-        >
-          {#if creating}
-            <span class="icon">…</span>
-          {:else}
-            <span class="icon icon-link"></span>
-          {/if}
-        </button>
-
-        <div class="desktop-create">
-          <button class="btn primary" disabled={creating} on:click={openCreateModal}>
-            {creating ? 'Creating…' : 'New connection'}
+        {#if holds(viewer, $adminPermissions, 'mesh.invite')}
+          <button
+            class="floating-create-btn"
+            disabled={creating}
+            on:click={openCreateModal}
+            aria-label={creating ? 'Creating invite' : 'Create federation invite'}
+          >
+            {#if creating}
+              <span class="icon">…</span>
+            {:else}
+              <span class="icon icon-link"></span>
+            {/if}
           </button>
-        </div>
+
+          <div class="desktop-create">
+            <button class="btn primary" disabled={creating} on:click={openCreateModal}>
+              {creating ? 'Creating…' : 'New connection'}
+            </button>
+          </div>
+        {/if}
       {/if}
     </div>
 
@@ -776,10 +769,6 @@
   :global(.meta .meta-link) {
     color: var(--primary);
     text-decoration: none;
-  }
-
-  .muted {
-    color: var(--muted);
   }
 
   .modal-note {

@@ -1,89 +1,172 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import Username from '$lib/components/Username.svelte';
+  import PermissionPicker from '$lib/components/PermissionPicker.svelte';
+  import { apiService } from '$lib/services/api';
+  import { cryptoService } from '$lib/services/crypto';
+  import { myPermissions, openAdminRequest, type AdminAction } from '$lib/services/admin';
+  import { readRebindFile } from '$lib/services/rebind';
+  import { formatPermissionSet } from '$lib/utils/permissions';
+  import type * as api from '$lib/types/api';
 
-  // Mockup: the invite tree and every submission are local only.
   export let open = false;
   export let userID: string;
-  export let username = '';
-  export let role = 'user';
-  export let viewerIsRoot = false;
 
-  type Action = 'suspend' | 'reinstate' | 'kick' | 'promote' | 'demote' | 'rebind' | 'message';
-
-  interface TreeNode {
-    id: string;
-    username: string;
-    role: string;
-    depth: number;
-  }
-
+  const MAX_MESSAGE = 140;
+  const MAX_REASON = 1000;
   const dispatch = createEventDispatcher<{ close: void }>();
 
-  const suspended = false;
-  const isAdminTarget = role === 'admin';
+  interface ActionItem {
+    id: AdminAction;
+    icon: string;
+    label: string;
+    hint: string;
+    danger?: boolean;
+  }
 
-  $: actions = [
-    isAdminTarget
-      ? { id: 'demote', icon: 'demote', label: 'Demote to user', hint: 'Take away admin rights' }
-      : { id: 'promote', icon: 'promote', label: 'Promote to admin', hint: 'Give admin rights' },
-    { id: 'rebind', icon: 'key', label: 'Add a key', hint: 'For a member who lost their device and has no backup' },
-    { id: 'message', icon: 'mail', label: 'Send a private message', hint: 'Delivered to their mailbox only' },
-    suspended
-      ? { id: 'reinstate', icon: 'reinstate', label: 'Reinstate', hint: 'Lift the suspension' }
-      : { id: 'suspend', icon: 'suspend', label: 'Suspend', hint: 'Block sign-in until reinstated; nothing is deleted' },
-    { id: 'kick', icon: 'kick', label: 'Kick', hint: 'Remove the account and all its content', danger: true },
-  ] as { id: Action; icon: string; label: string; hint: string; danger?: boolean }[];
+  let viewer: api.UserPermissions | null = null;
+  let target: api.UserPermissions | null = null;
+  let tree: api.InviteTreeNode[] = [];
+  let loadError = '';
+  let loadedFor = '';
 
-  $: tree = [
-    { id: 'inviter', username: 'marta', role: 'admin', depth: 0 },
-    { id: userID, username, role, depth: 1 },
-    { id: 'invitee-1', username: `${username}_friend`, role: 'user', depth: 2 },
-    { id: 'invitee-2', username: 'quietfox', role: 'user', depth: 2 },
-    { id: 'invitee-3', username: 'latecomer', role: 'user', depth: 3 },
-  ] as TreeNode[];
-
-  let action: Action | null = null;
+  let action: AdminAction | null = null;
   let checked = new Set<string>();
   let reason = '';
   let message = '';
-  let keyFile: File | null = null;
+  let granted = new Set<string>();
+  let keyArmor = '';
+  let keyFingerprint = '';
+  let keyError = '';
+  let submitting = false;
+  let submitError = '';
   let done = false;
 
-  $: picksTargets = action === 'suspend' || action === 'kick';
-  $: chosen = actions.find((a) => a.id === action);
-  $: canSubmit =
-    action === 'message'
-      ? message.trim().length > 0
-      : reason.trim().length > 0 && (!picksTargets || checked.size > 0) && (action !== 'rebind' || !!keyFile);
+  $: if (open && userID && loadedFor !== userID) void load(userID);
 
-  function selectable(n: TreeNode): boolean {
-    if (n.role === 'root') return false;
+  async function load(id: string): Promise<void> {
+    loadedFor = id;
+    loadError = '';
+    try {
+      [viewer, target, tree] = await Promise.all([
+        myPermissions(),
+        apiService.getUserPermissions(id),
+        apiService.getInviteTree(id).then((t) => t.nodes),
+      ]);
+    } catch (err) {
+      loadError = err instanceof Error ? err.message : 'Could not load this user.';
+    }
+  }
+
+  $: held = new Set(viewer?.permissions ?? []);
+  $: viewerIsRoot = viewer?.role === 'root';
+  $: self = tree.find((n) => n.userId === userID);
+  $: suspended = !!self?.suspended;
+  $: targetIsAdmin = target?.role === 'admin';
+
+  $: actions = [
+    ...(!targetIsAdmin && held.has('admin.create')
+      ? [{ id: 'promote', icon: 'promote', label: 'Promote to admin', hint: 'Give admin rights and permissions' }]
+      : []),
+    ...(targetIsAdmin && (held.has('admin.create') || held.has('admin.demote'))
+      ? [{ id: 'permissions', icon: 'admin', label: 'Change permissions', hint: 'Grant or take away permissions' }]
+      : []),
+    ...(targetIsAdmin && held.has('admin.demote')
+      ? [{ id: 'demote', icon: 'demote', label: 'Demote to user', hint: 'Take away admin rights' }]
+      : []),
+    ...(held.has('user.rebind')
+      ? [{ id: 'rebind', icon: 'key', label: 'Add a key', hint: 'For a member who lost their device and has no backup' }]
+      : []),
+    ...(held.has('user.message')
+      ? [{ id: 'message', icon: 'mail', label: 'Send a private message', hint: 'Delivered to their mailbox only' }]
+      : []),
+    ...(held.has('user.suspend')
+      ? [
+          suspended
+            ? { id: 'reinstate', icon: 'reinstate', label: 'Reinstate', hint: 'Lift the suspension' }
+            : { id: 'suspend', icon: 'suspend', label: 'Suspend', hint: 'Block sign-in until reinstated; nothing is deleted' },
+        ]
+      : []),
+    ...(held.has('user.kick')
+      ? [{ id: 'kick', icon: 'kick', label: 'Kick', hint: 'Remove the account and all its content', danger: true }]
+      : []),
+  ] as ActionItem[];
+
+  $: chosen = actions.find((a) => a.id === action);
+  $: picksTargets = action === 'suspend' || action === 'kick';
+  $: picksPermissions = action === 'promote' || action === 'permissions';
+  $: needsReason = action !== 'message';
+  $: reasonOk = reason.trim().length > 0 && reason.length <= MAX_REASON;
+  $: canSubmit =
+    !submitting &&
+    (action === 'message'
+      ? message.trim().length > 0 && message.length <= MAX_MESSAGE
+      : reasonOk && (!picksTargets || checked.size > 0) && (action !== 'rebind' || !!keyArmor));
+
+  /** Whether the viewer may pick node for the chosen action. */
+  function selectable(n: api.InviteTreeNode): boolean {
+    if (n.role === 'root' || n.removed) return false;
+    if (action === 'suspend' && n.suspended) return false;
     return n.role !== 'admin' || viewerIsRoot;
   }
 
-  function choose(id: Action) {
+  function choose(id: AdminAction): void {
     action = id;
     checked = new Set([userID]);
     reason = '';
     message = '';
-    keyFile = null;
+    keyArmor = '';
+    keyFingerprint = '';
+    keyError = '';
+    submitError = '';
+    granted = new Set(id === 'permissions' ? (target?.permissions ?? []) : []);
   }
 
-  function toggle(id: string) {
+  function toggle(id: string): void {
     const next = new Set(checked);
     if (next.has(id)) next.delete(id);
     else next.add(id);
     checked = next;
   }
 
-  function close() {
+  function close(): void {
     action = null;
     done = false;
+    loadedFor = '';
     dispatch('close');
   }
 
-  function onFile(e: Event) {
-    keyFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null;
+  async function onFile(e: Event): Promise<void> {
+    keyArmor = '';
+    keyFingerprint = '';
+    keyError = '';
+    const file = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!file) return;
+    try {
+      const armor = await readRebindFile(file, userID);
+      const fingerprint = await cryptoService.fingerprintOf(armor);
+      keyArmor = armor;
+      keyFingerprint = (fingerprint.toUpperCase().match(/.{1,4}/g) ?? []).join(' ');
+    } catch (err) {
+      keyError = err instanceof Error ? err.message : 'That isn’t a key file.';
+    }
+  }
+
+  async function submit(): Promise<void> {
+    if (!action || !canSubmit) return;
+    submitting = true;
+    submitError = '';
+    try {
+      const targets = picksTargets ? [...checked] : [userID];
+      const body =
+        action === 'message' ? message.trim() : action === 'rebind' ? keyArmor : picksPermissions ? formatPermissionSet(granted) : '';
+      await openAdminRequest(action, targets, needsReason ? reason.trim() : '', body);
+      done = true;
+    } catch (err) {
+      submitError = err instanceof Error ? err.message : 'The request was refused.';
+    } finally {
+      submitting = false;
+    }
   }
 
   $: kickSummary =
@@ -103,20 +186,26 @@
       </div>
     {:else if !action}
       <h3 id="admin-actions-title">Admin actions</h3>
-      <p class="who"><span class="name">{username}</span></p>
-      <ul class="action-list">
-        {#each actions as a (a.id)}
-          <li>
-            <button type="button" class="action-row" class:danger={a.danger} on:click={() => choose(a.id)}>
-              <span class="action-icon" style="--icon: url('/icons/{a.icon}-16.svg')" aria-hidden="true"></span>
-              <span class="action-text">
-                <span class="action-label">{a.label}</span>
-                <span class="action-hint">{a.hint}</span>
-              </span>
-            </button>
-          </li>
-        {/each}
-      </ul>
+      <p class="who"><span class="name"><Username {userID} linked={false} color="var(--primary)" /></span></p>
+      {#if loadError}
+        <p class="warning" role="alert">{loadError}</p>
+      {:else if viewer && actions.length === 0}
+        <p class="who">You don’t hold a permission for any action on this user.</p>
+      {:else}
+        <ul class="action-list">
+          {#each actions as a (a.id)}
+            <li>
+              <button type="button" class="action-row" class:danger={a.danger} on:click={() => choose(a.id)}>
+                <span class="action-icon" style="--icon: url('/icons/{a.icon}-16.svg')" aria-hidden="true"></span>
+                <span class="action-text">
+                  <span class="action-label">{a.label}</span>
+                  <span class="action-hint">{a.hint}</span>
+                </span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
       <div class="actions">
         <button class="btn btn-secondary" type="button" on:click={close}>Close</button>
       </div>
@@ -125,24 +214,30 @@
         <span class="action-icon" style="--icon: url('/icons/{chosen?.icon}-16.svg')" aria-hidden="true"></span>
         {chosen?.label}
       </h3>
-      <p class="who"><span class="name">{username}</span></p>
+      <p class="who"><span class="name"><Username {userID} linked={false} color="var(--primary)" /></span></p>
 
       {#if picksTargets}
         <ul class="tree">
-          {#each tree as n (n.id)}
+          {#each tree as n (n.userId)}
             <li style="padding-left: {n.depth * 1.25}rem">
               <label class="tree-node" class:locked={!selectable(n)}>
                 {#if selectable(n)}
-                  <input type="checkbox" checked={checked.has(n.id)} on:change={() => toggle(n.id)} />
+                  <input type="checkbox" checked={checked.has(n.userId)} on:change={() => toggle(n.userId)} />
                 {:else}
-                  <span class="lock-icon" aria-label="Only root can select an admin"></span>
+                  <span class="lock-icon" aria-label="Can't be selected"></span>
                 {/if}
-                <span class="name">{n.username}</span>
+                <span class="name"><Username userID={n.userId} username={n.username || undefined} linked={false} color="var(--primary)" /></span>
                 {#if n.role !== 'user'}<span class="node-role">{n.role}</span>{/if}
+                {#if n.suspended}<span class="node-role">suspended</span>{/if}
+                {#if n.removed}<span class="node-role">removed</span>{/if}
               </label>
             </li>
           {/each}
         </ul>
+      {/if}
+
+      {#if picksPermissions}
+        <PermissionPicker available={viewer?.permissions ?? []} bind:selected={granted} />
       {/if}
 
       {#if action === 'rebind'}
@@ -150,10 +245,11 @@
           <span>Public key file</span>
           <input type="file" accept=".gz" on:change={onFile} />
         </label>
-        {#if keyFile}
+        {#if keyError}<p class="warning">{keyError}</p>{/if}
+        {#if keyFingerprint}
           <div class="fingerprint">
             <span>Read this back to them</span>
-            <code>7F3A 91C2 0B44 E1D8 5A7C  3E90 12BF 64D1 A8C3 2F06</code>
+            <code>{keyFingerprint}</code>
           </div>
         {/if}
       {/if}
@@ -161,18 +257,19 @@
       {#if action === 'message'}
         <label class="field">
           <span>Message</span>
-          <textarea bind:value={message} rows="5" maxlength="1000"></textarea>
+          <textarea bind:value={message} rows="4" maxlength={MAX_MESSAGE}></textarea>
         </label>
       {:else}
         <label class="field">
           <span>Reason</span>
-          <textarea bind:value={reason} rows="3" maxlength="1000"></textarea>
+          <textarea bind:value={reason} rows="3" maxlength={MAX_REASON}></textarea>
         </label>
       {/if}
 
       {#if action === 'kick' && checked.size > 0}
         <p class="warning">{kickSummary}</p>
       {/if}
+      {#if submitError}<p class="warning" role="alert">{submitError}</p>{/if}
 
       <div class="actions">
         <button class="btn btn-secondary" type="button" on:click={() => (action = null)}>Back</button>
@@ -182,9 +279,9 @@
           class:btn-primary={action !== 'kick'}
           type="button"
           disabled={!canSubmit}
-          on:click={() => (done = true)}
+          on:click={submit}
         >
-          Sign and request
+          {submitting ? 'Signing…' : 'Sign and request'}
         </button>
       </div>
     {/if}
