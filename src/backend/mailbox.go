@@ -94,7 +94,7 @@ func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoServic
 	}
 
 	var fingerprint sql.NullString
-	err = db.QueryRowContext(ctx, `SELECT user_fingerprint FROM users WHERE id = $1`, userID).Scan(&fingerprint)
+	err = db.QueryRowContext(ctx, `SELECT active_key_id FROM users WHERE id = $1`, userID).Scan(&fingerprint)
 	if err == sql.ErrNoRows {
 		return "", "", ErrMailboxRecipientNotFound
 	}
@@ -109,7 +109,7 @@ func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoServic
 	var revoked bool
 	err = db.QueryRowContext(ctx, `
 		SELECT pk.armor,
-		       EXISTS(SELECT 1 FROM public_key_revocations rv WHERE rv.revoked_id = pk.id)
+		       EXISTS(SELECT 1 FROM public_key_revocations rv WHERE rv.key_id = pk.id)
 		FROM public_keys pk
 		WHERE pk.id = $1
 	`, fingerprint.String).Scan(&armor, &revoked)
