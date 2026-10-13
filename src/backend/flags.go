@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,7 +20,7 @@ import (
 )
 
 // maxFlagNoteChars caps a flag's optional note.
-const maxFlagNoteChars = 280
+const maxFlagNoteChars = 140
 
 // flagClockSkew bounds how far a flag's signed createdAt may be from the
 // server's clock.
@@ -248,12 +249,34 @@ func (h *Handlers) FlagFromPeer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 }
 
-// flaggedReed is a reed with open flags.
+// maxDismissalReasonChars caps the reason an admin gives for a dismissal.
+const maxDismissalReasonChars = 140
+
+// flagDismissal is an admin closing a reed's open flags. DismissedBy is
+// empty once their account is gone.
+type flagDismissal struct {
+	ID          int64
+	DismissedBy string
+	Reason      string
+	DismissedAt time.Time
+}
+
+func pbFlagDismissal(d *flagDismissal) *pb.FlagDismissal {
+	return &pb.FlagDismissal{
+		Id:          strconv.FormatInt(d.ID, 10),
+		DismissedBy: d.DismissedBy,
+		Reason:      d.Reason,
+		DismissedAt: unixOrZero(d.DismissedAt),
+	}
+}
+
+// flaggedReed is a reed with open flags, or the flags one dismissal closed.
 type flaggedReed struct {
-	ReedID   string
-	AuthorID string
-	Latest   time.Time
-	Flags    []reedFlag
+	ReedID    string
+	AuthorID  string
+	Latest    time.Time
+	Flags     []reedFlag
+	Dismissal *flagDismissal
 }
 
 // ListOpenFlags pages reeds with open flags that viewerID may see, latest
@@ -274,7 +297,7 @@ func (s *DataService) ListOpenFlags(ctx context.Context, viewerID, cursor string
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT f.reed_id, f.author_id, MAX(f.created_at)
 		FROM reed_flags f
-		WHERE f.dismissed_at IS NULL AND f.author_id <> $1
+		WHERE f.dismissal_id IS NULL AND f.author_id <> $1
 			AND NOT EXISTS (SELECT 1 FROM account_removals ar WHERE ar.user_id = f.reporter_id)
 		GROUP BY f.reed_id, f.author_id`+having+fmt.Sprintf(`
 		ORDER BY MAX(f.created_at) DESC, f.reed_id DESC LIMIT $%d`, len(args)), args...)
@@ -300,49 +323,129 @@ func (s *DataService) ListOpenFlags(ctx context.Context, viewerID, cursor string
 		last := reeds[limit-1]
 		next = encodeAdminRequestCursor(adminRequestCursor{CreatedAt: last.Latest, ID: last.ReedID})
 	}
-	for _, fr := range reeds {
-		flagRows, err := s.db.QueryContext(ctx, `
-			SELECT f.reporter_id, f.note, f.created_at, us.public_key_id, us.signature
-			FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id
-			WHERE f.reed_id = $1 AND f.dismissed_at IS NULL
-				AND NOT EXISTS (SELECT 1 FROM account_removals ar WHERE ar.user_id = f.reporter_id)
-			ORDER BY f.created_at
-		`, fr.ReedID)
+	return reeds, next, s.loadReedFlags(ctx, reeds)
+}
+
+// ListDismissedFlags pages dismissals viewerID may see, latest first, each
+// with the flags it closed.
+func (s *DataService) ListDismissedFlags(ctx context.Context, viewerID, cursor string, limit int) ([]*flaggedReed, string, error) {
+	args := []any{viewerID}
+	after := ""
+	if cursor != "" {
+		c, err := decodeAdminRequestCursor(cursor)
 		if err != nil {
 			return nil, "", err
 		}
-		for flagRows.Next() {
+		args = append(args, c.CreatedAt, c.ID)
+		after = ` AND (d.dismissed_at, d.id) < ($2, $3::bigint)`
+	}
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id, d.reed_id, d.author_id, COALESCE(d.dismissed_by, ''), d.reason, d.dismissed_at
+		FROM flag_dismissals d
+		WHERE d.author_id <> $1`+after+fmt.Sprintf(`
+		ORDER BY d.dismissed_at DESC, d.id DESC LIMIT $%d`, len(args)), args...)
+	if err != nil {
+		return nil, "", err
+	}
+	var reeds []*flaggedReed
+	for rows.Next() {
+		fr := flaggedReed{Dismissal: &flagDismissal{}}
+		d := fr.Dismissal
+		if err := rows.Scan(&d.ID, &fr.ReedID, &fr.AuthorID, &d.DismissedBy, &d.Reason, &d.DismissedAt); err != nil {
+			rows.Close()
+			return nil, "", err
+		}
+		d.DismissedAt = d.DismissedAt.UTC()
+		reeds = append(reeds, &fr)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	next := ""
+	if len(reeds) > limit {
+		reeds = reeds[:limit]
+		last := reeds[limit-1].Dismissal
+		next = encodeAdminRequestCursor(adminRequestCursor{CreatedAt: last.DismissedAt, ID: strconv.FormatInt(last.ID, 10)})
+	}
+	return reeds, next, s.loadReedFlags(ctx, reeds)
+}
+
+// loadReedFlags fills each reed's flags: its open ones, or the ones its
+// dismissal closed. Flags whose reporter's account was removed are left out.
+func (s *DataService) loadReedFlags(ctx context.Context, reeds []*flaggedReed) error {
+	for _, fr := range reeds {
+		var dismissalID sql.NullInt64
+		if fr.Dismissal != nil {
+			dismissalID = sql.NullInt64{Int64: fr.Dismissal.ID, Valid: true}
+		}
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT f.reporter_id, f.note, f.created_at, us.public_key_id, us.signature
+			FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id
+			WHERE f.reed_id = $1 AND f.dismissal_id IS NOT DISTINCT FROM $2::bigint
+				AND NOT EXISTS (SELECT 1 FROM account_removals ar WHERE ar.user_id = f.reporter_id)
+			ORDER BY f.created_at
+		`, fr.ReedID, dismissalID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
 			f := reedFlag{ReedID: fr.ReedID, AuthorID: fr.AuthorID}
-			if err := flagRows.Scan(&f.ReporterID, &f.Note, &f.CreatedAt, &f.Signature.ID, &f.Signature.Armor); err != nil {
-				flagRows.Close()
-				return nil, "", err
+			if err := rows.Scan(&f.ReporterID, &f.Note, &f.CreatedAt, &f.Signature.ID, &f.Signature.Armor); err != nil {
+				rows.Close()
+				return err
 			}
 			f.CreatedAt = f.CreatedAt.UTC()
 			fr.Flags = append(fr.Flags, f)
 		}
-		flagRows.Close()
-		if err := flagRows.Err(); err != nil {
-			return nil, "", err
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
 		}
 	}
-	return reeds, next, nil
+	return nil
 }
 
-// DismissFlags closes every open flag on reedID that viewerID may see.
-// False when there were none.
-func (s *DataService) DismissFlags(ctx context.Context, reedID, viewerID string) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE reed_flags SET dismissed_at = NOW()
-		WHERE reed_id = $1 AND author_id <> $2 AND dismissed_at IS NULL
-	`, reedID, viewerID)
+// DismissFlags closes every open flag on reedID that viewerID may see,
+// recording who did it and why.
+func (s *DataService) DismissFlags(ctx context.Context, reedID, viewerID, reason string) (*flagDismissal, error) {
+	d := &flagDismissal{DismissedBy: viewerID, Reason: reason}
+	err := withAdminTx(s.db, ctx, func(tx *sql.Tx) error {
+		var authorID string
+		err := tx.QueryRowContext(ctx, `
+			SELECT author_id FROM reed_flags
+			WHERE reed_id = $1 AND author_id <> $2 AND dismissal_id IS NULL
+			LIMIT 1 FOR UPDATE
+		`, reedID, viewerID).Scan(&authorID)
+		if err == sql.ErrNoRows {
+			return refuse(http.StatusNotFound, "No open flags on that reed")
+		}
+		if err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `
+			INSERT INTO flag_dismissals (reed_id, author_id, dismissed_by, reason, dismissed_at)
+			VALUES ($1, $2, $3, $4, NOW() AT TIME ZONE 'UTC')
+			RETURNING id, dismissed_at
+		`, reedID, authorID, viewerID, reason).Scan(&d.ID, &d.DismissedAt); err != nil {
+			return err
+		}
+		d.DismissedAt = d.DismissedAt.UTC()
+		_, err = tx.ExecContext(ctx, `
+			UPDATE reed_flags SET dismissal_id = $2
+			WHERE reed_id = $1 AND dismissal_id IS NULL
+		`, reedID, d.ID)
+		return err
+	})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	return d, nil
 }
 
-// ListFlags handles GET /admin/flags: reeds with open flags.
+// ListFlags handles GET /admin/flags: reeds with open flags, or with
+// state=dismissed, past dismissals.
 func (h *Handlers) ListFlags(w http.ResponseWriter, r *http.Request) {
 	callerID, role, ok := h.adminCaller(w, r)
 	if !ok {
@@ -352,7 +455,17 @@ func (h *Handlers) ListFlags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
-	reeds, next, err := h.services.db.ListOpenFlags(r.Context(), callerID, r.URL.Query().Get("cursor"), 50)
+	query := r.URL.Query()
+	list := h.services.db.ListOpenFlags
+	switch query.Get("state") {
+	case "", "open":
+	case "dismissed":
+		list = h.services.db.ListDismissedFlags
+	default:
+		writeError(w, http.StatusBadRequest, "state must be open or dismissed")
+		return
+	}
+	reeds, next, err := list(r.Context(), callerID, query.Get("cursor"), 50)
 	if err != nil {
 		h.writeAdminError(w, r, err, "Error listing flags")
 		return
@@ -363,12 +476,16 @@ func (h *Handlers) ListFlags(w http.ResponseWriter, r *http.Request) {
 		for _, f := range fr.Flags {
 			item.Flags = append(item.Flags, pbReedFlag(f))
 		}
+		if fr.Dismissal != nil {
+			item.Dismissal = pbFlagDismissal(fr.Dismissal)
+		}
 		out.Reeds = append(out.Reeds, item)
 	}
 	writeResponse(w, http.StatusOK, out)
 }
 
-// DismissFlags handles POST /admin/flags/{reedID}/dismiss.
+// DismissFlags handles POST /admin/flags/{reedID}/dismiss. A reason is
+// required; the dismissal stays off the ledger.
 func (h *Handlers) DismissFlags(w http.ResponseWriter, r *http.Request) {
 	callerID, role, ok := h.adminCaller(w, r)
 	if !ok {
@@ -378,14 +495,20 @@ func (h *Handlers) DismissFlags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
-	dismissed, err := h.services.db.DismissFlags(r.Context(), mux.Vars(r)["reedID"], callerID)
+	var msg pb.DismissFlagsRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	reason := strings.TrimSpace(msg.GetReason())
+	if reason == "" || utf8.RuneCountInString(reason) > maxDismissalReasonChars {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("A reason of 1 to %d characters is required", maxDismissalReasonChars))
+		return
+	}
+	d, err := h.services.db.DismissFlags(r.Context(), mux.Vars(r)["reedID"], callerID, reason)
 	if err != nil {
 		h.writeAdminError(w, r, err, "Error dismissing flags")
 		return
 	}
-	if !dismissed {
-		writeError(w, http.StatusNotFound, "No open flags on that reed")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResponse(w, http.StatusOK, pbFlagDismissal(d))
 }

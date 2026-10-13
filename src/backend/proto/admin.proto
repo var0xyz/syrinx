@@ -51,11 +51,26 @@ message ReedFlag {
   UserSignature signature = 5;
 }
 
-// A reed with open flags, for admins.
+// An admin closing a reed's open flags. dismissed_by is unset once their
+// account is gone.
+message FlagDismissal {
+  string id = 1;
+  string dismissed_by = 2;
+  string reason = 3;
+  uint32 dismissed_at = 4;
+}
+
+// A reed with flags, for admins: open ones, or the ones a dismissal closed.
 message FlaggedReed {
   string reed_id = 1 [json_name = "reedID"];
   string author_id = 2 [json_name = "authorID"];
   repeated ReedFlag flags = 3;
+  FlagDismissal dismissal = 4;
+}
+
+// POST /admin/flags/{reedID}/dismiss.
+message DismissFlagsRequest {
+  string reason = 1;
 }
 
 message FlaggedReedList {

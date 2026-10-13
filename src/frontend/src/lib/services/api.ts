@@ -35,6 +35,8 @@ import {
 } from '$lib/proto/common_pb';
 import {
   AdminRequestListSchema,
+  DismissFlagsRequestSchema,
+  FlagDismissalSchema,
   FlaggedReedListSchema,
   InviteTreeSchema,
   LedgerPageSchema,
@@ -882,13 +884,17 @@ export const apiService = {
     return request(`/admin/users/${userId}/permissions`, { method: 'GET' }, UserPermissionsSchema);
   },
 
-  async listFlags(cursor = ''): Promise<api.FlaggedReedList> {
-    const path = cursor ? `/admin/flags?cursor=${encodeURIComponent(cursor)}` : '/admin/flags';
-    return request(path, { method: 'GET' }, FlaggedReedListSchema);
+  async listFlags(state: 'open' | 'dismissed', cursor = ''): Promise<api.FlaggedReedList> {
+    const query = cursor ? `state=${state}&cursor=${encodeURIComponent(cursor)}` : `state=${state}`;
+    return request(`/admin/flags?${query}`, { method: 'GET' }, FlaggedReedListSchema);
   },
 
-  async dismissFlags(reedId: string): Promise<void> {
-    await send(`/admin/flags/${reedId}/dismiss`, { method: 'POST' });
+  async dismissFlags(reedId: string, reason: string): Promise<api.FlagDismissal> {
+    return request(
+      `/admin/flags/${reedId}/dismiss`,
+      protoBody('POST', DismissFlagsRequestSchema, { reason }),
+      FlagDismissalSchema
+    );
   },
 
   async listReservedUsernames(): Promise<string[]> {

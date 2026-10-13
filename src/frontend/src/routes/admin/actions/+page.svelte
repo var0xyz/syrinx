@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
@@ -56,7 +57,15 @@
 
   const decisionLabel: Record<Decision, string> = { approve: 'Approve', reject: 'Reject', withdraw: 'Withdraw' };
 
-  let mode: 'requests' | 'flagged' = 'requests';
+  // The tab lives in the URL hash (#flagged) so a reload keeps it.
+  let mode: 'requests' | 'flagged' = $page.url.hash === '#flagged' ? 'flagged' : 'requests';
+  $: syncModeHash(mode);
+
+  function syncModeHash(m: 'requests' | 'flagged'): void {
+    const hash = m === 'flagged' ? '#flagged' : '';
+    if ($page.url.hash === hash) return;
+    void goto(`${$page.url.pathname}${hash}`, { replaceState: true, noScroll: true, keepFocus: true });
+  }
   let pending: api.AdminRequest[] = [];
   let pendingLoaded = false;
   let pendingError = '';
@@ -64,6 +73,14 @@
   const CLOSED_PAGE = 50;
   let closedShown = CLOSED_PAGE;
   let flags: api.FlaggedReed[] = [];
+  let dismissed: api.FlaggedReed[] = [];
+  let dismissedCursor = '';
+  const MAX_DISMISS_REASON = 140;
+  // One open dismissal form at a time.
+  let dismissing: string | null = null;
+  let dismissReason = '';
+  let dismissError = '';
+  let dismissSubmitting = false;
   let contents: Record<string, string | null> = {};
   let fingerprints: Record<string, string> = {};
   let loadError = '';
@@ -122,8 +139,22 @@
   }
 
   async function loadFlags(): Promise<void> {
-    flags = (await apiService.listFlags()).reeds;
-    for (const f of flags) {
+    const [open, done] = await Promise.all([apiService.listFlags('open'), apiService.listFlags('dismissed')]);
+    flags = open.reeds;
+    dismissed = done.reeds;
+    dismissedCursor = done.nextCursor;
+    fetchContents([...flags, ...dismissed]);
+  }
+
+  async function loadMoreDismissed(): Promise<void> {
+    const more = await apiService.listFlags('dismissed', dismissedCursor);
+    dismissed = [...dismissed, ...more.reeds];
+    dismissedCursor = more.nextCursor;
+    fetchContents(more.reeds);
+  }
+
+  function fetchContents(reeds: api.FlaggedReed[]): void {
+    for (const f of reeds) {
       if (f.reedId in contents) continue;
       contents = { ...contents, [f.reedId]: null };
       serverConnection
@@ -133,9 +164,25 @@
     }
   }
 
-  async function dismiss(reedId: string): Promise<void> {
-    await apiService.dismissFlags(reedId);
-    flags = flags.filter((f) => f.reedId !== reedId);
+  function openDismiss(reedId: string): void {
+    dismissing = reedId;
+    dismissReason = '';
+    dismissError = '';
+  }
+
+  async function submitDismiss(f: api.FlaggedReed): Promise<void> {
+    dismissSubmitting = true;
+    dismissError = '';
+    try {
+      const dismissal = await apiService.dismissFlags(f.reedId, dismissReason.trim());
+      flags = flags.filter((open) => open.reedId !== f.reedId);
+      dismissed = [{ ...f, dismissal }, ...dismissed];
+      dismissing = null;
+    } catch (err) {
+      dismissError = err instanceof Error ? err.message : 'Could not dismiss these flags.';
+    } finally {
+      dismissSubmitting = false;
+    }
   }
 
   function grouped(fingerprint: string): string {
@@ -312,6 +359,80 @@
   </li>
 {/snippet}
 
+{#snippet flagCard(f: api.FlaggedReed)}
+  <li class="flag">
+    <div class="flag-head">
+      <span class="author name"><Username userID={f.authorId} color="var(--primary)" /></span>
+      <span class="report-count">
+        {f.flags.length} {f.flags.length === 1 ? 'flag' : 'flags'}
+      </span>
+    </div>
+
+    {#if contents[f.reedId]}
+      <blockquote class="content">{contents[f.reedId]}</blockquote>
+    {:else}
+      <p class="content loading">Retrieving from the network…</p>
+    {/if}
+
+    <ul class="reports">
+      {#each f.flags as rep (rep.reporterId)}
+        {@const server = remoteServer(rep.reporterId)}
+        <li>
+          <span class="name"><Username userID={rep.reporterId} color="var(--primary)" /></span>{#if server}<span class="server">({server})</span>{/if}
+          {#if rep.note}<span class="note">“{rep.note}”</span>{/if}
+          <span class="report-when">{formatRelativeTime(fromUnix(rep.createdAt) ?? new Date())}</span>
+        </li>
+      {/each}
+    </ul>
+
+    {#if f.dismissal}
+      <blockquote class="reason">{f.dismissal.reason}</blockquote>
+      <p class="meta">
+        Dismissed by
+        {#if f.dismissal.dismissedBy}
+          <span class="name"><Username userID={f.dismissal.dismissedBy} color="var(--primary)" /></span>
+        {:else}
+          a removed account
+        {/if}
+        · {formatRelativeTime(fromUnix(f.dismissal.dismissedAt) ?? new Date())}
+      </p>
+      <div class="flag-actions">
+        <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
+      </div>
+    {:else if dismissing === f.reedId}
+      <div class="decision-form">
+        <label class="dismiss-field">
+          <span>Why are you dismissing these flags?</span>
+          <textarea bind:value={dismissReason} rows="3" maxlength={MAX_DISMISS_REASON}></textarea>
+          <span class="character-counter">{dismissReason.length}/{MAX_DISMISS_REASON} characters</span>
+        </label>
+        {#if dismissError}<p class="decision-error" role="alert">{dismissError}</p>{/if}
+        <div class="decision-actions">
+          <button class="btn secondary" type="button" on:click={() => (dismissing = null)}>Cancel</button>
+          <button
+            class="btn primary"
+            type="button"
+            disabled={dismissSubmitting || !dismissReason.trim()}
+            on:click={() => submitDismiss(f)}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    {:else}
+      <div class="flag-actions">
+        <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
+        <button class="btn secondary" type="button" on:click={() => (actingOn = f.authorId)}>
+          Take action
+        </button>
+        <button class="btn secondary dismiss" type="button" on:click={() => openDismiss(f.reedId)}>
+          Dismiss
+        </button>
+      </div>
+    {/if}
+  </li>
+{/snippet}
+
 <Auth>
   <SideNav currentPage="admin" />
   <div class="admin-container">
@@ -355,51 +476,31 @@
           {/if}
         {:else if loadError}
           <p class="error" role="alert">{loadError}</p>
-        {:else if flags.length === 0}
-          <div class="empty-state">
-            <div class="empty-icon">🚩</div>
-            <h3>No open flags</h3>
-          </div>
         {:else}
-          <ul class="flag-list">
-            {#each flags as f (f.reedId)}
-              <li class="flag">
-                <div class="flag-head">
-                  <span class="author name"><Username userID={f.authorId} color="var(--primary)" /></span>
-                  <span class="report-count">
-                    {f.flags.length} {f.flags.length === 1 ? 'flag' : 'flags'}
-                  </span>
-                </div>
+          {#if flags.length === 0}
+            <div class="empty-state">
+              <div class="empty-icon">🚩</div>
+              <h3>No open flags</h3>
+            </div>
+          {:else}
+            <ul class="flag-list">
+              {#each flags as f (f.reedId)}
+                {@render flagCard(f)}
+              {/each}
+            </ul>
+          {/if}
 
-                {#if contents[f.reedId]}
-                  <blockquote class="content">{contents[f.reedId]}</blockquote>
-                {:else}
-                  <p class="content loading">Retrieving from the network…</p>
-                {/if}
-
-                <ul class="reports">
-                  {#each f.flags as rep (rep.reporterId)}
-                    {@const server = remoteServer(rep.reporterId)}
-                    <li>
-                      <span class="name"><Username userID={rep.reporterId} color="var(--primary)" /></span>{#if server}<span class="server">({server})</span>{/if}
-                      {#if rep.note}<span class="note">“{rep.note}”</span>{/if}
-                      <span class="report-when">{formatRelativeTime(fromUnix(rep.createdAt) ?? new Date())}</span>
-                    </li>
-                  {/each}
-                </ul>
-
-                <div class="flag-actions">
-                  <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
-                  <button class="btn secondary" type="button" on:click={() => (actingOn = f.authorId)}>
-                    Act on <span class="name"><Username userID={f.authorId} linked={false} color="var(--primary)" /></span>
-                  </button>
-                  <button class="btn secondary dismiss" type="button" on:click={() => dismiss(f.reedId)}>
-                    Dismiss
-                  </button>
-                </div>
-              </li>
-            {/each}
-          </ul>
+          {#if dismissed.length > 0}
+            <h2 class="section-title">Dismissed</h2>
+            <ul class="flag-list">
+              {#each dismissed as f (f.dismissal?.id)}
+                {@render flagCard(f)}
+              {/each}
+            </ul>
+            {#if dismissedCursor}
+              <button class="btn secondary more" type="button" on:click={loadMoreDismissed}>Load more</button>
+            {/if}
+          {/if}
         {/if}
       {/if}
     </div>
@@ -479,6 +580,7 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
+    overflow-wrap: anywhere;
   }
 
   .flag-head {
@@ -500,6 +602,7 @@
   }
 
   .report-count {
+    white-space: nowrap;
     flex-shrink: 0;
     font-size: 0.75rem;
     font-weight: 700;
@@ -570,6 +673,7 @@
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
+    overflow-wrap: anywhere;
   }
 
   .request[data-action='kick'] {
@@ -578,12 +682,14 @@
 
   .request-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
   }
 
   .action-badge,
   .state-badge {
+    white-space: nowrap;
     font-size: 0.75rem;
     font-weight: 700;
     padding: 0.25rem 0.5rem;
@@ -721,6 +827,30 @@
     gap: 0.5rem;
     padding-top: 0.5rem;
     border-top: 1px solid var(--border);
+  }
+
+  .dismiss-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .dismiss-field textarea {
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--input-bg);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
+  }
+
+  .character-counter {
+    text-align: right;
+    font-size: 0.8rem;
   }
 
   .decision-summary {

@@ -5,7 +5,7 @@
   export let open = false;
   export let reedID: string;
 
-  const MAX_NOTE = 280;
+  const MAX_NOTE = 140;
   const dispatch = createEventDispatcher<{ close: void }>();
 
   let note = '';
@@ -57,6 +57,7 @@
       <label class="field">
         <span>Note for the admins (optional)</span>
         <textarea bind:value={note} rows="3" maxlength={MAX_NOTE}></textarea>
+        <span class="character-counter">{note.length}/{MAX_NOTE} characters</span>
       </label>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="actions">
@@ -117,6 +118,12 @@
     font-family: inherit;
     font-size: 0.9rem;
     resize: vertical;
+  }
+
+  .character-counter {
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--muted);
   }
 
   .result {
