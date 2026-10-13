@@ -127,8 +127,8 @@ func (s *DataService) GetServerID() string {
 // db.go (a free function, not a DataService method, because ops.go's
 // `ops` build tag excludes this file — this wrapper exists purely for
 // ergonomic use from handlers.go via h.services.db).
-func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *cryptoService, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) (id, ciphertext string, err error) {
-	return SendMailboxMessage(ctx, s.db, cryptoSvc, userID, category, kind, message, link, senderUserID, meta)
+func (s *DataService) SendMailboxMessage(ctx context.Context, cryptoSvc *cryptoService, userID, kind, message, link string, meta any) (id, ciphertext string, err error) {
+	return SendMailboxMessage(ctx, s.db, cryptoSvc, userID, kind, message, link, meta)
 }
 
 // UserServerSignedAt returns the identity countersignature time for userID.

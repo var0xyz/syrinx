@@ -48,7 +48,7 @@ Each table below has a **Status** column per step. Values:
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
 | Blocking              | Implemented | —                                                      |
-| Admin actions         | In progress | 09–10 (01–08 implemented)                              |
+| Admin actions         | In progress | 10 (01–09 implemented)                                 |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -220,7 +220,8 @@ excepted). No control over individual reeds.
 | 06    | Lost-device key rebind                      | Implemented |
 | 07    | Reserved usernames                          | Implemented |
 | 08    | Flags                                       | Implemented |
-| 09–10 | Broadcast, admin SPA                        | Proposed |
+| 09    | Broadcasts and private messages             | Implemented |
+| 10    | Admin SPA                                   | Proposed |
 
 ## Federation (explicit peering + cross-server content)
 
