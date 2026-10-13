@@ -1,20 +1,14 @@
 import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
 
-/** Which popover tab a message belongs to — mirrors db.go's
- * MailboxCategory. Server-decided at send time, not inferred from kind. */
-export type MailboxCategory = 'system' | 'interaction';
-
 /** Locally-decrypted mailbox message. isRead/local existence are purely
  * client-side state — the server has already deleted its copy by the time
  * this is stored. */
 export interface MailboxRecord {
   id: string;
   kind: string;
-  category: MailboxCategory;
   message: string;
   link?: string;
-  senderUserID: string;
   meta?: unknown;
   isRead: boolean;
   createdAt: string;

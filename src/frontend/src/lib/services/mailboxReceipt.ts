@@ -1,12 +1,10 @@
 import { requestSigner } from './request-signer';
-import { mailboxRepository, type MailboxCategory } from '$lib/repositories/mailbox';
+import { mailboxRepository } from '$lib/repositories/mailbox';
 
 interface MailboxPayload {
   kind: string;
-  category: MailboxCategory;
   message: string;
   link?: string;
-  senderUserID: string;
   meta?: unknown;
 }
 
@@ -29,13 +27,8 @@ export async function receiveMailboxMessage(id: string, ciphertext: string): Pro
   await mailboxRepository.put({
     id,
     kind: payload.kind,
-    // Falls back to 'system' for a row encrypted before Category existed
-    // (or any producer that forgets it) — never silently invisible in
-    // both tabs.
-    category: payload.category === 'interaction' ? 'interaction' : 'system',
     message: payload.message,
     link: payload.link,
-    senderUserID: payload.senderUserID,
     meta: payload.meta,
     isRead: false,
     createdAt: new Date().toISOString(),

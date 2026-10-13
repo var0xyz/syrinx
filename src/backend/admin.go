@@ -230,6 +230,10 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 		ex = h.demoteExecutor()
 	case adminActionRebind:
 		ex = h.rebindExecutor()
+	case adminActionBroadcast:
+		ex = h.broadcastExecutor()
+	case adminActionMessage:
+		ex = h.messageExecutor()
 	default:
 		return nil
 	}

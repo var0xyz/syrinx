@@ -15,7 +15,7 @@ func TestSendMailboxMessage_EncryptsToActiveKey(t *testing.T) {
 	userID := string(canonicalID(h.services.db.GetServerID(), "alice"))
 
 	id, ciphertext, err := SendMailboxMessage(context.Background(), db, h.services.crypto, userID,
-		MailboxCategorySystem, "broadcast", "Maintenance tonight", "/ledger/1", "", nil)
+		"broadcast", "Maintenance tonight", "/ledger/1", nil)
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}

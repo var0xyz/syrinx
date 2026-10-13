@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -32,8 +32,10 @@ ledger ([02](02_ledger.md)): only admins see it, through
 After the approval commits, for every local user who isn't removed or
 suspended:
 
-1. `SendMailboxMessage(..., MailboxCategorySystem, kind = "broadcast",
-   message, link = "/ledger/{id}", senderUserID = requester, ...)`.
+1. `SendMailboxMessage(..., kind = "broadcast", message, ...)`, with no
+   link: the ledger is for visibility and audit, not something the mailbox
+   points to. The message comes from the system, not the requesting admin;
+   the ledger records who asked and who approved.
 2. `NotifyMailboxMessage` for connected users. The rest get it on catch-up,
    as today.
 
@@ -45,7 +47,7 @@ A user who signs up after the broadcast doesn't receive it. The ledger still
 has it.
 
 A private message runs the same two steps for its one recipient, with
-`kind = "admin-message"` and no link, since there is no ledger entry.
+`kind = "admin-message"`.
 
 ## Mailbox
 
@@ -61,9 +63,15 @@ Both kinds go through the user mailbox, which needs two fixes first:
 
 ## SPA
 
-`MailboxBell` renders `kind = "broadcast"` with the requester's name and a
-link to the ledger entry, which shows who approved it. `kind =
-"admin-message"` shows the requester's name and the message, with no link.
+`MailboxBell` renders `kind = "broadcast"` and `kind = "admin-message"`
+as system messages ("Broadcast", "Message from the admins") with no sender.
+The mailbox only holds system messages; interactions have their own page.
+
+- The bell turns into a close cross while the popover is open. The popover
+  is at most the screen width minus a 1rem gutter on each side.
+- An unread message shows a closed envelope; clicking it, or the message,
+  marks it read and shows an open envelope.
+- Deleting a message asks for confirmation.
 
 ## Tests
 

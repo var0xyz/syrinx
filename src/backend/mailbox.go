@@ -7,7 +7,6 @@ import (
 	"errors"
 	"strings"
 	"unicode/utf8"
-
 )
 
 // ErrNoActiveKey means the recipient has no usable (present, unrevoked)
@@ -27,31 +26,15 @@ var ErrMailboxMessageTooLong = errors.New("mailbox message exceeds 140 character
 // (handlers.go) — the same 140-char limit used elsewhere in this app.
 const MaxMailboxMessageChars = 140
 
-// MailboxCategory splits mailbox messages into the SPA's two popover tabs.
-// A stable producer-supplied field, not inferred from Kind string
-// matching, which would grow fragile as more kinds are added later.
-type MailboxCategory string
-
-const (
-	// MailboxCategorySystem is server/admin/ops-originated: account
-	// events, processing errors, manual ops mailbox-send messages.
-	MailboxCategorySystem MailboxCategory = "system"
-	// MailboxCategoryInteraction is triggered by another user's action
-	// (mention, reply, echo, like) — SenderUserID identifies who.
-	MailboxCategoryInteraction MailboxCategory = "interaction"
-)
-
 // MailboxPayload is JSON-marshaled then encrypted to the recipient's active
 // public key before storage. Link is an
 // app-relative client route (e.g. "/mentions"); the server never
 // interprets it, it's opaque bytes to every producer except the SPA.
 type MailboxPayload struct {
-	Kind         string          `json:"kind"`
-	Category     MailboxCategory `json:"category"`
-	Message      string          `json:"message"`
-	Link         string          `json:"link,omitempty"`
-	SenderUserID string          `json:"senderUserID,omitempty"` // canonical userID@serverID; whose identicon the SPA shows
-	Meta         json.RawMessage `json:"meta,omitempty"`
+	Kind    string          `json:"kind"`
+	Message string          `json:"message"`
+	Link    string          `json:"link,omitempty"`
+	Meta    json.RawMessage `json:"meta,omitempty"`
 }
 
 // SendMailboxMessage encrypts a message to userID's current active public
@@ -67,30 +50,17 @@ type MailboxPayload struct {
 // userID, resolved against this server's own id — mailbox is local-only
 // (the server never mails a foreign user), so there's no ambiguity to
 // resolve a bare id against.
-//
-// senderUserID identifies whose identicon the SPA shows for this message
-// (canonical or bare, same resolution as userID above). Empty defaults to
-// this server's root user — accurate for every producer today (server
-// internals, ops mailbox-send), since MailboxCategoryInteraction
-// producers that pass a real sender don't exist yet.
-func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, userID string, category MailboxCategory, kind, message, link, senderUserID string, meta any) (id, ciphertext string, err error) {
+func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, userID, kind, message, link string, meta any) (id, ciphertext string, err error) {
 	if utf8.RuneCountInString(message) > MaxMailboxMessageChars {
 		return "", "", ErrMailboxMessageTooLong
 	}
 
-	var selfServerID string
-	if !strings.Contains(userID, "@") || !strings.Contains(senderUserID, "@") {
+	if !strings.Contains(userID, "@") {
+		var selfServerID string
 		if err := db.QueryRowContext(ctx, `SELECT id FROM servers WHERE self = TRUE`).Scan(&selfServerID); err != nil {
 			return "", "", err
 		}
-	}
-	if !strings.Contains(userID, "@") {
 		userID = userID + "@" + selfServerID
-	}
-	if senderUserID == "" {
-		senderUserID = rootUserID + "@" + selfServerID
-	} else if !strings.Contains(senderUserID, "@") {
-		senderUserID = senderUserID + "@" + selfServerID
 	}
 
 	var fingerprint sql.NullString
@@ -125,12 +95,10 @@ func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoServic
 		return "", "", err
 	}
 	payload, err := json.Marshal(MailboxPayload{
-		Kind:         kind,
-		Category:     category,
-		Message:      message,
-		Link:         link,
-		SenderUserID: senderUserID,
-		Meta:         metaRaw,
+		Kind:    kind,
+		Message: message,
+		Link:    link,
+		Meta:    metaRaw,
 	})
 	if err != nil {
 		return "", "", err

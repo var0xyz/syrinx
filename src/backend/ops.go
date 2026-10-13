@@ -447,7 +447,7 @@ func runMailboxSend(userID, message string) error {
 	defer db.Close()
 
 	cryptoSvc := newCryptoService()
-	if _, _, err := SendMailboxMessage(context.Background(), db, cryptoSvc, userID, MailboxCategorySystem, "admin_message", message, "", "", nil); err != nil {
+	if _, _, err := SendMailboxMessage(context.Background(), db, cryptoSvc, userID, "admin-message", message, "", nil); err != nil {
 		return err
 	}
 	fmt.Printf("Sent mailbox message to %s\n", userID)
