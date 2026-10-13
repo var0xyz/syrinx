@@ -6431,6 +6431,22 @@ const maxInvitesUnlimited = -1
 // server now on create.
 const inviteCreateSkew = 5 * time.Minute
 
+// adminInviteTTL is how long an unclaimed admin invite stays redeemable.
+const adminInviteTTL = 24 * time.Hour
+
+// maskInviteID shows only an invite uuid's first two groups (its creation
+// time) so a public record never hands out a redeemable id.
+func maskInviteID(id string) string {
+	uuid := id[strings.LastIndex(id, "/")+1:]
+	groups := strings.SplitN(uuid, "-", 3)
+	if len(groups) < 3 {
+		return "********-****-****-****-************"
+	}
+	return groups[0] + "-" + groups[1] + "-****-****-************"
+}
+
+var adminInviteCutoffSQL = fmt.Sprintf("NOW() - make_interval(secs => %d)", int64(adminInviteTTL/time.Second))
+
 // hashSecret returns SHA-256(secret). Create sends this digest (hex); the
 // server stores it. Redeem sends the raw secret; the server hashes and
 // compares. The secret itself never appears on create.
@@ -6501,13 +6517,17 @@ type inviteRecord struct {
 	UserSignature userSignatureRow
 }
 
-// Status derives the invite read-model status (revoked wins over claimed).
+// Status derives the invite read-model status (revoked wins over claimed,
+// claimed over expired).
 func (inv inviteRecord) Status() string {
 	if inv.RevokedAt != nil {
 		return "revoked"
 	}
 	if inv.ClaimedAt != nil {
 		return "claimed"
+	}
+	if inv.GrantedRole == roleAdmin && time.Since(inv.CreatedAt) > adminInviteTTL {
+		return "expired"
 	}
 	return "pending"
 }
@@ -6699,6 +6719,7 @@ func (s *DataService) markInviteClaimed(
 		SET claimed_at = $2, claimed_by = $3
 		WHERE id = $1
 		  AND claimed_at IS NULL AND revoked_at IS NULL
+		  AND (granted_role <> 'admin' OR created_at > `+adminInviteCutoffSQL+`)
 	`, inviteID, claimedAt.UTC(), claimedByIdentity)
 	if err != nil {
 		return false, err

@@ -93,7 +93,7 @@ export async function createSignedInvite(grantAdmin = false, permissions: string
 }
 
 /**
- * Refresh status for pending local invites only; claimed/revoked stay put.
+ * Refresh status for pending local invites only; claimed/revoked/expired stay put.
  * Invokes onInviteUpdated as each pending invite finishes so the UI can update in place.
  */
 export async function refreshPendingInviteStatuses(

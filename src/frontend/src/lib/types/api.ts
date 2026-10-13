@@ -77,7 +77,7 @@ export type {
  * secret only the creator holds, and the status last read back. */
 export type Invite = WireInvite & {
   secret?: string;
-  status: 'pending' | 'claimed' | 'revoked';
+  status: 'pending' | 'claimed' | 'revoked' | 'expired';
   claimedAt?: number;
   claimedBy?: string;
   revokedAt?: number;

@@ -502,7 +502,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		DeviceID:           deviceID,
 		OnAdminClaim: func(tx *sql.Tx) error {
 			claimEntry = &ledgerEntry{
-				Message: fmt.Sprintf("Admin invite %s claimed", invite.ID),
+				Message: fmt.Sprintf("Admin invite %s claimed", maskInviteID(invite.ID)),
 				Targets: []string{string(canonicalID(h.services.db.GetServerID(), userID))},
 			}
 			return h.appendLedgerTx(r.Context(), tx, claimEntry)
@@ -6265,7 +6265,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		}
 		entry = &ledgerEntry{
 			UserID:  caller,
-			Message: fmt.Sprintf("Admin invite %s created", req.ID),
+			Message: fmt.Sprintf("Admin invite %s created", maskInviteID(req.ID)),
 			Content: formatPermissionSet(permissions),
 		}
 		ledger = func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) }

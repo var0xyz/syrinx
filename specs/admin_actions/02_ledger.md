@@ -100,8 +100,8 @@ ledger entry ID.
 | Request rejected                  | `[{requestID}] Rejected`                                |                   |                     |
 | Request withdrawn                 | `[{requestID}] Withdrawn`                               |                   |                     |
 | Request moot                      | `[{requestID}] Closed. Reason: every target left`       |                   |                     |
-| Admin invite created              | `Admin invite {inviteID} created`                       |                   | The permission set  |
-| Admin invite claimed              | `Admin invite {inviteID} claimed`                       | The new admin     |                     |
+| Admin invite created              | `Admin invite {maskedInviteID} created`                 |                   | The permission set  |
+| Admin invite claimed              | `Admin invite {maskedInviteID} claimed`                 | The new admin     |                     |
 | Mesh invite created               | `Server invite {invitationID} created for {name}`       |                   |                     |
 | Mesh invite canceled              | `Canceled server invite {invitationID}`                 |                   |                     |
 | Mesh connection approved          | `Approved connection to {serverID}`                     |                   |                     |
@@ -110,7 +110,9 @@ ledger entry ID.
 | Reserved username added / removed | `Username {name} reserved` / `Username {name} released` |                   |                     |
 
 `{Action}` is the action's display name: Suspension, Reinstatement, Kick,
-Promotion, Demotion, Permission change. Requests cover every two-admin action: kick,
+Promotion, Demotion, Permission change. `{maskedInviteID}` keeps only the
+first two groups of the invite's UUID (`01a1348c-dc77-****-****-************`),
+its creation time. Requests cover every two-admin action: kick,
 suspend, reinstate, promote, demote, permission changes, key rebinds (an
 admin adding a key to an account) and broadcasts.
 

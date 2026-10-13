@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -349,5 +350,64 @@ func TestInsertInvite_ConcurrentQuota(t *testing.T) {
 	}
 	if created != limit {
 		t.Fatalf("created %d invites, want %d", created, limit)
+	}
+}
+
+func TestAdminInviteExpires(t *testing.T) {
+	db := openInviteStoreTestDB(t)
+	svc := NewDataService(db, "test")
+	svc.setServerIDForTest(inviteStoreTestServerID)
+	ctx := context.Background()
+
+	seedInviteStoreUser(t, db, "creator1", "alice")
+	seedInviteStoreUser(t, db, "invitee1", "bob")
+	creator := "creator1@" + inviteStoreTestServerID
+	createdAt := time.Now().UTC().Add(-adminInviteTTL - time.Minute).Truncate(time.Second)
+
+	insert := func(role string) (string, []byte) {
+		rawID, err := newInviteID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := newInviteSecret()
+		if err != nil {
+			t.Fatal(err)
+		}
+		id := creator + "/" + rawID
+		if err := svc.insertInvite(ctx, id, creator, hashSecret(raw), createdAt, role, "seed-ufp", "sig", maxInvitesUnlimited); err != nil {
+			t.Fatalf("insertInvite: %v", err)
+		}
+		return id, hashSecret(raw)
+	}
+	adminID, adminHash := insert(roleAdmin)
+	_, userHash := insert(roleUser)
+
+	if got, _ := svc.getInviteByTokenHash(ctx, adminHash); got == nil || got.Status() != "expired" {
+		t.Fatalf("admin invite status = %+v, want expired", got)
+	}
+	if got, _ := svc.getInviteByTokenHash(ctx, userHash); got == nil || got.Status() != "pending" {
+		t.Fatalf("user invite status = %+v, want pending", got)
+	}
+	if got, err := getPendingInvite(ctx, db, db, adminID, adminHash); err != nil || got != nil {
+		t.Fatalf("getPendingInvite on expired = %+v %v, want nil", got, err)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if ok, err := svc.markInviteClaimed(ctx, tx, adminID, "invitee1", time.Now()); err != nil || ok {
+		t.Fatalf("markInviteClaimed on expired = %v %v, want false", ok, err)
+	}
+}
+
+func TestMaskInviteID(t *testing.T) {
+	got := maskInviteID("1@srv/01a1348c-dc77-7abc-8def-0123456789ab")
+	if want := "01a1348c-dc77-****-****-************"; got != want {
+		t.Fatalf("maskInviteID = %q, want %q", got, want)
+	}
+	if got := maskInviteID("garbage"); strings.Contains(got, "garbage") {
+		t.Fatalf("maskInviteID leaked input: %q", got)
 	}
 }
