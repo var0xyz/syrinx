@@ -30,6 +30,10 @@
   import RipplesSection from '$lib/components/RipplesSection.svelte';
   import ChorusSection from '$lib/components/ChorusSection.svelte';
   import ReedStatsInfoModal from '$lib/components/ReedStatsInfoModal.svelte';
+  import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import { removeReedAsAuthor } from '$lib/services/reedRemoval';
+  import { removeThreadAsAuthor } from '$lib/services/threadRemoval';
   import { followReedQueue, reedReplyQueue } from '$lib/repositories/reeds';
   import { resolveConversationRoot, getUserId } from '$lib/utils/identityRef';
   import { isBlankEcho, resolveBlankEchoChain } from '$lib/utils/emptyEcho';
@@ -517,6 +521,34 @@
     isStatsInfoModalOpen = true;
   }
 
+  $: isOwner = !!(reed && user?.id === reed.userID);
+  /** @type {{ thread: boolean } | null} */
+  let deleteTarget = null;
+  // A thread is deleted whole, from its head; a later part can't be.
+  $: deleteOptions = !isOwner || (reed.thread && reed.thread.index !== 0)
+    ? []
+    : [{
+        label: reed.thread ? 'Delete thread' : 'Delete',
+        danger: true,
+        icon: '/icons/trash-16.svg',
+        onSelect: () => (deleteTarget = { thread: !!reed.thread }),
+      }];
+
+  async function confirmDelete() {
+    if (!deleteTarget || !reed) return;
+    const { thread } = deleteTarget;
+    const { id, userID: authorID } = reed;
+    deleteTarget = null;
+    try {
+      if (thread) await removeThreadAsAuthor(id);
+      else if (isPending) await reedsService.discardUnsignedReed(id);
+      else await removeReedAsAuthor(id);
+      await goto(`/profile/${authorID}`, { replaceState: true });
+    } catch (error) {
+      console.error('Error deleting reed:', error);
+    }
+  }
+
   async function handleShare() {
     if (!reed || isPending || isBlankEchoView || reedNotRecognized) return;
     await shareReed(routeReedRef, authorUser?.username ?? userID, reed.content);
@@ -679,7 +711,18 @@
                   </button>
                 </div>
               </div>
-              <span class="thread-chip-desktop"><ThreadContext {reed} where="chip" /></span>
+              <div class="reed-meta-end">
+                <span class="thread-chip-desktop"><ThreadContext {reed} where="chip" /></span>
+                <ReedActionsMenu
+                  reedRef={isPending || reedNotRecognized ? '' : reed.id}
+                  userID={reed.userID}
+                  username={authorUser?.username ?? reed.userID}
+                  content={reed.content}
+                  showProfile={false}
+                  showShare={false}
+                  extraOptions={deleteOptions}
+                />
+              </div>
             </div>
 
             <div class="reed-body">
@@ -807,6 +850,16 @@
     <NewReedModal open={isReplyModalOpen} replyingTo={replyEchoTarget} on:close={() => { isReplyModalOpen = false; }} />
     <NewReedModal open={isEchoModalOpen} echoOf={replyEchoTarget} on:close={() => { isEchoModalOpen = false; }} />
     <ReedStatsInfoModal open={isStatsInfoModalOpen} on:close={() => { isStatsInfoModalOpen = false; }} />
+    {#if deleteTarget}
+      <ConfirmDialog
+        title={deleteTarget.thread ? 'Delete thread?' : 'Delete reed?'}
+        message={deleteTarget.thread
+          ? 'This deletes every reed in the thread. Are you sure?'
+          : 'Are you sure you want to delete this reed?'}
+        on:confirm={confirmDelete}
+        on:cancel={() => (deleteTarget = null)}
+      />
+    {/if}
   </Auth>
 
 <style>
@@ -857,6 +910,12 @@
     align-items: center;
     padding: .75rem 1rem;
     border-bottom: 1px solid var(--border);
+  }
+
+  .reed-meta-end {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
 
   .reed-author {
