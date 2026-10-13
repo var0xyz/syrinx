@@ -102,3 +102,14 @@ assert.equal(
 );
 
 console.log('admin revocation payload parity: ok');
+
+const { buildReedFlagPayload } = await import('../src/lib/services/signing.ts');
+
+assert.equal(
+  buildReedFlagPayload('a9@home1234/r1', 'k3@peer5678', 'k3@peer5678/4a1e', 'Scam link', '2026-10-12T14:00:00Z'),
+  '{"createdAt":"2026-10-12T14:00:00Z","keyID":"k3@peer5678/4a1e","note":"Scam link",' +
+    '"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","type":"reed-flag"}',
+  'reed flag payload'
+);
+
+console.log('flag payload parity: ok');

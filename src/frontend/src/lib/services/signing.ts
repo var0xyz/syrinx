@@ -548,3 +548,14 @@ export function buildAdminRevocationServerPayload(
     signedAt
   });
 }
+
+/** Mirror of buildReedFlagPayload in identity.go. */
+export function buildReedFlagPayload(
+  reedID: string,
+  reporterID: string,
+  keyID: string,
+  note: string,
+  createdAt: string
+): string {
+  return canonicalJSON({ type: 'reed-flag', reedID, reporterID, keyID, note, createdAt });
+}

@@ -65,6 +65,7 @@
           class="kebab-option"
           class:danger={option.danger}
           role="menuitem"
+          disabled={option.disabled}
           on:click|stopPropagation={() => select(option)}
         >
           {#if option.icon}
@@ -129,6 +130,11 @@
     cursor: pointer;
     border-radius: 4px;
     white-space: nowrap;
+  }
+
+  .kebab-option:disabled {
+    color: var(--muted);
+    cursor: default;
   }
 
   .kebab-option-icon {

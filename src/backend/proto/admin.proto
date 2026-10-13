@@ -40,3 +40,25 @@ message InviteTree {
 message ReservedUsernameList {
   repeated string usernames = 1;
 }
+
+// A member's signed flag on a reed. POST /api/flags and the peer relay
+// both carry it.
+message ReedFlag {
+  string reed_id = 1 [json_name = "reedID"];
+  string reporter_id = 2 [json_name = "reporterID"];
+  string note = 3;
+  uint32 created_at = 4;
+  UserSignature signature = 5;
+}
+
+// A reed with open flags, for admins.
+message FlaggedReed {
+  string reed_id = 1 [json_name = "reedID"];
+  string author_id = 2 [json_name = "authorID"];
+  repeated ReedFlag flags = 3;
+}
+
+message FlaggedReedList {
+  repeated FlaggedReed reeds = 1;
+  string next_cursor = 2;
+}

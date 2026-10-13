@@ -312,6 +312,197 @@ func (x *ReservedUsernameList) GetUsernames() []string {
 	return nil
 }
 
+// A member's signed flag on a reed. POST /api/flags and the peer relay
+// both carry it.
+type ReedFlag struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
+	ReporterId    string                 `protobuf:"bytes,2,opt,name=reporter_id,json=reporterID,proto3" json:"reporter_id,omitempty"`
+	Note          string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
+	CreatedAt     uint32                 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Signature     *UserSignature         `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReedFlag) Reset() {
+	*x = ReedFlag{}
+	mi := &file_admin_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReedFlag) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReedFlag) ProtoMessage() {}
+
+func (x *ReedFlag) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReedFlag.ProtoReflect.Descriptor instead.
+func (*ReedFlag) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *ReedFlag) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *ReedFlag) GetReporterId() string {
+	if x != nil {
+		return x.ReporterId
+	}
+	return ""
+}
+
+func (x *ReedFlag) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *ReedFlag) GetCreatedAt() uint32 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+func (x *ReedFlag) GetSignature() *UserSignature {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+// A reed with open flags, for admins.
+type FlaggedReed struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
+	AuthorId      string                 `protobuf:"bytes,2,opt,name=author_id,json=authorID,proto3" json:"author_id,omitempty"`
+	Flags         []*ReedFlag            `protobuf:"bytes,3,rep,name=flags,proto3" json:"flags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlaggedReed) Reset() {
+	*x = FlaggedReed{}
+	mi := &file_admin_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlaggedReed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlaggedReed) ProtoMessage() {}
+
+func (x *FlaggedReed) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlaggedReed.ProtoReflect.Descriptor instead.
+func (*FlaggedReed) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *FlaggedReed) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *FlaggedReed) GetAuthorId() string {
+	if x != nil {
+		return x.AuthorId
+	}
+	return ""
+}
+
+func (x *FlaggedReed) GetFlags() []*ReedFlag {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
+}
+
+type FlaggedReedList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reeds         []*FlaggedReed         `protobuf:"bytes,1,rep,name=reeds,proto3" json:"reeds,omitempty"`
+	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FlaggedReedList) Reset() {
+	*x = FlaggedReedList{}
+	mi := &file_admin_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FlaggedReedList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FlaggedReedList) ProtoMessage() {}
+
+func (x *FlaggedReedList) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FlaggedReedList.ProtoReflect.Descriptor instead.
+func (*FlaggedReedList) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FlaggedReedList) GetReeds() []*FlaggedReed {
+	if x != nil {
+		return x.Reeds
+	}
+	return nil
+}
+
+func (x *FlaggedReedList) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
 var File_admin_proto protoreflect.FileDescriptor
 
 const file_admin_proto_rawDesc = "" +
@@ -339,7 +530,23 @@ const file_admin_proto_rawDesc = "" +
 	"InviteTree\x12,\n" +
 	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"4\n" +
 	"\x14ReservedUsernameList\x12\x1c\n" +
-	"\tusernames\x18\x01 \x03(\tR\tusernamesB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"\tusernames\x18\x01 \x03(\tR\tusernames\"\xac\x01\n" +
+	"\bReedFlag\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1f\n" +
+	"\vreporter_id\x18\x02 \x01(\tR\n" +
+	"reporterID\x12\x12\n" +
+	"\x04note\x18\x03 \x01(\tR\x04note\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x04 \x01(\rR\tcreatedAt\x123\n" +
+	"\tsignature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"k\n" +
+	"\vFlaggedReed\x12\x17\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1b\n" +
+	"\tauthor_id\x18\x02 \x01(\tR\bauthorID\x12&\n" +
+	"\x05flags\x18\x03 \x03(\v2\x10.syrinx.ReedFlagR\x05flags\"]\n" +
+	"\x0fFlaggedReedList\x12)\n" +
+	"\x05reeds\x18\x01 \x03(\v2\x13.syrinx.FlaggedReedR\x05reeds\x12\x1f\n" +
+	"\vnext_cursor\x18\x02 \x01(\tR\n" +
+	"nextCursorB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_admin_proto_rawDescOnce sync.Once
@@ -353,26 +560,33 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_admin_proto_goTypes = []any{
 	(*AdminRequestList)(nil),     // 0: syrinx.AdminRequestList
 	(*LedgerPage)(nil),           // 1: syrinx.LedgerPage
 	(*InviteTreeNode)(nil),       // 2: syrinx.InviteTreeNode
 	(*InviteTree)(nil),           // 3: syrinx.InviteTree
 	(*ReservedUsernameList)(nil), // 4: syrinx.ReservedUsernameList
-	(*AdminRequest)(nil),         // 5: syrinx.AdminRequest
-	(*LedgerEntry)(nil),          // 6: syrinx.LedgerEntry
+	(*ReedFlag)(nil),             // 5: syrinx.ReedFlag
+	(*FlaggedReed)(nil),          // 6: syrinx.FlaggedReed
+	(*FlaggedReedList)(nil),      // 7: syrinx.FlaggedReedList
+	(*AdminRequest)(nil),         // 8: syrinx.AdminRequest
+	(*LedgerEntry)(nil),          // 9: syrinx.LedgerEntry
+	(*UserSignature)(nil),        // 10: syrinx.UserSignature
 }
 var file_admin_proto_depIdxs = []int32{
-	5, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
-	6, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
-	6, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
-	2, // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	8,  // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
+	9,  // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
+	9,  // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
+	2,  // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
+	10, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
+	5,  // 5: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
+	6,  // 6: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
+	7,  // [7:7] is the sub-list for method output_type
+	7,  // [7:7] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_admin_proto_init() }
@@ -388,7 +602,7 @@ func file_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
