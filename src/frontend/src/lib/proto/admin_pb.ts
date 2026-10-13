@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { AdminRequest, LedgerEntry } from "./common_pb";
+import type { AdminRequest, LedgerEntry, UserSignature } from "./common_pb";
 import { file_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSIpChRSZXNlcnZlZFVzZXJuYW1lTGlzdBIRCgl1c2VybmFtZXMYASADKAlCIFoeZ2l0aHViLmNvbS9hbHZhcm8vc3lyaW54L3Byb3RvYgZwcm90bzM", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSIpChRSZXNlcnZlZFVzZXJuYW1lTGlzdBIRCgl1c2VybmFtZXMYASADKAkikAEKCFJlZWRGbGFnEhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBIfCgtyZXBvcnRlcl9pZBgCIAEoCVIKcmVwb3J0ZXJJRBIMCgRub3RlGAMgASgJEhIKCmNyZWF0ZWRfYXQYBCABKA0SKAoJc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUiZAoLRmxhZ2dlZFJlZWQSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEhsKCWF1dGhvcl9pZBgCIAEoCVIIYXV0aG9ySUQSHwoFZmxhZ3MYAyADKAsyEC5zeXJpbnguUmVlZEZsYWciSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -150,4 +150,95 @@ export type ReservedUsernameList = Message<"syrinx.ReservedUsernameList"> & {
  */
 export const ReservedUsernameListSchema: GenMessage<ReservedUsernameList> = /*@__PURE__*/
   messageDesc(file_admin, 4);
+
+/**
+ * A member's signed flag on a reed. POST /api/flags and the peer relay
+ * both carry it.
+ *
+ * @generated from message syrinx.ReedFlag
+ */
+export type ReedFlag = Message<"syrinx.ReedFlag"> & {
+  /**
+   * @generated from field: string reed_id = 1 [json_name = "reedID"];
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string reporter_id = 2 [json_name = "reporterID"];
+   */
+  reporterId: string;
+
+  /**
+   * @generated from field: string note = 3;
+   */
+  note: string;
+
+  /**
+   * @generated from field: uint32 created_at = 4;
+   */
+  createdAt: number;
+
+  /**
+   * @generated from field: syrinx.UserSignature signature = 5;
+   */
+  signature?: UserSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.ReedFlag.
+ * Use `create(ReedFlagSchema)` to create a new message.
+ */
+export const ReedFlagSchema: GenMessage<ReedFlag> = /*@__PURE__*/
+  messageDesc(file_admin, 5);
+
+/**
+ * A reed with open flags, for admins.
+ *
+ * @generated from message syrinx.FlaggedReed
+ */
+export type FlaggedReed = Message<"syrinx.FlaggedReed"> & {
+  /**
+   * @generated from field: string reed_id = 1 [json_name = "reedID"];
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string author_id = 2 [json_name = "authorID"];
+   */
+  authorId: string;
+
+  /**
+   * @generated from field: repeated syrinx.ReedFlag flags = 3;
+   */
+  flags: ReedFlag[];
+};
+
+/**
+ * Describes the message syrinx.FlaggedReed.
+ * Use `create(FlaggedReedSchema)` to create a new message.
+ */
+export const FlaggedReedSchema: GenMessage<FlaggedReed> = /*@__PURE__*/
+  messageDesc(file_admin, 6);
+
+/**
+ * @generated from message syrinx.FlaggedReedList
+ */
+export type FlaggedReedList = Message<"syrinx.FlaggedReedList"> & {
+  /**
+   * @generated from field: repeated syrinx.FlaggedReed reeds = 1;
+   */
+  reeds: FlaggedReed[];
+
+  /**
+   * @generated from field: string next_cursor = 2;
+   */
+  nextCursor: string;
+};
+
+/**
+ * Describes the message syrinx.FlaggedReedList.
+ * Use `create(FlaggedReedListSchema)` to create a new message.
+ */
+export const FlaggedReedListSchema: GenMessage<FlaggedReedList> = /*@__PURE__*/
+  messageDesc(file_admin, 7);
 

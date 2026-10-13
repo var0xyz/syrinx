@@ -31,7 +31,7 @@ import {
   ServerSignatureSchema,
   ThreadRemovalSchema,
 } from '$lib/proto/common_pb';
-import { LedgerPageSchema } from '$lib/proto/admin_pb';
+import { LedgerPageSchema, ReedFlagSchema } from '$lib/proto/admin_pb';
 import {
   AddPublicKeyRequestSchema,
   BindDeviceResponseSchema,
@@ -841,6 +841,11 @@ export const apiService = {
 
   async getLedgerEntry(id: number): Promise<api.LedgerEntry> {
     return request(`/ledger/${id}`, { method: 'GET' }, LedgerEntrySchema);
+  },
+
+  /** A signed flag; the server hands one on a remote reed to its home server. */
+  async flagReed(flag: MessageInitShape<typeof ReedFlagSchema>): Promise<void> {
+    await send('/flags', protoBody('POST', ReedFlagSchema, flag));
   },
 
   async likeReed(reedId: string, signature: string, keyId: string): Promise<api.ReedLike> {

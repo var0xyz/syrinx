@@ -106,3 +106,13 @@ func TestAdminRevocationServerPayloadCanonicalShape(t *testing.T) {
 		t.Errorf("admin revocation payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestReedFlagPayloadCanonicalShape(t *testing.T) {
+	createdAt := time.Date(2026, 10, 12, 14, 0, 0, 0, time.UTC)
+	got := buildReedFlagPayload("a9@home1234/r1", "k3@peer5678", "k3@peer5678/4a1e", "Scam link", createdAt)
+	want := `{"createdAt":"2026-10-12T14:00:00Z","keyID":"k3@peer5678/4a1e","note":"Scam link",` +
+		`"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","type":"reed-flag"}`
+	if string(got) != want {
+		t.Errorf("reed flag payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
