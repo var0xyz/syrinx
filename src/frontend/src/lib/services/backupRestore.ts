@@ -324,7 +324,8 @@ export function isIdentityBackupPayload(backup: BackupPayload): boolean {
 }
 
 /**
- * Write keys + session markers from an identity backup. Does not write profile.
+ * Write private keys + session markers from an identity backup. Public keys
+ * come after, once requests can be signed: see restoreBackupPublicKeys.
  */
 export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<void> {
   assertIdentityBackupKeys(backup);
@@ -346,12 +347,18 @@ export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<vo
 
   await dbService.init();
 
-  const tables = backup.indexedDB?.tables ?? [];
-  for (const tableName of ['publicKeys', 'privateKeys'] as const) {
-    const table = tables.find((t) => t.name === tableName);
-    for (const item of table?.items ?? []) {
-      await restoreItem(tableName, item);
-    }
+  const table = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'privateKeys');
+  for (const item of table?.items ?? []) {
+    await restoreItem('privateKeys', item);
+  }
+}
+
+/** An identity backup's public keys. Checking a rotated key's predecessor
+ * is a signed request, so this runs once the session can sign. */
+export async function restoreBackupPublicKeys(backup: BackupPayload): Promise<void> {
+  const table = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'publicKeys');
+  for (const item of table?.items ?? []) {
+    await restoreItem('publicKeys', item);
   }
 }
 

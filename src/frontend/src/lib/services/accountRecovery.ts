@@ -20,6 +20,7 @@ import {
   backupKeyItemId,
   type BackupPayload,
   writeIdentityKeysBackup,
+  restoreBackupPublicKeys,
 } from './backupRestore';
 
 export function mapAccountRecoveryBootstrapError(err: unknown): Error {
@@ -124,6 +125,7 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   }
 
   await requestSigner.initializeWorker(keyId);
+  await restoreBackupPublicKeys(backup);
 
   if (get(serverInfo)?.id ?? localStorage.getItem('serverId')) {
     const skip = new Set<string>();
