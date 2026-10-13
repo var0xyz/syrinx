@@ -9,6 +9,7 @@
   import NewReedModal from '$lib/components/NewReedModal.svelte';
   import ServerVersionInfo from '$lib/components/ServerVersionInfo.svelte';
   import { unreadInteractions } from '$lib/stores/unreadInteractions';
+  import { adminPermissions, canMail } from '$lib/stores/adminPermissions';
 
   $: hasUnreadInteractions = $unreadInteractions.replies || $unreadInteractions.ripples || $unreadInteractions.mentions;
 
@@ -128,9 +129,11 @@
     <a href="/admin/actions" class="sn-sub" class:active={actionsSubActive}>
       <span class="sn-dot"></span>Actions
     </a>
-    <a href="/admin/broadcast" class="sn-sub" class:active={broadcastAdminSubActive}>
-      <span class="sn-dot"></span>Broadcast
-    </a>
+    {#if canMail($page.data?.user, $adminPermissions)}
+      <a href="/admin/broadcast" class="sn-sub" class:active={broadcastAdminSubActive}>
+        <span class="sn-dot"></span>Broadcast
+      </a>
+    {/if}
     <a href="/admin/mesh" class="sn-sub" class:active={meshSubActive}>
       <span class="sn-dot"></span>Mesh
     </a>

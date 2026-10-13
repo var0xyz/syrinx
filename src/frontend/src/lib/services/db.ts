@@ -31,6 +31,7 @@ const STORE_DEFAULTS: Record<string, () => Record<string, unknown>> = {
   ripples: () => ({ content: '' }),
   mailbox: () => ({ message: '' }),
   ledger: () => ({ userID: '', content: '', targets: [] }),
+  adminRequests: () => ({ reason: '', targets: [], droppedTargets: [], body: '' }),
   userLists: () => ({ description: '', memberIds: [] }),
 };
 
@@ -78,7 +79,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 35;
+  private readonly version = 36;
   private readonly storeNames = [
     ['following',   'userId'     ],
     ['privateKeys', 'keyId'      ],
@@ -133,6 +134,9 @@ export class IndexedDbService implements DbService {
 
     // The server-signed ledger of admin actions, verified as a chain.
     ['ledger',             'id'],
+
+    // Closed admin requests, verified; open ones always come from the server.
+    ['adminRequests',      'id'],
 
     // A key minted on the lost-device page, waiting for admins to bind it.
     ['pendingRebind',      'userID'],

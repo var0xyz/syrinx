@@ -1150,18 +1150,32 @@ export async function verifyAdminAuthorization(
 ): Promise<boolean> {
   const req = auth?.request;
   const decision = req?.decision;
-  if (!req || req.action !== action || req.state !== 'executed' || decision?.decision !== 'approve' || !req.serverSignature) {
+  if (!req || req.action !== action || req.state !== 'executed' || decision?.decision !== 'approve') {
     console.error('[verifyAdminAuthorization] not an approved request of', action);
+    return false;
+  }
+  return verifyClosedAdminRequest(req, opts);
+}
+
+/** A closed admin request: the requester's signature, the decider's when
+ * someone decided, and the countersignature of the requester's server. */
+export async function verifyClosedAdminRequest(
+  req: api.AdminRequest,
+  opts: { cachedKeysOnly?: boolean } = {}
+): Promise<boolean> {
+  const decision = req.decision;
+  if (req.state === 'pending' || !req.serverSignature || (req.state === 'moot') !== !decision) {
+    console.error('[verifyClosedAdminRequest] not a closed request', req.id);
     return false;
   }
   const serverID = parseCanonicalId(req.requesterId)?.[1];
   const { fingerprint, serverID: signerServerID } = splitServerSignatureId(req.serverSignature.id);
   if (!serverID || signerServerID !== serverID) {
-    console.error('[verifyAdminAuthorization] not countersigned by the requester’s server');
+    console.error('[verifyClosedAdminRequest] not countersigned by the requester’s server');
     return false;
   }
-  if (decision.deciderId === req.requesterId && req.requesterId !== `1@${serverID}`) {
-    console.error('[verifyAdminAuthorization] requester approved their own request');
+  if (decision?.decision === 'approve' && decision.deciderId === req.requesterId && req.requesterId !== `1@${serverID}`) {
+    console.error('[verifyClosedAdminRequest] requester approved their own request');
     return false;
   }
   const requestPayload = buildAdminRequestPayload(
@@ -1174,33 +1188,36 @@ export async function verifyAdminAuthorization(
     req.body,
     signedAtHeader(req.createdAt)
   );
-  const decisionPayload = buildAdminDecisionPayload(
-    req.id,
-    decision.decision,
-    decision.deciderId,
-    decision.signature?.id ?? '',
-    req.requesterSignature?.armor ?? ''
-  );
   const cachedOnly = !!opts.cachedKeysOnly;
-  if (
-    !(await verifyAdminSignature(req.requesterId, req.requesterSignature, requestPayload, cachedOnly)) ||
-    !(await verifyAdminSignature(decision.deciderId, decision.signature, decisionPayload, cachedOnly))
-  ) {
-    console.error('[verifyAdminAuthorization] admin signature failed', req.id);
+  if (!(await verifyAdminSignature(req.requesterId, req.requesterSignature, requestPayload, cachedOnly))) {
+    console.error('[verifyClosedAdminRequest] requester signature failed', req.id);
     return false;
+  }
+  if (decision) {
+    const decisionPayload = buildAdminDecisionPayload(
+      req.id,
+      decision.decision,
+      decision.deciderId,
+      decision.signature?.id ?? '',
+      req.requesterSignature?.armor ?? ''
+    );
+    if (!(await verifyAdminSignature(decision.deciderId, decision.signature, decisionPayload, cachedOnly))) {
+      console.error('[verifyClosedAdminRequest] decider signature failed', req.id);
+      return false;
+    }
   }
   const serverPayload = buildAdminRequestServerPayload(
     req.id,
     req.state,
     req.requesterSignature?.armor ?? '',
-    decision.signature?.armor ?? '',
+    decision?.signature?.armor ?? '',
     serverID,
     fingerprint,
     signedAtHeader(req.serverSignature.signedAt)
   );
   const result = await verify(req.serverSignature, serverPayload);
   if (result.ok === false) {
-    console.error('[verifyAdminAuthorization] server signature failed', req.id, result);
+    console.error('[verifyClosedAdminRequest] server signature failed', req.id, result);
     return false;
   }
   return true;

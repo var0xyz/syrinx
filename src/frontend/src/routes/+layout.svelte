@@ -58,6 +58,7 @@
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
   import { verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
+  import { refreshAdminPermissions } from '$lib/stores/adminPermissions';
   import { notificationStore } from '$lib/stores/notifications';
   import ActivitySidebar from '$lib/components/ActivitySidebar.svelte';
   import { isValidRef } from '$lib/utils/identityRef';
@@ -381,6 +382,7 @@
       user = await authService.getCurrentUser();
 
       if (user) {
+        if (user.role === 'admin') void refreshAdminPermissions(user.id);
         reedsService.processUnsignedReeds().then(() =>
           serverConnection.connect()
             .then(async () => {

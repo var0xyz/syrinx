@@ -21,7 +21,16 @@ export type {
   LedgerEntry,
   UserSignature,
 } from '$lib/proto/common_pb';
-export type { AdminRequestList, LedgerPage } from '$lib/proto/admin_pb';
+export type {
+  AdminRequestList,
+  FlaggedReed,
+  FlaggedReedList,
+  InviteTree,
+  InviteTreeNode,
+  LedgerPage,
+  ReedFlag,
+  UserPermissions,
+} from '$lib/proto/admin_pb';
 export type {
   BlockListResponse,
   FollowListResponse,

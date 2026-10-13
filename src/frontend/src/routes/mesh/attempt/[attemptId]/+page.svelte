@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { myPermissions } from '$lib/services/admin';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
@@ -24,6 +25,11 @@
   let rejecting = false;
   let showRejectModal = false;
   let rejectReason = '';
+
+  let held: string[] = [];
+  onMount(async () => {
+    held = (await myPermissions().catch(() => null))?.permissions ?? [];
+  });
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -160,7 +166,7 @@
           {/if}
         {/if}
 
-        {#if attempt.status === 'pending'}
+        {#if attempt.status === 'pending' && held.includes('mesh.connect')}
           <div class="approval-actions">
             <button class="btn primary" disabled={approving || rejecting} on:click={approve}>
               {approving ? 'Approving…' : 'Approve'}

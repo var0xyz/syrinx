@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { myPermissions } from '$lib/services/admin';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { authService } from '$lib/services/auth';
@@ -43,6 +44,11 @@
   // ConfirmFederationServerDisconnect.
   $: isOwnDisconnectRequest = !!(server?.disconnectPending && server.disconnectRequestedBy === user?.id);
   $: confirmBlocked = isOwnDisconnectRequest && !isRoot;
+
+  let held: string[] = [];
+  onMount(async () => {
+    held = (await myPermissions().catch(() => null))?.permissions ?? [];
+  });
 
   onMount(async () => {
     user = await authService.getCurrentUser();
@@ -259,7 +265,9 @@
             {/if}
           {/if}
 
-          {#if server.disconnectPending && !server.revoked}
+          {#if !server.revoked && !held.includes('mesh.disconnect')}
+            <!-- Disconnecting needs mesh.disconnect. -->
+          {:else if server.disconnectPending && !server.revoked}
             <div class="approval-actions">
               <button class="btn secondary" disabled={cancelling} on:click={cancelDisconnect}>
                 {cancelling ? 'Cancelling…' : 'Cancel request'}

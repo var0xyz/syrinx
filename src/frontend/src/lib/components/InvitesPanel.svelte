@@ -24,6 +24,8 @@
   import QRButton from '$lib/components/QRButton.svelte';
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import PermissionPicker from '$lib/components/PermissionPicker.svelte';
+  import { myPermissions } from '$lib/services/admin';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
   let user = null;
@@ -37,6 +39,12 @@
   let isAdmin = false;
   let showRoleModal = false;
   let selectedGrantRole: 'user' | 'admin' = 'user';
+  // An admin invite takes a second screen: the permissions it grants.
+  let roleStep: 'role' | 'permissions' = 'role';
+  let heldPermissions: string[] = [];
+  let permissionsLoaded: Promise<unknown> = Promise.resolve();
+  let granted = new Set<string>();
+  $: canGrantAdmin = heldPermissions.includes('admin.create');
   let qrModalURL = '';
   let showQRModal = false;
   let claimerUsernames: Record<string, string> = {};
@@ -60,6 +68,11 @@
     if (!user) return;
 
     isAdmin = user.role === 'admin' || user.role === 'root';
+    if (isAdmin) {
+      permissionsLoaded = myPermissions()
+        .then((p) => (heldPermissions = p.permissions))
+        .catch(() => {});
+    }
 
     // Show local invites immediately so the toolbar stays mounted.
     invites = await invitesRepository.getAll();
@@ -126,9 +139,11 @@
     }
   }
 
-  function onCreateClick() {
+  async function onCreateClick() {
     if (!canCreate || creating) return;
-    if (isAdmin) {
+    // Whether the role choice shows depends on the permissions still loading.
+    await permissionsLoaded;
+    if (canGrantAdmin) {
       selectedGrantRole = 'user';
       showRoleModal = true;
       return;
@@ -139,19 +154,26 @@
   function dismissRoleModal() {
     showRoleModal = false;
     selectedGrantRole = 'user';
+    roleStep = 'role';
+    granted = new Set();
   }
 
   function confirmRoleAndCreate() {
     const grantAdmin = selectedGrantRole === 'admin';
+    if (grantAdmin && roleStep === 'role') {
+      roleStep = 'permissions';
+      return;
+    }
+    const permissions = [...granted];
     dismissRoleModal();
-    void createInvite(grantAdmin);
+    void createInvite(grantAdmin, permissions);
   }
 
-  async function createInvite(grantAdmin: boolean) {
+  async function createInvite(grantAdmin: boolean, permissions: string[] = []) {
     if (!canCreate || creating) return;
     creating = true;
     try {
-      const created = await createSignedInvite(grantAdmin);
+      const created = await createSignedInvite(grantAdmin, permissions);
       if (created.secret && user?.id) {
         freshShareURL = inviteShareURL(created.id, created.secret);
         showFreshLink = true;
@@ -351,6 +373,10 @@
   >
     <div class="modal role-modal">
       <h2 id="invite-role-title">New invite</h2>
+      {#if roleStep === 'permissions'}
+        <p class="role-modal-lead">Choose what the new admin may do. You can only grant what you hold.</p>
+        <PermissionPicker available={heldPermissions} bind:selected={granted} />
+      {:else}
       <p class="role-modal-lead">Choose what role the person gets when they sign up.</p>
 
       <div class="role-options" role="radiogroup" aria-labelledby="invite-role-title">
@@ -384,17 +410,23 @@
         </button>
       </div>
 
+      {/if}
+
       <div class="modal-actions">
-        <button type="button" class="btn secondary" on:click={dismissRoleModal}>
-          Cancel
-        </button>
+        {#if roleStep === 'permissions'}
+          <button type="button" class="btn secondary" on:click={() => (roleStep = 'role')}>Back</button>
+        {:else}
+          <button type="button" class="btn secondary" on:click={dismissRoleModal}>
+            Cancel
+          </button>
+        {/if}
         <button
           type="button"
           class="btn primary"
           disabled={creating}
           on:click={confirmRoleAndCreate}
         >
-          {creating ? 'Creating…' : 'Create invite'}
+          {creating ? 'Creating…' : selectedGrantRole === 'admin' && roleStep === 'role' ? 'Next' : 'Create invite'}
         </button>
       </div>
     </div>

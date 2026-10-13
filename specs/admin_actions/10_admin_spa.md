@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -22,7 +22,7 @@ admin or root, with three items:
 | Route | Shows |
 |-------|-------|
 | `/admin/actions` | A pill switch between **Requests** and **Flagged**, like the search page. Requests: pending requests (action, targets, requester, reason) with **Approve** / **Reject** when the viewer is eligible, a disabled button with the reason when not, **Withdraw** on the viewer's own; closed requests below. Flagged: open flags ([08](08_flags.md)) |
-| `/admin/broadcast` | Compose a message for **everyone** or **one user** → opens a `broadcast` or `message` request ([09](09_broadcasts.md)); the viewer's requests awaiting approval below. Each option shows only with its permission |
+| `/admin/broadcast` | Compose a message for **everyone** or **one user** → opens a `broadcast` or `message` request ([09](09_broadcasts.md)); the viewer's requests awaiting approval below. Each option shows only with its permission. The recipient field autocompletes this server's members like an @-mention |
 | `/admin/mesh` | Server connections (moved from `/network/mesh`). Inviting, approving and disconnecting each show only with `mesh.invite`, `mesh.connect` and `mesh.disconnect` |
 
 Not in the nav:
@@ -71,6 +71,20 @@ permissions change (pre-filled with the target's current set), and as a
 second screen of the new-invite modal when **Admin** is picked
 ([05](05_promote_demote.md)).
 
+## Permissions in the SPA
+
+`GET /api/admin/users/{userID}/permissions` returns a user's role and
+permissions: an admin may read anyone's, every user their own. The SPA
+reads a target admin's to pre-fill a permissions change.
+
+The SPA reads the viewer's own permissions once per app load, in the
+background, and keeps them in `localStorage` for the session and the next
+load. Pages render from that copy without waiting or checking; if the read
+fails, the last copy stays. The server checks every action, so a stale copy
+only shows or hides a button. **Broadcast** is left out of the nav and the
+section tabs for an admin who holds neither `broadcast.message` nor
+`user.message`.
+
 ## Eligibility hints
 
 The SPA mirrors the [01](01_requests_and_approvals.md) rules, permissions
@@ -79,14 +93,30 @@ shows the rule that failed and leaves the request untouched.
 
 ## Offline
 
-Admin screens are online-only. Pending requests change as other admins act,
-and every action needs the server. The ledger stays offline-first
-([02](02_ledger.md)).
+Open requests always come from the server: they change as other admins
+act, and deciding needs the server anyway. Closed requests never change, so
+the SPA keeps them in IndexedDB (`adminRequests`), each verified before it's
+stored (the requester's and decider's signatures and the server's
+countersignature), and renders them from there. Each visit pages the
+server's closed list back until a page holds nothing new, then fetches any
+request this device saw open last time that has since closed. The ledger
+stays offline-first ([02](02_ledger.md)).
 
 ## Tests (Playwright)
 
-- An admin opens a kick on a user and two invitees. A second admin who isn't
-  in the first admin's subtree approves it. The ledger shows the entry, and
-  the targets' content disappears for a follower.
-- The approve button is disabled for the requester and enabled for root.
+`tests/admin-actions.spec.ts`, against a fresh server with a minted root.
+It needs `SYRINX_SERVER_KEY_FILE` (the server's public key, from
+`ops print-key`), `SYRINX_ROOT_BUNDLE` (root's `syrinx-1-….sxi.gpg`) and
+`SYRINX_ROOT_PASSPHRASE`, and skips without them. `SYRINX_E2E_BASE_URL`
+points it at another SPA port.
+
+- An admin opens a kick on a user and two invitees. Root, who isn't in the
+  admin's subtree, approves it. The ledger shows both entries, and the
+  targets' content disappears for a follower.
+- The requester can only withdraw their own request; root can approve it.
 - A non-admin doesn't see the admin nav.
+- A lost device mints a key, an admin uploads it, root approves, and the
+  device finishes recovery signed in as the member.
+- A member flags a reed and can't flag it again; an admin dismisses the
+  flag. A suspended member sees the suspended screen. An approved broadcast
+  reaches a member's mailbox.

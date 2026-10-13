@@ -198,3 +198,26 @@ type httptestResponse struct {
 	code int
 	body []byte
 }
+
+func TestGetUserPermissions_SelfOrAdmin(t *testing.T) {
+	f := newAdminFixture(t)
+	read := func(caller, target string) (int, *pb.UserPermissions) {
+		rr := f.serve(t, f.h.GetUserPermissions, http.MethodGet, "/api/admin/users/"+f.ids[target]+"/permissions", caller, nil,
+			map[string]string{"userID": f.ids[target]})
+		var out pb.UserPermissions
+		_ = proto.Unmarshal(rr.Body.Bytes(), &out)
+		return rr.Code, &out
+	}
+	if code, out := read("u1", "u1"); code != http.StatusOK || out.Role != roleUser || len(out.Permissions) != 0 {
+		t.Errorf("own permissions: %d %+v", code, out)
+	}
+	if code, _ := read("u1", "a1"); code != http.StatusForbidden {
+		t.Errorf("a member reading an admin's: %d, want 403", code)
+	}
+	if code, out := read("a2", "a1"); code != http.StatusOK || !slices.Equal(out.Permissions, []string{permUserKick, permUserSuspend}) {
+		t.Errorf("an admin reading another's: %d %+v", code, out)
+	}
+	if code, out := read("root", "root"); code != http.StatusOK || len(out.Permissions) != len(adminPermissions) {
+		t.Errorf("root's own: %d %+v, want every permission", code, out)
+	}
+}

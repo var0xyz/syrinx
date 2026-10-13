@@ -1,3 +1,4 @@
+import { formatPermissionSet } from '$lib/utils/permissions';
 import type * as api from '$lib/types/api';
 import { apiService } from './api';
 import { requestSigner } from './request-signer';
@@ -41,7 +42,7 @@ export function inviteShareURL(
  * Mint id+secret locally, sign id+createdAt+tokenHash, countersign on server.
  * Secret never leaves the browser on create.
  */
-export async function createSignedInvite(grantAdmin = false): Promise<api.Invite> {
+export async function createSignedInvite(grantAdmin = false, permissions: string[] = []): Promise<api.Invite> {
   const user = await authService.getCurrentUser();
   if (!user?.id) {
     throw new Error('Not signed in');
@@ -83,6 +84,7 @@ export async function createSignedInvite(grantAdmin = false): Promise<api.Invite
     createdAt: toUnix(now),
     grantedRole,
     userSignature,
+    permissions: grantAdmin ? formatPermissionSet(permissions) : '',
   });
 
   const invite: api.Invite = { ...created, secret, status: 'pending' };
