@@ -22,7 +22,7 @@
    * handles navigation (e.g. a whole Quote block linking to the reed) so this
    * doesn't create a nested/competing click target. */
   export let linked = true;
-  /** Show the admin fire badge. */
+  /** Show the root fire / admin sheriff badge. */
   export let fire = true;
   /** Text color override (e.g. "var(--muted)" to match surrounding dimmed text).
    * Ignored for the admin (userID '1') case, which always renders red. */
@@ -32,17 +32,24 @@
   export { extraClass as class };
 
   let resolvedUsername = username;
+  let role = '';
   $: resolvedUsername = username;
-  $: if (!username && userID) resolveUsername(userID);
+  $: role = '', userID;
+  $: if (userID && (!username || (fire && !isAdmin))) resolveUser(userID);
 
-  async function resolveUsername(id) {
-    const user = await userRepository.getByUserId(id);
-    if (id === userID && user?.username) resolvedUsername = user.username;
+  // Role comes from the locally stored signed profile; only a missing
+  // username falls back to fetching it.
+  async function resolveUser(id) {
+    const user = username ? await userRepository.get(id) : await userRepository.getByUserId(id);
+    if (id !== userID) return;
+    if (!username && user?.username) resolvedUsername = user.username;
+    role = user?.role ?? '';
   }
 
   $: displayName = resolvedUsername ?? userID;
   $: atPrefix = at ? (displayName !== userID ? '@' : '~') : '';
   $: isAdmin = isRoot(userID);
+  $: isSheriff = !isAdmin && role === 'admin';
   // Inline, not class-based: callers embed this in contexts with their own
   // `.inline-link`/etc color rules (e.g. MarkdownParser's link styling) that
   // would otherwise win on specificity/source order over a scoped class.
@@ -57,6 +64,8 @@
 <span class="username-root {extraClass}">
   {#if isAdmin && fire}
     <img class="username-fire" src="/icons/fire.gif" alt="" width="16" height="16" />
+  {:else if isSheriff && fire}
+    <span class="username-sheriff" style={resolvedColor ? `color: ${resolvedColor}` : ''}></span>
   {/if}
   {#if linked}
     <a
@@ -90,6 +99,19 @@
     margin-right: 0.2em;
     vertical-align: -0.15em;
     flex-shrink: 0;
+  }
+
+  .username-sheriff {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    margin-right: 0.2em;
+    align-self: center;
+    flex-shrink: 0;
+    color: var(--fg);
+    background-color: currentColor;
+    -webkit-mask: url('/icons/sheriff-16.svg') center / contain no-repeat;
+    mask: url('/icons/sheriff-16.svg') center / contain no-repeat;
   }
 
   .username {
