@@ -4,6 +4,16 @@ package main
 
 import "strings"
 
+// adminsHandle is the user part of an @admins claim, "!admins@serverID".
+// '!' is outside the user ID alphabet, so no user can collide with it.
+const adminsHandle = "!admins"
+
+// adminsMentionServer returns the server whose admins claim mentions.
+func adminsMentionServer(claim string) (string, bool) {
+	handle, serverID, ok := strings.Cut(strings.TrimSpace(claim), "@")
+	return serverID, ok && handle == adminsHandle && serverID != ""
+}
+
 // ValidateMentionClaims format-validates a client-claimed userID@serverID
 // mention list. authorID is canonical (userID@serverID). It can't confirm
 // a claim really appears in content the server never sees — that's the

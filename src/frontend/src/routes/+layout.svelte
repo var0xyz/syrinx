@@ -56,7 +56,7 @@
   import SuspendedScreen from '$lib/components/SuspendedScreen.svelte';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
-  import { verifyAndStoreMention } from '$lib/services/mentionsSync';
+  import { verifyAndStoreAdminMention, verifyAndStoreMention } from '$lib/services/mentionsSync';
   import { markUnread } from '$lib/stores/unreadInteractions';
   import { refreshAdminPermissions } from '$lib/stores/adminPermissions';
   import { notificationStore } from '$lib/stores/notifications';
@@ -287,6 +287,25 @@
 
       const kept = await verifyAndStoreMention({ reedID: reed.id, authorID: reed.userID, createdAt: new Date().toISOString() });
       if (kept) {
+        removeBroadcastReed(reed.id);
+        await recordActivity(reed);
+        dispatchReedToQueue(reed, 'mention');
+        markUnread('mentions');
+      }
+    });
+    serverConnection.onEncryptedReed(ServerEvent.AdminMentioned, 'admin mention', async (reed, data) => {
+      try {
+        await reedsService.storeReed(reed);
+        serverConnection.sendDataAck(data.id);
+      } catch (error) {
+        console.warn('ServerConnection: invalid admin mention reed signature, rejecting:', reed.id, error);
+        serverConnection.sendDataInvalid(data.id);
+        return;
+      }
+
+      const role = (user ?? (await authService.getCurrentUser()))?.role;
+      const item = { reedID: reed.id, authorID: reed.userID, createdAt: new Date().toISOString() };
+      if (await verifyAndStoreAdminMention(reed, item, role)) {
         removeBroadcastReed(reed.id);
         await recordActivity(reed);
         dispatchReedToQueue(reed, 'mention');

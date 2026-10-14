@@ -154,6 +154,7 @@ enum MessageType {
   USER_UNBLOCKED = 68;
   USER_UNBLOCKED_ACK = 69;
   LEDGER_ENTRY = 70;
+  ADMIN_MENTION = 71;
 }
 
 // Ping message

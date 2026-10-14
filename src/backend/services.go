@@ -887,11 +887,16 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 
 // UsernameExists reports whether username is unavailable to claimantID,
 // case-insensitively: another user holds it, it's reserved and claimantID
-// doesn't already hold it, or it's root's and claimantID isn't root. A
-// reserved name answers as taken, so it doesn't stand out.
+// doesn't already hold it, it's root's and claimantID isn't root, or it's
+// in reservedUsernames. A reserved name answers as taken, so it doesn't stand out.
 func (s *DataService) UsernameExists(ctx context.Context, username, claimantID string) (bool, error) {
 	if strings.EqualFold(username, rootUsername) && !isRootIdentity(claimantID, s.serverID) {
 		return true, nil
+	}
+	for _, reserved := range reservedUsernames {
+		if strings.EqualFold(username, reserved) {
+			return true, nil
+		}
 	}
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
@@ -1986,6 +1991,12 @@ func (s *DataService) insertReedCoreTx(
 	}
 
 	for _, mentionedUserID := range p.Mentions {
+		if serverID, ok := adminsMentionServer(mentionedUserID); ok {
+			if err := insertAdminMentionRow(ctx, tx, p.ReedID, serverID); err != nil {
+				return Reed{}, fmt.Errorf("insert admin mention: %w", err)
+			}
+			continue
+		}
 		if err := insertMentionRow(ctx, tx, p.ReedID, mentionedUserID); err != nil {
 			return Reed{}, fmt.Errorf("insert mention index: %w", err)
 		}
@@ -2473,6 +2484,74 @@ func insertMentionRow(ctx context.Context, q signingDBTX, mentioningReedID, ment
 		ON CONFLICT (mentioning_reed_id, mentioned_user_id) DO NOTHING
 	`, mentioningReedID, mentionedUserID)
 	return err
+}
+
+// insertAdminMentionRow records that mentioningReedID mentions serverID's
+// admins.
+func insertAdminMentionRow(ctx context.Context, q signingDBTX, mentioningReedID, serverID string) error {
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO reed_admin_mentions (mentioning_reed_id, server_id)
+		VALUES ($1, $2)
+		ON CONFLICT (mentioning_reed_id, server_id) DO NOTHING
+	`, mentioningReedID, serverID)
+	return err
+}
+
+// InsertAdminMentionRow is insertAdminMentionRow on its own, for a peer's reed.
+func (s *DataService) InsertAdminMentionRow(ctx context.Context, mentioningReedID, serverID string) error {
+	return insertAdminMentionRow(ctx, s.db, mentioningReedID, serverID)
+}
+
+// GetReedAdminMentions lists the servers whose admins reedID mentions; for
+// a thread head, those any part mentions, once each.
+func (s *DataService) GetReedAdminMentions(ctx context.Context, reedID string) ([]string, error) {
+	return s.queryStrings(ctx, `
+		SELECT DISTINCT am.server_id
+		FROM reed_admin_mentions am
+		LEFT JOIN reeds r ON r.id = am.mentioning_reed_id
+		WHERE (am.mentioning_reed_id = $1 AND r.thread_head IS NULL) OR r.thread_head = $1
+	`, reedID)
+}
+
+// GetMissingAdminMentions returns the reeds mentioning this server's
+// admins that admin userID doesn't hold yet. A thread is listed once, by head.
+func (s *DataService) GetMissingAdminMentions(ctx context.Context, userID string) ([]unallocatedReed, error) {
+	selfIdentity := identityID(userID)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT m.id, m.author_id
+		FROM (
+		    SELECT COALESCE(r.thread_head, ri.id) AS id, ri.author_id
+		    FROM reed_identities ri
+		    JOIN reed_admin_mentions am ON am.mentioning_reed_id = ri.id
+		    LEFT JOIN reeds r ON r.id = ri.id
+		    WHERE am.server_id = $2
+		) m
+		WHERE m.author_id <> $1
+		  AND EXISTS (SELECT 1 FROM users u WHERE u.id = $1 AND u.role IN ($3, $4))
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_allocations
+		      WHERE reed_allocations.reed_id = m.id AND reed_allocations.holder_user_id = $1
+		  )
+		  AND NOT EXISTS (
+		      SELECT 1 FROM reed_removals
+		      WHERE reed_removals.reed_id = m.id
+		  )
+	`, selfIdentity, s.serverID, roleRoot, roleAdmin)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []unallocatedReed
+	for rows.Next() {
+		var reedID string
+		var authorIdentity identityID
+		if err := rows.Scan(&reedID, &authorIdentity); err != nil {
+			return nil, err
+		}
+		results = append(results, unallocatedReed{ReedID: reedID, AuthorID: string(authorIdentity)})
+	}
+	return results, rows.Err()
 }
 
 // InsertMentionRow is insertMentionRow outside any transaction, for a

@@ -1,6 +1,9 @@
 <script>
   import { onDestroy, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import { apiService } from '$lib/services/api';
+  import { serverInfo } from '$lib/services/serverInfo';
+  import { ADMINS_HANDLE } from '$lib/utils/identityRef';
 
   /** The textarea element this picker is attached to. */
   export let textarea = null;
@@ -115,9 +118,9 @@
     currentSearch = controller;
     const q = query;
     try {
-      const res = await apiService.searchUsers(q, 20);
+      const res = await apiService.searchUsers(q, 20).catch(() => ({ users: [] }));
       if (controller.signal.aborted) return;
-      results = res.users || [];
+      results = [...adminsOptions(q), ...(res.users || [])];
       highlighted = 0;
       loading = false;
       // Auto-cancel: query has run past the max possible username length
@@ -132,6 +135,17 @@
     } finally {
       if (currentSearch === controller) currentSearch = null;
     }
+  }
+
+  /** @admins for this server and each peer, when q could start it. */
+  function adminsOptions(q) {
+    const info = get(serverInfo);
+    if (!info?.id || !'admins'.startsWith(q.trim().toLowerCase())) return [];
+    return [{ id: info.id, name: info.name }, ...info.federation].map((server) => ({
+      id: `${ADMINS_HANDLE}@${server.id}`,
+      username: 'admins',
+      serverName: server.name,
+    }));
   }
 
   async function positionPopover() {

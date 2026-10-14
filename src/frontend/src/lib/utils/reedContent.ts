@@ -16,7 +16,7 @@ export const MAX_THREAD_REEDS = 30;
  * that pattern would otherwise consume the whole token as one group.
  */
 function stripMentionsToUserID(text: string): string {
-  return text.replace(/~([a-zA-Z0-9]+)@[a-zA-Z0-9]+/g, '$1');
+  return text.replace(/~!?([a-zA-Z0-9]+)@[a-zA-Z0-9]+/g, '$1');
 }
 
 /**

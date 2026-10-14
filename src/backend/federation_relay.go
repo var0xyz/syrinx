@@ -1389,6 +1389,15 @@ func (h *Handlers) receiveForeignNewReed(ctx context.Context, peerServerID strin
 	}
 
 	for _, mentioned := range req.Mentions {
+		if serverID, ok := adminsMentionServer(mentioned); ok {
+			if serverID != self {
+				continue
+			}
+			if err := db.InsertAdminMentionRow(ctx, req.ReedId, self); err != nil {
+				return err
+			}
+			continue
+		}
 		bareID, serverID, ok := parseIdentityID(identityID(strings.TrimSpace(mentioned)))
 		if !ok || serverID != self {
 			continue

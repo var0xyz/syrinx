@@ -64,14 +64,17 @@ Both kinds go through the user mailbox, which needs two fixes first:
 ## SPA
 
 `MailboxBell` renders `kind = "broadcast"` and `kind = "admin-message"`
-as system messages ("Broadcast", "Message from the admins") with no sender.
+as system messages ("Broadcast", "Message from @admins") with no sender.
+"@admins" hints at how to answer: mention them in a reed ([11](11_admins_mention.md)).
 The mailbox only holds system messages; interactions have their own page.
 
 - The bell turns into a close cross while the popover is open. The popover
   is at most the screen width minus a 1rem gutter on each side.
+- The kind's badge sits in its own column on the left, and the title, with
+  the envelope before it, the message and the timestamp stack beside it.
 - An unread message shows a closed envelope; clicking it, or the message,
   marks it read and shows an open envelope.
-- Deleting a message asks for confirmation.
+- A "Delete" link follows the timestamp and asks for confirmation.
 
 ## Tests
 

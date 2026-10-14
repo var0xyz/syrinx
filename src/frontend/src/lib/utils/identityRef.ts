@@ -115,3 +115,12 @@ export function resolveConversationRoot(
 ): string {
   return parent.replying?.root || parent.id;
 }
+
+/** The user part of an @admins mention, ~!admins@serverID. '!' is outside
+ * the user ID alphabet, so no user can collide with it. */
+export const ADMINS_HANDLE = '!admins';
+
+/** The server whose admins id names, when it is an @admins mention. */
+export function adminsMentionServer(id: string): string | null {
+  return id.startsWith(`${ADMINS_HANDLE}@`) ? id.slice(ADMINS_HANDLE.length + 1) || null : null;
+}

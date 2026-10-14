@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { userRepository } from '$lib/repositories/user';
   import Username from '$lib/components/Username.svelte';
+  import { adminsMentionServer, parseCanonicalId } from '$lib/utils/identityRef';
+  import { serverInfo } from '$lib/services/serverInfo';
 
   /** `userID@serverID` id — same convention as Username.svelte, which this
    * renders through. Callers already have this form (reedMarkdown.ts's
@@ -38,7 +40,15 @@
   // local lookup.
   $: unresolved = settled && !username && resolveFailed;
 
+  // @admins names a server's admins, not a user: nothing to resolve.
+  const adminsServer = adminsMentionServer(userID);
+  $: adminsServerName =
+    adminsServer && adminsServer !== parseCanonicalId(localStorage.getItem('userId') ?? '')?.[1]
+      ? ($serverInfo?.federation.find((s) => s.id === adminsServer)?.name ?? adminsServer)
+      : '';
+
   onMount(async () => {
+    if (adminsServer) return;
     try {
       const user = await userRepository.getByUserId(userID);
       if (user?.username) {
@@ -55,7 +65,11 @@
 
 </script>
 
-{#if unresolved}
+{#if adminsServer}
+  <span class="mention-link admins-mention" title={adminsServerName ? `The admins of ${adminsServerName}` : 'This server’s admins'}
+    >@admins{#if adminsServerName}<span class="admins-server">@{adminsServerName}</span>{/if}</span
+  >
+{:else if unresolved}
   {`~${userID}`}
 {:else}
   <Username
@@ -67,3 +81,15 @@
     linked={!preview}
   />
 {/if}
+
+<style>
+  .admins-mention {
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .admins-server {
+    font-weight: 500;
+    opacity: 0.75;
+  }
+</style>
