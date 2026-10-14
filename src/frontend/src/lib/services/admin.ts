@@ -16,7 +16,7 @@ export type AdminAction =
   | 'permissions'
   | 'rebind'
   | 'broadcast'
-  | 'message';
+  | 'unicast';
 
 /** The permission each action needs; a permissions change needs
  * admin.create to add and admin.demote to remove. */
@@ -28,12 +28,12 @@ export const ACTION_PERMISSION: Record<Exclude<AdminAction, 'permissions'>, stri
   demote: 'admin.demote',
   rebind: 'user.rebind',
   broadcast: 'message.broadcast',
-  message: 'message.user',
+  unicast: 'message.unicast',
 };
 
-/** Whether r is a broadcast or private message, listed under Broadcast. */
+/** Whether r is a broadcast or unicast, listed under Message. */
 export function isMailRequest(r: { action: string }): boolean {
-  return r.action === 'broadcast' || r.action === 'message';
+  return r.action === 'broadcast' || r.action === 'unicast';
 }
 
 /** Bumped whenever a request is opened or decided here. */

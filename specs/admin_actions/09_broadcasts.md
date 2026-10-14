@@ -22,7 +22,7 @@ instance. Both kinds need a second admin's approval.
 request carries the message as its `content`. Requester and approver need
 `message.broadcast`.
 
-A private message is the same with `action = message`, `message.user` as
+A private message (unicast) is the same with `action = unicast`, `message.unicast` as
 its permission, and exactly one target, the recipient, who must be a local user. It is **never** in the
 ledger ([02](02_ledger.md)): only admins see it, through
 `/api/admin/requests`, whatever its outcome.

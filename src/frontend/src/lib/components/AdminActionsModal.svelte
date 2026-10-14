@@ -77,8 +77,8 @@
     ...(held.has('user.rebind')
       ? [{ id: 'rebind', icon: 'key', label: 'Add a key', hint: 'For a member who lost their device and has no backup' }]
       : []),
-    ...(held.has('message.user')
-      ? [{ id: 'message', icon: 'mail', label: 'Send a private message', hint: 'Delivered to their mailbox only' }]
+    ...(held.has('message.unicast')
+      ? [{ id: 'unicast', icon: 'mail', label: 'Send a private message', hint: 'Delivered to their mailbox only' }]
       : []),
     ...(held.has('user.suspend')
       ? [
@@ -95,11 +95,11 @@
   $: chosen = actions.find((a) => a.id === action);
   $: picksTargets = action === 'suspend' || action === 'kick';
   $: picksPermissions = action === 'promote' || action === 'permissions';
-  $: needsReason = action !== 'message';
+  $: needsReason = action !== 'unicast';
   $: reasonOk = reason.trim().length > 0 && reason.length <= MAX_REASON;
   $: canSubmit =
     !submitting &&
-    (action === 'message'
+    (action === 'unicast'
       ? message.trim().length > 0 && message.length <= MAX_MESSAGE
       : reasonOk && (!picksTargets || checked.size > 0) && (action !== 'rebind' || !!keyArmor));
 
@@ -159,7 +159,7 @@
     try {
       const targets = picksTargets ? [...checked] : [userID];
       const body =
-        action === 'message' ? message.trim() : action === 'rebind' ? keyArmor : picksPermissions ? formatPermissionSet(granted) : '';
+        action === 'unicast' ? message.trim() : action === 'rebind' ? keyArmor : picksPermissions ? formatPermissionSet(granted) : '';
       await openAdminRequest(action, targets, needsReason ? reason.trim() : '', body);
       done = true;
     } catch (err) {
@@ -181,8 +181,8 @@
     {#if done}
       <h3 id="admin-actions-title">Request opened</h3>
       <div class="actions">
-        {#if action === 'message'}
-          <a class="btn btn-secondary" href="/admin/broadcast" on:click={close}>View in Broadcast</a>
+        {#if action === 'unicast'}
+          <a class="btn btn-secondary" href="/admin/message" on:click={close}>View in Message</a>
         {:else}
           <a class="btn btn-secondary" href="/admin/actions" on:click={close}>View in Actions</a>
         {/if}
@@ -258,7 +258,7 @@
         {/if}
       {/if}
 
-      {#if action === 'message'}
+      {#if action === 'unicast'}
         <label class="field">
           <span>Message</span>
           <textarea bind:value={message} rows="4" maxlength={MAX_MESSAGE}></textarea>
@@ -285,7 +285,7 @@
           disabled={!canSubmit}
           on:click={submit}
         >
-          {submitting ? 'Signing…' : 'Sign and request'}
+          {submitting ? 'Requesting…' : 'Request'}
         </button>
       </div>
     {/if}

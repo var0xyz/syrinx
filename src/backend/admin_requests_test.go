@@ -62,7 +62,7 @@ func newAdminFixture(t *testing.T) *adminFixture {
 	}}
 	h.adminExecutorOverride = map[string]adminExecutor{
 		adminActionKick: stub, adminActionSuspend: stub, adminActionBroadcast: stub,
-		adminActionMessage: stub, adminActionPromote: stub, adminActionPermissions: stub,
+		adminActionUnicast: stub, adminActionPromote: stub, adminActionPermissions: stub,
 	}
 	return f
 }
@@ -193,7 +193,7 @@ func TestOpenAdminRequest_Validation(t *testing.T) {
 		{"no reason", f.request(t, "a1", adminActionKick, "", "", "u1"), http.StatusBadRequest},
 		{"broadcast with a reason", f.request(t, "root", adminActionBroadcast, "Why", "Hi"), http.StatusBadRequest},
 		{"broadcast too long", f.request(t, "root", adminActionBroadcast, "", string(make([]byte, 141))), http.StatusBadRequest},
-		{"message with two targets", f.request(t, "root", adminActionMessage, "", "Hi", "u1", "u2"), http.StatusBadRequest},
+		{"message with two targets", f.request(t, "root", adminActionUnicast, "", "Hi", "u1", "u2"), http.StatusBadRequest},
 		{"unknown permission", f.request(t, "root", adminActionPromote, "Helps", "user.fly", "u1"), http.StatusBadRequest},
 		{"unsorted permissions", f.request(t, "root", adminActionPromote, "Helps", "user.kick,admin.create", "u1"), http.StatusBadRequest},
 		{"missing permission", f.request(t, "a1", adminActionBroadcast, "", "Hi"), http.StatusForbidden},

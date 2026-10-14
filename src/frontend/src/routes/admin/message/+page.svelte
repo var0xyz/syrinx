@@ -9,6 +9,7 @@
   import UserPicker from '$lib/components/UserPicker.svelte';
   import { apiService } from '$lib/services/api';
   import { isMailRequest, openAdminRequest } from '$lib/services/admin';
+  import { keepInHash } from '$lib/utils/hashMode';
   import { parseCanonicalId } from '$lib/utils/identityRef';
   import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
 
@@ -19,25 +20,32 @@
   $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
   $: serverID = parseCanonicalId($page.data?.user?.id ?? '')?.[1] ?? '';
 
-  let recipientMode: 'everyone' | 'user' = 'everyone';
+  let recipientMode: 'broadcast' | 'unicast' = 'broadcast';
   let username = '';
   let recipientID = '';
   let message = '';
   let sending = false;
   let error = '';
 
+  const stateOptions = [
+    { value: 'open', label: 'Open' },
+    { value: 'closed', label: 'Closed' },
+  ];
+  let state: 'open' | 'closed' = $page.url.hash === '#closed' ? 'closed' : 'open';
+  $: keepInHash($page.url, state === 'closed' ? '#closed' : '');
+
   // Permissions only pick which options show; the server checks the send.
   $: canBroadcast = holds($page.data?.user, $adminPermissions, 'message.broadcast');
-  $: canMessage = holds($page.data?.user, $adminPermissions, 'message.user');
+  $: canUnicast = holds($page.data?.user, $adminPermissions, 'message.unicast');
   $: recipientOptions = [
-    ...(canBroadcast || !canMessage ? [{ value: 'everyone', label: 'Everyone' }] : []),
-    ...(canMessage || !canBroadcast ? [{ value: 'user', label: 'One user' }] : []),
+    ...(canBroadcast || !canUnicast ? [{ value: 'broadcast', label: 'Broadcast' }] : []),
+    ...(canUnicast || !canBroadcast ? [{ value: 'unicast', label: 'Unicast' }] : []),
   ];
-  $: if (!canBroadcast && canMessage) recipientMode = 'user';
+  $: if (!canBroadcast && canUnicast) recipientMode = 'unicast';
   $: canSend =
     !sending &&
     message.trim().length > 0 &&
-    (recipientMode === 'everyone' || username.trim().length > 0);
+    (recipientMode === 'broadcast' || username.trim().length > 0);
 
   /** The local member named name, case-insensitively. */
   async function recipient(name: string): Promise<string | null> {
@@ -54,7 +62,7 @@
     sending = true;
     error = '';
     try {
-      if (recipientMode === 'everyone') {
+      if (recipientMode === 'broadcast') {
         await openAdminRequest('broadcast', [], '', message.trim());
       } else {
         const to = recipientID || (await recipient(username));
@@ -62,7 +70,7 @@
           error = `No member here is named ${username.trim()}.`;
           return;
         }
-        await openAdminRequest('message', [to], '', message.trim());
+        await openAdminRequest('unicast', [to], '', message.trim());
       }
       message = '';
       username = '';
@@ -78,7 +86,7 @@
 <Auth>
   <SideNav currentPage="admin" />
   <div class="admin-container">
-    <SectionTabs {tabs} active="broadcast" />
+    <SectionTabs {tabs} active="message" />
     <div class="admin-content">
       {#if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
@@ -90,7 +98,7 @@
             </div>
           {/if}
 
-          {#if recipientMode === 'user'}
+          {#if recipientMode === 'unicast'}
             <label class="field">
               <span>To</span>
               <UserPicker bind:value={username} bind:userID={recipientID} {serverID} />
@@ -107,13 +115,20 @@
           <div class="composer-footer">
             <span class="char-count">{message.length}/{MAX_LENGTH}</span>
             <button class="btn primary" type="submit" disabled={!canSend}>
-              {sending ? 'Signing…' : 'Send for approval'}
+              {sending ? 'Sending…' : 'Send for approval'}
             </button>
           </div>
         </form>
 
         <div class="requests">
-          <AdminRequestList include={isMailRequest} emptyIcon="📣" emptyTitle="No messages awaiting approval" />
+          <div class="state-picker">
+            <ModeSwitch options={stateOptions} bind:value={state} />
+          </div>
+          <AdminRequestList
+            include={isMailRequest}
+            {state}
+            emptyTitle={state === 'open' ? 'No messages awaiting approval' : 'No closed messages'}
+          />
         </div>
       {/if}
     </div>
@@ -197,6 +212,12 @@
 
   .requests {
     margin-top: 1.5rem;
+  }
+
+  .state-picker {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 1rem;
   }
 
   .composer .error {

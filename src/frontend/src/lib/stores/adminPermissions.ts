@@ -52,14 +52,15 @@ export function holds(viewer: Viewer, cached: Cached | null, permission: string)
 
 /** Whether the viewer may send broadcasts or private messages. */
 export function canMail(viewer: Viewer, cached: Cached | null): boolean {
-  return holds(viewer, cached, 'message.broadcast') || holds(viewer, cached, 'message.user');
+  return holds(viewer, cached, 'message.broadcast') || holds(viewer, cached, 'message.unicast');
 }
 
-/** The admin section's tabs, without Broadcast for a viewer who can't mail. */
-export function adminTabs(showBroadcast: boolean): { href: string; label: string }[] {
+/** The admin section's tabs, without Message for a viewer who can't mail. */
+export function adminTabs(showMessage: boolean): { href: string; label: string }[] {
   return [
     { href: '/admin/actions', label: 'Actions' },
-    ...(showBroadcast ? [{ href: '/admin/broadcast', label: 'Broadcast' }] : []),
+    { href: '/admin/flags', label: 'Flags' },
+    ...(showMessage ? [{ href: '/admin/message', label: 'Message' }] : []),
     { href: '/admin/mesh', label: 'Mesh' },
   ];
 }

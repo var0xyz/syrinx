@@ -365,7 +365,7 @@ func InitDB(db *sql.DB) error {
 		id VARCHAR(255) PRIMARY KEY,
 		action VARCHAR(32) NOT NULL
 			CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-				'permissions', 'rebind', 'broadcast', 'message')),
+				'permissions', 'rebind', 'broadcast', 'unicast')),
 		requester_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 		requester_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
 		requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -380,10 +380,10 @@ func InitDB(db *sql.DB) error {
 		closed_at TIMESTAMP,
 
 		CONSTRAINT admin_requests_reason CHECK (
-			(action IN ('broadcast', 'message')) = (reason IS NULL))
+			(action IN ('broadcast', 'unicast')) = (reason IS NULL))
 	);`
 
-	// The armored key of a rebind, the text of a broadcast or message, or the
+	// The armored key of a rebind, the text of a broadcast or unicast, or the
 	// permission set of a promote or permissions change.
 	createAdminRequestContentTable := `
 	CREATE TABLE IF NOT EXISTS admin_request_content (
@@ -436,7 +436,7 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		permission VARCHAR(32) NOT NULL
 			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
-				'user.rebind', 'message.user', 'message.broadcast',
+				'user.rebind', 'message.unicast', 'message.broadcast',
 				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
 		PRIMARY KEY (user_id, permission)
 	);`
@@ -447,7 +447,7 @@ func InitDB(db *sql.DB) error {
 		invite_id VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
 		permission VARCHAR(32) NOT NULL
 			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
-				'user.rebind', 'message.user', 'message.broadcast',
+				'user.rebind', 'message.unicast', 'message.broadcast',
 				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
 		PRIMARY KEY (invite_id, permission)
 	);`

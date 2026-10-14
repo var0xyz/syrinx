@@ -58,9 +58,10 @@
 
   $: adminActive = currentPage === 'admin' || path.startsWith('/admin/');
   $: actionsSubActive = path === '/admin/actions';
-  $: broadcastAdminSubActive = path === '/admin/broadcast';
+  $: flagsSubActive = path === '/admin/flags';
+  $: messageSubActive = path === '/admin/message';
   $: meshSubActive = path === '/admin/mesh';
-  $: adminSubOpen = actionsSubActive || broadcastAdminSubActive || meshSubActive;
+  $: adminSubOpen = actionsSubActive || flagsSubActive || messageSubActive || meshSubActive;
 
   $: accountActive = currentPage === 'account' || path === '/account';
 </script>
@@ -129,9 +130,12 @@
     <a href="/admin/actions" class="sn-sub" class:active={actionsSubActive}>
       <span class="sn-dot"></span>Actions
     </a>
+    <a href="/admin/flags" class="sn-sub" class:active={flagsSubActive}>
+      <span class="sn-dot"></span>Flags
+    </a>
     {#if canMail($page.data?.user, $adminPermissions)}
-      <a href="/admin/broadcast" class="sn-sub" class:active={broadcastAdminSubActive}>
-        <span class="sn-dot"></span>Broadcast
+      <a href="/admin/message" class="sn-sub" class:active={messageSubActive}>
+        <span class="sn-dot"></span>Message
       </a>
     {/if}
     <a href="/admin/mesh" class="sn-sub" class:active={meshSubActive}>

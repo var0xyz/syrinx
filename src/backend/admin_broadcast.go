@@ -59,8 +59,8 @@ func (h *Handlers) broadcastExecutor() adminExecutor {
 	}
 }
 
-// messageExecutor sends the request's private message to its one target.
-func (h *Handlers) messageExecutor() adminExecutor {
+// unicastExecutor sends the request's private message to its one target.
+func (h *Handlers) unicastExecutor() adminExecutor {
 	return adminExecutor{
 		execute: func(context.Context, *sql.Tx, *adminRequest) error { return nil },
 		after: func(req *adminRequest) {
