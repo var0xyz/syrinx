@@ -436,7 +436,7 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		permission VARCHAR(32) NOT NULL
 			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
-				'user.rebind', 'user.message', 'broadcast.message',
+				'user.rebind', 'message.user', 'message.broadcast',
 				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
 		PRIMARY KEY (user_id, permission)
 	);`
@@ -447,7 +447,7 @@ func InitDB(db *sql.DB) error {
 		invite_id VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
 		permission VARCHAR(32) NOT NULL
 			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
-				'user.rebind', 'user.message', 'broadcast.message',
+				'user.rebind', 'message.user', 'message.broadcast',
 				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
 		PRIMARY KEY (invite_id, permission)
 	);`

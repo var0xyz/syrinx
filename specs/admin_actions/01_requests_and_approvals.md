@@ -28,8 +28,8 @@ them when they were promoted or invited, or by a later permissions change.
 | `user.kick`         | `kick`                                               |
 | `user.suspend`      | `suspend`, `reinstate`                               |
 | `user.rebind`       | `rebind` (add a key)                                 |
-| `user.message`      | `message` (private message)                          |
-| `broadcast.message` | `broadcast`                                          |
+| `message.user`      | `message` (private message)                          |
+| `message.broadcast` | `broadcast`                                          |
 | `mesh.invite`       | Creating and canceling server invites                |
 | `mesh.connect`      | Approving or rejecting a server connection           |
 | `mesh.disconnect`   | Disconnecting from a peer                            |
@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
   rebind's armored key, or the permission set of a `promote` or
   `permissions` request. Other actions have no row there.
 - A permission set is written as the permission names, sorted and joined
-  with commas (`broadcast.message,user.kick`), with no duplicates. The
+  with commas (`message.broadcast,user.kick`), with no duplicates. The
   names come from a fixed list without commas, so the server refuses any
   other form. A `permissions` request's set is the target's full new set.
 - `closed_by` is the approver (`executed`, `rejected`), the requester

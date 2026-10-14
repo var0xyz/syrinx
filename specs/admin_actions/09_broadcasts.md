@@ -20,9 +20,9 @@ instance. Both kinds need a second admin's approval.
 `action = broadcast`, no targets, no reason, `body` = the message (UTF-8,
 ≤140 characters, the mailbox limit). The ledger entry for the opened
 request carries the message as its `content`. Requester and approver need
-`broadcast.message`.
+`message.broadcast`.
 
-A private message is the same with `action = message`, `user.message` as
+A private message is the same with `action = message`, `message.user` as
 its permission, and exactly one target, the recipient, who must be a local user. It is **never** in the
 ledger ([02](02_ledger.md)): only admins see it, through
 `/api/admin/requests`, whatever its outcome.

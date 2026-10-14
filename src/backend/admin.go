@@ -31,8 +31,8 @@ const (
 	permUserKick         = "user.kick"
 	permUserSuspend      = "user.suspend"
 	permUserRebind       = "user.rebind"
-	permUserMessage      = "user.message"
-	permBroadcastMessage = "broadcast.message"
+	permMessageUser      = "message.user"
+	permMessageBroadcast = "message.broadcast"
 	permMeshInvite       = "mesh.invite"
 	permMeshConnect      = "mesh.connect"
 	permMeshDisconnect   = "mesh.disconnect"
@@ -41,8 +41,8 @@ const (
 // adminPermissions lists every permission, in display order.
 var adminPermissions = []string{
 	permAdminCreate, permAdminDemote,
-	permUserKick, permUserSuspend, permUserRebind, permUserMessage,
-	permBroadcastMessage,
+	permUserKick, permUserSuspend, permUserRebind,
+	permMessageUser, permMessageBroadcast,
 	permMeshInvite, permMeshConnect, permMeshDisconnect,
 }
 
@@ -93,8 +93,8 @@ var adminActionPermission = map[string]string{
 	adminActionPromote:   permAdminCreate,
 	adminActionDemote:    permAdminDemote,
 	adminActionRebind:    permUserRebind,
-	adminActionBroadcast: permBroadcastMessage,
-	adminActionMessage:   permUserMessage,
+	adminActionBroadcast: permMessageBroadcast,
+	adminActionMessage:   permMessageUser,
 }
 
 // Request states and decisions.

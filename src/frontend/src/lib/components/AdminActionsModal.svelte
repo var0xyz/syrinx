@@ -77,7 +77,7 @@
     ...(held.has('user.rebind')
       ? [{ id: 'rebind', icon: 'key', label: 'Add a key', hint: 'For a member who lost their device and has no backup' }]
       : []),
-    ...(held.has('user.message')
+    ...(held.has('message.user')
       ? [{ id: 'message', icon: 'mail', label: 'Send a private message', hint: 'Delivered to their mailbox only' }]
       : []),
     ...(held.has('user.suspend')
