@@ -94,7 +94,14 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 			`, newKeyID, revokedKeyID); err != nil {
 				return err
 			}
-			_, err = tx.ExecContext(ctx, `UPDATE users SET active_key_id = $1 WHERE id = $2`, newKeyID, target)
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET active_key_id = $1 WHERE id = $2`, newKeyID, target); err != nil {
+				return err
+			}
+			// The lost device holds the open invites' secrets, so they all go.
+			_, err = tx.ExecContext(ctx, `
+				UPDATE invites SET revoked_at = $2
+				WHERE created_by = $1 AND claimed_at IS NULL AND revoked_at IS NULL
+			`, target, now)
 			return err
 		},
 		after: func(req *adminRequest) {

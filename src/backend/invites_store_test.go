@@ -70,6 +70,7 @@ func ensureInviteStoreSchema(db *sql.DB) error {
 			bio TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			suspended_by VARCHAR(255),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			invite_id VARCHAR(255) REFERENCES invites(id)
 		)`,
