@@ -31,6 +31,11 @@ export const ACTION_PERMISSION: Record<Exclude<AdminAction, 'permissions'>, stri
   message: 'message.user',
 };
 
+/** Whether r is a broadcast or private message, listed under Broadcast. */
+export function isMailRequest(r: { action: string }): boolean {
+  return r.action === 'broadcast' || r.action === 'message';
+}
+
 /** Bumped whenever a request is opened or decided here. */
 export const adminRequestsChanged = writable(0);
 

@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"net/http"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -80,5 +82,33 @@ func TestPrivateMessage_ReachesOnlyItsRecipient(t *testing.T) {
 	}
 	if entries := f.ledger(t); len(entries) != 0 {
 		t.Fatalf("ledger = %+v, want no entry for a private message", entries)
+	}
+}
+
+func TestListAdminRequests_HidesMailWithoutPermission(t *testing.T) {
+	f := newAdminFixture(t)
+	ctx := context.Background()
+	f.grant(t, "a1", permMessageUser)
+	msg := f.request(t, "a1", adminActionMessage, "", "Can we talk about your replies?", "u1")
+	f.openAs(t, "a1", msg)
+
+	if hidden := hiddenAdminActions([]string{permMessageUser}); !slices.Equal(hidden, []string{adminActionBroadcast}) {
+		t.Fatalf("hidden with message.user = %v, want broadcast only", hidden)
+	}
+	cases := []struct {
+		name   string
+		viewer string
+		perms  []string
+		want   int
+	}{
+		{"without the permission", "a2", nil, 0},
+		{"holding the permission", "a2", []string{permMessageUser}, 1},
+		{"its requester", "a1", nil, 1},
+	}
+	for _, c := range cases {
+		reqs, _, err := f.ds.ListAdminRequests(ctx, adminStatePending, "", 10, f.ids[c.viewer], hiddenAdminActions(c.perms))
+		if err != nil || len(reqs) != c.want {
+			t.Errorf("%s: got %d requests (err %v), want %d", c.name, len(reqs), err, c.want)
+		}
 	}
 }
