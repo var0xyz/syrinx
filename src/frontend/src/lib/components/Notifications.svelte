@@ -112,7 +112,8 @@
     position: fixed;
     top: 1rem;
     right: 1rem;
-    z-index: 1000;
+    /* Above every modal and its backdrop (2000–2001). */
+    z-index: 3000;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
