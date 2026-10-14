@@ -70,6 +70,16 @@ export interface DbService {
   clear(storeName: string): Promise<void>;
 }
 
+/** Databases older than this had stores with a different keyPath or record
+ * shape; those stores are dropped and recreated empty on upgrade. */
+const REBUILT_BEFORE_VERSION = 35;
+const REBUILT_STORES = [
+  'publicKeys', 'revocations', 'reeds', 'tags', 'privateKeys', 'pendingRevocation',
+  'users', 'usersInfo', 'invites', 'ripples', 'removedReeds', 'removedAccounts',
+  'removedThreads', 'blockedBy', 'blocks', 'threads', 'vouches', 'declinedVouches',
+  'likedReeds', 'reedReplies',
+];
+
 export class IndexedDbService implements DbService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'Syrinx';
@@ -177,20 +187,11 @@ export class IndexedDbService implements DbService {
         const db = (event.target as IDBOpenDBRequest).result;
         const tx = (event.target as IDBOpenDBRequest).transaction!;
 
-        // keyPath is immutable on an existing store, so a version bump that
-        // changes a store's keyPath must drop and recreate it — a plain
-        // ensureStore call would silently keep the OLD keyPath on a store
-        // that already exists (see the NOTE below). Pre-launch project, no
-        // production data to preserve, so dropped stores are just cleared,
-        // not migrated in place — including privateKeys/pendingRevocation
-        // here for the fingerprint -> keyId rename, and every store whose
-        // records became generated protobuf messages.
-        for (const storeName of [
-          'publicKeys', 'revocations', 'reeds', 'tags', 'privateKeys', 'pendingRevocation',
-          'users', 'usersInfo', 'invites', 'ripples', 'removedReeds', 'removedAccounts',
-          'removedThreads', 'blockedBy', 'blocks', 'threads', 'vouches', 'declinedVouches',
-          'likedReeds', 'reedReplies',
-        ]) {
+        // Stores whose keyPath or record shape changed before v35 are rebuilt
+        // for older databases only. A later bump that only adds stores or
+        // indexes keeps every record.
+        const rebuildStores = event.oldVersion > 0 && event.oldVersion < REBUILT_BEFORE_VERSION;
+        for (const storeName of rebuildStores ? REBUILT_STORES : []) {
           if (db.objectStoreNames.contains(storeName)) {
             db.deleteObjectStore(storeName);
           }
