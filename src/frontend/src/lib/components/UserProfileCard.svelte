@@ -10,6 +10,9 @@
   import { followingRepository } from '$lib/repositories/following';
   import { userInfoRepository } from '$lib/repositories/userInfo';
   import { apiService } from '$lib/services/api';
+  import { onDestroy } from 'svelte';
+  import { openVerificationWindow } from '$lib/services/verificationWindow';
+  import { notificationStore } from '$lib/stores/notifications';
   import { authService } from '$lib/services/auth';
   import QRButton from '$lib/components/QRButton.svelte';
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
@@ -98,6 +101,21 @@
     vouchQROpen = false;
     vouchServer = null;
   }
+
+  // A vouch for the owner is accepted only while their code is showing.
+  /** @type {(() => void) | null} */
+  let closeVerificationWindow = null;
+  $: syncVerificationWindow(vouchQROpen);
+  /** @param {boolean} showing */
+  function syncVerificationWindow(showing) {
+    if (showing && !closeVerificationWindow) {
+      closeVerificationWindow = openVerificationWindow((message) => notificationStore.error(message));
+    } else if (!showing && closeVerificationWindow) {
+      closeVerificationWindow();
+      closeVerificationWindow = null;
+    }
+  }
+  onDestroy(() => closeVerificationWindow?.());
 
   let following = isFollowing;
   let followersCount = 0;

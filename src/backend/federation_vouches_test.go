@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ type vouchRefFixture struct {
 	peerKeyID    string
 	voucherKP    *cryptoKeyPair
 	subject      string
+	window       string
 	subjectKeyID string
 	voucher      string
 	voucherKeyID string
@@ -85,6 +87,13 @@ func newVouchRefFixture(t *testing.T) *vouchRefFixture {
 		metrics:       metrics.Noop{},
 		realtimeRelay: rs,
 		broadcastChan: make(chan realtimeBroadcastMessage, 16),
+	}
+	if _, err := db.Exec(`INSERT INTO online_users (user_id) VALUES ($1)`, f.subject); err != nil {
+		t.Fatalf("mark subject online: %v", err)
+	}
+	f.window = uuid.NewString()
+	if opened, err := rs.db.OpenVerificationWindow(context.Background(), f.subject, f.window, time.Now().UTC()); err != nil || !opened {
+		t.Fatalf("open verification window: opened=%v err=%v", opened, err)
 	}
 	return f
 }
@@ -167,6 +176,12 @@ func TestVouchReferenceRefused(t *testing.T) {
 			cert.SubjectUserID = f.voucher
 			return teardownPeerID
 		},
+		"subject not showing their code": func(f *vouchRefFixture, cert *VouchCert) string {
+			if err := f.h.services.db.CloseVerificationWindow(context.Background(), f.subject, f.window); err != nil {
+				t.Fatalf("close verification window: %v", err)
+			}
+			return teardownPeerID
+		},
 		"countersigned by another key": func(f *vouchRefFixture, cert *VouchCert) string {
 			cert.ServerSignature.Armor = f.sign(t, buildVouchServerPayload(cert.SubjectKeyID, f.peerKP.Fingerprint, cert.UserSignature.Armor, cert.ServerSignature.SignedAt), f.voucherKP.PrivateKey)
 			return teardownPeerID
@@ -236,5 +251,32 @@ func TestVouchDeliveryToUnreachableServer(t *testing.T) {
 	writeVouchDeliveryError(rr, err)
 	if rr.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502 for an unreachable server", rr.Code)
+	}
+}
+
+// A subject's server that finds no open verification window answers 412,
+// which the voucher's server passes on to its client.
+func TestVouchDeliveryToClosedWindow(t *testing.T) {
+	f := newVouchRefFixture(t)
+	peer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusPreconditionFailed)
+	}))
+	defer peer.Close()
+	if _, err := f.db.Exec(`UPDATE servers SET base_url = $1 WHERE id = $2`, peer.URL, teardownPeerID); err != nil {
+		t.Fatalf("point peer at the stub: %v", err)
+	}
+	f.h.cfg.FederationAllowInsecureHTTP = true
+	f.h.signingKey = ServerSigningKey{Fingerprint: f.peerKP.Fingerprint, Armor: f.peerKP.PrivateKey}
+	cert := f.cert(t, "")
+	cert.SubjectUserID = f.voucher
+
+	err := f.h.deliverVouchToSubject(context.Background(), cert)
+	if !errors.Is(err, errVouchWindowClosed) {
+		t.Fatalf("err = %v, want errVouchWindowClosed", err)
+	}
+	rr := httptest.NewRecorder()
+	writeVouchDeliveryError(rr, err)
+	if rr.Code != http.StatusPreconditionFailed {
+		t.Fatalf("status = %d, want 412 for a closed window", rr.Code)
 	}
 }

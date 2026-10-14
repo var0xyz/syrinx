@@ -48,6 +48,7 @@ be, or trust chains cannot be walked at all.
 | Rendering | **Offline-first.** Marks draw from the local store immediately; reconciliation corrects them in the background ([07](07_spa_trust_display.md#verifying-what-the-server-reports)). |
 | Display | **Blue** check if you verified them, **green** if someone you verified did, **grey** if anyone else did, none otherwise ([07](07_spa_trust_display.md#the-checkmark)). |
 | Federation | **Cert lives on the voucher's server; the subject's server holds a reference only.** Delivery to the subject's server is confirmed before the vouch is stored, and the client retries — a deliberate break from fire-and-forget. No broadcast, no backfill ([08](08_federation.md)). |
+| In person | A vouch is accepted only while the subject is **showing their code**: an open, recently pinged verification window on their home server ([09](09_verification_window.md)). |
 | Audit | A chronological list of every vouch you made, always available, with withdraw — the only remedy for a compromised key, since nothing detects one. Reads the **local store**, never the server: a server list cannot be shown to be complete ([07](07_spa_trust_display.md#your-vouches-chronologically)). |
 
 ## Protocol sketch
@@ -83,6 +84,7 @@ be, or trust chains cannot be walked at all.
 | [06](06_spa_verify_flow.md)    | SPA: QR exchange, fingerprint compare, vouch button   | 03         |
 | [07](07_spa_trust_display.md)  | SPA: checkmarks, vouch audit list, key-change warnings | 05, 06     |
 | [08](08_federation.md)         | Federated reads: route vouch reads to the subject's server | 03, 05, 07 |
+| [09](09_verification_window.md) | Verification window: vouch only while the code shows | 03, 06, 08 |
 
 ## Non-goals
 

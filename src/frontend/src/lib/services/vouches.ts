@@ -1,5 +1,5 @@
 import type * as api from '$lib/types/api';
-import { apiService } from './api';
+import { apiService, type ApiError } from './api';
 import { authService } from './auth';
 import { requestSigner } from './request-signer';
 import { buildVouchUserPayload, buildVouchWithdrawalUserPayload } from './signing';
@@ -202,6 +202,12 @@ export async function contradictingVouch(
   return findContradiction(vouches, claimedKeyID);
 }
 
+/** Whether err is the server refusing a vouch because the subject wasn't
+ * showing their code. Sending it again won't help. */
+function isWindowClosed(err: unknown): boolean {
+  return (err as ApiError)?.status === 412;
+}
+
 /**
  * Signs and posts a vouch, then adds the subject to local trust roots.
  * subjectKeyID is the key that was actually compared out of band, not
@@ -237,7 +243,13 @@ export async function createVouch(
     });
   }
 
-  const cert = await apiService.createVouch(subjectKeyID, voucherKeyID, signature, note);
+  let cert: api.Vouch;
+  try {
+    cert = await apiService.createVouch(subjectKeyID, voucherKeyID, signature, note);
+  } catch (err) {
+    if (!foreign && isWindowClosed(err)) await pendingVouchesRepository.delete(subjectKeyID);
+    throw err;
+  }
   await vouchesRepository.put(cert, subjectUserID);
   await trustRootsRepository.add(subjectUserID, subjectKeyID);
   if (!foreign) await pendingVouchesRepository.delete(subjectKeyID);
