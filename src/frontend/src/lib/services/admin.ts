@@ -27,8 +27,8 @@ export const ACTION_PERMISSION: Record<Exclude<AdminAction, 'permissions'>, stri
   promote: 'admin.create',
   demote: 'admin.demote',
   rebind: 'user.rebind',
-  broadcast: 'broadcast.message',
-  message: 'user.message',
+  broadcast: 'message.broadcast',
+  message: 'message.user',
 };
 
 /** Bumped whenever a request is opened or decided here. */

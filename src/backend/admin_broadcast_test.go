@@ -39,8 +39,8 @@ func TestBroadcast_ReachesEveryActiveMember(t *testing.T) {
 	f := newAdminFixture(t)
 	f.useRealExecutors(adminActionBroadcast, adminActionSuspend)
 	f.suspend(t, "u2")
-	f.grant(t, "a1", permBroadcastMessage)
-	f.grant(t, "a2", permBroadcastMessage)
+	f.grant(t, "a1", permMessageBroadcast)
+	f.grant(t, "a2", permMessageBroadcast)
 
 	msg := f.request(t, "a1", adminActionBroadcast, "", "Maintenance tonight")
 	f.openAs(t, "a1", msg)
@@ -67,8 +67,8 @@ func TestBroadcast_ReachesEveryActiveMember(t *testing.T) {
 func TestPrivateMessage_ReachesOnlyItsRecipient(t *testing.T) {
 	f := newAdminFixture(t)
 	f.useRealExecutors(adminActionMessage)
-	f.grant(t, "a1", permUserMessage)
-	f.grant(t, "a2", permUserMessage)
+	f.grant(t, "a1", permMessageUser)
+	f.grant(t, "a2", permMessageUser)
 
 	msg := f.request(t, "a1", adminActionMessage, "", "Can we talk about your replies?", "u1")
 	f.openAs(t, "a1", msg)

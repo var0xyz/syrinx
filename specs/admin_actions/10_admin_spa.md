@@ -82,8 +82,8 @@ background, and keeps them in `localStorage` for the session and the next
 load. Pages render from that copy without waiting or checking; if the read
 fails, the last copy stays. The server checks every action, so a stale copy
 only shows or hides a button. **Broadcast** is left out of the nav and the
-section tabs for an admin who holds neither `broadcast.message` nor
-`user.message`.
+section tabs for an admin who holds neither `message.broadcast` nor
+`message.user`.
 
 ## Eligibility hints
 

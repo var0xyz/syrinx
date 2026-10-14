@@ -31,8 +31,8 @@
   let sent: api.AdminRequest[] = [];
 
   // Permissions only pick which options show; the server checks the send.
-  $: canBroadcast = holds($page.data?.user, $adminPermissions, 'broadcast.message');
-  $: canMessage = holds($page.data?.user, $adminPermissions, 'user.message');
+  $: canBroadcast = holds($page.data?.user, $adminPermissions, 'message.broadcast');
+  $: canMessage = holds($page.data?.user, $adminPermissions, 'message.user');
   $: recipientOptions = [
     ...(canBroadcast || !canMessage ? [{ value: 'everyone', label: 'Everyone' }] : []),
     ...(canMessage || !canBroadcast ? [{ value: 'user', label: 'One user' }] : []),

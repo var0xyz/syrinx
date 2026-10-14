@@ -52,7 +52,7 @@ export function holds(viewer: Viewer, cached: Cached | null, permission: string)
 
 /** Whether the viewer may send broadcasts or private messages. */
 export function canMail(viewer: Viewer, cached: Cached | null): boolean {
-  return holds(viewer, cached, 'broadcast.message') || holds(viewer, cached, 'user.message');
+  return holds(viewer, cached, 'message.broadcast') || holds(viewer, cached, 'message.user');
 }
 
 /** The admin section's tabs, without Broadcast for a viewer who can't mail. */
