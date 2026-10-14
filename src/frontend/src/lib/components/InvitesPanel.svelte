@@ -224,13 +224,15 @@
     return inviteShareURL(invite.id, invite.secret);
   }
 
-  async function copyLink(url: string) {
+  async function copyLink(url: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(url);
       notificationStore.success('Invite link copied');
+      return true;
     } catch (err) {
       console.error(err);
       notificationStore.error('Failed to copy invite link');
+      return false;
     }
   }
 
@@ -331,7 +333,7 @@
             {#if invite.status === 'pending' && shareURL(invite)}
               <CopyButton
                 ariaLabel="Copy invite link"
-                on:click={() => copyLink(shareURL(invite)!)}
+                copy={() => copyLink(shareURL(invite)!)}
               />
               <QRButton
                 ariaLabel="Show invite QR code"

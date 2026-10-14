@@ -193,14 +193,16 @@
     }
   }
 
-  async function copyConnectionString(connectionString: string) {
-    if (!connectionString) return;
+  async function copyConnectionString(connectionString: string): Promise<boolean> {
+    if (!connectionString) return false;
     const encoded = encodeConnectionString(connectionString);
     try {
       await navigator.clipboard.writeText(encoded);
       notificationStore.success('Connection string copied');
+      return true;
     } catch {
       notificationStore.error('Could not copy to clipboard');
+      return false;
     }
   }
 
@@ -323,7 +325,7 @@
                   {#if inv.status === 'new' && inv.connectionString}
                     <CopyButton
                       ariaLabel="Copy connection string"
-                      on:click={() => copyConnectionString(inv.connectionString!)}
+                      copy={() => copyConnectionString(inv.connectionString!)}
                     />
                   {/if}
                   {#if inv.status === 'new' && holds(viewer, $adminPermissions, 'mesh.invite')}
@@ -543,7 +545,7 @@
             <label for="connection-string">Connection string</label>
             <CopyButton
               ariaLabel="Copy connection string"
-              on:click={() => copyConnectionString(freshConnectionString)}
+              copy={() => copyConnectionString(freshConnectionString)}
             />
           </div>
           <input
