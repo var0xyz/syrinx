@@ -110,8 +110,8 @@ It needs `SYRINX_SERVER_KEY_FILE` (the server's public key, from
 `SYRINX_ROOT_PASSPHRASE`, and skips without them. `SYRINX_E2E_BASE_URL`
 points it at another SPA port.
 
-- An admin opens a kick on a user and two invitees. Root, who isn't in the
-  admin's subtree, approves it. The ledger shows both entries, and the
+- An admin opens a kick on a user and two invitees. Root, whom the admin
+  didn't invite, approves it. The ledger shows both entries, and the
   targets' content disappears for a follower.
 - The requester can only withdraw their own request; root can approve it.
 - A non-admin doesn't see the admin nav.

@@ -208,7 +208,7 @@ Checked when a decision of `approve` or `reject` is submitted:
 | Admin or root | `users.role` |
 | Holds the action's permission | `user_permissions`, read **at decision time** |
 | Not the requester, unless root | `decider_id <> requester_id OR decider is root` |
-| Not in the requester's invite subtree | recursive CTE over `users.invite_id → invites.created_by`, from the requester down |
+| On a kick, promotion, demotion or permissions change: not invited directly by the requester | `users.invite_id → invites.created_by`, one level only |
 | Not a target | `admin_request_targets` |
 | Root, if any remaining target is an admin | Roles are read **at decision time**: a target promoted while the request is pending needs root |
 

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 )
 
 // adminFixture is root, three admins and two users, all local with real
-// keypairs. a3 was invited by a1, so a3 is in a1's invite subtree.
+// keypairs. a3 was invited by a1.
 type adminFixture struct {
 	h        *Handlers
 	ds       *DataService
@@ -234,6 +235,8 @@ func TestOpenAdminRequest_Validation(t *testing.T) {
 
 func TestAdminDecision_ApproverEligibility(t *testing.T) {
 	f := newAdminFixture(t)
+	// An invitee's invitee may still decide.
+	f.setInvitedBy(t, "a3", "a2")
 	msg := f.request(t, "a1", adminActionKick, "Spam", "", "u1")
 	f.openAs(t, "a1", msg)
 
@@ -241,7 +244,7 @@ func TestAdminDecision_ApproverEligibility(t *testing.T) {
 		decider, why string
 	}{
 		{"a1", "requester"},
-		{"a3", "in the requester's invite subtree"},
+		{"a3", "invited by the requester"},
 		{"u2", "not an admin"},
 	}
 	for _, c := range refused {
@@ -272,6 +275,24 @@ func TestAdminDecision_ApproverEligibility(t *testing.T) {
 	}
 	if rr := f.decide(t, "root", msg.Id, adminDecisionReject); rr.Code != http.StatusConflict {
 		t.Errorf("decision on a closed request: status=%d, want 409", rr.Code)
+	}
+}
+
+func TestAdminDecision_InviteeDecidesOnlyNonDestructive(t *testing.T) {
+	f := newAdminFixture(t)
+	f.grant(t, "a1", permAdminCreate)
+	f.grant(t, "a3", permAdminCreate)
+	promote := f.request(t, "a1", adminActionPromote, "Trusted", permUserSuspend, "u2")
+	f.openAs(t, "a1", promote)
+	rr := f.decide(t, "a3", promote.Id, adminDecisionApprove)
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "invited") {
+		t.Errorf("invitee on a promotion: status=%d body=%s, want 403 for the invite", rr.Code, rr.Body.String())
+	}
+
+	suspend := f.request(t, "a1", adminActionSuspend, "Rude", "", "u1")
+	f.openAs(t, "a1", suspend)
+	if rr := f.decide(t, "a3", suspend.Id, adminDecisionApprove); rr.Code != http.StatusOK {
+		t.Fatalf("invitee on a suspension: status=%d body=%s, want 200", rr.Code, rr.Body.String())
 	}
 }
 
