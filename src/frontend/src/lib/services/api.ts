@@ -966,6 +966,20 @@ export const apiService = {
     );
   },
 
+  /** Opens the verification window id, closing any other the caller has. */
+  async openVerificationWindow(id: string): Promise<void> {
+    await send(`/verification-windows/${id}`, { method: 'POST' });
+  },
+
+  /** Keeps id open; rejects with status 404 once it's gone. */
+  async pingVerificationWindow(id: string): Promise<void> {
+    await send(`/verification-windows/${id}/ping`, { method: 'POST' });
+  },
+
+  async closeVerificationWindow(id: string): Promise<void> {
+    await send(`/verification-windows/${id}`, { method: 'DELETE' });
+  },
+
   /** One vouch. Both ids are full and are sent as-is, never recomposed. */
   async getVouch(subjectUserId: string, vouchId: string): Promise<api.Vouch> {
     return request(`/users/${subjectUserId}/vouches/${vouchId}`, undefined, VouchSchema);

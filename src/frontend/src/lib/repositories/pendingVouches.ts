@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { dbService } from '$lib/services/db';
-import { apiService } from '$lib/services/api';
+import { apiService, type ApiError } from '$lib/services/api';
 import { vouchesRepository } from '$lib/repositories/vouches';
 import { trustRootsRepository } from '$lib/repositories/trustRoots';
 import { allowUnsigned } from '$lib/verifiers';
@@ -56,6 +56,8 @@ export const pendingVouchesRepository = {
         pendingVouchSynced.update((n) => n + 1);
       } catch (error) {
         console.error('Failed to sync pending vouch:', record.subjectKeyID, error);
+        // 412: the subject's verification window had closed; it never reopens.
+        if ((error as ApiError)?.status === 412) await pendingVouchesRepository.delete(record.subjectKeyID);
       }
     }
   },

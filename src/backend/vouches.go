@@ -512,6 +512,22 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A local subject must be showing their code now; a remote subject's
+	// server checks its own windows when the vouch is delivered.
+	if _, subjectServerID, ok := parseIdentityID(identityID(subjectUserID)); ok && subjectServerID == h.services.db.GetServerID() {
+		open, err := h.services.db.VerificationWindowOpen(r.Context(), subjectUserID, time.Now().UTC())
+		if err != nil {
+			log.Error().Str("subjectUserID", subjectUserID).Err(err).Msg("Error loading verification window")
+			internalServerError(w)
+			return
+		}
+		if !open {
+			log.Info().Str("voucherID", voucherID).Str("subjectKeyID", subjectKeyID).Msg("Vouch rejected: no open verification window")
+			writeError(w, http.StatusPreconditionFailed, vouchWindowClosedMessage)
+			return
+		}
+	}
+
 	// History is append-only, so an unbounded withdraw/re-vouch cycle would
 	// grow the table without limit. One per key per day is far above any
 	// honest rate: verification happens in person.

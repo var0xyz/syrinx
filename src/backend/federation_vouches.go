@@ -20,6 +20,8 @@ import (
 // has accepted a reference to it, so it can be found from the subject's
 // side. Withdrawals go the same way. Both calls are synchronous.
 
+const vouchReferencePath = "/api/federation/relay/vouch-reference"
+
 // vouchDeliveryTimeout bounds one call to the subject's server; the user
 // is waiting on the other end.
 const vouchDeliveryTimeout = 10 * time.Second
@@ -32,10 +34,13 @@ var errVouchSubjectUnreachable = errors.New("subject's server could not be reach
 // will not accept it; sending it again will not help.
 var errVouchSubjectRefused = errors.New("subject's server refused the vouch")
 
+// errVouchWindowClosed means the subject wasn't showing their code.
+var errVouchWindowClosed = errors.New("subject has no open verification window")
+
 // deliverVouchToSubject asks the subject's server to accept a reference to
 // cert and waits for its answer.
 func (h *Handlers) deliverVouchToSubject(ctx context.Context, cert VouchCert) error {
-	return h.callSubjectServer(ctx, cert.SubjectUserID, "/api/federation/relay/vouch-reference",
+	return h.callSubjectServer(ctx, cert.SubjectUserID, vouchReferencePath,
 		&pb.RelayVouchReferencePayload{Cert: pbVouch(&cert)})
 }
 
@@ -62,6 +67,8 @@ func (h *Handlers) callSubjectServer(ctx context.Context, subjectUserID, path st
 		return fmt.Errorf("%w: %v", errVouchSubjectUnreachable, err)
 	case status >= 200 && status < 300:
 		return nil
+	case status == http.StatusPreconditionFailed && path == vouchReferencePath:
+		return fmt.Errorf("%w: %s answered %d", errVouchWindowClosed, serverID, status)
 	case status >= 400 && status < 500:
 		return fmt.Errorf("%w: %s answered %d", errVouchSubjectRefused, serverID, status)
 	default:
@@ -72,6 +79,10 @@ func (h *Handlers) callSubjectServer(ctx context.Context, subjectUserID, path st
 // writeVouchDeliveryError answers the voucher's client when the subject's
 // server did not accept, naming which kind of failure it was.
 func writeVouchDeliveryError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errVouchWindowClosed) {
+		writeError(w, http.StatusPreconditionFailed, vouchWindowClosedMessage)
+		return
+	}
 	if errors.Is(err, errVouchSubjectRefused) {
 		writeError(w, http.StatusUnprocessableEntity, "The subject's server refused this verification")
 		return
@@ -152,6 +163,13 @@ func (h *Handlers) checkForeignVouch(ctx context.Context, peerServerID string, c
 	}
 	if subjectKey.Revoked {
 		return http.StatusConflict, "subject key is revoked"
+	}
+	open, err := db.VerificationWindowOpen(ctx, cert.SubjectUserID, time.Now().UTC())
+	if err != nil {
+		return http.StatusInternalServerError, "could not load the subject's verification window"
+	}
+	if !open {
+		return http.StatusPreconditionFailed, "subject has no open verification window"
 	}
 
 	// A peer only announces vouches its own users made.

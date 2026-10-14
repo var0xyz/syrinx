@@ -415,6 +415,12 @@ func main() {
 	api.HandleFunc("/vouches", h.CreateVouch).Methods("POST")
 	api.HandleFunc("/vouches", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/verification-windows/{windowID}", h.OpenVerificationWindow).Methods("POST")
+	api.HandleFunc("/verification-windows/{windowID}", h.CloseVerificationWindow).Methods("DELETE")
+	api.HandleFunc("/verification-windows/{windowID}", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/verification-windows/{windowID}/ping", h.PingVerificationWindow).Methods("POST")
+	api.HandleFunc("/verification-windows/{windowID}/ping", h.noop).Methods("OPTIONS")
+
 	api.HandleFunc("/reeds", h.SignReed).Methods("POST")
 	api.HandleFunc("/reeds", h.noop).Methods("OPTIONS")
 

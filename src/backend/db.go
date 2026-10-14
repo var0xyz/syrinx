@@ -903,6 +903,17 @@ func InitDB(db *sql.DB) error {
 		ON broadcast_subscriptions(user_id);
 	`
 
+	// The time a user is showing their verification code; a vouch for them
+	// is accepted only then. Cascading off online_users closes it offline.
+	createVerificationWindowsTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS verification_windows (
+		id UUID PRIMARY KEY,
+		user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
+		last_ping_at TIMESTAMP NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_verification_windows_user ON verification_windows(user_id);
+	`
+
 	// Pipe (hashtag) subscriptions. Cascading off online_users means a
 	// disconnect clears them without any explicit teardown. tag is stored
 	// already normalized by normalizePipeTag — never normalized in SQL.
@@ -1707,6 +1718,7 @@ func InitDB(db *sql.DB) error {
 
 		createPipeSubscriptionsTable,
 		createPipeSubscriptionsIndexes,
+		createVerificationWindowsTable,
 
 		createReedAllocationsTable,
 		createReedAllocationIndexes,

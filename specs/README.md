@@ -418,6 +418,7 @@ client-side (never server-side, which would reintroduce H1).
 | 05  | Trust roots and depth-1 reachability        | Implemented |
 | 06  | SPA: QR exchange, key compare, vouch        | Implemented |
 | 07  | SPA: vouch list, marks, key-change warnings | Implemented |
+| 09  | Verification window: vouch while code shows | Implemented |
 
 ## Observability (request + DB query tracing + business metrics)
 
