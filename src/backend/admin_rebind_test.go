@@ -126,3 +126,18 @@ func TestRebind_Validation(t *testing.T) {
 		t.Errorf("suspended target: %d, want 409", rr.Code)
 	}
 }
+
+func TestRebind_RevokesOpenInvites(t *testing.T) {
+	f := newAdminFixture(t)
+	f.useRealExecutors(adminActionRebind)
+	f.grant(t, "a1", permUserRebind)
+	f.grant(t, "a2", permUserRebind)
+	invite := f.unclaimedInvite(t, "u1")
+
+	f.rebind(t, "u1")
+
+	var revoked bool
+	if err := f.db.QueryRow(`SELECT revoked_at IS NOT NULL FROM invites WHERE id = $1`, invite).Scan(&revoked); err != nil || !revoked {
+		t.Fatalf("invite revoked = %v err=%v, want the lost device's open invite revoked", revoked, err)
+	}
+}

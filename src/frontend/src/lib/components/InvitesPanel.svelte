@@ -25,6 +25,7 @@
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import PermissionPicker from '$lib/components/PermissionPicker.svelte';
+  import InviteInfoModal from '$lib/components/InviteInfoModal.svelte';
   import { myPermissions } from '$lib/services/admin';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
 
@@ -41,6 +42,7 @@
   let selectedGrantRole: 'user' | 'admin' = 'user';
   // An admin invite takes a second screen: the permissions it grants.
   let roleStep: 'role' | 'permissions' = 'role';
+  let showInviteInfo = false;
   let heldPermissions: string[] = [];
   let permissionsLoaded: Promise<unknown> = Promise.resolve();
   let granted = new Set<string>();
@@ -277,6 +279,10 @@
 
   {#if !$isSignupClosed}
     <p class="quota">{quotaSummary}</p>
+    <button type="button" class="explain-btn page-explain" on:click={() => (showInviteInfo = true)}>
+      About invites
+      <span class="info-icon" aria-hidden="true"></span>
+    </button>
   {/if}
 
   {#if $isSignupClosed}
@@ -377,8 +383,10 @@
     <div class="modal role-modal">
       <h2 id="invite-role-title">New invite</h2>
       {#if roleStep === 'permissions'}
-        <p class="role-modal-lead">Choose what the new admin may do. You can only grant what you hold. The invite expires 24 hours after you create it.</p>
-        <PermissionPicker available={heldPermissions} bind:selected={granted} />
+        <p class="role-modal-lead">Choose what the new admin may do. The invite expires 24 hours after you create it.</p>
+        <div class="role-permissions">
+          <PermissionPicker available={heldPermissions} bind:selected={granted} />
+        </div>
       {:else}
       <p class="role-modal-lead">Choose what role the person gets when they sign up.</p>
 
@@ -394,7 +402,7 @@
           <span class="role-indicator" aria-hidden="true"></span>
           <span class="role-option-body">
             <span class="role-option-title">User</span>
-            <span class="role-option-desc">Standard member — can post and invite other users.</span>
+            <span class="role-option-desc">Standard member — can post and invite other users. Doesn't expire.</span>
           </span>
         </button>
         <button
@@ -432,9 +440,16 @@
           {creating ? 'Creating…' : selectedGrantRole === 'admin' && roleStep === 'role' ? 'Next' : 'Create invite'}
         </button>
       </div>
+
+      <button type="button" class="explain-btn" on:click={() => (showInviteInfo = true)}>
+        About invites
+        <span class="info-icon" aria-hidden="true"></span>
+      </button>
     </div>
   </div>
 {/if}
+
+<InviteInfoModal open={showInviteInfo} showAdmin={canGrantAdmin} on:close={() => (showInviteInfo = false)} />
 
 <QRCodeModal
   open={showFreshLink}
@@ -816,6 +831,47 @@
     font-size: 0.85rem;
     color: var(--muted);
     line-height: 1.35;
+  }
+
+  .explain-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: auto;
+    margin: 1rem auto 0;
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 0.8rem;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .explain-btn.page-explain {
+    margin: 0 auto 1rem;
+  }
+
+  .explain-btn:hover {
+    color: var(--fg);
+  }
+
+  .info-icon {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.9rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/info-16.svg');
+    mask-image: url('/icons/info-16.svg');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+
+  .role-permissions {
+    margin-bottom: 1.25rem;
   }
 
   .modal-actions {

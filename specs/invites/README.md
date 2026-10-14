@@ -53,6 +53,8 @@ wipe is acceptable. The durable social fact that survives is
 | Token | Opaque ≥256-bit URL-safe secret; store SHA-256 only |
 | Expiry | None |
 | Revoke | Issuer may revoke unused invites |
+| Rebind | A lost-device key rebind revokes every open invite the user created: the lost device holds their secrets |
+| Suspension | A suspended inviter's open invites can't be claimed; they work again once reinstated |
 | Attribution | `invites.claimed_by` + `users.invited_by`; both visible in UI |
 | `invitedBy` signed | Server identity header only (like `userID`) |
 | Invite attestation | User signs id + `createdAt` + `tokenHash`; server countersigns; status unsigned |

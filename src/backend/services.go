@@ -6781,6 +6781,16 @@ func getPendingInvite(ctx context.Context, q inviteTokenHashQuerier, sigDB signi
 	if inv.Status() != "pending" {
 		return nil, nil
 	}
+	// A suspended inviter's invites can't be claimed until reinstated.
+	var suspended bool
+	if err := q.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users WHERE id = $1 AND suspended_by IS NOT NULL)
+	`, inv.CreatedBy).Scan(&suspended); err != nil {
+		return nil, err
+	}
+	if suspended {
+		return nil, nil
+	}
 	return inv, nil
 }
 
@@ -6799,6 +6809,9 @@ func (s *DataService) markInviteClaimed(
 		WHERE id = $1
 		  AND claimed_at IS NULL AND revoked_at IS NULL
 		  AND (granted_role <> 'admin' OR created_at > `+adminInviteCutoffSQL+`)
+		  AND NOT EXISTS (
+		      SELECT 1 FROM users u WHERE u.id = invites.created_by AND u.suspended_by IS NOT NULL
+		  )
 	`, inviteID, claimedAt.UTC(), claimedByIdentity)
 	if err != nil {
 		return false, err

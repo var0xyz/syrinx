@@ -125,3 +125,31 @@ func TestSuspend_WebSocketHandshakeRefused(t *testing.T) {
 		t.Fatalf("u2 suspension = %+v err=%v, want none", got, err)
 	}
 }
+
+func TestSuspend_InvitesUnclaimableUntilReinstated(t *testing.T) {
+	f := newAdminFixture(t)
+	f.useRealExecutors(adminActionSuspend, adminActionReinstate)
+	ctx := context.Background()
+	invite := f.unclaimedInvite(t, "u1")
+	pending := func() bool {
+		t.Helper()
+		inv, err := getPendingInvite(ctx, f.db, f.db, invite, []byte(invite))
+		if err != nil {
+			t.Fatalf("getPendingInvite: %v", err)
+		}
+		return inv != nil
+	}
+
+	f.suspend(t, "u1")
+	if pending() {
+		t.Fatal("a suspended inviter's invite still claimable")
+	}
+	msg := f.request(t, "a1", adminActionReinstate, "Talked it through", "", "u1")
+	f.openAs(t, "a1", msg)
+	if rr := f.decide(t, "a2", msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
+		t.Fatalf("approve reinstate: %d %s", rr.Code, rr.Body.String())
+	}
+	if !pending() {
+		t.Fatal("invite not claimable after reinstating its inviter")
+	}
+}
