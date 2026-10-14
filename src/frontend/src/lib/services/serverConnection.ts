@@ -76,6 +76,7 @@ export enum ServerEvent {
   NewVouch             = 'NEW_VOUCH',
   PeerServerLost       = 'PEER_SERVER_LOST',
   Mentioned            = 'MENTION',
+  AdminMentioned       = 'ADMIN_MENTION',
   PageAck              = 'PAGE_ACK',
   PipeReed             = 'PIPE_REED',
   PublishReadyAck      = 'PUBLISH_READY_ACK',

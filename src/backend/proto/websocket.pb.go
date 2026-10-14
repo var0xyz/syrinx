@@ -96,6 +96,7 @@ const (
 	MessageType_USER_UNBLOCKED           MessageType = 68
 	MessageType_USER_UNBLOCKED_ACK       MessageType = 69
 	MessageType_LEDGER_ENTRY             MessageType = 70
+	MessageType_ADMIN_MENTION            MessageType = 71
 )
 
 // Enum value maps for MessageType.
@@ -172,6 +173,7 @@ var (
 		68: "USER_UNBLOCKED",
 		69: "USER_UNBLOCKED_ACK",
 		70: "LEDGER_ENTRY",
+		71: "ADMIN_MENTION",
 	}
 	MessageType_value = map[string]int32{
 		"UNKNOWN":                  0,
@@ -245,6 +247,7 @@ var (
 		"USER_UNBLOCKED":           68,
 		"USER_UNBLOCKED_ACK":       69,
 		"LEDGER_ENTRY":             70,
+		"ADMIN_MENTION":            71,
 	}
 )
 
@@ -4402,7 +4405,7 @@ const file_websocket_proto_rawDesc = "" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
 	"serverName\"?\n" +
 	"\x12LedgerEntryMessage\x12)\n" +
-	"\x05entry\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryR\x05entry*\xb2\n" +
+	"\x05entry\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryR\x05entry*\xc5\n" +
 	"\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
@@ -4481,7 +4484,8 @@ const file_websocket_proto_rawDesc = "" +
 	"\x10USER_BLOCKED_ACK\x10C\x12\x12\n" +
 	"\x0eUSER_UNBLOCKED\x10D\x12\x16\n" +
 	"\x12USER_UNBLOCKED_ACK\x10E\x12\x10\n" +
-	"\fLEDGER_ENTRY\x10FB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
+	"\fLEDGER_ENTRY\x10F\x12\x11\n" +
+	"\rADMIN_MENTION\x10GB Z\x1egithub.com/alvaro/syrinx/protob\x06proto3"
 
 var (
 	file_websocket_proto_rawDescOnce sync.Once

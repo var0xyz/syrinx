@@ -149,6 +149,13 @@ func (h *Handlers) buildNewReedPayload(ctx context.Context, reedID string) (*pb.
 	if err != nil {
 		return nil, fmt.Errorf("load mentions: %w", err)
 	}
+	adminServers, err := db.GetReedAdminMentions(ctx, reedID)
+	if err != nil {
+		return nil, fmt.Errorf("load admin mentions: %w", err)
+	}
+	for _, serverID := range adminServers {
+		mentions = append(mentions, adminsHandle+"@"+serverID)
+	}
 	payload := &pb.RelayNewReedPayload{ReedId: reedID, AuthorId: author, SignedAt: unixOrZero(signedAt), Mentions: mentions}
 
 	reply, err := db.GetReplyRecord(ctx, reedID)

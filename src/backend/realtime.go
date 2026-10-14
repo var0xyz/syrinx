@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -154,6 +155,7 @@ const (
 	reedReplyEvent           realtimeEventName = "reed_reply"
 	archiveReedEvent         realtimeEventName = "archive_reed"
 	mentionEvent             realtimeEventName = "mention"
+	adminMentionEvent        realtimeEventName = "admin_mention"
 )
 
 // newRelayRequestMsg is sent from the server to a holder to request reed
@@ -285,6 +287,18 @@ func newReedReplyMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessag
 func newMentionMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
 	return &pb.WSMessage{
 		Type: pb.MessageType_MENTION,
+		Id:   eventID,
+		Payload: &pb.WSMessage_DataResponse{
+			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
+		},
+	}
+}
+
+// newAdminMentionMsg builds an ADMIN_MENTION delivery: a reed that
+// mentions @admins, sent to each admin like a MENTION.
+func newAdminMentionMsg(eventID, requestID, ciphertext, reedID string) *pb.WSMessage {
+	return &pb.WSMessage{
+		Type: pb.MessageType_ADMIN_MENTION,
 		Id:   eventID,
 		Payload: &pb.WSMessage_DataResponse{
 			DataResponse: &pb.DataResponseMessage{RequestId: requestID, Ciphertext: ciphertext, ReedId: reedID},
@@ -2223,7 +2237,7 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 }
 
 // dispatchForeignNewReed hands a peer's new reed to this server's online
-// users with a reason to see it: mentioned users, subscribers of a foreign
+// users with a reason to see it: mentioned users and admins, subscribers of a foreign
 // parent, followers, profile subscribers, then broadcast. Each gets one
 // event, folded at the border like any request for a foreign reed.
 func (rs *realtimeService) dispatchForeignNewReed(ctx context.Context, reedID, authorID, foreignParentID string) {
@@ -2258,7 +2272,8 @@ func (rs *realtimeService) dispatchForeignNewReed(ctx context.Context, reedID, a
 		log.Error().Err(err).Str("authorID", authorID).Msg("Failed to load broadcast subscribers for foreign reed")
 	}
 
-	covered := mentioned
+	admins := rs.mentionedAdmins(ctx, reedID, authorID, mentioned)
+	covered := unionUserIDs(mentioned, admins)
 	parentSubs = subtractUserIDs(parentSubs, covered)
 	covered = unionUserIDs(covered, parentSubs)
 	followers = subtractUserIDs(followers, covered)
@@ -2268,6 +2283,7 @@ func (rs *realtimeService) dispatchForeignNewReed(ctx context.Context, reedID, a
 	broadcast = subtractUserIDs(broadcast, covered)
 
 	rs.dispatchMany(mentioned, mentionEvent, reedID)
+	rs.dispatchMany(admins, adminMentionEvent, reedID)
 	rs.dispatchMany(parentSubs, reedReplyEvent, reedID)
 	rs.dispatchMany(followers, followReedEvent, reedID)
 	rs.dispatchMany(profileViewers, profileSubscriptionEvent, reedID)
@@ -3915,6 +3931,29 @@ func (rs *realtimeService) notifyMentionedUsers(reedID string) {
 	if len(mentionedUserIDs) > 0 {
 		rs.dispatchMany(mentionedUserIDs, mentionEvent, reedID)
 	}
+	admins := rs.mentionedAdmins(context.Background(), reedID, reedAuthorIdentity(reedID), mentionedUserIDs)
+	if len(admins) > 0 {
+		rs.dispatchMany(admins, adminMentionEvent, reedID)
+	}
+}
+
+// mentionedAdmins returns this server's online admins when reedID mentions
+// @admins here, without its author or anyone in mentioned.
+func (rs *realtimeService) mentionedAdmins(ctx context.Context, reedID, authorID string, mentioned []string) []string {
+	servers, err := rs.db.GetReedAdminMentions(ctx, reedID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load admin mentions for notify")
+		return nil
+	}
+	if !slices.Contains(servers, rs.db.GetServerID()) {
+		return nil
+	}
+	admins, err := rs.db.GetOnlineAdmins(ctx, authorID)
+	if err != nil {
+		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load online admins for admin mention")
+		return nil
+	}
+	return subtractUserIDs(admins, mentioned)
 }
 
 // notifyParentAuthorOfReply pushes replyReedID to its direct parent's
@@ -4193,6 +4232,17 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		rs.catchUpReed(userID, requestID, mentionEvent, reed.ReedID)
 	}
 
+	missingAdminMentions, err := rs.db.GetMissingAdminMentions(context.Background(), userID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing admin mentions")
+		return
+	}
+	for _, reed := range missingAdminMentions {
+		if !slices.ContainsFunc(missingMentions, func(m unallocatedReed) bool { return m.ReedID == reed.ReedID }) {
+			rs.catchUpReed(userID, requestID, adminMentionEvent, reed.ReedID)
+		}
+	}
+
 	missingReplies, err := rs.db.GetMissingReplies(context.Background(), userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing replies")
@@ -4442,6 +4492,11 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering mention to recipient")
 		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
+		})
+	} else if pe.EventName == string(adminMentionEvent) {
+		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering admin mention to admin")
+		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+			return newAdminMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
 		data := relayedThread{Ciphertext: ciphertext}
@@ -5090,6 +5145,8 @@ func relayedReedMsg(pe *pendingReedEvent, ciphertext, username string) *pb.WSMes
 		return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 	case mentionEvent:
 		return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
+	case adminMentionEvent:
+		return newAdminMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 	default:
 		return newDataResponseMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 	}

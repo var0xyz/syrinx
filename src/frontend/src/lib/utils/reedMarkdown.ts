@@ -26,6 +26,8 @@
  * asynchronously; the raw id is the fallback label until resolved.
  */
 
+import { ADMINS_HANDLE } from '$lib/utils/identityRef';
+
 export type Inline =
   | { type: 'text'; value: string }
   | { type: 'break' }
@@ -390,7 +392,9 @@ function readMention(
   if (s[start] !== '~') return null;
   const idStart = start + 1;
   let i = idStart;
-  while (i < s.length && ID_CHAR.test(s[i])) i++;
+  // ~!admins@serverID: the handle stands in for the user run.
+  if (s.startsWith(`${ADMINS_HANDLE}@`, idStart)) i += ADMINS_HANDLE.length;
+  else while (i < s.length && ID_CHAR.test(s[i])) i++;
   if (i === idStart) return null; // empty bare-user run
   if (s[i] !== '@') return null;
   i++; // consume '@'

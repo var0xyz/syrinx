@@ -601,6 +601,20 @@ func InitDB(db *sql.DB) error {
 		ON reed_mentions (mentioning_reed_id);
 	`
 
+	// One row per (reed, server) whose admins the reed mentions as @admins.
+	// Admins learn of it through this server's row, never one row each.
+	createReedAdminMentionsTable := `
+	CREATE TABLE IF NOT EXISTS reed_admin_mentions (
+		mentioning_reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+		server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+		PRIMARY KEY (mentioning_reed_id, server_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_reed_admin_mentions_server
+		ON reed_admin_mentions (server_id, created_at);
+	`
+
 	// Signed thread-removal certificates, with the thread record they remove
 	// (verified when it came from a peer) so it can be redelivered.
 	createThreadRemovalsTable := `
@@ -1667,6 +1681,7 @@ func InitDB(db *sql.DB) error {
 
 		createReedMentionsTable,
 		createReedMentionsIndexes,
+		createReedAdminMentionsTable,
 
 		createThreadRemovalsTable,
 		createReedRemovalsTable,

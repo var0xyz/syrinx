@@ -8,6 +8,7 @@ import { create } from '@bufbuild/protobuf';
 import { UserSignatureSchema } from '$lib/proto/common_pb';
 import { generateReedId } from '$lib/utils/id';
 import { canonicalReedId } from '$lib/utils/identityRef';
+export { ADMINS_HANDLE } from '$lib/utils/identityRef';
 import { buildReedUserPayload } from '$lib/services/signing';
 
 /** What a reply answers: its direct parent and its conversation's root. */
@@ -58,10 +59,10 @@ export function extractTags(content: string): string[] {
   return tags;
 }
 
-/** ~userID@serverID mention claims from content, canonical form,
- * deduped, self-mentions (matching authorID) dropped. */
+/** ~userID@serverID (and ~!admins@serverID) mention claims from content,
+ * canonical form, deduped, self-mentions (matching authorID) dropped. */
 export function extractMentions(content: string, authorID: string): string[] {
-  const mentionRegex = /~([a-zA-Z0-9]+)@([a-zA-Z0-9]+)/g;
+  const mentionRegex = /~(!admins|[a-zA-Z0-9]+)@([a-zA-Z0-9]+)/g;
   const seen = new Set<string>();
   for (const match of content.matchAll(mentionRegex)) {
     const [, userID, serverID] = match;

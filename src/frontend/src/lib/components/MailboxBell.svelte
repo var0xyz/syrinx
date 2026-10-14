@@ -15,7 +15,7 @@
 
   const kindLabels: Record<string, string> = {
     broadcast: 'Broadcast',
-    'admin-message': 'Message from the admins',
+    'admin-message': 'Message from @admins',
   };
   const kindIcons: Record<string, string> = {
     broadcast: '/icons/megaphone-16.svg',
@@ -121,33 +121,28 @@
                 <span class="mailbox-system-icon" style={maskStyle(kindIcons[message.kind] ?? '/icons/info-16.svg')}></span>
               </span>
               <div class="mailbox-content">
-                <span class="mailbox-from">{kindLabels[message.kind] ?? 'System'}</span>
-                <span class="mailbox-message">{message.message}</span>
-                <span class="mailbox-time">{formatRelativeTime(message.createdAt)}</span>
-              </div>
-              <div class="mailbox-actions">
-                {#if message.isRead}
-                  <span class="mailbox-action read" title="Read">
-                    <span class="mailbox-action-icon" style={maskStyle('/icons/drafts-16.svg')}></span>
-                  </span>
-                {:else}
-                  <button
-                    class="mailbox-action"
-                    aria-label="Mark as read"
-                    title="Mark as read"
-                    on:click|stopPropagation={() => markRead(message)}
-                  >
-                    <span class="mailbox-action-icon" style={maskStyle('/icons/mail-16.svg')}></span>
-                  </button>
-                {/if}
-                <button
-                  class="mailbox-action danger"
-                  aria-label="Delete"
-                  title="Delete"
-                  on:click|stopPropagation={() => (deleteTarget = message)}
-                >
-                  <span class="mailbox-action-icon" style={maskStyle('/icons/trash-16.svg')}></span>
-                </button>
+                <span class="mailbox-from">
+                  {#if message.isRead}
+                    <span class="mailbox-envelope read" title="Read">
+                      <span class="mailbox-action-icon" style={maskStyle('/icons/drafts-16.svg')}></span>
+                    </span>
+                  {:else}
+                    <button
+                      class="mailbox-envelope"
+                      aria-label="Mark as read"
+                      title="Mark as read"
+                      on:click|stopPropagation={() => markRead(message)}
+                    >
+                      <span class="mailbox-action-icon" style={maskStyle('/icons/mail-16.svg')}></span>
+                    </button>
+                  {/if}
+                  {kindLabels[message.kind] ?? 'System'}
+                </span>
+                <p class="mailbox-message">{message.message}</p>
+                <p class="mailbox-time">
+                  {formatRelativeTime(message.createdAt)} ·
+                  <button class="mailbox-delete" on:click|stopPropagation={() => (deleteTarget = message)}>Delete</button>
+                </p>
               </div>
             </div>
           {/each}
@@ -244,11 +239,12 @@
 
   .mailbox-row {
     display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding: 0.5rem 0.5rem;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem;
     border-radius: 4px;
     cursor: pointer;
+    text-align: left;
   }
 
   .mailbox-row:hover,
@@ -283,65 +279,69 @@
   }
 
   .mailbox-content {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    min-width: 0;
     flex: 1;
-    text-align: left;
+    min-width: 0;
   }
 
   .mailbox-from {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
     font-size: 0.75rem;
+    line-height: 1rem;
     color: var(--muted);
   }
 
   .mailbox-message {
+    margin: 0;
     font-size: 0.9rem;
+    line-height: 1.25rem;
     color: var(--fg);
-    white-space: normal;
     overflow-wrap: anywhere;
   }
 
   .mailbox-time {
+    margin: 0.25rem 0 0;
     font-size: 0.75rem;
     color: var(--muted);
   }
 
-  .mailbox-actions {
-    display: flex;
-    gap: 0.25rem;
-    flex-shrink: 0;
-  }
-
-  .mailbox-action {
+  .mailbox-envelope {
+    display: inline-flex;
+    align-items: center;
     background: none;
     border: none;
-    cursor: pointer;
-    padding: 0.25rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 0;
+    width: auto;
     color: var(--muted);
-    border-radius: 4px;
+    cursor: pointer;
   }
 
-  .mailbox-action:hover {
+  .mailbox-envelope:hover {
     color: var(--fg);
-    background: var(--surface);
   }
 
-  .mailbox-action.read {
+  .mailbox-envelope.read {
     cursor: default;
     opacity: 0.6;
   }
 
-  .mailbox-action.read:hover {
+  .mailbox-envelope.read:hover {
     color: var(--muted);
-    background: none;
   }
 
-  .mailbox-action.danger:hover {
+  .mailbox-delete {
+    background: none;
+    border: none;
+    padding: 0;
+    width: auto;
+    font: inherit;
+    color: var(--muted);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  .mailbox-delete:hover {
     color: var(--error);
   }
 

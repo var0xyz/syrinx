@@ -27,6 +27,7 @@ when schema changes.
 | [08](08_flags.md) | Flags                                        | 00                          |
 | [09](09_broadcasts.md) | Broadcasts and private messages              | 01, 02                      |
 | [10](10_admin_spa.md) | Admin SPA                                    | 01–09                       |
+| [11](11_admins_mention.md) | The @admins mention                     | 09                          |
 
 ---
 
@@ -37,7 +38,7 @@ when schema changes.
 | Step  | Status                   |
 | ----- | ------------------------ |
 | 00    | Implemented              |
-| 01–10 | Implemented              |
+| 01–11 | Implemented              |
 
 ## Locked decisions
 

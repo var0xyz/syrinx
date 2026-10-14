@@ -1914,6 +1914,14 @@ func (h *Handlers) resolveMentionClaims(ctx context.Context, claimed []string, u
 	var foreign []string
 	for _, m := range all {
 		mentionedUserID := m.CanonicalAuthorID()
+		if m.AuthorID == adminsHandle {
+			if m.ServerID == localServerID {
+				stored = append(stored, mentionedUserID)
+			} else if peer, err := h.services.db.GetServerByID(ctx, m.ServerID); err == nil && peer != nil {
+				stored = append(stored, mentionedUserID)
+			}
+			continue
+		}
 		if m.ServerID != localServerID {
 			foreign = append(foreign, mentionedUserID)
 			continue
