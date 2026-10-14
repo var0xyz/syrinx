@@ -20,13 +20,15 @@
     dispatch('close');
   }
 
-  async function copyLink() {
+  async function copyLink(): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(url);
       notificationStore.success(`Copied ${subject}`);
+      return true;
     } catch (err) {
       console.error(err);
       notificationStore.error(`Failed to copy ${subject}`);
+      return false;
     }
   }
 </script>
@@ -53,7 +55,7 @@
       {/if}
       <div class="link-row">
         <code class="share-url">{url}</code>
-        <CopyButton ariaLabel={`Copy ${subject}`} on:click={copyLink} />
+        <CopyButton ariaLabel={`Copy ${subject}`} copy={copyLink} />
       </div>
       <button class="btn primary" on:click={close}>Done</button>
     </div>
