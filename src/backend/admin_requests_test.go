@@ -425,15 +425,15 @@ func TestListAdminRequests_PagesNewestFirst(t *testing.T) {
 		t.Fatalf("reject: %d %s", rr.Code, rr.Body.String())
 	}
 
-	page, next, err := f.ds.ListAdminRequests(ctx, adminStatePending, "", 1)
+	page, next, err := f.ds.ListAdminRequests(ctx, adminStatePending, "", 1, "", nil)
 	if err != nil || len(page) != 1 || page[0].ID != opened[0] || next == "" {
 		t.Fatalf("first page = %v next=%q err=%v, want %s", page, next, err, opened[0])
 	}
-	page, next, err = f.ds.ListAdminRequests(ctx, adminStatePending, next, 1)
+	page, next, err = f.ds.ListAdminRequests(ctx, adminStatePending, next, 1, "", nil)
 	if err != nil || len(page) != 1 || page[0].ID != opened[1] || next != "" {
 		t.Fatalf("second page = %v next=%q err=%v, want %s and no more", page, next, err, opened[1])
 	}
-	closed, _, err := f.ds.ListAdminRequests(ctx, "closed", "", 10)
+	closed, _, err := f.ds.ListAdminRequests(ctx, "closed", "", 10, "", nil)
 	if err != nil || len(closed) != 1 || closed[0].ID != opened[2] {
 		t.Fatalf("closed = %v err=%v, want %s", closed, err, opened[2])
 	}

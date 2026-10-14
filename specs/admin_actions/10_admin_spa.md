@@ -21,8 +21,8 @@ admin or root, with three items:
 
 | Route | Shows |
 |-------|-------|
-| `/admin/actions` | A pill switch between **Requests** and **Flagged**, like the search page. Requests: pending requests (action, targets, requester, reason) with **Approve** / **Reject** when the viewer is eligible, a disabled button with the reason when not, **Withdraw** on the viewer's own; closed requests below. Flagged: open flags ([08](08_flags.md)) |
-| `/admin/broadcast` | Compose a message for **everyone** or **one user** → opens a `broadcast` or `message` request ([09](09_broadcasts.md)); the viewer's requests awaiting approval below. Each option shows only with its permission. The recipient field autocompletes this server's members like an @-mention |
+| `/admin/actions` | A pill switch between **Requests** and **Flagged**, like the search page. Requests: pending requests other than broadcasts and messages (action, targets, requester, reason) with **Approve** / **Reject** when the viewer is eligible, a disabled button with the reason when not, **Withdraw** on the viewer's own; closed requests below. Flagged: open flags ([08](08_flags.md)) |
+| `/admin/broadcast` | Compose a message for **everyone** or **one user** → opens a `broadcast` or `message` request ([09](09_broadcasts.md)); below it every pending broadcast and message request, with the same buttons as Actions, then the closed ones. Each option shows only with its permission. The recipient field autocompletes this server's members like an @-mention |
 | `/admin/mesh` | Server connections (moved from `/network/mesh`). Inviting, approving and disconnecting each show only with `mesh.invite`, `mesh.connect` and `mesh.disconnect` |
 
 Not in the nav:

@@ -181,7 +181,11 @@
     {#if done}
       <h3 id="admin-actions-title">Request opened</h3>
       <div class="actions">
-        <a class="btn btn-secondary" href="/admin/actions" on:click={close}>View in Actions</a>
+        {#if action === 'message'}
+          <a class="btn btn-secondary" href="/admin/broadcast" on:click={close}>View in Broadcast</a>
+        {:else}
+          <a class="btn btn-secondary" href="/admin/actions" on:click={close}>View in Actions</a>
+        {/if}
         <button class="btn btn-primary" type="button" on:click={close}>Done</button>
       </div>
     {:else if !action}

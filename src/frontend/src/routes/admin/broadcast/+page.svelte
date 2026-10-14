@@ -5,22 +5,19 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import ModeSwitch from '$lib/components/ModeSwitch.svelte';
-  import Username from '$lib/components/Username.svelte';
+  import AdminRequestList from '$lib/components/AdminRequestList.svelte';
   import UserPicker from '$lib/components/UserPicker.svelte';
   import { apiService } from '$lib/services/api';
-  import { adminRequestsChanged, openAdminRequest } from '$lib/services/admin';
+  import { isMailRequest, openAdminRequest } from '$lib/services/admin';
   import { parseCanonicalId } from '$lib/utils/identityRef';
-  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
-  import type * as api from '$lib/types/api';
 
   const MAX_LENGTH = 140;
 
   $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
   $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
-  $: viewerID = $page.data?.user?.id ?? '';
-  $: serverID = parseCanonicalId(viewerID)?.[1] ?? '';
+  $: serverID = parseCanonicalId($page.data?.user?.id ?? '')?.[1] ?? '';
 
   let recipientMode: 'everyone' | 'user' = 'everyone';
   let username = '';
@@ -28,7 +25,6 @@
   let message = '';
   let sending = false;
   let error = '';
-  let sent: api.AdminRequest[] = [];
 
   // Permissions only pick which options show; the server checks the send.
   $: canBroadcast = holds($page.data?.user, $adminPermissions, 'message.broadcast');
@@ -42,15 +38,6 @@
     !sending &&
     message.trim().length > 0 &&
     (recipientMode === 'everyone' || username.trim().length > 0);
-
-  $: $adminRequestsChanged, isAdmin && void loadSent();
-
-  async function loadSent(): Promise<void> {
-    const open = await apiService.listAdminRequests('pending');
-    sent = open.requests.filter(
-      (r) => r.requesterId === viewerID && (r.action === 'broadcast' || r.action === 'message')
-    );
-  }
 
   /** The local member named name, case-insensitively. */
   async function recipient(name: string): Promise<string | null> {
@@ -125,25 +112,9 @@
           </div>
         </form>
 
-        {#if sent.length > 0}
-          <h2 class="section-title">Awaiting approval</h2>
-          <ul class="sent-list">
-            {#each sent as s (s.id)}
-              <li class="sent">
-                <div class="sent-head">
-                  {#if s.action === 'message'}
-                    <span class="recipient name"><Username userID={s.targets[0]} color="var(--primary)" /></span>
-                    <span class="badge">Private</span>
-                  {:else}
-                    <span class="recipient">Everyone</span>
-                  {/if}
-                  <span class="when">{formatRelativeTime(fromUnix(s.createdAt) ?? new Date())}</span>
-                </div>
-                <blockquote class="message">{s.body}</blockquote>
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <div class="requests">
+          <AdminRequestList include={isMailRequest} emptyIcon="📣" emptyTitle="No messages awaiting approval" />
+        </div>
       {/if}
     </div>
 
@@ -189,11 +160,6 @@
     background: var(--surface);
   }
 
-  .recipient-picker {
-    display: flex;
-    justify-content: center;
-  }
-
   .field {
     display: flex;
     flex-direction: column;
@@ -229,76 +195,13 @@
     color: var(--muted);
   }
 
-  .section-title {
-    margin: 1.5rem 0 0.75rem;
-    color: var(--muted);
-    font-size: 0.85rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .sent-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .sent {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface);
-  }
-
-  .sent-head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .recipient {
-    font-weight: 600;
-    color: var(--fg);
-  }
-
-  .recipient.name {
-    color: var(--primary);
+  .requests {
+    margin-top: 1.5rem;
   }
 
   .composer .error {
     margin: 0;
     font-size: 0.85rem;
-  }
-
-  .badge {
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.25rem 0.5rem;
-    border-radius: 999px;
-    background: var(--input-bg);
-    color: var(--muted);
-  }
-
-  .when {
-    margin-left: auto;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .message {
-    margin: 0;
-    padding: 0.5rem 0.75rem;
-    border-left: 3px solid var(--border);
-    color: var(--fg);
-    font-size: 0.9rem;
-    line-height: 1.5;
   }
 
   .btn {

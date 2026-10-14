@@ -188,6 +188,10 @@ All routes need signature auth, and the caller must be admin or root.
 | `GET /api/admin/users/{userID}/permissions` | A user's role and permissions (any admin, or the user themselves) |
 | `POST /api/admin/requests/{id}/decision` | Approve, reject or withdraw (body: `AdminDecision`) |
 
+An admin sees a broadcast or message request only while holding its
+permission, or as its requester. The list leaves the others out, and
+reading one by ID answers 404.
+
 The server rejects a new request when:
 
 - the requester isn't admin or root, or doesn't hold the action's permission;

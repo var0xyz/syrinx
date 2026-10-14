@@ -97,6 +97,21 @@ var adminActionPermission = map[string]string{
 	adminActionMessage:   permMessageUser,
 }
 
+// mailActions are the requests an admin sees only while holding their
+// permission, or as their requester.
+var mailActions = []string{adminActionBroadcast, adminActionMessage}
+
+// hiddenAdminActions lists the mail actions perms doesn't cover.
+func hiddenAdminActions(perms []string) []string {
+	var hidden []string
+	for _, a := range mailActions {
+		if !slices.Contains(perms, adminActionPermission[a]) {
+			hidden = append(hidden, a)
+		}
+	}
+	return hidden
+}
+
 // Request states and decisions.
 const (
 	adminStatePending   = "pending"
@@ -509,9 +524,14 @@ func decodeAdminRequestCursor(s string) (*adminRequestCursor, error) {
 
 // ListAdminRequests pages requests newest first. state is "pending",
 // "closed" or "" for both.
-func (s *DataService) ListAdminRequests(ctx context.Context, state, cursor string, limit int) ([]*adminRequest, string, error) {
+// ListAdminRequests leaves out requests for hidden actions, except viewerID's own.
+func (s *DataService) ListAdminRequests(ctx context.Context, state, cursor string, limit int, viewerID string, hidden []string) ([]*adminRequest, string, error) {
 	where := []string{"TRUE"}
 	var args []any
+	if len(hidden) > 0 {
+		args = append(args, pq.Array(hidden), viewerID)
+		where = append(where, fmt.Sprintf("(r.action <> ALL($%d) OR r.requester_id = $%d)", len(args)-1, len(args)))
+	}
 	switch state {
 	case adminStatePending:
 		where = append(where, "r.state = 'pending'")
@@ -902,7 +922,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 
 // ListAdminRequests handles GET /admin/requests?state=pending|closed.
 func (h *Handlers) ListAdminRequests(w http.ResponseWriter, r *http.Request) {
-	_, role, ok := h.adminCaller(w, r)
+	callerID, role, ok := h.adminCaller(w, r)
 	if !ok {
 		return
 	}
@@ -916,7 +936,12 @@ func (h *Handlers) ListAdminRequests(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "state must be pending or closed")
 		return
 	}
-	reqs, next, err := h.services.db.ListAdminRequests(r.Context(), state, query.Get("cursor"), 50)
+	perms, err := userPermissionsQ(r.Context(), h.services.db.db, callerID, role, h.services.db.GetServerID())
+	if err != nil {
+		h.writeAdminError(w, r, err, "Error loading permissions")
+		return
+	}
+	reqs, next, err := h.services.db.ListAdminRequests(r.Context(), state, query.Get("cursor"), 50, callerID, hiddenAdminActions(perms))
 	if err != nil {
 		h.writeAdminError(w, r, err, "Error listing admin requests")
 		return
@@ -930,7 +955,7 @@ func (h *Handlers) ListAdminRequests(w http.ResponseWriter, r *http.Request) {
 
 // GetAdminRequest handles GET /admin/requests/{id}.
 func (h *Handlers) GetAdminRequest(w http.ResponseWriter, r *http.Request) {
-	_, role, ok := h.adminCaller(w, r)
+	callerID, role, ok := h.adminCaller(w, r)
 	if !ok {
 		return
 	}
@@ -944,6 +969,15 @@ func (h *Handlers) GetAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req == nil {
+		writeError(w, http.StatusNotFound, "Request not found")
+		return
+	}
+	perms, err := userPermissionsQ(r.Context(), h.services.db.db, callerID, role, h.services.db.GetServerID())
+	if err != nil {
+		h.writeAdminError(w, r, err, "Error loading permissions")
+		return
+	}
+	if req.RequesterID != callerID && slices.Contains(hiddenAdminActions(perms), req.Action) {
 		writeError(w, http.StatusNotFound, "Request not found")
 		return
 	}
