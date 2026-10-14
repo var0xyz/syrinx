@@ -287,21 +287,25 @@ func (s *DataService) GetUserPermissions(ctx context.Context, userID string) ([]
 	return userPermissionsQ(ctx, s.db, userID, role, s.serverID)
 }
 
-// inInviteSubtreeQ reports whether userID was invited by ancestorID,
-// directly or further down the invite tree.
-func inInviteSubtreeQ(ctx context.Context, q adminQuerier, ancestorID, userID string) (bool, error) {
+// invitedByQ reports whether inviterID directly invited userID.
+func invitedByQ(ctx context.Context, q adminQuerier, inviterID, userID string) (bool, error) {
 	var found bool
 	err := q.QueryRowContext(ctx, `
-		WITH RECURSIVE subtree(id) AS (
-			SELECT u.id FROM users u JOIN invites i ON i.id = u.invite_id
-			WHERE i.created_by = $1
-			UNION
-			SELECT u.id FROM users u JOIN invites i ON i.id = u.invite_id
-			JOIN subtree s ON i.created_by = s.id
+		SELECT EXISTS(
+			SELECT 1 FROM users u JOIN invites i ON i.id = u.invite_id
+			WHERE u.id = $2 AND i.created_by = $1
 		)
-		SELECT EXISTS(SELECT 1 FROM subtree WHERE id = $2)
-	`, ancestorID, userID).Scan(&found)
+	`, inviterID, userID).Scan(&found)
 	return found, err
+}
+
+// adminActionNeedsOutsideApprover lists the actions a requester's direct
+// invitee can't decide on: kicks and permission changes.
+var adminActionNeedsOutsideApprover = map[string]bool{
+	adminActionKick:        true,
+	adminActionPromote:     true,
+	adminActionDemote:      true,
+	adminActionPermissions: true,
 }
 
 // hasAccountRemovalQ reports whether userID's account was removed.
@@ -743,12 +747,14 @@ func checkDeciderQ(ctx context.Context, q adminQuerier, req *adminRequest, decid
 	if slices.Contains(req.Targets, deciderID) {
 		return refuse(http.StatusForbidden, "A target can't decide on the request")
 	}
-	invited, err := inInviteSubtreeQ(ctx, q, req.RequesterID, deciderID)
-	if err != nil {
-		return err
-	}
-	if invited {
-		return refuse(http.StatusForbidden, "Someone the requester invited can't decide on the request")
+	if adminActionNeedsOutsideApprover[req.Action] {
+		invited, err := invitedByQ(ctx, q, req.RequesterID, deciderID)
+		if err != nil {
+			return err
+		}
+		if invited {
+			return refuse(http.StatusForbidden, "Someone the requester invited can't decide on a kick or a permission change")
+		}
 	}
 	if err := checkActorPermissionsQ(ctx, q, req, deciderID, role, serverID); err != nil {
 		return err

@@ -155,7 +155,7 @@ export async function myPermissions(): Promise<api.UserPermissions> {
 }
 
 /** Why the viewer can't decide on req, null when the rules visible here
- * allow it. The server checks the rest (invite subtree, admin targets). */
+ * allow it. The server checks the rest (direct invitees, admin targets). */
 export function decisionBlocker(
   req: api.AdminRequest,
   viewer: Pick<api.UserPermissions, 'role' | 'permissions'>,

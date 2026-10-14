@@ -82,7 +82,7 @@ the request was opened:
 | Role is admin or root                                                                              | —                                                             |
 | Holds the action's **permission**                                                                  | —                                                             |
 | Not the requester, **except root**                                                                 | Root approving its own request matches federation today       |
-| Not in the requester's **invite subtree** (anyone the requester invited, directly or further down) | Stops a requester inviting a puppet admin to approve for them |
+| On a kick or a permission change (promote, demote, permissions): not invited **directly** by the requester | Stops a requester inviting a puppet admin to approve for them. Only one level, since most admins descend from a few inviters |
 | Not a target of the request                                                                        | —                                                             |
 | **Root**, if any target is an admin                                                                | Only root acts on admins                                      |
 
@@ -302,8 +302,8 @@ closed requests list.
   admin-rebound revocation and the vouch reset; record it in `RISKS.md`
   with step 06.
 - Approver eligibility is checked when the approval is submitted. An admin
-  the requester invites after opening the request is still in their
-  subtree, so it can't approve.
+  the requester invites directly after opening a kick or a permission
+  change still can't approve it.
 
 ## Decisions
 
