@@ -21,7 +21,8 @@
 
   /** Which requests this list shows. */
   export let include: (r: api.AdminRequest) => boolean;
-  export let emptyIcon: string;
+  /** Whether to list the open requests or the closed ones. */
+  export let state: 'open' | 'closed';
   export let emptyTitle: string;
 
   const actionLabel: Record<string, string> = {
@@ -33,7 +34,7 @@
     permissions: 'Permissions',
     rebind: 'Key rebind',
     broadcast: 'Broadcast',
-    message: 'Message',
+    unicast: 'Unicast',
   };
 
   const stateLabel: Record<string, string> = {
@@ -50,6 +51,7 @@
   let pendingLoaded = false;
   let pendingError = '';
   let closed: api.AdminRequest[] = [];
+  let closedLoaded = false;
   const CLOSED_PAGE = 50;
   let closedShown = CLOSED_PAGE;
   let fingerprints: Record<string, string> = {};
@@ -91,6 +93,7 @@
   // Closed requests never change, so they come from the local copy.
   async function loadClosed(): Promise<void> {
     closed = (await adminRequestsRepository.getAll()).filter(include);
+    closedLoaded = true;
     fingerprintsFor(closed);
   }
 
@@ -130,7 +133,7 @@
         return 'Revokes their current key as lost and binds the uploaded key, restricted to a rotation.';
       case 'broadcast':
         return 'Sends this message to every local member’s mailbox.';
-      case 'message':
+      case 'unicast':
         return 'Sends this message privately to their mailbox. It stays out of the ledger.';
     }
     return '';
@@ -170,7 +173,7 @@
       {#if r.state !== 'pending'}
         <span class="state-badge" data-state={r.state}>{stateLabel[r.state] ?? r.state}</span>
       {/if}
-      {#if r.action === 'message'}<span class="state-badge">Private</span>{/if}
+      {#if r.action === 'unicast'}<span class="state-badge">Private</span>{/if}
     </div>
 
     {#if r.targets.length > 0}
@@ -181,7 +184,7 @@
       <p class="targets everyone">Every local member</p>
     {/if}
 
-    {#if r.action === 'broadcast' || r.action === 'message'}
+    {#if r.action === 'broadcast' || r.action === 'unicast'}
       <blockquote class="reason">{r.body}</blockquote>
     {:else}
       <blockquote class="reason">{r.reason}</blockquote>
@@ -238,7 +241,7 @@
               disabled={submitting}
               on:click={() => submitDecision(r)}
             >
-              Sign and {decisionLabel[deciding.decision].toLowerCase()}
+              {decisionLabel[deciding.decision]}
             </button>
           </div>
         </div>
@@ -267,25 +270,27 @@
 {/snippet}
 
 <div class="admin-requests">
-  {#if pendingError}
-    <p class="error" role="alert">{pendingError}</p>
-  {:else if !pendingLoaded}
-    <!-- Open requests come from the server; nothing to show until then. -->
-  {:else if pending.length === 0}
+  {#if state === 'open'}
+    {#if pendingError}
+      <p class="error" role="alert">{pendingError}</p>
+    {:else if !pendingLoaded}
+      <!-- Open requests come from the server; nothing to show until then. -->
+    {:else if pending.length === 0}
+      <div class="empty-state">
+        <h3>{emptyTitle}</h3>
+      </div>
+    {:else}
+      <ul class="request-list">
+        {#each pending as r (r.id)}
+          {@render requestCard(r)}
+        {/each}
+      </ul>
+    {/if}
+  {:else if closedLoaded && closed.length === 0}
     <div class="empty-state">
-      <div class="empty-icon">{emptyIcon}</div>
       <h3>{emptyTitle}</h3>
     </div>
   {:else}
-    <ul class="request-list">
-      {#each pending as r (r.id)}
-        {@render requestCard(r)}
-      {/each}
-    </ul>
-  {/if}
-
-  {#if closed.length > 0}
-    <h2 class="section-title">Closed</h2>
     <ul class="request-list">
       {#each closed.slice(0, closedShown) as r (r.id)}
         {@render requestCard(r)}
@@ -298,15 +303,6 @@
 </div>
 
 <style>
-  .section-title {
-    margin: 1.5rem 0 0.75rem;
-    color: var(--muted);
-    font-size: 0.85rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
   .request-list {
     list-style: none;
     margin: 0;
@@ -515,11 +511,6 @@
     text-align: center;
     padding: 3rem 1rem;
     color: var(--muted);
-  }
-
-  .empty-icon {
-    font-size: 3rem;
-    margin-bottom: 1rem;
   }
 
   .empty-state h3 {

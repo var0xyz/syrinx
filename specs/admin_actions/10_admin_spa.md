@@ -17,12 +17,14 @@ public ledger page belongs to [02](02_ledger.md), and the flag menu item to
 ## Routes
 
 The side nav has an **Admin** section, shown only when the viewer's role is
-admin or root, with three items:
+admin or root, with four items. Each list page has a pill switch, like the
+search page, whose choice is kept in the URL hash (`#closed`, `#dismissed`):
 
 | Route | Shows |
 |-------|-------|
-| `/admin/actions` | A pill switch between **Requests** and **Flagged**, like the search page. Requests: pending requests other than broadcasts and messages (action, targets, requester, reason) with **Approve** / **Reject** when the viewer is eligible, a disabled button with the reason when not, **Withdraw** on the viewer's own; closed requests below. Flagged: open flags ([08](08_flags.md)) |
-| `/admin/broadcast` | Compose a message for **everyone** or **one user** → opens a `broadcast` or `message` request ([09](09_broadcasts.md)); below it every pending broadcast and message request, with the same buttons as Actions, then the closed ones. Each option shows only with its permission. The recipient field autocompletes this server's members like an @-mention |
+| `/admin/actions` | **Open** / **Closed** requests other than broadcasts and unicasts (action, targets, requester, reason). Open ones have **Approve** / **Reject** when the viewer is eligible, a disabled button with the reason when not, and **Withdraw** on the viewer's own |
+| `/admin/flags` | **Pending** / **Dismissed** flags ([08](08_flags.md)) |
+| `/admin/message` | Compose a **Broadcast** (everyone) or a **Unicast** (one user) → opens a `broadcast` or `unicast` request ([09](09_broadcasts.md)). Below it, **Open** / **Closed** broadcast and unicast requests, with the same buttons as Actions. Each option shows only with its permission. The recipient field autocompletes this server's members like an @-mention |
 | `/admin/mesh` | Server connections (moved from `/network/mesh`). Inviting, approving and disconnecting each show only with `mesh.invite`, `mesh.connect` and `mesh.disconnect` |
 
 Not in the nav:
@@ -81,9 +83,9 @@ The SPA reads the viewer's own permissions once per app load, in the
 background, and keeps them in `localStorage` for the session and the next
 load. Pages render from that copy without waiting or checking; if the read
 fails, the last copy stays. The server checks every action, so a stale copy
-only shows or hides a button. **Broadcast** is left out of the nav and the
+only shows or hides a button. **Message** is left out of the nav and the
 section tabs for an admin who holds neither `message.broadcast` nor
-`message.user`.
+`message.unicast`.
 
 ## Eligibility hints
 
@@ -118,5 +120,5 @@ points it at another SPA port.
 - A lost device mints a key, an admin uploads it, root approves, and the
   device finishes recovery signed in as the member.
 - A member flags a reed and can't flag it again; an admin dismisses the
-  flag with a reason and it moves to the dismissed section. A suspended member sees the suspended screen. An approved broadcast
+  flag with a reason and it moves to Dismissed. A suspended member sees the suspended screen. An approved broadcast
   reaches a member's mailbox.

@@ -28,7 +28,7 @@ them when they were promoted or invited, or by a later permissions change.
 | `user.kick`         | `kick`                                               |
 | `user.suspend`      | `suspend`, `reinstate`                               |
 | `user.rebind`       | `rebind` (add a key)                                 |
-| `message.user`      | `message` (private message)                          |
+| `message.unicast`   | `unicast` (private message)                          |
 | `message.broadcast` | `broadcast`                                          |
 | `mesh.invite`       | Creating and canceling server invites                |
 | `mesh.connect`      | Approving or rejecting a server connection           |
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   id                    VARCHAR(255) PRIMARY KEY,
   action                VARCHAR(32) NOT NULL
     CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-                      'permissions', 'rebind', 'broadcast', 'message')),
+                      'permissions', 'rebind', 'broadcast', 'unicast')),
   requester_id          VARCHAR(255) NOT NULL REFERENCES identities(id),
   requester_key_id      VARCHAR(255) NOT NULL REFERENCES public_keys(id),
   requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   server_signature_id   INT REFERENCES server_signatures(id),
   closed_at             TIMESTAMP,
   CONSTRAINT admin_requests_reason CHECK (
-    (action IN ('broadcast', 'message')) = (reason IS NULL))
+    (action IN ('broadcast', 'unicast')) = (reason IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS admin_request_content (
@@ -101,7 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
 
 - A broadcast has no targets. A message has exactly one. Every other action
   has at least one.
-- A broadcast or message has no reason; every other action needs one.
+- A broadcast or unicast has no reason; every other action needs one.
 - `admin_request_content.body` holds a broadcast's or message's text, a
   rebind's armored key, or the permission set of a `promote` or
   `permissions` request. Other actions have no row there.
@@ -188,7 +188,7 @@ All routes need signature auth, and the caller must be admin or root.
 | `GET /api/admin/users/{userID}/permissions` | A user's role and permissions (any admin, or the user themselves) |
 | `POST /api/admin/requests/{id}/decision` | Approve, reject or withdraw (body: `AdminDecision`) |
 
-An admin sees a broadcast or message request only while holding its
+An admin sees a broadcast or unicast request only while holding its
 permission, or as its requester. The list leaves the others out, and
 reading one by ID answers 404.
 
@@ -201,7 +201,7 @@ The server rejects a new request when:
 - the action and targets don't fit (e.g. `promote` on an admin,
   `permissions` on a user who isn't an admin, `reinstate` on someone who
   isn't suspended, `suspend` on someone already suspended);
-- the reason is empty, or set on a broadcast or message.
+- the reason is empty, or set on a broadcast or unicast.
 
 ## Approver eligibility
 
@@ -235,7 +235,7 @@ pending.
 When an account removal is stored, whether a self-deletion or a kick, every
 pending request targeting that user marks the target `dropped`. A request
 whose targets are now all dropped closes as `moot`, with a server signature
-and no decision. A broadcast never becomes moot; a message whose recipient
+and no decision. A broadcast never becomes moot; a unicast whose recipient
 leaves does.
 
 A requester who loses a permission, or stops being an admin, doesn't change

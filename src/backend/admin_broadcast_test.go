@@ -68,11 +68,11 @@ func TestBroadcast_ReachesEveryActiveMember(t *testing.T) {
 
 func TestPrivateMessage_ReachesOnlyItsRecipient(t *testing.T) {
 	f := newAdminFixture(t)
-	f.useRealExecutors(adminActionMessage)
-	f.grant(t, "a1", permMessageUser)
-	f.grant(t, "a2", permMessageUser)
+	f.useRealExecutors(adminActionUnicast)
+	f.grant(t, "a1", permMessageUnicast)
+	f.grant(t, "a2", permMessageUnicast)
 
-	msg := f.request(t, "a1", adminActionMessage, "", "Can we talk about your replies?", "u1")
+	msg := f.request(t, "a1", adminActionUnicast, "", "Can we talk about your replies?", "u1")
 	f.openAs(t, "a1", msg)
 	if rr := f.decide(t, "a2", msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
 		t.Fatalf("approve message: %d %s", rr.Code, rr.Body.String())
@@ -88,12 +88,12 @@ func TestPrivateMessage_ReachesOnlyItsRecipient(t *testing.T) {
 func TestListAdminRequests_HidesMailWithoutPermission(t *testing.T) {
 	f := newAdminFixture(t)
 	ctx := context.Background()
-	f.grant(t, "a1", permMessageUser)
-	msg := f.request(t, "a1", adminActionMessage, "", "Can we talk about your replies?", "u1")
+	f.grant(t, "a1", permMessageUnicast)
+	msg := f.request(t, "a1", adminActionUnicast, "", "Can we talk about your replies?", "u1")
 	f.openAs(t, "a1", msg)
 
-	if hidden := hiddenAdminActions([]string{permMessageUser}); !slices.Equal(hidden, []string{adminActionBroadcast}) {
-		t.Fatalf("hidden with message.user = %v, want broadcast only", hidden)
+	if hidden := hiddenAdminActions([]string{permMessageUnicast}); !slices.Equal(hidden, []string{adminActionBroadcast}) {
+		t.Fatalf("hidden with message.unicast = %v, want broadcast only", hidden)
 	}
 	cases := []struct {
 		name   string
@@ -102,7 +102,7 @@ func TestListAdminRequests_HidesMailWithoutPermission(t *testing.T) {
 		want   int
 	}{
 		{"without the permission", "a2", nil, 0},
-		{"holding the permission", "a2", []string{permMessageUser}, 1},
+		{"holding the permission", "a2", []string{permMessageUnicast}, 1},
 		{"its requester", "a1", nil, 1},
 	}
 	for _, c := range cases {

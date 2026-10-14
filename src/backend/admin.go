@@ -31,7 +31,7 @@ const (
 	permUserKick         = "user.kick"
 	permUserSuspend      = "user.suspend"
 	permUserRebind       = "user.rebind"
-	permMessageUser      = "message.user"
+	permMessageUnicast   = "message.unicast"
 	permMessageBroadcast = "message.broadcast"
 	permMeshInvite       = "mesh.invite"
 	permMeshConnect      = "mesh.connect"
@@ -42,7 +42,7 @@ const (
 var adminPermissions = []string{
 	permAdminCreate, permAdminDemote,
 	permUserKick, permUserSuspend, permUserRebind,
-	permMessageUser, permMessageBroadcast,
+	permMessageUnicast, permMessageBroadcast,
 	permMeshInvite, permMeshConnect, permMeshDisconnect,
 }
 
@@ -81,7 +81,7 @@ const (
 	adminActionPermissions = "permissions"
 	adminActionRebind      = "rebind"
 	adminActionBroadcast   = "broadcast"
-	adminActionMessage     = "message"
+	adminActionUnicast     = "unicast"
 )
 
 // adminActionPermission is the permission each action needs, except
@@ -94,12 +94,12 @@ var adminActionPermission = map[string]string{
 	adminActionDemote:    permAdminDemote,
 	adminActionRebind:    permUserRebind,
 	adminActionBroadcast: permMessageBroadcast,
-	adminActionMessage:   permMessageUser,
+	adminActionUnicast:   permMessageUnicast,
 }
 
 // mailActions are the requests an admin sees only while holding their
 // permission, or as their requester.
-var mailActions = []string{adminActionBroadcast, adminActionMessage}
+var mailActions = []string{adminActionBroadcast, adminActionUnicast}
 
 // hiddenAdminActions lists the mail actions perms doesn't cover.
 func hiddenAdminActions(perms []string) []string {
@@ -247,8 +247,8 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 		ex = h.rebindExecutor()
 	case adminActionBroadcast:
 		ex = h.broadcastExecutor()
-	case adminActionMessage:
-		ex = h.messageExecutor()
+	case adminActionUnicast:
+		ex = h.unicastExecutor()
 	default:
 		return nil
 	}
@@ -585,7 +585,7 @@ func targetCountFits(action string, n int) bool {
 	switch action {
 	case adminActionBroadcast:
 		return n == 0
-	case adminActionMessage, adminActionPromote, adminActionDemote, adminActionPermissions, adminActionRebind:
+	case adminActionUnicast, adminActionPromote, adminActionDemote, adminActionPermissions, adminActionRebind:
 		return n == 1
 	}
 	return n >= 1
@@ -705,7 +705,7 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 		}
 	}
 
-	noReason := req.Action == adminActionBroadcast || req.Action == adminActionMessage
+	noReason := req.Action == adminActionBroadcast || req.Action == adminActionUnicast
 	reasonLen := utf8.RuneCountInString(req.Reason)
 	if noReason && req.Reason != "" {
 		return refuse(http.StatusBadRequest, "A %s has no reason", req.Action)
@@ -715,7 +715,7 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 	}
 
 	switch req.Action {
-	case adminActionBroadcast, adminActionMessage:
+	case adminActionBroadcast, adminActionUnicast:
 		if strings.TrimSpace(req.Body) == "" || utf8.RuneCountInString(req.Body) > MaxMailboxMessageChars {
 			return refuse(http.StatusBadRequest, "A message of 1 to %d characters is required", MaxMailboxMessageChars)
 		}

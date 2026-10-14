@@ -212,7 +212,7 @@ var ledgerActionNames = map[string]string{
 func ledgerOpenedEntry(req *adminRequest, rebindKeyID string) *ledgerEntry {
 	e := &ledgerEntry{UserID: req.RequesterID, Targets: req.Targets}
 	switch req.Action {
-	case adminActionMessage:
+	case adminActionUnicast:
 		return nil
 	case adminActionBroadcast:
 		e.Message = fmt.Sprintf("[%s] Broadcast", req.ID)
@@ -232,7 +232,7 @@ func ledgerOpenedEntry(req *adminRequest, rebindKeyID string) *ledgerEntry {
 // private message. A moot request is closed by the server, so it has no
 // user.
 func ledgerClosedEntry(req *adminRequest, state, deciderID string) *ledgerEntry {
-	if req.Action == adminActionMessage {
+	if req.Action == adminActionUnicast {
 		return nil
 	}
 	e := &ledgerEntry{UserID: deciderID}

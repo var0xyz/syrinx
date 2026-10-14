@@ -107,7 +107,7 @@ func TestLedger_PermissionsAndBroadcastCarryContent(t *testing.T) {
 
 func TestLedger_PrivateMessageWritesNoEntry(t *testing.T) {
 	f := newAdminFixture(t)
-	msg := f.request(t, "root", adminActionMessage, "", "Can we talk?", "u1")
+	msg := f.request(t, "root", adminActionUnicast, "", "Can we talk?", "u1")
 	f.openAs(t, "root", msg)
 	if rr := f.decide(t, "root", msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
 		t.Fatalf("approve: %d %s", rr.Code, rr.Body.String())
