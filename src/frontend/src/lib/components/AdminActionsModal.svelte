@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import Username from '$lib/components/Username.svelte';
   import PermissionPicker from '$lib/components/PermissionPicker.svelte';
   import { apiService } from '$lib/services/api';
@@ -15,6 +15,12 @@
   const MAX_MESSAGE = 140;
   const MAX_REASON = 1000;
   const dispatch = createEventDispatcher<{ close: void }>();
+
+  // The page behind stays put while the modal is open; the modal scrolls.
+  $: if (typeof document !== 'undefined') document.documentElement.style.overflow = open ? 'hidden' : '';
+  onDestroy(() => {
+    if (typeof document !== 'undefined') document.documentElement.style.overflow = '';
+  });
 
   interface ActionItem {
     id: AdminAction;
@@ -311,12 +317,18 @@
     border-radius: 12px;
     padding: 1.5rem;
     width: min(440px, calc(100vw - 2rem));
-    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
     overflow-y: auto;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
     text-align: left;
+  }
+
+  /* Overflow the modal instead of squeezing a clipped list inside it. */
+  .modal > * {
+    flex-shrink: 0;
   }
 
   h3 {
