@@ -1,37 +1,129 @@
 # Syrinx
 
-A distributed, P2P-*ish* content platform for closed communities that care about attention, privacy, and cryptographic authenticity.
+**A censorship-resistant communications platform.**
 
-The server tracks metadata and relays in transit. **Content lives on devices.** Peers verify OpenPGP signatures; the instance is a tracker, not a content library.
+A P2P-ish, federated social platform for closed communities, where the server
+never holds your posts.
 
-## Values
+We say P2P-_ish_ because NAT makes direct connections between peers very hard
+to establish, so the server relays the traffic between them. That traffic
+travels encrypted: a post is encrypted to its reader before it leaves the
+holder's device, and the server relays ciphertext it can't read.
 
-Syrinx is built on the following values:
+A Syrinx server works like a BitTorrent tracker: it knows _who has_ a post, not
+_what it says_. Posts ("reeds") live on members' devices. Every record is
+OpenPGP-signed and checked by the client, so trust comes from the
+cryptography, not the operator. Servers connect to each other to form a mesh of
+small, independent communities.
 
-* It's your attention: No push notifications, no alerts, no interruptions.
-* It's your platform: Syrinx will never push content to your feed you didn't subscribe to.
-* It's your time: No infinite scroll, no engagement optimization, no dark patterns.
-* It's your decision: We give you control over your data, even at the expense of convenience.
-* It's your privacy: Private messages are never routed through the server, they are delivered directly to the recipient, encrypted.
-* It's your right: No tracking, no analytics, no data collection.
-* It's open: Built for the Web, not a native walled garden—so you can inspect what the app does. You should not have to trust the developers; verify that what you receive is cryptographically signed and untampered.
-* It's our promise: Syrinx is free and open source, and will remain so.
+> **Status:** proof of concept, pre-launch. Nothing is stable yet: schemas,
+> wire formats and APIs change without migrations. See
+> [`specs/README.md`](specs/README.md) for what's built and what's planned.
 
-## Documentation
+## Why censorship-resistant?
 
-**[Documentation site](https://var0xyz.github.io/syrinx/)** — architecture, trust model, cryptography, recovery, operators, and contributors. That site is the canonical source of truth.
+- **The database is distributed among the users.** Content lives on members'
+  devices; the server holds only pointers to it.
+- **It's cheap to run at home.** Syrinx is built to perform well on modest
+  hardware, and ships with scripts to deploy it securely on a home network
+  (tested on a Raspberry Pi 5).
+- **It's federated.** Communities talk to each other without all living on one
+  central server, creating a mesh of small, independent communities.
+- **Losing the domain doesn't mean losing the community.** A server's identity
+  is its key pair, not its domain name.
+- **Moving your account to another community** is planned, not yet implemented.
+- **Admins answer to the public.** Every admin action needs a second admin's
+  approval and lands in a public ledger: who asked for it, who approved it,
+  and the reason they gave. Members reach every admin at once by mentioning
+  `@admins` in a reed.
 
-## Quick start
+Together, this means anyone can run their own community, and members will be
+able to take their content elsewhere if they disagree with how theirs is run.
+Anyone can see what admins do with the power they've been granted. The one
+exception is a private message from the admins to a member, which is still
+visible to every admin.
+
+**When a server is seized.** Say the community loses the domain they operate
+under. The community spins up a new server under a new domain, imports the
+server's key from a backup, and starts operating right away.
+
+Shutting a community down becomes a game of whack-a-mole: take down one
+small piece and it reappears somewhere else. The network isn't impossible to
+attack; the security comes from making the cost and scale of shutting it down
+unrealistic.
+
+**What a seized server does reveal.** No content, but the pointers are
+metadata. The server holds user ids, usernames, emails and bios, and knows
+who follows whom and who holds which reeds. Everything but the user id is
+member-provided, emails and bios are optional, and none of it is validated.
+Ripples (comments on reeds) are stored in plain text but only live 30 days
+after the last ripple on a reed is posted.
+
+## Admins
+
+Admins run a community but don't control its content: no admin action removes
+or hides a reed. Administrative actions are opened by one admin and approved by
+another, with its reason. They all land in a server-signed, chained public
+ledger that every member can read and keeps a copy of. See
+[Admins](https://var0xyz.github.io/syrinx/admins).
+
+## Running it locally
+
+You need Go (version in `src/backend/go.mod`), Node.js, and PostgreSQL
+(`docker-compose.yml` has one).
 
 ```bash
 git clone https://github.com/var0xyz/syrinx.git
 cd syrinx
-cp .env.example .env   # set SERVER_NAME and related vars
-make run
+docker compose up -d db          # or point DB_* at your own Postgres
+cp .env.example .env             # set SERVER_NAME
+source .env                      # config is read from the environment
 ```
 
-Stop with `make stop`. More detail: [Operator guide](https://var0xyz.github.io/syrinx/operators).
+The first boot mints the root operator identity and exits:
+
+```bash
+ROOT_KEY_EXPORT_PASSPHRASE='…' make run   # prints the path of the .sxi.gpg it wrote
+```
+
+Then start the server and the app:
+
+```bash
+make run                                  # API on :8080, Ctrl-C to stop
+cd src/frontend && npm install && npm run dev   # app on :5173
+```
+
+Open <http://localhost:5173/import> and import the root identity file to sign
+in as the operator. `make up` runs the same stack in Docker; it needs
+`SERVER_KEY_PASSPHRASE` set, since a container has no keychain or prompt. To deploy on a real host, see
+[`deploy/scripts/syrinx/README.md`](deploy/scripts/syrinx/README.md) and the
+[operator guide](https://var0xyz.github.io/syrinx/operators).
+
+## Repository layout
+
+| Path            | What's there                            |
+| --------------- | --------------------------------------- |
+| `src/backend/`  | Go server (tracker, relay, federation)  |
+| `src/frontend/` | SvelteKit app (PWA, holds the content)  |
+| `docs/`         | Documentation site                      |
+| `specs/`        | Design proposals and per-feature status |
+| `deploy/`       | Home-host and telemetry deploy scripts  |
+| `cli/`          | Standalone `syrinx-cli` tool            |
+
+## Documentation
+
+The **[documentation site](https://var0xyz.github.io/syrinx/)** covers the
+architecture, trust model, cryptography, recovery, operators and
+contributors.
+
+## Contributing and security
+
+Start with [`AGENTS.md`](AGENTS.md), the orientation guide for humans and AI
+agents alike, and the
+[contributor docs](https://var0xyz.github.io/syrinx/contributors). Known
+security findings live in [`RISKS.md`](RISKS.md); read it before touching
+crypto, auth, signing or recovery.
 
 ## License
 
-AGPL-3.0
+[AGPL-3.0](LICENSE)
