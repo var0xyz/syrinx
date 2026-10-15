@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"syrinx/observability/metrics"
 	"testing"
 )
 
@@ -200,6 +201,7 @@ func TestFanoutUserSearchToPeers_NoPeersReturnsEmpty(t *testing.T) {
 			db:  &DataService{db: db, serverID: "testserver"},
 			log: NewLoggingService(),
 		},
+		metrics: metrics.Noop{},
 	}
 
 	got := h.fanoutUserSearchToPeers(context.Background(), "alice", nil, 20, searchUsersFanoutTimeout)

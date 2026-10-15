@@ -245,7 +245,7 @@ func (h *Handlers) proxyKeyToForeign(w http.ResponseWriter, r *http.Request, id 
 		return true
 	}
 	log := h.services.log.GetLogger(r.Context())
-	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, "")
+	respBody, status, err := h.forwardToPeer(r, peer.ID, peer.BaseURL, "")
 	if err != nil {
 		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy key to peer server failed")
 		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
@@ -276,13 +276,16 @@ func (h *Handlers) proxyKeyToForeign(w http.ResponseWriter, r *http.Request, id 
 func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("Signup request received")
+	reject := func(reason string) { h.metrics.SignupRejected(r.Context(), h.cfg.SignupMode, reason) }
 
 	if h.cfg.RecoveryMode {
+		reject("recovery_mode")
 		writeError(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
 		return
 	}
 
 	if inviteSignupMode(h.cfg.SignupMode) == signupModeClosed {
+		reject("closed")
 		writeError(w, http.StatusForbidden, "Signups are closed on this server")
 		return
 	}
@@ -290,6 +293,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	req := &pb.SignupRequest{}
 	if err := readRequest(r, req); err != nil {
 		log.Error().Err(err).Msg("Error parsing form data")
+		reject("invalid_request")
 		writeError(w, http.StatusBadRequest, "Invalid request format")
 		return
 	}
@@ -372,10 +376,12 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		if errors.Is(err, errInviteRequired) {
+			reject("invite_required")
 			writeError(w, http.StatusForbidden, "Invite required")
 			return
 		}
 		if errors.Is(err, errInvalidInvite) {
+			reject("invite_invalid")
 			writeError(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
@@ -395,6 +401,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.services.crypto.verifySignature(userID, userIDSigArmor, serverPubKey); err != nil {
 		log.Error().Err(err).Msg("userID signature verification failed")
+		reject("bad_signature")
 		writeError(w, http.StatusBadRequest, "userID signature verification failed")
 		return
 	}
@@ -408,6 +415,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if exists {
+		reject(h.usernameRefusalReason(r.Context(), username, "signup", string(canonicalID(h.services.db.GetServerID(), userID))))
 		writeError(w, http.StatusBadRequest, "Username already exists")
 		return
 	}
@@ -419,6 +427,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	key, err := h.services.crypto.validateAndExtractPublicKey(publicKey, signatureArmor)
 	if err != nil {
 		log.Error().Err(err).Msg("Error validating public key")
+		reject("bad_key")
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -438,6 +447,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.crypto.verifySignature(string(userPayload), userSignature, publicKey); err != nil {
 		log.Error().Err(err).Msg("userSignature verification failed")
+		reject("bad_signature")
 		writeError(w, http.StatusBadRequest, "userSignature verification failed")
 		return
 	}
@@ -511,10 +521,12 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, errInvalidInvite) {
+			reject("invite_invalid")
 			writeError(w, http.StatusForbidden, "Invalid or claimed invite")
 			return
 		}
 		if errors.Is(err, errInviterLacksGrant) {
+			reject("inviter_lacks_grant")
 			writeError(w, http.StatusForbidden, "The inviter no longer holds the permissions this invite grants")
 			return
 		}
@@ -522,6 +534,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		// 500; the client retries signup with a fresh random ID.
 		if errors.Is(err, ErrUsernameTaken) {
 			log.Info().Str("username", username).Msg("Username already exists")
+			reject("username_taken")
 			writeError(w, http.StatusBadRequest, "Username already exists")
 			return
 		}
@@ -537,7 +550,12 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", string(canonicalFingerprint)).
 		Msg("Identity record created")
 
-	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode, user.ID)
+	inviterID := ""
+	if hasInvite {
+		inviterID = invite.CreatedBy
+		h.metrics.InviteClaimed(r.Context(), inviterID, user.ID, inviteGrantedRole == roleAdmin)
+	}
+	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode, user.ID, inviterID)
 
 	writeResponse(w, http.StatusCreated, pbUser(user))
 }
@@ -678,7 +696,13 @@ func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	h.metrics.UsernameCheck(r.Context(), exceptUserID, !exists)
 	if exists {
+		surface := "signup"
+		if exceptUserID != "" {
+			surface = "rename"
+		}
+		h.usernameRefusalReason(r.Context(), username, surface, exceptUserID)
 		writeError(w, http.StatusConflict, "Username is taken")
 		return
 	}
@@ -901,6 +925,8 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		after = c
 	}
 
+	h.metrics.UserSearch(r.Context(), h.getUserID(r), false)
+
 	// limit+1 from every source tells whether the merged list goes on.
 	localResults, err := h.services.db.SearchUsers(r.Context(), query, h.getUserID(r), after, limit+1)
 	if err != nil {
@@ -1022,13 +1048,18 @@ func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, 
 		return true, 0
 	}
 
-	if err := h.forwardFollowToPeer(r.Context(), method, peer.BaseURL, userID, followerID); err != nil {
+	if err := h.forwardFollowToPeer(r.Context(), method, peer.ID, peer.BaseURL, userID, followerID); err != nil {
 		log.Error().Str("userID", userID).Str("followerID", followerID).Err(err).Msg("Failed to forward follow to peer")
 		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Follow forward to %s failed: %s", peer.BaseURL, err.Error()))
 		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
 		return true, 0
 	}
 
+	op := metrics.OpAdd
+	if method == http.MethodDelete {
+		op = metrics.OpRemove
+	}
+	h.metrics.Follow(r.Context(), op, followerID, userID, true)
 	w.WriteHeader(http.StatusNoContent)
 	return true, http.StatusNoContent
 }
@@ -1116,6 +1147,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
+		h.metrics.Follow(r.Context(), metrics.OpAdd, followerID, userID, true)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1130,6 +1162,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.metrics.Follow(r.Context(), metrics.OpAdd, followerID, userID, false)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1153,6 +1186,7 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
+		h.metrics.Follow(r.Context(), metrics.OpRemove, followerID, userID, true)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1163,6 +1197,7 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.metrics.Follow(r.Context(), metrics.OpRemove, followerID, userID, false)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1294,7 +1329,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noteHas := strings.TrimSpace(note) != ""
-	h.metrics.UserDeleted(r.Context(), userID, noteHas)
+	h.metrics.UserDeleted(r.Context(), userID, metrics.RemovalSelf, noteHas)
 
 	h.afterAccountRemoval(r.Context(), userID, cert)
 
@@ -1464,6 +1499,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 				Str("userID", userID).
 				Str("username", username).
 				Msg("Username already taken")
+			h.usernameRefusalReason(r.Context(), username, "rename", userID)
 			writeError(w, http.StatusBadRequest, "Username already taken")
 			return
 		}
@@ -1610,6 +1646,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Str("username", username).
 		Msg("Signed identity record updated")
 
+	h.metrics.UserUpdated(r.Context(), userID, currentUser.Username != username)
 	writeResponse(w, http.StatusOK, pbUser(updated))
 }
 
@@ -1803,6 +1840,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 				Str("userID", userID).
 				Dur("retryAfter", tooSoon.RetryAfter).
 				Msg("AddPublicKey rejected: cooldown")
+			h.metrics.CooldownHit(r.Context(), "key_rotation", userID)
 			w.Header().Set("Retry-After", strconv.Itoa(int(tooSoon.RetryAfter.Seconds())+1))
 			writeError(w, http.StatusTooManyRequests,
 				"You can only revoke your key once every 24 hours")
@@ -1833,7 +1871,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKeyFingerprint).
 		Msg("Public key created")
 
-	h.metrics.KeyRevoked(r.Context(), userID)
+	h.metrics.KeyRevoked(r.Context(), userID, metrics.RevocationRotation)
 	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyFingerprint}
 	go h.notifyPeersOfKeyRevocation(revokedKeyFingerprint)
 
@@ -2182,7 +2220,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if echoIndexed && echoRef != nil {
-		h.metrics.EchoTargeted(r.Context(), echoRef.AuthorID, echoRef.ReedID)
+		h.metrics.EchoTargeted(r.Context(), userID, echoRef.AuthorID, echoRef.ReedID)
 		// A foreign echo target's server learns of it from new-reed.
 		if echoRef.ServerID == localServerID {
 			h.broadcastChan <- realtimeBroadcastMessage{
@@ -2948,6 +2986,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed like accepted")
+	h.metrics.Like(r.Context(), metrics.OpAdd, likerID, authorID, reedID)
 	writeResponse(w, http.StatusOK, pbLikeCert(&cert))
 }
 
@@ -2991,6 +3030,7 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if deleted {
+		h.metrics.Like(r.Context(), metrics.OpRemove, likerID, authorID, reedID)
 		h.broadcastChan <- realtimeBroadcastMessage{
 			Type:   realtimeLikeCountChanged,
 			UserID: authorID,
@@ -3035,6 +3075,7 @@ func (h *Handlers) PinReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
+	h.metrics.Pin(r.Context(), metrics.OpAdd, pinnerID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3064,6 +3105,7 @@ func (h *Handlers) UnpinReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
+	h.metrics.Pin(r.Context(), metrics.OpRemove, pinnerID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3500,6 +3542,7 @@ func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.kickUserDevices(userID)
+	h.metrics.DeviceBound(r.Context(), userID)
 
 	writeResponse(w, http.StatusOK, &pb.BindDeviceResponse{DeviceId: deviceID})
 }
@@ -3527,6 +3570,7 @@ func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
+	h.metrics.AccountRecovery(r.Context(), "challenge", "", true, "")
 	writeResponse(w, http.StatusOK, &pb.ChallengeResponse{Challenge: nonce})
 }
 
@@ -3559,7 +3603,9 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
+	fail := func(reason string) { h.metrics.AccountRecovery(r.Context(), "bootstrap", req.UserID, false, reason) }
 	if !live {
+		fail("bad_challenge")
 		writeError(w, http.StatusBadRequest, "Unknown or expired challenge")
 		return
 	}
@@ -3571,6 +3617,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if removed {
+		fail("account_removed")
 		writeError(w, http.StatusGone, "Account removed")
 		return
 	}
@@ -3581,6 +3628,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if profile == nil {
+		fail("account_not_found")
 		writeError(w, http.StatusNotFound, "Account not found")
 		return
 	}
@@ -3591,6 +3639,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if activeFingerprint == "" || activeFingerprint != req.KeyID {
+		fail("inactive_key")
 		writeError(w, http.StatusUnauthorized, "Key is not the active key for this account")
 		return
 	}
@@ -3601,11 +3650,13 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if key == nil || key.Revoked {
+		fail("revoked_key")
 		writeError(w, http.StatusUnauthorized, "Unknown or revoked key")
 		return
 	}
 
 	if err := verifyChallengeSignature(req.Challenge, req.Signature, key.Armor, h.services.crypto); err != nil {
+		fail("bad_signature")
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
@@ -3634,6 +3685,8 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		reedIDs = []string{}
 	}
 
+	h.metrics.AccountRecovery(r.Context(), "bootstrap", req.UserID, true, "")
+	h.metrics.DeviceBound(r.Context(), req.UserID)
 	writeResponse(w, http.StatusOK, &pb.AccountRecoveryBootstrapResponse{
 		Profile:   pbUser(profile),
 		Following: following,
@@ -3658,11 +3711,14 @@ func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
 
 // ClaimIdentity handles POST /api/recovery/identity/claim.
 func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
+	userID, ok := "", false
+	defer func() { h.metrics.ServerRecovery(r.Context(), "claim", userID, ok) }()
 	req, err := readRecoveryClaim(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
+	userID = req.Profile.ID
 
 	// Consumed before anything else, so a failed claim can't be retried with it.
 	live, err := h.services.db.ConsumeRecoveryChallenge(r.Context(), req.Challenge)
@@ -3708,10 +3764,11 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Created {
-		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID)
+		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID, "")
 	}
 
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
+	ok = true
 	writeResponse(w, http.StatusOK, pbRecoveryProfile(req.Profile))
 }
 
@@ -3723,6 +3780,8 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recorded := false
+	defer func() { h.metrics.ServerRecovery(r.Context(), "peer_identity", caller, recorded) }()
 	req, err := readRecoveryPeerIdentity(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -3751,10 +3810,11 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Created {
-		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID)
+		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID, "")
 	}
 
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
+	recorded = true
 	writeResponse(w, http.StatusOK, pbRecoveryProfile(req.Profile))
 }
 
@@ -3766,6 +3826,8 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recorded := false
+	defer func() { h.metrics.ServerRecovery(r.Context(), "reed", caller, recorded) }()
 	req, err := readRecoveryReed(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -3808,6 +3870,7 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		internalServerError(w)
 	default:
+		recorded = true
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -3838,9 +3901,11 @@ func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveRecoveryFollowing(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, req.UserIDs); err != nil {
+		h.metrics.ServerRecovery(r.Context(), "following", caller, false)
 		internalServerError(w)
 		return
 	}
+	h.metrics.ServerRecovery(r.Context(), "following", caller, true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3853,9 +3918,11 @@ func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.db.DeleteOngoing(r.Context(), h.services.db.GetServerID(), caller); err != nil {
+		h.metrics.ServerRecovery(r.Context(), "complete", caller, false)
 		internalServerError(w)
 		return
 	}
+	h.metrics.ServerRecovery(r.Context(), "complete", caller, true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -4037,7 +4104,7 @@ func (h *Handlers) proxyLikeToForeignReed(w http.ResponseWriter, r *http.Request
 		return true
 	}
 
-	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, string(body))
+	respBody, status, err := h.forwardToPeer(r, peer.ID, peer.BaseURL, string(body))
 	if err != nil {
 		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy like to peer server failed")
 		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Proxy like to %s failed: %s", peer.BaseURL, err.Error()))
@@ -4113,7 +4180,7 @@ func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Reque
 		return true
 	}
 
-	respBody, status, err := h.forwardToPeer(r, peer.BaseURL, string(body))
+	respBody, status, err := h.forwardToPeer(r, peer.ID, peer.BaseURL, string(body))
 	if err != nil {
 		log.Error().Err(err).Str("target", peer.BaseURL).Msg("proxy unlike to peer server failed")
 		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Proxy unlike to %s failed: %s", peer.BaseURL, err.Error()))
@@ -4142,7 +4209,7 @@ func (h *Handlers) proxyUnlikeToForeignReed(w http.ResponseWriter, r *http.Reque
 // status. Unlike proxyToPeer, it does not write to w itself — callers
 // need to inspect the response before deciding what (if anything) to
 // mirror locally.
-func (h *Handlers) forwardToPeer(r *http.Request, baseURL, body string) (respBody []byte, status int, err error) {
+func (h *Handlers) forwardToPeer(r *http.Request, peerServerID, baseURL, body string) (respBody []byte, status int, err error) {
 	target := strings.TrimRight(baseURL, "/") + r.URL.Path
 	query := r.URL.Query()
 	if viewerID, ok := r.Context().Value(userIDKey).(string); ok {
@@ -4161,7 +4228,7 @@ func (h *Handlers) forwardToPeer(r *http.Request, baseURL, body string) (respBod
 	if err := h.setPeerProxyAuthHeaders(httpReq, body); err != nil {
 		return nil, 0, fmt.Errorf("sign proxied peer request: %w", err)
 	}
-	resp, err := h.federationHTTPClient().Do(httpReq)
+	resp, err := h.doPeerRequest(httpReq, peerServerID, "proxy")
 	if err != nil {
 		return nil, 0, err
 	}
@@ -4209,7 +4276,7 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 		internalServerError(w)
 		return 0
 	}
-	resp, err := h.federationHTTPClient().Do(httpReq)
+	resp, err := h.doPeerRequest(httpReq, peerServerID, "proxy")
 	if err != nil {
 		log.Error().Err(err).Str("target", target).Msg("proxy to peer server failed")
 		h.logFederationServerAsync(peerServerID, "error", fmt.Sprintf("Proxy request to %s failed: %s", target, err.Error()))
@@ -4242,7 +4309,7 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 
 // forwardFollowToPeer tells a peer that followerID follows/unfollows
 // userID (local to the peer). Blocks until the peer confirms.
-func (h *Handlers) forwardFollowToPeer(ctx context.Context, method, peerBaseURL, userID, followerID string) error {
+func (h *Handlers) forwardFollowToPeer(ctx context.Context, method, peerServerID, peerBaseURL, userID, followerID string) error {
 	target := strings.TrimRight(peerBaseURL, "/") + "/api/users/" + userID + "/follow"
 	encoded, err := proto.Marshal(&pb.FollowRequest{FollowerId: followerID})
 	if err != nil {
@@ -4257,7 +4324,7 @@ func (h *Handlers) forwardFollowToPeer(ctx context.Context, method, peerBaseURL,
 	if err := h.setPeerProxyAuthHeaders(httpReq, body); err != nil {
 		return err
 	}
-	resp, err := h.federationHTTPClient().Do(httpReq)
+	resp, err := h.doPeerRequest(httpReq, peerServerID, "follow")
 	if err != nil {
 		return err
 	}
@@ -4306,7 +4373,7 @@ func (h *Handlers) fetchPeerServerKeyArmor(ctx context.Context, baseURL, serverI
 	if err := h.setPeerProxyAuthHeaders(httpReq, ""); err != nil {
 		return "", err
 	}
-	resp, err := h.federationHTTPClient().Do(httpReq)
+	resp, err := h.doPeerRequest(httpReq, serverID, "server-key-fetch")
 	if err != nil {
 		return "", err
 	}
@@ -4387,7 +4454,7 @@ func (h *Handlers) fetchAndCachePeerUserKey(ctx context.Context, baseURL, peerSe
 	if err := h.setPeerProxyAuthHeaders(httpReq, ""); err != nil {
 		return nil, err
 	}
-	resp, err := h.federationHTTPClient().Do(httpReq)
+	resp, err := h.doPeerRequest(httpReq, peerServerID, "user-key-fetch")
 	if err != nil {
 		return nil, err
 	}
@@ -4605,6 +4672,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 	}
 	h.pushLedgerEntries(entry)
 
+	h.metrics.FederationLifecycle(r.Context(), "invitation_created", "", caller)
 	writeResponse(w, http.StatusCreated, &pb.FederationCreateResponse{
 		InviteId:         inviteID,
 		ConnectionString: connectionString,
@@ -5080,6 +5148,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		h.pushLedgerEntries(entry)
 		h.logFederationAttemptAsync(attemptID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
+		h.metrics.FederationLifecycle(r.Context(), "attempt_approved", serverID, caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, ServerId: serverID, Status: "approved", Established: established})
 	}
 }
@@ -5132,6 +5201,7 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		h.pushLedgerEntries(entry)
 		h.logFederationAttemptAsync(attemptID, federationLogError,
 			fmt.Sprintf("Rejected by %s: %s", caller, reason))
+		h.metrics.FederationLifecycle(r.Context(), "attempt_rejected", "", caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, Status: "rejected"})
 	}
 }
@@ -5180,6 +5250,7 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 	default:
 		h.logFederationServerAsync(serverID, federationLogInfo,
 			fmt.Sprintf("Disconnect requested by %s: %s", caller, reason))
+		h.metrics.FederationLifecycle(r.Context(), "disconnect_requested", serverID, caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "disconnect_pending"})
 	}
 }
@@ -5239,6 +5310,7 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 				h.services.log.GetLogger(context.Background()).Warn().Err(err).Str("serverId", serverID).Msg("failed to notify peer of disconnect")
 			}
 		}()
+		h.metrics.FederationLifecycle(r.Context(), "disconnect_confirmed", serverID, caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "revoked"})
 	}
 }
@@ -5272,6 +5344,7 @@ func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *ht
 	default:
 		h.logFederationServerAsync(serverID, federationLogInfo,
 			fmt.Sprintf("Disconnect request cancelled by %s", caller))
+		h.metrics.FederationLifecycle(r.Context(), "disconnect_cancelled", serverID, caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "disconnect_cancelled"})
 	}
 }
@@ -5311,6 +5384,7 @@ func (h *Handlers) PurgeFederationServer(w http.ResponseWriter, r *http.Request)
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("federation server purge failed")
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
+		h.metrics.FederationLifecycle(r.Context(), "purged", serverID, caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{ServerId: serverID, Status: "purged"})
 	}
 }
@@ -5400,6 +5474,7 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.pushLedgerEntries(entry)
+		h.metrics.FederationLifecycle(r.Context(), "invitation_revoked", "", caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{InviteId: id, Status: federationStatusCanceled})
 	}
 }
@@ -5653,7 +5728,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	httpReq.Header.Set("Content-Type", protobufContentType)
-	resp, err := h.federationHTTPClient().Do(httpReq)
+	resp, err := h.doPeerRequest(httpReq, payload.ServerID, "connect")
 	if err != nil {
 		log.Error().Err(err).Str("connectURL", connectURL).Msg("federation connect callback failed")
 		h.logFederationAttemptAsync(attemptID, federationLogError,
@@ -5682,6 +5757,7 @@ func (h *Handlers) OutgoingFederationAttempt(w http.ResponseWriter, r *http.Requ
 	h.logFederationAttemptAsync(attemptID, federationLogInfo,
 		fmt.Sprintf("Handshake verified with server %s (%s); awaiting approval", payload.ServerID, payload.BaseURL))
 
+	h.metrics.FederationLifecycle(r.Context(), "invitation_redeemed", payload.ServerID, caller)
 	writeResponse(w, http.StatusOK, &pb.FederationAttemptStatus{Status: federationStatusAccepted, ServerId: payload.ServerID})
 }
 
@@ -5909,6 +5985,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wire := rippleWire(resp)
+	h.metrics.Ripple(r.Context(), metrics.OpAdd, callerID, reedUserID, canonicalReedID)
 	writeResponse(w, http.StatusCreated, pbRipple(wire))
 
 	h.broadcastChan <- realtimeBroadcastMessage{
@@ -6081,6 +6158,11 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rippleAuthorID := ""
+	if a, ok := authorOf(identityID(reedID)); ok {
+		rippleAuthorID = string(a)
+	}
+	h.metrics.Ripple(r.Context(), metrics.OpRemove, callerID, rippleAuthorID, reedID)
 	w.WriteHeader(http.StatusNoContent)
 
 	tombstoned, err := h.services.db.GetRipple(r.Context(), rippleID)
@@ -6168,6 +6250,7 @@ func (h *Handlers) SendMailboxMessage(ctx context.Context, userID, kind, message
 	if err != nil {
 		return err
 	}
+	h.metrics.Mailbox(ctx, metrics.OpAdd, kind, userID)
 	h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
 	return nil
 }
@@ -6335,6 +6418,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.metrics.InviteCreated(r.Context(), caller, grantedRole == roleAdmin)
 	writeResponse(w, http.StatusCreated, &pb.Invite{
 		Id:              req.ID,
 		TokenHash:       tokenHashHex,
@@ -6405,6 +6489,7 @@ func (h *Handlers) DeleteInvite(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
+		h.metrics.InviteDeleted(r.Context(), caller)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

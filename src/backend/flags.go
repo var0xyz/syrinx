@@ -62,17 +62,17 @@ func pbReedFlag(f reedFlag) *pb.ReedFlag {
 // a fresh timestamp, and a key of the reporter's.
 func checkFlag(f reedFlag) error {
 	if _, ok := authorOf(identityID(f.ReedID)); !ok {
-		return refuse(http.StatusBadRequest, "Invalid reed ID")
+		return refuse(http.StatusBadRequest, "bad_reed_id", "Invalid reed ID")
 	}
 	if countCharacters(f.Note) > maxFlagNoteChars {
-		return refuse(http.StatusBadRequest, "A note can't exceed %d characters", maxFlagNoteChars)
+		return refuse(http.StatusBadRequest, "bad_note", "A note can't exceed %d characters", maxFlagNoteChars)
 	}
 	if d := time.Since(f.CreatedAt); d > flagClockSkew || d < -flagClockSkew {
-		return refuse(http.StatusBadRequest, "createdAt is too far from the server's clock")
+		return refuse(http.StatusBadRequest, "clock_skew", "createdAt is too far from the server's clock")
 	}
 	owner, serverID, _, ok := parseKeyFingerprint(identityID(f.Signature.ID))
 	if !ok || string(canonicalID(serverID, owner)) != f.ReporterID || f.Signature.Armor == "" {
-		return refuse(http.StatusBadRequest, "The flag isn't signed by a key of the reporter's")
+		return refuse(http.StatusBadRequest, "bad_key", "The flag isn't signed by a key of the reporter's")
 	}
 	return nil
 }
@@ -86,16 +86,16 @@ func (s *DataService) StoreFlag(ctx context.Context, f reedFlag) error {
 			SELECT author_id FROM reed_identities WHERE id = $1 AND server_id = $2
 		`, f.ReedID, s.serverID).Scan(&authorID)
 		if err == sql.ErrNoRows {
-			return refuse(http.StatusNotFound, "Reed not found")
+			return refuse(http.StatusNotFound, "reed_not_found", "Reed not found")
 		}
 		if err != nil {
 			return err
 		}
 		if isRootIdentity(authorID, s.serverID) {
-			return refuse(http.StatusForbidden, "Root's reeds can't be flagged")
+			return refuse(http.StatusForbidden, "root_reed", "Root's reeds can't be flagged")
 		}
 		if authorID == f.ReporterID {
-			return refuse(http.StatusForbidden, "You can't flag your own reed")
+			return refuse(http.StatusForbidden, "own_reed", "You can't flag your own reed")
 		}
 		var flagged bool
 		if err := tx.QueryRowContext(ctx, `
@@ -134,11 +134,11 @@ func (h *Handlers) verifyFlagSignature(ctx context.Context, f reedFlag) error {
 		return err
 	}
 	if key == nil || key.Revoked {
-		return refuse(http.StatusUnauthorized, "Active public key not available")
+		return refuse(http.StatusUnauthorized, "bad_key", "Active public key not available")
 	}
 	payload := buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note, f.CreatedAt)
 	if err := h.services.crypto.verifySignature(string(payload), f.Signature.Armor, key.Armor); err != nil {
-		return refuse(http.StatusUnauthorized, "signature verification failed")
+		return refuse(http.StatusUnauthorized, "bad_signature", "signature verification failed")
 	}
 	return nil
 }
@@ -182,6 +182,7 @@ func (h *Handlers) FlagReed(w http.ResponseWriter, r *http.Request) {
 		h.writeFlagError(w, r, err)
 		return
 	}
+	h.metrics.FlagCreated(r.Context(), f.ReporterID, string(author), f.ReedID, metrics.OriginLocal, f.Note != "")
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -227,7 +228,7 @@ func (h *Handlers) FlagFromPeer(w http.ResponseWriter, r *http.Request) {
 	f := reedFlagFromPB(&msg)
 	err := func() error {
 		if _, serverID, ok := parseIdentityID(identityID(f.ReporterID)); !ok || serverID != peerServerID {
-			return refuse(http.StatusBadRequest, "The reporter isn't a member of the calling peer")
+			return refuse(http.StatusBadRequest, "foreign_reporter", "The reporter isn't a member of the calling peer")
 		}
 		if err := checkFlag(f); err != nil {
 			return err
@@ -245,6 +246,8 @@ func (h *Handlers) FlagFromPeer(w http.ResponseWriter, r *http.Request) {
 		h.writeFlagError(w, r, err)
 		return
 	}
+	author, _ := authorOf(identityID(f.ReedID))
+	h.metrics.FlagCreated(r.Context(), f.ReporterID, string(author), f.ReedID, metrics.OriginPeer, f.Note != "")
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -258,6 +261,8 @@ type flagDismissal struct {
 	DismissedBy string
 	Reason      string
 	DismissedAt time.Time
+	// Flags is how many flags it closed, set only when it's made.
+	Flags int
 }
 
 func pbFlagDismissal(d *flagDismissal) *pb.FlagDismissal {
@@ -418,7 +423,7 @@ func (s *DataService) DismissFlags(ctx context.Context, reedID, viewerID, reason
 			LIMIT 1 FOR UPDATE
 		`, reedID, viewerID).Scan(&authorID)
 		if err == sql.ErrNoRows {
-			return refuse(http.StatusNotFound, "No open flags on that reed")
+			return refuse(http.StatusNotFound, "no_open_flags", "No open flags on that reed")
 		}
 		if err != nil {
 			return err
@@ -431,10 +436,15 @@ func (s *DataService) DismissFlags(ctx context.Context, reedID, viewerID, reason
 			return err
 		}
 		d.DismissedAt = d.DismissedAt.UTC()
-		_, err = tx.ExecContext(ctx, `
+		res, err := tx.ExecContext(ctx, `
 			UPDATE reed_flags SET dismissal_id = $2
 			WHERE reed_id = $1 AND dismissal_id IS NULL
 		`, reedID, d.ID)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		d.Flags = int(n)
 		return err
 	})
 	if err != nil {
@@ -504,10 +514,12 @@ func (h *Handlers) DismissFlags(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("A reason of 1 to %d characters is required", maxDismissalReasonChars))
 		return
 	}
-	d, err := h.services.db.DismissFlags(r.Context(), mux.Vars(r)["reedID"], callerID, reason)
+	reedID := mux.Vars(r)["reedID"]
+	d, err := h.services.db.DismissFlags(r.Context(), reedID, callerID, reason)
 	if err != nil {
 		h.writeAdminError(w, r, err, "Error dismissing flags")
 		return
 	}
+	h.metrics.FlagsDismissed(r.Context(), callerID, reedID, d.Flags)
 	writeResponse(w, http.StatusOK, pbFlagDismissal(d))
 }

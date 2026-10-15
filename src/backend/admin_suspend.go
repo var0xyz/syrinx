@@ -63,7 +63,7 @@ func (h *Handlers) suspendExecutor() adminExecutor {
 					return err
 				}
 				if by != "" {
-					return refuse(http.StatusConflict, "%s is already suspended", target)
+					return refuse(http.StatusConflict, "already_suspended", "%s is already suspended", target)
 				}
 			}
 			return nil
@@ -94,7 +94,7 @@ func (h *Handlers) reinstateExecutor() adminExecutor {
 					return err
 				}
 				if by == "" {
-					return refuse(http.StatusConflict, "%s isn't suspended", target)
+					return refuse(http.StatusConflict, "not_suspended", "%s isn't suspended", target)
 				}
 			}
 			return nil

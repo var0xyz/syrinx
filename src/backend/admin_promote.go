@@ -85,7 +85,7 @@ func targetRoleIs(ctx context.Context, q adminQuerier, req *adminRequest, role s
 			return err
 		}
 		if got != role {
-			return refuse(http.StatusConflict, "%s's role is %s, not %s", target, got, role)
+			return refuse(http.StatusConflict, "target_role", "%s's role is %s, not %s", target, got, role)
 		}
 	}
 	return nil
@@ -100,7 +100,7 @@ func (h *Handlers) promoteExecutor() adminExecutor {
 		execute: func(ctx context.Context, tx *sql.Tx, req *adminRequest) error {
 			perms, err := parsePermissionSet(req.Body)
 			if err != nil {
-				return refuse(http.StatusBadRequest, "Invalid permission set: %v", err)
+				return refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 			}
 			target := req.Targets[0]
 			if err := h.recountersignProfileTx(ctx, tx, target, roleAdmin); err != nil {
@@ -121,7 +121,7 @@ func (h *Handlers) permissionsExecutor() adminExecutor {
 		execute: func(ctx context.Context, tx *sql.Tx, req *adminRequest) error {
 			perms, err := parsePermissionSet(req.Body)
 			if err != nil {
-				return refuse(http.StatusBadRequest, "Invalid permission set: %v", err)
+				return refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 			}
 			return setUserPermissionsTx(ctx, tx, req.Targets[0], perms)
 		},
@@ -131,6 +131,7 @@ func (h *Handlers) permissionsExecutor() adminExecutor {
 // demoteExecutor makes an admin a user again: no permissions, and their
 // unclaimed admin invites revoked.
 func (h *Handlers) demoteExecutor() adminExecutor {
+	var revokedInvites int64
 	return adminExecutor{
 		validate: func(ctx context.Context, q adminQuerier, req *adminRequest) error {
 			return targetRoleIs(ctx, q, req, roleAdmin)
@@ -143,12 +144,19 @@ func (h *Handlers) demoteExecutor() adminExecutor {
 			if err := setUserPermissionsTx(ctx, tx, target, nil); err != nil {
 				return err
 			}
-			_, err := tx.ExecContext(ctx, `
+			res, err := tx.ExecContext(ctx, `
 				UPDATE invites SET revoked_at = NOW()
 				WHERE created_by = $1 AND granted_role = 'admin' AND claimed_at IS NULL AND revoked_at IS NULL
 			`, target)
-			return err
+			if err != nil {
+				return err
+			}
+			revokedInvites, _ = res.RowsAffected()
+			return nil
 		},
-		after: func(req *adminRequest) { h.announceProfile(req.Targets[0]) },
+		after: func(req *adminRequest) {
+			h.announceProfile(req.Targets[0])
+			h.recordInvitesRevoked(req.Action, req.Targets[0], revokedInvites)
+		},
 	}
 }

@@ -7,10 +7,13 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/zerolog/log"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -21,6 +24,24 @@ func (s *DataService) ListReservedUsernames(ctx context.Context) ([]string, erro
 		names = []string{}
 	}
 	return names, err
+}
+
+// usernameRefusalReason classifies a username that answered as taken, for
+// metrics, recording a reserved-name hit on surface when it was reserved.
+func (h *Handlers) usernameRefusalReason(ctx context.Context, username, surface, userID string) string {
+	reserved := slices.ContainsFunc(reservedUsernames, func(n string) bool { return strings.EqualFold(n, username) })
+	if !reserved {
+		err := h.services.db.db.QueryRowContext(ctx,
+			`SELECT EXISTS(SELECT 1 FROM reserved_usernames WHERE username = LOWER($1))`, username).Scan(&reserved)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to classify a taken username")
+		}
+	}
+	if !reserved {
+		return "username_taken"
+	}
+	h.metrics.ReservedUsernameHit(ctx, surface, userID)
+	return "reserved"
 }
 
 // rootCaller answers 401 or 403 unless root is calling.
@@ -103,5 +124,12 @@ func (h *Handlers) changeReservedUsername(w http.ResponseWriter, r *http.Request
 		return
 	}
 	h.pushLedgerEntries(entry)
+	if entry != nil {
+		op := metrics.OpRemove
+		if reserve {
+			op = metrics.OpAdd
+		}
+		h.metrics.ReservedUsernameChanged(r.Context(), op, callerID)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

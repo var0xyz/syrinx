@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -465,10 +466,13 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	subjectUserID := string(subjectIdentity)
+	vouched, reason := false, "invalid"
+	defer func() { h.metrics.Vouch(r.Context(), metrics.OpAdd, voucherID, subjectUserID, vouched, reason) }()
 
 	// Self-vouching asserts nothing: the caller would be attesting to a key
 	// they already control.
 	if subjectUserID == voucherID {
+		reason = "self"
 		writeError(w, http.StatusBadRequest, "Cannot vouch for yourself")
 		return
 	}
@@ -480,11 +484,13 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if subjectKey == nil {
+		reason = "subject_not_found"
 		writeError(w, http.StatusNotFound, "Subject key not found")
 		return
 	}
 	// A vouch for an already-revoked key would be stale on arrival.
 	if subjectKey.Revoked {
+		reason = "subject_revoked"
 		writeError(w, http.StatusConflict, "Subject key is revoked")
 		return
 	}
@@ -500,6 +506,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		// the offline queue resending the signature it stored, which is a
 		// retry rather than a second verification.
 		if existing.UserSignature.Armor == userSignature {
+			vouched, reason = true, "replay"
 			writeResponse(w, http.StatusOK, pbVouch(existing))
 			return
 		}
@@ -507,6 +514,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 			Str("voucherID", voucherID).
 			Str("subjectKeyID", subjectKeyID).
 			Msg("Vouch rejected: this key is already verified by the caller")
+		reason = "duplicate"
 		writeError(w, http.StatusConflict, "You have already verified this key")
 		return
 	}
@@ -522,6 +530,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		}
 		if !open {
 			log.Info().Str("voucherID", voucherID).Str("subjectKeyID", subjectKeyID).Msg("Vouch rejected: no open verification window")
+			reason = "window_closed"
 			writeError(w, http.StatusPreconditionFailed, vouchWindowClosedMessage)
 			return
 		}
@@ -544,6 +553,8 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 				Dur("retryAfter", wait).
 				Msg("Vouch rejected: cooldown")
 			w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+			reason = "cooldown"
+			h.metrics.CooldownHit(r.Context(), "vouch", voucherID)
 			writeError(w, http.StatusTooManyRequests,
 				"You can verify this key again later")
 			return
@@ -559,10 +570,12 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if voucherKey == nil {
+		reason = "voucher_key_not_found"
 		writeError(w, http.StatusNotFound, "Voucher key not found")
 		return
 	}
 	if !keyBelongsTo(voucherKeyID, voucherID) {
+		reason = "voucher_key_not_owned"
 		writeError(w, http.StatusBadRequest, "`voucherKeyID` is not owned by the caller")
 		return
 	}
@@ -575,6 +588,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 			Str("subjectKeyID", subjectKeyID).
 			Err(err).
 			Msg("vouch signature verification failed")
+		reason = "bad_signature"
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
@@ -622,11 +636,13 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.db.InsertVouch(r.Context(), cert); err != nil {
 		if errors.Is(err, ErrVouchConflict) {
+			reason = "conflict"
 			writeError(w, http.StatusConflict, "Vouch already exists with a different signature")
 			return
 		}
 		if errors.Is(err, ErrVouchInvalidID) {
 			log.Error().Str("vouchID", cert.ID).Err(err).Msg("Invalid vouch id")
+			reason = "bad_vouch_id"
 			writeError(w, http.StatusBadRequest, "Invalid vouch id")
 			return
 		}
@@ -646,6 +662,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
 		Msg("Vouch accepted")
+	vouched, reason = true, ""
 	writeResponse(w, http.StatusOK, pbVouch(&cert))
 }
 
@@ -714,6 +731,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			Str("voucherID", voucherID).
 			Str("voucherKeyID", voucherKeyID).
 			Msg("withdrawal refused: voucher key is revoked")
+		h.metrics.Vouch(r.Context(), metrics.OpRemove, voucherID, existing.SubjectUserID, false, "voucher_key_revoked")
 		writeError(w, http.StatusUnauthorized, "`voucherKeyID` is revoked")
 		return
 	}
@@ -726,6 +744,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			Str("subjectKeyID", subjectKeyID).
 			Err(err).
 			Msg("withdrawal signature verification failed")
+		h.metrics.Vouch(r.Context(), metrics.OpRemove, voucherID, existing.SubjectUserID, false, "bad_signature")
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
@@ -780,6 +799,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
 		Msg("Vouch withdrawal accepted")
+	h.metrics.Vouch(r.Context(), metrics.OpRemove, voucherID, existing.SubjectUserID, true, "")
 	writeResponse(w, http.StatusOK, pbVouch(cert))
 }
 

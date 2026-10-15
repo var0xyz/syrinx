@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"syrinx/observability/metrics"
 	"time"
 )
 
@@ -27,6 +28,7 @@ func (h *Handlers) rebindKeyID(req *adminRequest) string {
 // admins, and binds the uploaded key in its place, restricted to rotating.
 func (h *Handlers) rebindExecutor() adminExecutor {
 	var revokedKeyID string
+	var revokedInvites int64
 	return adminExecutor{
 		validate: func(ctx context.Context, q adminQuerier, req *adminRequest) error {
 			target := req.Targets[0]
@@ -34,18 +36,18 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 				if err != nil {
 					return err
 				}
-				return refuse(http.StatusConflict, "%s is suspended", target)
+				return refuse(http.StatusConflict, "target_suspended", "%s is suspended", target)
 			}
 			keyID := h.rebindKeyID(req)
 			if keyID == "" {
-				return refuse(http.StatusBadRequest, "The public key doesn't parse")
+				return refuse(http.StatusBadRequest, "bad_key", "The public key doesn't parse")
 			}
 			var exists bool
 			if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM public_keys WHERE id = $1)`, keyID).Scan(&exists); err != nil {
 				return err
 			}
 			if exists {
-				return refuse(http.StatusConflict, "That key is already registered")
+				return refuse(http.StatusConflict, "key_exists", "That key is already registered")
 			}
 			return nil
 		},
@@ -98,16 +100,22 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 				return err
 			}
 			// The lost device holds the open invites' secrets, so they all go.
-			_, err = tx.ExecContext(ctx, `
+			res, err := tx.ExecContext(ctx, `
 				UPDATE invites SET revoked_at = $2
 				WHERE created_by = $1 AND claimed_at IS NULL AND revoked_at IS NULL
 			`, target, now)
-			return err
+			if err != nil {
+				return err
+			}
+			revokedInvites, _ = res.RowsAffected()
+			return nil
 		},
 		after: func(req *adminRequest) {
 			h.kickUserDevices(req.Targets[0])
 			h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyID}
 			go h.notifyPeersOfKeyRevocation(revokedKeyID)
+			h.metrics.KeyRevoked(context.Background(), req.Targets[0], metrics.RevocationRebind)
+			h.recordInvitesRevoked(req.Action, req.Targets[0], revokedInvites)
 		},
 	}
 }

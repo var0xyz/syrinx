@@ -107,6 +107,7 @@ func (h *Handlers) OpenVerificationWindow(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusConflict, "Connect to the server to show your verification code")
 		return
 	}
+	h.metrics.VerificationWindow(r.Context(), "open", userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -127,6 +128,7 @@ func (h *Handlers) PingVerificationWindow(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "Verification window not open")
 		return
 	}
+	h.metrics.VerificationWindow(r.Context(), "ping", userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -141,5 +143,6 @@ func (h *Handlers) CloseVerificationWindow(w http.ResponseWriter, r *http.Reques
 		internalServerError(w)
 		return
 	}
+	h.metrics.VerificationWindow(r.Context(), "close", userID)
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -96,7 +97,7 @@ func TestBootstrapAccountRecovery_serverRecoveryNonceRejected(t *testing.T) {
 }
 
 func TestBootstrapAccountRecovery_missingDeviceHeader(t *testing.T) {
-	h := &Handlers{services: &Services{}}
+	h := &Handlers{services: &Services{}, metrics: metrics.Noop{}}
 	rr := httptest.NewRecorder()
 	h.BootstrapAccountRecovery(rr, protoRequest(http.MethodPost, "/api/account-recovery/bootstrap", &pb.AccountRecoveryBootstrapRequest{
 		Challenge: "nonce",

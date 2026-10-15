@@ -1093,6 +1093,12 @@ func (rs *realtimeService) BroadcastReedCoverage(reedID string, msg *pb.WSMessag
 
 // authenticateWebSocket authenticates a WebSocket connection. userID is
 // recovered from the verified publicKeyId, never a client-supplied param.
+// wsAuthRefusal is a handshake the auth rules refuse, with a fixed reason
+// code for metrics.
+type wsAuthRefusal struct{ reason, message string }
+
+func (e *wsAuthRefusal) Error() string { return e.message }
+
 func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoService) (string, error) {
 	// Extract required authentication parameters from query string
 	// (WebSocket doesn't support custom headers in all browsers).
@@ -1106,7 +1112,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 			Bool("hasSignature", signature != "").
 			Str("timestamp", timestamp).
 			Msg("Missing authentication parameters")
-		return "", fmt.Errorf("missing authentication parameters")
+		return "", &wsAuthRefusal{"missing_params", "missing authentication parameters"}
 	}
 
 	// Validate timestamp for replay protection
@@ -1115,7 +1121,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 			Str("timestamp", timestamp).
 			Err(err).
 			Msg("Invalid timestamp")
-		return "", fmt.Errorf("invalid timestamp: %w", err)
+		return "", &wsAuthRefusal{"stale_timestamp", fmt.Sprintf("invalid timestamp: %v", err)}
 	}
 
 	// Get public key for the fingerprint, along with its revocation state.
@@ -1132,7 +1138,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 		log.Error().
 			Str("publicKeyId", publicKeyID).
 			Msg("Public key not found")
-		return "", fmt.Errorf("public key not found")
+		return "", &wsAuthRefusal{"key_not_found", "public key not found"}
 	}
 
 	// Reject websocket auth signed by a revoked key. Same threat model as
@@ -1146,7 +1152,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 		log.Error().
 			Str("publicKeyId", publicKeyID).
 			Msg("WebSocket auth rejected: key is revoked")
-		return "", fmt.Errorf("key is revoked")
+		return "", &wsAuthRefusal{"key_revoked", "key is revoked"}
 	}
 
 	// WebSocket sessions are always per-end-user (no peer-server use case
@@ -1155,7 +1161,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 	userID, _, _, ok := parseKeyFingerprint(identityID(publicKeyID))
 	if !ok {
 		log.Error().Str("publicKeyId", publicKeyID).Msg("WebSocket auth rejected: not a user key")
-		return "", fmt.Errorf("not a user key")
+		return "", &wsAuthRefusal{"not_user_key", "not a user key"}
 	}
 	selfIdentity := canonicalID(db.GetServerID(), userID)
 	removed, err := hasAccountRemoval(r.Context(), db.db, userID, db.GetServerID())
@@ -1164,7 +1170,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 	}
 	if removed {
 		log.Error().Str("userID", string(selfIdentity)).Msg("WebSocket auth rejected: account removed")
-		return "", fmt.Errorf("account removed")
+		return "", &wsAuthRefusal{"account_removed", "account removed"}
 	}
 
 	// Decode base64 signature first
@@ -1174,7 +1180,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 			Str("publicKeyId", publicKeyID).
 			Err(err).
 			Msg("Failed to decode base64 signature")
-		return "", fmt.Errorf("failed to decode base64 signature: %w", err)
+		return "", &wsAuthRefusal{"bad_signature", fmt.Sprintf("failed to decode base64 signature: %v", err)}
 	}
 
 	payload := buildRealtimeAuthPayload(db.GetServerID(), string(selfIdentity), timestamp)
@@ -1184,7 +1190,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 			Str("timestamp", timestamp).
 			Err(err).
 			Msg("Signature verification failed")
-		return "", fmt.Errorf("signature verification failed: %w", err)
+		return "", &wsAuthRefusal{"bad_signature", fmt.Sprintf("signature verification failed: %v", err)}
 	}
 
 	log.Info().
@@ -1600,7 +1606,7 @@ func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID stri
 		log.Error().Err(err).Str("recipientID", recipientID).Str("keyID", keyID).Msg("Failed to create key_revoked pending event")
 		return
 	}
-	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent), eventID)
+	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent), eventID, recipientID)
 
 	if rev == nil {
 		loaded, err := rs.loadKeyRevocation(keyID)
@@ -2138,9 +2144,16 @@ func (rs *realtimeService) reapStalePresence() {
 func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("WebSocket connection attempt")
 
+	keyID := r.URL.Query().Get("publicKeyId")
 	userID, err := authenticateWebSocket(r, rs.db, rs.crypto)
 	if err != nil {
 		log.Error().Err(err).Msg("WebSocket authentication failed")
+		reason := "internal"
+		var refusal *wsAuthRefusal
+		if errors.As(err, &refusal) {
+			reason = refusal.reason
+		}
+		rs.metrics.WSHandshakeRejected(r.Context(), keyID, "", reason)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -2150,11 +2163,14 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	if refuseIfSuspended(r.Context(), w, rs.db, userID) {
 		log.Info().Str("userID", userID).Msg("WebSocket rejected: suspended")
+		rs.metrics.SuspendedRefusal(r.Context(), userID, metrics.SurfaceWS)
+		rs.metrics.WSHandshakeRejected(r.Context(), keyID, userID, "suspended")
 		return
 	}
 
 	deviceID := r.URL.Query().Get("deviceId")
 	if rs.deviceMismatch(userID, deviceID) {
+		rs.metrics.WSHandshakeRejected(r.Context(), keyID, userID, "device_mismatch")
 		rejectRealtimeConnection(w, "Device mismatch: this session is not bound to the active device.")
 		return
 	}
@@ -2167,6 +2183,7 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 	if ongoing {
 		log.Info().Str("userID", userID).Msg("WebSocket rejected: ongoing recovery import")
+		rs.metrics.WSHandshakeRejected(r.Context(), keyID, userID, "ongoing_import")
 		rejectRealtimeConnection(w, "Finish recovery import first.")
 		return
 	}
@@ -2208,12 +2225,14 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 
 	rs.handleUserCameOnline(client)
+	rs.metrics.WSSession(context.Background(), userID, true)
 
 	log.Info().
 		Str("userID", userID).
 		Msg("WebSocket client connected")
 
 	rs.handleClientMessages(client)
+	rs.metrics.WSSession(context.Background(), userID, false)
 
 	// Cleanup when connection closes. Only tear down DB presence when this
 	// was the user's last socket — a superseded connection must not wipe
@@ -2349,7 +2368,7 @@ func (rs *realtimeService) teardownUser(userID string) {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete pending events on disconnect")
 	} else {
 		for _, d := range deleted {
-			rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName, d.EventID)
+			rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName, d.EventID, "")
 		}
 	}
 	if err := rs.db.DeleteProfileSubscriptionsByViewer(ctx, userID); err != nil {
@@ -2832,7 +2851,7 @@ func generateRealtimeEventID(requesterUserID string) string {
 // createPendingReedEvent wraps db.CreatePendingReedEvent, additionally
 // recording a "created" RelayEvent lifecycle sample — the counterpart to
 // deletePendingEvent's "deleted"/"fulfilled" so wasted-bandwidth analysis
-// (created with no matching fulfilled/deleted) can correlate by event.id_hash.
+// (created with no matching fulfilled/deleted) can correlate by event.id.
 func (rs *realtimeService) createPendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID string) error {
 	if eventName != reedRemovedEvent && eventName != threadRemovedEvent && rs.blockedBy(reedAuthorIdentity(reedID), requesterUserID) != nil {
 		return errRecipientBlocked
@@ -2840,7 +2859,7 @@ func (rs *realtimeService) createPendingReedEvent(ctx context.Context, eventID, 
 	if err := rs.db.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
 		return err
 	}
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID, requesterUserID)
 	return nil
 }
 
@@ -2849,7 +2868,7 @@ func (rs *realtimeService) createPendingAccountEvent(ctx context.Context, eventI
 	if err := rs.db.CreatePendingAccountEvent(ctx, eventID, requestID, requesterUserID, removedUserID); err != nil {
 		return err
 	}
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(accountRemovedEvent), eventID)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(accountRemovedEvent), eventID, requesterUserID)
 	return nil
 }
 
@@ -2861,7 +2880,7 @@ func (rs *realtimeService) createProfileSubscriptionEvent(ctx context.Context, e
 	if err := rs.db.CreateProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID, subscriptionID); err != nil {
 		return err
 	}
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID, requesterUserID)
 	return nil
 }
 
@@ -2876,7 +2895,7 @@ func (rs *realtimeService) deletePendingEvent(ctx context.Context, eventID strin
 		return err
 	}
 	if eventName != "" {
-		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, eventName, eventID)
+		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, eventName, eventID, "")
 	}
 	return nil
 }
@@ -4442,7 +4461,7 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 		return
 	}
 
-	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName, eventID)
+	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName, eventID, "")
 
 	if pe.EventName == string(broadcastReedEvent) {
 		username, err := rs.db.GetRealtimeUsername(context.Background(), pe.UserID)
@@ -4951,7 +4970,9 @@ func (rs *realtimeService) handleMailboxAck(client *realtimeClient, mailboxID st
 	}
 	if err := rs.db.DeleteMailboxMessage(context.Background(), id, client.userID); err != nil {
 		log.Error().Err(err).Str("id", id).Str("userID", client.userID).Msg("Failed to delete mailbox message on ack")
+		return
 	}
+	rs.metrics.Mailbox(context.Background(), metrics.OpRemove, "", client.userID)
 }
 
 // handleKeyFetchError is called when a client received signed content over

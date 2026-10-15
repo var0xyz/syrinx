@@ -5,8 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // failingMeter wraps a working no-op meter but forces Int64Counter to error
@@ -53,4 +56,59 @@ func TestNewDoesNotPanicOnRegistrationFailure(t *testing.T) {
 		}()
 		r.KeyFetchError(context.Background(), "reporter", "target", "FP1")
 	}()
+}
+
+// collect returns every data point attribute set recorded on name.
+func collect(t *testing.T, reader *sdkmetric.ManualReader, name string) []attribute.Set {
+	t.Helper()
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var sets []attribute.Set
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != name {
+				continue
+			}
+			switch data := m.Data.(type) {
+			case metricdata.Sum[int64]:
+				for _, dp := range data.DataPoints {
+					sets = append(sets, dp.Attributes)
+				}
+			case metricdata.Gauge[int64]:
+				for _, dp := range data.DataPoints {
+					sets = append(sets, dp.Attributes)
+				}
+			}
+		}
+	}
+	return sets
+}
+
+// User ids go on attributes as-is, so an abuser can be named.
+func TestOTELRecordsRawUserIDs(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	r := New(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(scope))
+
+	r.UserCreated(context.Background(), "invite", "alice@srv", "bob@srv")
+	r.AuthRejected(context.Background(), "alice@srv/FP1", "alice@srv", "bad_signature", "/reeds")
+
+	created := collect(t, reader, "syrinx.users.created")
+	if len(created) != 1 {
+		t.Fatalf("users.created points = %d", len(created))
+	}
+	for key, want := range map[attribute.Key]string{"user.id": "alice@srv", "inviter.id": "bob@srv"} {
+		if got, _ := created[0].Value(key); got.AsString() != want {
+			t.Errorf("%s = %q, want %q", key, got.AsString(), want)
+		}
+	}
+	rejected := collect(t, reader, "syrinx.auth.rejected")
+	if len(rejected) != 1 {
+		t.Fatalf("auth.rejected points = %d", len(rejected))
+	}
+	if got, _ := rejected[0].Value("reason"); got.AsString() != "bad_signature" {
+		t.Errorf("reason = %q", got.AsString())
+	}
 }

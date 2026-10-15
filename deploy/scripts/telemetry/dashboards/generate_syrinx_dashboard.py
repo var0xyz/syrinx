@@ -717,17 +717,17 @@ users = [
         ptype="line",
         sql=(
             "WITH signups AS ( "
-            "SELECT user_id_hash, min(_timestamp) AS signed_up_at "
-            f"FROM {USERS_CREATED} WHERE user_id_hash IS NOT NULL "
-            "GROUP BY user_id_hash ), "
+            "SELECT user_id, min(_timestamp) AS signed_up_at "
+            f"FROM {USERS_CREATED} WHERE user_id IS NOT NULL "
+            "GROUP BY user_id ), "
             "deletions AS ( "
-            "SELECT user_id_hash, min(_timestamp) AS deleted_at "
-            f"FROM {USERS_DELETED} WHERE user_id_hash IS NOT NULL "
-            "GROUP BY user_id_hash ) "
+            "SELECT user_id, min(_timestamp) AS deleted_at "
+            f"FROM {USERS_DELETED} WHERE user_id IS NOT NULL "
+            "GROUP BY user_id ) "
             "SELECT floor((extract(epoch FROM now()) * 1000000.0 - s.signed_up_at) "
             "/ 86400000000.0) AS days_active, "
             "count(*) AS cohort_still_active "
-            "FROM signups s LEFT JOIN deletions d ON s.user_id_hash = d.user_id_hash "
+            "FROM signups s LEFT JOIN deletions d ON s.user_id = d.user_id "
             "WHERE d.deleted_at IS NULL "
             "GROUP BY days_active ORDER BY days_active"
         ),
@@ -737,12 +737,12 @@ users = [
         stream=USERS_CREATED,
         stream_type="metrics",
         description=(
-            "Per-user (user_id_hash) signup timestamp, excluded once a matching "
+            "Per-user (user_id) signup timestamp, excluded once a matching "
             "deletion timestamp exists (both from raw histogram exemplars). "
-            "user_id_hash IS NOT NULL filters out pre-hash datapoints from before "
-            "this label was added. Not cohort-bucketed by signup week — just "
-            "'signups from N days ago still active today', across all hashed "
-            "signups to date. Reads as ~100% flat until syrinx_users_deleted has "
+            "user_id IS NOT NULL filters out datapoints from before this label "
+            "was added. Not cohort-bucketed by signup week — just "
+            "'signups from N days ago still active today', across all "
+            "signups to date. Deletions include admin kicks. Reads as ~100% flat until syrinx_users_deleted has "
             "data (no deletions recorded as of authoring). extract(epoch FROM now()) "
             "and floor() verified directly against this OpenObserve instance's "
             "DataFusion SQL engine; datediff/to_unix_timestamp are NOT supported here."
@@ -938,7 +938,7 @@ relay = [
         description=(
             "created/fulfilled/deleted samples for pending_events rows "
             "(syrinx.relay.event). created without a matching fulfilled or "
-            "deleted for the same event.id_hash means the request leaked — "
+            "deleted for the same event.id means the request leaked — "
             "no holder ever answered and nothing ever cleaned it up."
         ),
     ),
@@ -970,11 +970,11 @@ relay = [
         ptype="table",
         sql=(
             "SELECT event_kind, count(*) AS leaked FROM ( "
-            "SELECT event_id_hash, max(event_kind) AS event_kind, "
+            "SELECT event_id, max(event_kind) AS event_kind, "
             "sum(CASE WHEN relay_lifecycle = 'created' THEN 1 ELSE 0 END) AS created, "
             "sum(CASE WHEN relay_lifecycle IN ('fulfilled', 'deleted') THEN 1 ELSE 0 END) AS resolved "
-            f"FROM {RELAY_EVENTS} WHERE event_id_hash IS NOT NULL "
-            "GROUP BY event_id_hash ) "
+            f"FROM {RELAY_EVENTS} WHERE event_id IS NOT NULL "
+            "GROUP BY event_id ) "
             "WHERE created > 0 AND resolved = 0 "
             "GROUP BY event_kind ORDER BY leaked DESC"
         ),
@@ -984,7 +984,7 @@ relay = [
         stream=RELAY_EVENTS,
         stream_type="metrics",
         description=(
-            "Per event.id_hash: created but never followed by a fulfilled or "
+            "Per event.id: created but never followed by a fulfilled or "
             "deleted sample in the selected window. A wide window is needed "
             "for this to be meaningful — a request created seconds ago just "
             "hasn't had time to resolve yet, that isn't necessarily a leak."
@@ -997,9 +997,9 @@ relay = [
         sql=(
             "SELECT event_kind, count(*) AS duplicate_events, "
             "sum(fulfilled_count) - count(*) AS wasted_responses FROM ( "
-            "SELECT event_id_hash, max(event_kind) AS event_kind, count(*) AS fulfilled_count "
-            f"FROM {RELAY_EVENTS} WHERE relay_lifecycle = 'fulfilled' AND event_id_hash IS NOT NULL "
-            "GROUP BY event_id_hash HAVING count(*) > 1 ) "
+            "SELECT event_id, max(event_kind) AS event_kind, count(*) AS fulfilled_count "
+            f"FROM {RELAY_EVENTS} WHERE relay_lifecycle = 'fulfilled' AND event_id IS NOT NULL "
+            "GROUP BY event_id HAVING count(*) > 1 ) "
             "GROUP BY event_kind ORDER BY wasted_responses DESC"
         ),
         layout=layout(96, 14, 96, 14, 63),
@@ -1012,7 +1012,7 @@ relay = [
         stream=RELAY_EVENTS,
         stream_type="metrics",
         description=(
-            "Same event.id_hash fulfilled more than once — a holder "
+            "Same event.id fulfilled more than once — a holder "
             "retransmitted a RELAY_RESPONSE after the first one already "
             "satisfied the request. wasted_responses = extra deliveries "
             "beyond the one actually needed."

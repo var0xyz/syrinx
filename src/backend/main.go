@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	l "log"
 	"net"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"syrinx/observability"
+	"syrinx/observability/metrics"
 
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
@@ -231,6 +233,7 @@ func main() {
 	log.Debug().Msg("Initializing handlers...")
 	h := NewHandlers(services, cfg, broadcastChan, *signingKey)
 	h.SetMetrics(obs.Metrics())
+	recordServerKeyRevocations(db, h.metrics)
 	h.SetPipeTagFilter(rtService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(rtService.DisconnectUser)
 	h.SetRealtimeRelay(rtService)
@@ -732,4 +735,23 @@ func main() {
 	}
 
 	log.Info().Msg("[OK] Server stopped gracefully")
+}
+
+// recordServerKeyRevocations reports how many times this server's key has
+// been revoked, so a rotation shows up as a step between boots.
+func recordServerKeyRevocations(db *sql.DB, rec metrics.Recorder) {
+	ctx := context.Background()
+	revs, err := loadServerKeyRevocations(ctx, db)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to load server key revocations for metrics")
+		return
+	}
+	compromised := 0
+	for _, rev := range revs {
+		if rev.Compromised {
+			compromised++
+		}
+	}
+	rec.ServerKeyRevocations(ctx, true, compromised)
+	rec.ServerKeyRevocations(ctx, false, len(revs)-compromised)
 }

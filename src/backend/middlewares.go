@@ -14,9 +14,11 @@ import (
 
 
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -293,11 +295,13 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 		return
 	}
 	if !ok {
+		h.authRejected(r, fingerprint+"@"+callerServerID, "", "not_peer")
 		writeError(w, http.StatusForbidden, "Not an established peer")
 		return
 	}
 
 	if err := h.verifyRequestSignature(r, signatureHeader, publicKeyArmor); err != nil {
+		h.authRejected(r, fingerprint+"@"+callerServerID, "", "bad_signature")
 		writeError(w, http.StatusUnauthorized, "Request signature verification failed")
 		return
 	}
@@ -384,6 +388,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("timestamp", timestampHeader).
 					Str("path", r.URL.Path).
 					Msg("Missing authentication headers")
+				h.authRejected(r, publicKeyIDHeader, "", "missing_headers")
 				writeError(w, http.StatusBadRequest, "Missing authentication headers")
 				return
 			}
@@ -393,6 +398,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("signatureScope", signatureScopeHeader).
 					Msg("Invalid signature scope")
+				h.authRejected(r, publicKeyIDHeader, "", "bad_scope")
 				writeError(w, http.StatusBadRequest, "Invalid signature scope")
 				return
 			}
@@ -403,6 +409,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("timestamp", timestampHeader).
 					Err(err).
 					Msg("Invalid timestamp")
+				h.authRejected(r, publicKeyIDHeader, "", "stale_timestamp")
 				writeError(w, http.StatusBadRequest, "Invalid timestamp")
 				return
 			}
@@ -427,6 +434,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Public key not found")
+				h.authRejected(r, publicKeyIDHeader, "", "key_not_found")
 				writeError(w, http.StatusForbidden, "Key not found")
 				return
 			}
@@ -454,12 +462,14 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				log.Error().
 					Str("publicKeyId", publicKeyIDHeader).
 					Msg("Request signed by revoked key rejected")
+				h.authRejected(r, publicKeyIDHeader, publicKey.UserID, "key_revoked")
 				writeError(w, http.StatusUnauthorized, "Key is revoked")
 				return
 			}
 			// A rebound key's only use is rotating away from it, on the
 			// unauthenticated /keys path.
 			if publicKey.Restricted {
+				h.authRejected(r, publicKeyIDHeader, publicKey.UserID, "restricted_key")
 				writeError(w, http.StatusForbidden, "restricted-key")
 				return
 			}
@@ -482,6 +492,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					path := r.URL.Path
 					if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
 						log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
+						h.authRejected(r, publicKeyIDHeader, userID, "account_removed")
 						writeError(w, http.StatusGone, "Account removed")
 						return
 					}
@@ -494,11 +505,14 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					Str("publicKeyId", publicKeyIDHeader).
 					Err(err).
 					Msg("Request signature verification failed")
+				h.authRejected(r, publicKeyIDHeader, userID, "bad_signature")
 				writeError(w, http.StatusUnauthorized, "Request signature verification failed")
 				return
 			}
 			if userID != "" && refuseIfSuspended(r.Context(), w, h.services.db, userID) {
 				log.Info().Str("userID", userID).Str("path", r.URL.Path).Msg("Rejected request from suspended user")
+				h.metrics.SuspendedRefusal(r.Context(), userID, metrics.SurfaceHTTP)
+				h.authRejected(r, publicKeyIDHeader, userID, "suspended")
 				return
 			}
 
@@ -528,6 +542,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					return
 				}
 				if !peerOK {
+					h.authRejected(r, publicKeyIDHeader, "", "not_peer")
 					writeError(w, http.StatusForbidden, "Not an established peer")
 					return
 				}
@@ -559,6 +574,7 @@ func (h *Handlers) serverKeyProofMiddleware(prefix string) func(http.Handler) ht
 
 			fingerprint := r.Header.Get(serverKeyProofHeader)
 			if fingerprint == "" || fingerprint != h.signingKey.Fingerprint {
+				h.authRejected(r, "", "", "server_key_proof")
 				writeError(w, http.StatusUnauthorized, "Missing or incorrect server key proof")
 				return
 			}
@@ -566,6 +582,18 @@ func (h *Handlers) serverKeyProofMiddleware(prefix string) func(http.Handler) ht
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// authRejected counts a request auth refused. keyID is as claimed; userID
+// is empty when the key isn't known.
+func (h *Handlers) authRejected(r *http.Request, keyID, userID, reason string) {
+	route := "unmatched"
+	if current := mux.CurrentRoute(r); current != nil {
+		if tmpl, err := current.GetPathTemplate(); err == nil {
+			route = tmpl
+		}
+	}
+	h.metrics.AuthRejected(r.Context(), keyID, userID, reason, route)
 }
 
 // verifyRequestSignature verifies the signature of the request
@@ -710,6 +738,7 @@ func (h *Handlers) deviceMiddleware() func(http.Handler) http.Handler {
 
 			if err := h.services.db.CheckActiveDevice(r.Context(), userID, r.Header.Get("X-Syrinx-Device-Id")); err != nil {
 				if err == errDeviceMismatch || err == errMissingDevice {
+					h.authRejected(r, "", userID, "device_mismatch")
 					writeError(w, http.StatusForbidden, "Device mismatch: this session is not bound to the active device.")
 					return
 				}

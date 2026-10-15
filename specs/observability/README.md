@@ -18,7 +18,7 @@ and forwards to the telemetry Pi ([01](01_agent_otlp_receiver.md)).
 | [02](02_app_bootstrap.md) | Wire `SetupObservability` + HTTP request spans | 01 | this repo |
 | [03](03_db_instrumentation.md) | DB query spans via `otelsql` | 02 | this repo |
 | [04](04_context_threading.md) | Thread `context.Context` so DB spans nest under the request span | 02, 03 | this repo |
-| [05](05_custom_metrics.md) | Custom business metrics (signups, reeds, deletions, WS, coverage, length, tags) | 02 | this repo |
+| [05](05_custom_metrics.md) | Custom business metrics (signups, reeds, deletions, admin, abuse, social, federation, WS, coverage) | 02 | this repo |
 
 ## Locked decisions
 
@@ -31,7 +31,7 @@ and forwards to the telemetry Pi ([01](01_agent_otlp_receiver.md)).
 | Query text | Statement text captured; **query arguments are never captured** (no user data in spans) |
 | Correlation | DB spans must be children of the HTTP request span in the same trace (single-trace "waterfall" per request), not disconnected root spans |
 | Business metrics | Counters + histograms on the OTLP metrics pipeline; `syrinx.*` instrument prefix — see [05](05_custom_metrics.md) |
-| Metrics privacy | No usernames, tag text, or content; **hashed user IDs** (`user.id_hash`, `author.id_hash`) and reed IDs on metrics; never raw user ids |
+| Metrics privacy | No usernames, tag text, or content; **raw user IDs** (`user.id`, `author.id`, …) and reed IDs on metrics. The server holds no content, and a hash of a public, enumerable ID hid nothing while blocking abuse investigation |
 | Signup modes on `syrinx.users.created` | `open` \| `invite` \| `closed` (normal signup) or `import` (server-recovery claim / peer seed) |
 | Key revocation metric | `syrinx.keys.revoked` on successful **`RevokeKey`** persist |
 | Echo targeting | `syrinx.echoes.targeted` on the echoed reed (indexed), separate from `syrinx.reeds.published{kind=echo}` on the echoing reed |

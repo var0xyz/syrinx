@@ -60,6 +60,15 @@ func relayLeg(path string) string {
 	return path
 }
 
+// doPeerRequest sends a signed request to peerServerID, counting it as an
+// outbound call on leg; ok means the peer answered 2xx.
+func (h *Handlers) doPeerRequest(httpReq *http.Request, peerServerID, leg string) (*http.Response, error) {
+	resp, err := h.federationHTTPClient().Do(httpReq)
+	ok := err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300
+	h.metrics.FederationRelay(httpReq.Context(), metrics.DirectionOut, peerServerID, leg, ok)
+	return resp, err
+}
+
 // callPeerRelayEndpoint POSTs body (nil for none) to a peer's relay RPC
 // path, signed as this server's own key, and decodes a 2xx response into
 // out (nil to ignore it). Returns the peer's HTTP status.
@@ -888,6 +897,7 @@ func (h *Handlers) PushReedStatsFromPeer(w http.ResponseWriter, r *http.Request)
 	}
 
 	delivered := h.realtimeRelay.DeliverForeignReedStats(r.Context(), req.ReedId, req.ExcludeUserId, req.Message)
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "reed-stats", true)
 	if !delivered {
 		writeError(w, http.StatusNotFound, "No subscribers for this reed")
 		return
@@ -1228,6 +1238,7 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", true)
+	h.metrics.UserSearch(r.Context(), "", true)
 	writeResponse(w, http.StatusOK, &pb.RelaySearchUsersResponse{Users: pbUserSearch(results).Users})
 }
 
@@ -1784,6 +1795,7 @@ func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, pee
 	fail := func(status int, msg string, err error) {
 		log.Warn().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg(msg)
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		h.metrics.ForeignKick(r.Context(), peerServerID, false)
 		writeError(w, status, msg)
 	}
 	admin, err := h.verifyForeignAdminAuthorization(r.Context(), peerServerID, req.Admin, adminActionKick, req.UserId)
@@ -1810,6 +1822,7 @@ func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, pee
 	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
 		log.Error().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Failed to store foreign kick")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
+		h.metrics.ForeignKick(r.Context(), peerServerID, false)
 		internalServerError(w)
 		return
 	}
@@ -1819,6 +1832,7 @@ func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, pee
 	}
 	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign kick")
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
+	h.metrics.ForeignKick(r.Context(), peerServerID, true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1902,10 +1916,12 @@ const peerKeyUpdateRetry = 5 * time.Minute
 // ServerKeyNoticeFromPeer answers a peer's new-key notice. The work happens
 // in authentication, which re-pins an unknown key before this runs.
 func (h *Handlers) ServerKeyNoticeFromPeer(w http.ResponseWriter, r *http.Request) {
-	if peerServerID, ok := r.Context().Value(peerServerIDKey).(string); !ok || peerServerID == "" {
+	peerServerID, ok := r.Context().Value(peerServerIDKey).(string)
+	if !ok || peerServerID == "" {
 		writeError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
+	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "server-key", true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1968,7 +1984,7 @@ func (h *Handlers) peerServerKeySource(peerServerID, baseURL string) serverKeySo
 			if err := h.setPeerProxyAuthHeaders(req, ""); err != nil {
 				return nil, err
 			}
-			resp, err := h.federationHTTPClient().Do(req)
+			resp, err := h.doPeerRequest(req, peerServerID, "server-key-revocation-fetch")
 			if err != nil {
 				return nil, err
 			}
@@ -2357,7 +2373,7 @@ func (h *Handlers) fetchForeignKeyRevocation(ctx context.Context, keyID string) 
 	if err := h.setPeerProxyAuthHeaders(req, ""); err != nil {
 		return nil, err
 	}
-	resp, err := h.federationHTTPClient().Do(req)
+	resp, err := h.doPeerRequest(req, homeServerID, "key-revocation-fetch")
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -39,6 +40,7 @@ func ripplesTestHandlers(db *DataService) *Handlers {
 	return &Handlers{
 		services:      &Services{db: db, crypto: svc, log: NewLoggingService()},
 		broadcastChan: make(chan realtimeBroadcastMessage, 100),
+		metrics:       metrics.Noop{},
 		signingKey: ServerSigningKey{
 			Fingerprint: kp.Fingerprint,
 			Armor:       kp.PrivateKey,

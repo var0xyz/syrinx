@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -214,7 +215,7 @@ func TestDeviceMiddleware(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := &Handlers{services: &Services{db: svc}}
+	h := &Handlers{services: &Services{db: svc}, metrics: metrics.Noop{}}
 	mw := h.deviceMiddleware()
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -283,6 +284,7 @@ func TestBindDeviceHandler(t *testing.T) {
 	h := &Handlers{
 		services:   &Services{db: svc},
 		kickUserWS: func(userID string) { kicked = true },
+		metrics:    metrics.Noop{},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/users/device", nil)

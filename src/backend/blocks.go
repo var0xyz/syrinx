@@ -351,6 +351,7 @@ func (h *Handlers) refuseIfBlocked(w http.ResponseWriter, r *http.Request, autho
 	if removal != nil {
 		return false
 	}
+	h.metrics.BlockRefusal(r.Context(), viewerID, authorID, metrics.SurfaceHTTP)
 	writeBlocked(w, cert)
 	return true
 }
@@ -367,6 +368,7 @@ func (h *Handlers) refuseBlockedRequester(w http.ResponseWriter, r *http.Request
 	if cert == nil {
 		return false
 	}
+	h.metrics.BlockRefusal(r.Context(), requesterID, authorID, metrics.SurfaceHTTP)
 	writeBlocked(w, cert)
 	return true
 }
@@ -440,6 +442,7 @@ func (rs *realtimeService) refuseIfBlocked(client *realtimeClient, requestID, au
 	if cert == nil {
 		return false
 	}
+	rs.metrics.BlockRefusal(context.Background(), client.userID, authorID, metrics.SurfaceWS)
 	rs.connManager.SendToUser(client.userID, newUserBlockedMsg(requestID, cert))
 	return true
 }
@@ -576,6 +579,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if created {
+		h.metrics.Block(r.Context(), metrics.OpAdd, userID, blockedUserID, metrics.OriginLocal)
 		h.afterBlock(cert, dropped)
 		h.sendBlockNoticesFor(blockedUserID)
 	}
@@ -631,6 +635,7 @@ func (h *Handlers) UnblockUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if deleted {
 		log.Info().Str("userID", userID).Str("blockedUserID", blockedUserID).Msg("Block lifted")
+		h.metrics.Block(r.Context(), metrics.OpRemove, userID, blockedUserID, metrics.OriginLocal)
 		h.afterUnblock(userID, blockedUserID)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -824,6 +829,7 @@ func (h *Handlers) acceptForeignBlock(ctx context.Context, peerServerID string, 
 		return err
 	}
 	if created {
+		h.metrics.Block(ctx, metrics.OpAdd, cert.UserID, cert.BlockedUserID, metrics.OriginPeer)
 		h.afterBlock(cert, dropped)
 	}
 	return nil
@@ -892,6 +898,9 @@ func (h *Handlers) UnblockNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 		log.Error().Err(err).Str("userID", req.UserId).Msg("Error deleting block")
 		internalServerError(w)
 		return
+	}
+	if deleted {
+		h.metrics.Block(r.Context(), metrics.OpRemove, req.UserId, req.BlockedUserId, metrics.OriginPeer)
 	}
 	if deleted && h.realtimeRelay != nil {
 		h.realtimeRelay.pushUnblock(req.UserId, req.BlockedUserId)

@@ -14,9 +14,9 @@ The self-hosted telemetry stack (OpenObserve + `otelcol-contrib` on a
 dedicated Pi, `otelcol-agent` shipping journald logs + hostmetrics from the
 app host) already ships structured logs and host-level metrics
 (CPU/memory/disk/network via the `hostmetrics` receiver) — aggregate machine
-stats, no per-user data. Anything that fingerprints individual users
-(session replay, per-user dashboards, etc.) is explicitly not wanted in this
-stack.
+stats, no per-user data. Session replay and per-user behavior profiling are
+not wanted in this stack; business metrics carry user ids only so an
+operator can tell who is abusing the server (see [05](05_custom_metrics.md)).
 
 What's still missing is **request-level and query-level timing**: "how long
 did this request take, which DB queries did it run, how long did each one
@@ -35,12 +35,12 @@ the DB layer is never instrumented.
 - Spans carry aggregate/structural data only (route template, SQL statement
   shape, durations, status codes) — never user IDs, query argument values,
   or request bodies.
-- **Custom business metrics** ([05](05_custom_metrics.md)): anonymized counters
-  and histograms for signups/imports, account/reed deletions, publishes
-  (plain/echo/reply), echo targeting, key revocations, backups, WebSocket
-  traffic, per-reed holder/coverage snapshots, reed length, and tag counts.
-  User ids appear only as **`*.id_hash`** (SHA-256 hex); reed IDs are allowed
-  as-is; usernames and tag text are not.
+- **Custom business metrics** ([05](05_custom_metrics.md)): counters, gauges
+  and histograms for signups/imports, account/reed deletions, publishes,
+  admin requests and actions, auth and abuse refusals, social actions,
+  federation, WebSocket traffic and per-reed coverage. User ids and reed IDs
+  appear as-is, so an operator can name an abuser; usernames and tag text
+  never do.
 
 ## Non-goals
 
@@ -134,5 +134,5 @@ always-on user tagging.
 
 Metrics follow a different, operator-facing rule set — see
 [05 — Privacy rules](05_custom_metrics.md#55-privacy-rules-extends-00). In
-short: **no usernames, tag text, or content**; **hashed user ids** on all
+short: **no usernames, tag text, or content**; **raw user ids** on
 user-scoped series; reed IDs allowed for per-reed reach and publish shape.

@@ -20,6 +20,7 @@ import (
 	"github.com/lib/pq"
 	"google.golang.org/protobuf/proto"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -170,17 +171,26 @@ func stateForDecision(decision string) string {
 	return ""
 }
 
-// adminRefusal is a request or decision the rules refuse, with the status
-// and the rule that failed.
+// adminRefusal is a request or decision the rules refuse, with the status,
+// a fixed reason code for metrics, and the rule that failed.
 type adminRefusal struct {
 	status  int
+	reason  string
 	message string
 }
 
 func (e *adminRefusal) Error() string { return e.message }
 
-func refuse(status int, format string, args ...any) error {
-	return &adminRefusal{status: status, message: fmt.Sprintf(format, args...)}
+func refuse(status int, reason, format string, args ...any) error {
+	return &adminRefusal{status: status, reason: reason, message: fmt.Sprintf(format, args...)}
+}
+
+// recordAdminRefusal counts err against action when it's a refusal.
+func (h *Handlers) recordAdminRefusal(ctx context.Context, err error, action, actorID string, stage metrics.AdminStage) {
+	var refusal *adminRefusal
+	if errors.As(err, &refusal) {
+		h.metrics.AdminRequestRefused(ctx, action, actorID, stage, refusal.reason)
+	}
 }
 
 // writeAdminError answers err as its refusal, or as a 500.
@@ -500,7 +510,7 @@ func closeAdminRequestTx(ctx context.Context, tx *sql.Tx, req *adminRequest, sta
 		return fmt.Errorf("close admin request: %w", err)
 	}
 	if n, err := res.RowsAffected(); err != nil || n != 1 {
-		return refuse(http.StatusConflict, "Request is no longer pending")
+		return refuse(http.StatusConflict, "not_pending", "Request is no longer pending")
 	}
 	req.State = state
 	req.Decision = decision
@@ -617,7 +627,7 @@ func requiredPermissionsQ(ctx context.Context, q adminQuerier, req *adminRequest
 	}
 	next, err := grantedPermissions(req)
 	if err != nil {
-		return nil, refuse(http.StatusBadRequest, "Invalid permission set: %v", err)
+		return nil, refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 	}
 	target := req.Targets[0]
 	role, err := userRoleQ(ctx, q, target)
@@ -642,7 +652,7 @@ func requiredPermissionsQ(ctx context.Context, q adminQuerier, req *adminRequest
 		}
 	}
 	if len(required) == 0 {
-		return nil, refuse(http.StatusConflict, "The permissions are unchanged")
+		return nil, refuse(http.StatusConflict, "permissions_unchanged", "The permissions are unchanged")
 	}
 	return required, nil
 }
@@ -660,11 +670,11 @@ func checkActorPermissionsQ(ctx context.Context, q adminQuerier, req *adminReque
 	}
 	granted, err := grantedPermissions(req)
 	if err != nil {
-		return refuse(http.StatusBadRequest, "Invalid permission set: %v", err)
+		return refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 	}
 	for _, p := range append(required, granted...) {
 		if !slices.Contains(held, p) {
-			return refuse(http.StatusForbidden, "Missing permission %s", p)
+			return refuse(http.StatusForbidden, "missing_permission", "Missing permission %s", p)
 		}
 	}
 	return nil
@@ -677,73 +687,73 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 	serverID := h.services.db.GetServerID()
 
 	if _, err := uuid.Parse(req.ID); err != nil {
-		return refuse(http.StatusBadRequest, "Request ID must be a UUID")
+		return refuse(http.StatusBadRequest, "bad_id", "Request ID must be a UUID")
 	}
 	if _, ok := adminActionPermission[req.Action]; !ok && req.Action != adminActionPermissions {
-		return refuse(http.StatusBadRequest, "Unknown action")
+		return refuse(http.StatusBadRequest, "unknown_action", "Unknown action")
 	}
 	if d := time.Since(req.CreatedAt); d > adminRequestClockSkew || d < -adminRequestClockSkew {
-		return refuse(http.StatusBadRequest, "createdAt is too far from the server's clock")
+		return refuse(http.StatusBadRequest, "clock_skew", "createdAt is too far from the server's clock")
 	}
 	if !slices.IsSorted(req.Targets) || len(slices.Compact(slices.Clone(req.Targets))) != len(req.Targets) {
-		return refuse(http.StatusBadRequest, "Targets must be sorted and unique")
+		return refuse(http.StatusBadRequest, "bad_targets", "Targets must be sorted and unique")
 	}
 	if !targetCountFits(req.Action, len(req.Targets)) {
-		return refuse(http.StatusBadRequest, "Wrong number of targets for %s", req.Action)
+		return refuse(http.StatusBadRequest, "bad_targets", "Wrong number of targets for %s", req.Action)
 	}
 	for _, target := range req.Targets {
 		if _, targetServerID, ok := parseIdentityID(identityID(target)); !ok || targetServerID != serverID {
-			return refuse(http.StatusBadRequest, "Target %s isn't a local user", target)
+			return refuse(http.StatusBadRequest, "foreign_target", "Target %s isn't a local user", target)
 		}
 		if isRootIdentity(target, serverID) {
-			return refuse(http.StatusForbidden, "Root can't be a target")
+			return refuse(http.StatusForbidden, "root_target", "Root can't be a target")
 		}
 		role, err := userRoleQ(ctx, q, target)
 		if err != nil {
 			return err
 		}
 		if role == "" {
-			return refuse(http.StatusNotFound, "Target %s not found", target)
+			return refuse(http.StatusNotFound, "target_not_found", "Target %s not found", target)
 		}
 		removed, err := hasAccountRemovalQ(ctx, q, target)
 		if err != nil {
 			return err
 		}
 		if removed {
-			return refuse(http.StatusGone, "Target %s was removed", target)
+			return refuse(http.StatusGone, "target_removed", "Target %s was removed", target)
 		}
 	}
 
 	noReason := req.Action == adminActionBroadcast || req.Action == adminActionUnicast
 	reasonLen := countCharacters(req.Reason)
 	if noReason && req.Reason != "" {
-		return refuse(http.StatusBadRequest, "A %s has no reason", req.Action)
+		return refuse(http.StatusBadRequest, "bad_reason", "A %s has no reason", req.Action)
 	}
 	if !noReason && (strings.TrimSpace(req.Reason) == "" || reasonLen > maxAdminReasonChars) {
-		return refuse(http.StatusBadRequest, "A reason of 1 to %d characters is required", maxAdminReasonChars)
+		return refuse(http.StatusBadRequest, "bad_reason", "A reason of 1 to %d characters is required", maxAdminReasonChars)
 	}
 
 	switch req.Action {
 	case adminActionBroadcast, adminActionUnicast:
 		if strings.TrimSpace(req.Body) == "" || countCharacters(req.Body) > MaxMailboxMessageChars {
-			return refuse(http.StatusBadRequest, "A message of 1 to %d characters is required", MaxMailboxMessageChars)
+			return refuse(http.StatusBadRequest, "bad_message", "A message of 1 to %d characters is required", MaxMailboxMessageChars)
 		}
 	case adminActionPromote, adminActionPermissions:
 		if _, err := parsePermissionSet(req.Body); err != nil {
-			return refuse(http.StatusBadRequest, "Invalid permission set: %v", err)
+			return refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 		}
 	case adminActionRebind:
 		if strings.TrimSpace(req.Body) == "" {
-			return refuse(http.StatusBadRequest, "A public key is required")
+			return refuse(http.StatusBadRequest, "bad_body", "A public key is required")
 		}
 	default:
 		if req.Body != "" {
-			return refuse(http.StatusBadRequest, "A %s has no body", req.Action)
+			return refuse(http.StatusBadRequest, "bad_body", "A %s has no body", req.Action)
 		}
 	}
 
 	if !isAdmin(requesterRole) {
-		return refuse(http.StatusForbidden, "Admin required")
+		return refuse(http.StatusForbidden, "not_admin", "Admin required")
 	}
 	if err := checkActorPermissionsQ(ctx, q, req, req.RequesterID, requesterRole, serverID); err != nil {
 		return err
@@ -751,7 +761,7 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 
 	ex := h.adminExecutor(req.Action)
 	if ex == nil {
-		return refuse(http.StatusNotImplemented, "The %s action isn't available", req.Action)
+		return refuse(http.StatusNotImplemented, "unavailable", "The %s action isn't available", req.Action)
 	}
 	if ex.validate != nil {
 		return ex.validate(ctx, q, req)
@@ -767,14 +777,14 @@ func checkDeciderQ(ctx context.Context, q adminQuerier, req *adminRequest, decid
 		return err
 	}
 	if !isAdmin(role) {
-		return refuse(http.StatusForbidden, "Only an admin can decide on a request")
+		return refuse(http.StatusForbidden, "not_admin", "Only an admin can decide on a request")
 	}
 	deciderIsRoot := isRoot(deciderID, role, serverID)
 	if deciderID == req.RequesterID && !deciderIsRoot {
-		return refuse(http.StatusForbidden, "The requester can't decide on their own request")
+		return refuse(http.StatusForbidden, "self_decision", "The requester can't decide on their own request")
 	}
 	if slices.Contains(req.Targets, deciderID) {
-		return refuse(http.StatusForbidden, "A target can't decide on the request")
+		return refuse(http.StatusForbidden, "target_decision", "A target can't decide on the request")
 	}
 	if adminActionNeedsOutsideApprover[req.Action] {
 		invited, err := invitedByQ(ctx, q, req.RequesterID, deciderID)
@@ -782,7 +792,7 @@ func checkDeciderQ(ctx context.Context, q adminQuerier, req *adminRequest, decid
 			return err
 		}
 		if invited {
-			return refuse(http.StatusForbidden, "Someone the requester invited can't decide on a kick or a permission change")
+			return refuse(http.StatusForbidden, "invitee_decision", "Someone the requester invited can't decide on a kick or a permission change")
 		}
 	}
 	if err := checkActorPermissionsQ(ctx, q, req, deciderID, role, serverID); err != nil {
@@ -795,7 +805,7 @@ func checkDeciderQ(ctx context.Context, q adminQuerier, req *adminRequest, decid
 				return err
 			}
 			if targetRole == roleAdmin {
-				return refuse(http.StatusForbidden, "Only root can decide on a request about an admin")
+				return refuse(http.StatusForbidden, "root_required", "Only root can decide on a request about an admin")
 			}
 		}
 	}
@@ -852,7 +862,7 @@ func (h *Handlers) callerSigningKey(ctx context.Context, keyID, userID string) (
 		return nil, err
 	}
 	if key == nil || key.UserID != userID || key.Revoked {
-		return nil, refuse(http.StatusUnauthorized, "Signing key isn't an active key of the caller")
+		return nil, refuse(http.StatusUnauthorized, "bad_key", "Signing key isn't an active key of the caller")
 	}
 	return key, nil
 }
@@ -866,6 +876,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !isAdmin(role) {
+		h.metrics.AdminRequestRefused(r.Context(), "", callerID, metrics.AdminStageOpen, "not_admin")
 		writeError(w, http.StatusForbidden, "Admin required")
 		return
 	}
@@ -893,15 +904,18 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		State: adminStatePending,
 	}
 	if err := h.validateNewAdminRequest(r.Context(), req, role); err != nil {
+		h.recordAdminRefusal(r.Context(), err, req.Action, callerID, metrics.AdminStageOpen)
 		h.writeAdminError(w, r, err, "Error validating admin request")
 		return
 	}
 	key, err := h.callerSigningKey(r.Context(), req.RequesterSignature.ID, callerID)
 	if err != nil {
+		h.recordAdminRefusal(r.Context(), err, req.Action, callerID, metrics.AdminStageOpen)
 		h.writeAdminError(w, r, err, "Error loading signing key")
 		return
 	}
 	if err := h.services.crypto.verifySignature(string(req.payload()), req.RequesterSignature.Armor, key.Armor); err != nil {
+		h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageOpen, "bad_signature")
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
@@ -918,6 +932,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return insertAdminRequestTx(r.Context(), tx, req)
 	})
 	if errors.Is(err, ErrAdminRequestExists) {
+		h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageOpen, "exists")
 		writeError(w, http.StatusConflict, "A request with that ID already exists")
 		return
 	}
@@ -926,6 +941,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Info().Str("requestID", req.ID).Str("action", req.Action).Str("requesterID", callerID).Msg("Admin request opened")
+	h.metrics.AdminRequestOpened(r.Context(), req.Action, callerID, role, len(req.Targets))
 	writeResponse(w, http.StatusCreated, pbAdminRequest(req))
 }
 
@@ -1031,16 +1047,19 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.State != adminStatePending {
+		h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageDecide, "not_pending")
 		writeError(w, http.StatusConflict, "Request is no longer pending")
 		return
 	}
 	key, err := h.callerSigningKey(r.Context(), decision.Signature.ID, callerID)
 	if err != nil {
+		h.recordAdminRefusal(r.Context(), err, req.Action, callerID, metrics.AdminStageDecide)
 		h.writeAdminError(w, r, err, "Error loading signing key")
 		return
 	}
 	payload := buildAdminDecisionPayload(req.ID, decision.Decision, callerID, decision.Signature.ID, req.RequesterSignature.Armor)
 	if err := h.services.crypto.verifySignature(string(payload), decision.Signature.Armor, key.Armor); err != nil {
+		h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageDecide, "bad_signature")
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
@@ -1069,11 +1088,11 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if locked == nil || locked.State != adminStatePending {
-			return refuse(http.StatusConflict, "Request is no longer pending")
+			return refuse(http.StatusConflict, "not_pending", "Request is no longer pending")
 		}
 		if decision.Decision == adminDecisionWithdraw {
 			if callerID != locked.RequesterID {
-				return refuse(http.StatusForbidden, "Only the requester can withdraw a request")
+				return refuse(http.StatusForbidden, "not_requester", "Only the requester can withdraw a request")
 			}
 		} else if err := checkDeciderQ(r.Context(), tx, locked, callerID, serverID); err != nil {
 			return err
@@ -1102,6 +1121,12 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return h.appendLedgerTx(r.Context(), tx, entry)
 	})
 	if err != nil {
+		var refusal *adminRefusal
+		if errors.As(err, &refusal) {
+			h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageDecide, refusal.reason)
+		} else if ex != nil {
+			h.recordAdminExecuted(r.Context(), req, callerID, false)
+		}
 		h.writeAdminError(w, r, err, "Error deciding admin request")
 		return
 	}
@@ -1109,8 +1134,35 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 	if ex != nil && ex.after != nil {
 		ex.after(req)
 	}
+	var wait time.Duration
+	if decision.Decision != adminDecisionWithdraw {
+		wait = now.Sub(req.CreatedAt)
+	}
+	h.metrics.AdminRequestDecided(r.Context(), req.Action, decision.Decision, req.RequesterID, callerID, wait)
+	if state == adminStateExecuted {
+		h.recordAdminExecuted(r.Context(), req, callerID, true)
+	}
 	log.Info().Str("requestID", req.ID).Str("decision", decision.Decision).Str("deciderID", callerID).Msg("Admin request closed")
 	writeResponse(w, http.StatusOK, pbAdminRequest(req))
+}
+
+// recordAdminExecuted counts an approved action once per remaining target,
+// once with no target for a broadcast.
+func (h *Handlers) recordAdminExecuted(ctx context.Context, req *adminRequest, approverID string, ok bool) {
+	targets := req.remainingTargets()
+	if len(targets) == 0 {
+		targets = []string{""}
+	}
+	for _, target := range targets {
+		h.metrics.AdminActionExecuted(ctx, req.Action, target, req.RequesterID, approverID, ok)
+	}
+}
+
+// recordInvitesRevoked counts the open invites action revoked from target.
+func (h *Handlers) recordInvitesRevoked(action, target string, n int64) {
+	if n > 0 {
+		h.metrics.AdminInvitesRevoked(context.Background(), action, target, int(n))
+	}
 }
 
 // dropFromAdminRequests marks a removed user dropped from every pending
@@ -1150,13 +1202,19 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 	if err != nil {
 		return err
 	}
-	return withAdminTx(h.services.db.db, ctx, func(tx *sql.Tx) error {
+	closed := false
+	err = withAdminTx(h.services.db.db, ctx, func(tx *sql.Tx) error {
 		locked, err := getAdminRequestQ(ctx, tx, requestID, true)
 		if err != nil || locked == nil || locked.State != adminStatePending || len(locked.remainingTargets()) > 0 {
 			return err
 		}
+		closed = true
 		return closeAdminRequestTx(ctx, tx, locked, adminStateMoot, nil, serverSig)
 	})
+	if err == nil && closed {
+		h.metrics.AdminRequestMoot(ctx, req.Action)
+	}
+	return err
 }
 
 // adminRequestFromPB reads a request as it travels in a certificate.

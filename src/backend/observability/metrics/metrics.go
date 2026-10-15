@@ -1,8 +1,12 @@
-// Package metrics records anonymized Syrinx business counters and histograms.
+// Package metrics records Syrinx business counters and histograms. User ids
+// go on attributes as-is so an operator can tell who is abusing the system.
 // When observability is disabled, Recorder degrades to a no-op.
 package metrics
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Direction is WebSocket message flow relative to the server.
 type Direction string
@@ -32,16 +36,64 @@ const (
 	ReedKindReply ReedKind = "reply"
 )
 
+// RemovalKind says who removed an account.
+type RemovalKind string
+
+const (
+	RemovalSelf RemovalKind = "self"
+	RemovalKick RemovalKind = "kick"
+)
+
+// RevocationKind says why a key was revoked.
+type RevocationKind string
+
+const (
+	RevocationRotation RevocationKind = "rotation"
+	RevocationRebind   RevocationKind = "rebind"
+)
+
 // RelayLifecycle is a pending relay event's stage, for wasted-bandwidth
 // analysis: created-but-never-fulfilled-or-deleted means it leaked (no
 // holder ever answered); fulfilled more than once for the same
-// event.id_hash means a duplicate/redundant relay response was processed.
+// event.id means a duplicate/redundant relay response was processed.
 type RelayLifecycle string
 
 const (
 	RelayEventCreated   RelayLifecycle = "created"
 	RelayEventFulfilled RelayLifecycle = "fulfilled"
 	RelayEventDeleted   RelayLifecycle = "deleted"
+)
+
+// Op is the direction of a toggle-style action.
+type Op string
+
+const (
+	OpAdd    Op = "add"
+	OpRemove Op = "remove"
+)
+
+// Origin says whether an action started on this server or a peer's.
+type Origin string
+
+const (
+	OriginLocal Origin = "local"
+	OriginPeer  Origin = "peer"
+)
+
+// Surface is the transport a refusal happened on.
+type Surface string
+
+const (
+	SurfaceHTTP Surface = "http"
+	SurfaceWS   Surface = "ws"
+)
+
+// AdminStage is where an admin request was refused.
+type AdminStage string
+
+const (
+	AdminStageOpen   AdminStage = "open"
+	AdminStageDecide AdminStage = "decide"
 )
 
 // ReedPublishedAttrs carries structural publish metadata (no content or tag
@@ -55,12 +107,13 @@ type ReedPublishedAttrs struct {
 
 // Recorder emits domain metrics. Implementations must be safe for concurrent use.
 type Recorder interface {
-	UserCreated(ctx context.Context, signupMode, userID string)
-	UserDeleted(ctx context.Context, userID string, noteHas bool)
+	UserCreated(ctx context.Context, signupMode, userID, inviterID string)
+	UserDeleted(ctx context.Context, userID string, kind RemovalKind, noteHas bool)
+	UserUpdated(ctx context.Context, userID string, renamed bool)
 	ReedPublished(ctx context.Context, p ReedPublishedAttrs)
 	ReedDeleted(ctx context.Context, authorID, reedID string)
-	EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string)
-	KeyRevoked(ctx context.Context, userID string)
+	EchoTargeted(ctx context.Context, authorID, targetAuthorID, targetReedID string)
+	KeyRevoked(ctx context.Context, userID string, kind RevocationKind)
 	KeyFetchError(ctx context.Context, reporterUserID, targetUserID, keyID string)
 	RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, keyID string)
 	ContentRejected(ctx context.Context, reporterUserID, storeName, reason string)
@@ -68,28 +121,112 @@ type Recorder interface {
 	UserBackup(ctx context.Context, userID string, kind BackupKind)
 	ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int)
 	WSMessage(ctx context.Context, direction Direction, msgType string)
-	RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind, eventID string)
+	RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind, eventID, requesterID string)
 	FederationRelay(ctx context.Context, direction Direction, peerServerID, leg string, ok bool)
+
+	AdminRequestOpened(ctx context.Context, action, requesterID, requesterRole string, targets int)
+	AdminRequestRefused(ctx context.Context, action, actorID string, stage AdminStage, reason string)
+	AdminRequestDecided(ctx context.Context, action, decision, requesterID, deciderID string, wait time.Duration)
+	AdminRequestMoot(ctx context.Context, action string)
+	AdminActionExecuted(ctx context.Context, action, targetID, requesterID, approverID string, ok bool)
+	SuspendedRefusal(ctx context.Context, userID string, surface Surface)
+	AdminMailSent(ctx context.Context, action, senderID string, recipients, failed int)
+	AdminInvitesRevoked(ctx context.Context, action, targetID string, count int)
+	ReservedUsernameChanged(ctx context.Context, op Op, rootID string)
+	ReservedUsernameHit(ctx context.Context, surface, userID string)
+	ForeignKick(ctx context.Context, peerServerID string, ok bool)
+	FlagCreated(ctx context.Context, reporterID, authorID, reedID string, origin Origin, noteHas bool)
+	FlagsDismissed(ctx context.Context, adminID, reedID string, count int)
+	LedgerAppended(ctx context.Context, entryKind string)
+	ServerKeyRevocations(ctx context.Context, compromised bool, total int)
+
+	AuthRejected(ctx context.Context, keyID, userID, reason, route string)
+	WSHandshakeRejected(ctx context.Context, keyID, userID, reason string)
+	WSSession(ctx context.Context, userID string, connected bool)
+	SignupRejected(ctx context.Context, signupMode, reason string)
+	UsernameCheck(ctx context.Context, userID string, available bool)
+	CooldownHit(ctx context.Context, kind, userID string)
+	BlockRefusal(ctx context.Context, viewerID, authorID string, surface Surface)
+
+	InviteCreated(ctx context.Context, inviterID string, adminInvite bool)
+	InviteClaimed(ctx context.Context, inviterID, inviteeID string, adminInvite bool)
+	InviteDeleted(ctx context.Context, inviterID string)
+	Follow(ctx context.Context, op Op, followerID, followeeID string, remote bool)
+	Like(ctx context.Context, op Op, userID, authorID, reedID string)
+	Ripple(ctx context.Context, op Op, userID, authorID, reedID string)
+	Pin(ctx context.Context, op Op, userID string)
+	Block(ctx context.Context, op Op, userID, blockedID string, origin Origin)
+	Vouch(ctx context.Context, op Op, voucherID, subjectID string, ok bool, reason string)
+	VerificationWindow(ctx context.Context, op, userID string)
+	DeviceBound(ctx context.Context, userID string)
+	AccountRecovery(ctx context.Context, stage, userID string, ok bool, reason string)
+	ServerRecovery(ctx context.Context, stage, userID string, ok bool)
+	Mailbox(ctx context.Context, op Op, kind, userID string)
+	UserSearch(ctx context.Context, userID string, remote bool)
+
+	FederationLifecycle(ctx context.Context, event, peerServerID, adminID string)
+	FederationDeliveryBacklog(ctx context.Context, peerServerID string, items int)
 }
 
 // Noop is an inert Recorder.
 type Noop struct{}
 
-func (Noop) UserCreated(context.Context, string, string)                      {}
-func (Noop) UserDeleted(context.Context, string, bool)                        {}
-func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)                {}
-func (Noop) ReedDeleted(context.Context, string, string)                      {}
-func (Noop) EchoTargeted(context.Context, string, string)                     {}
-func (Noop) KeyRevoked(context.Context, string)                               {}
-func (Noop) KeyFetchError(context.Context, string, string, string)            {}
-func (Noop) RevokedKeyUsed(context.Context, string, string, string)           {}
-func (Noop) ContentRejected(context.Context, string, string, string)          {}
-func (Noop) MentionClaimRejected(context.Context, string, string, string)     {}
-func (Noop) UserBackup(context.Context, string, BackupKind)                   {}
-func (Noop) ReedCoverage(context.Context, string, string, int, int)           {}
-func (Noop) WSMessage(context.Context, Direction, string)                     {}
-func (Noop) RelayEvent(context.Context, RelayLifecycle, string, string)       {}
-func (Noop) FederationRelay(context.Context, Direction, string, string, bool) {}
+func (Noop) UserCreated(context.Context, string, string, string)                     {}
+func (Noop) UserDeleted(context.Context, string, RemovalKind, bool)                  {}
+func (Noop) UserUpdated(context.Context, string, bool)                               {}
+func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)                       {}
+func (Noop) ReedDeleted(context.Context, string, string)                             {}
+func (Noop) EchoTargeted(context.Context, string, string, string)                    {}
+func (Noop) KeyRevoked(context.Context, string, RevocationKind)                      {}
+func (Noop) KeyFetchError(context.Context, string, string, string)                   {}
+func (Noop) RevokedKeyUsed(context.Context, string, string, string)                  {}
+func (Noop) ContentRejected(context.Context, string, string, string)                 {}
+func (Noop) MentionClaimRejected(context.Context, string, string, string)            {}
+func (Noop) UserBackup(context.Context, string, BackupKind)                          {}
+func (Noop) ReedCoverage(context.Context, string, string, int, int)                  {}
+func (Noop) WSMessage(context.Context, Direction, string)                            {}
+func (Noop) RelayEvent(context.Context, RelayLifecycle, string, string, string)      {}
+func (Noop) FederationRelay(context.Context, Direction, string, string, bool)        {}
+func (Noop) AdminRequestOpened(context.Context, string, string, string, int)         {}
+func (Noop) AdminRequestRefused(context.Context, string, string, AdminStage, string) {}
+func (Noop) AdminRequestDecided(context.Context, string, string, string, string, time.Duration) {
+}
+func (Noop) AdminRequestMoot(context.Context, string)                                  {}
+func (Noop) AdminActionExecuted(context.Context, string, string, string, string, bool) {}
+func (Noop) SuspendedRefusal(context.Context, string, Surface)                         {}
+func (Noop) AdminMailSent(context.Context, string, string, int, int)                   {}
+func (Noop) AdminInvitesRevoked(context.Context, string, string, int)                  {}
+func (Noop) ReservedUsernameChanged(context.Context, Op, string)                       {}
+func (Noop) ReservedUsernameHit(context.Context, string, string)                       {}
+func (Noop) ForeignKick(context.Context, string, bool)                                 {}
+func (Noop) FlagCreated(context.Context, string, string, string, Origin, bool)         {}
+func (Noop) FlagsDismissed(context.Context, string, string, int)                       {}
+func (Noop) LedgerAppended(context.Context, string)                                    {}
+func (Noop) ServerKeyRevocations(context.Context, bool, int)                           {}
+func (Noop) AuthRejected(context.Context, string, string, string, string)              {}
+func (Noop) WSHandshakeRejected(context.Context, string, string, string)               {}
+func (Noop) WSSession(context.Context, string, bool)                                   {}
+func (Noop) SignupRejected(context.Context, string, string)                            {}
+func (Noop) UsernameCheck(context.Context, string, bool)                               {}
+func (Noop) CooldownHit(context.Context, string, string)                               {}
+func (Noop) BlockRefusal(context.Context, string, string, Surface)                     {}
+func (Noop) InviteCreated(context.Context, string, bool)                               {}
+func (Noop) InviteClaimed(context.Context, string, string, bool)                       {}
+func (Noop) InviteDeleted(context.Context, string)                                     {}
+func (Noop) Follow(context.Context, Op, string, string, bool)                          {}
+func (Noop) Like(context.Context, Op, string, string, string)                          {}
+func (Noop) Ripple(context.Context, Op, string, string, string)                        {}
+func (Noop) Pin(context.Context, Op, string)                                           {}
+func (Noop) Block(context.Context, Op, string, string, Origin)                         {}
+func (Noop) Vouch(context.Context, Op, string, string, bool, string)                   {}
+func (Noop) VerificationWindow(context.Context, string, string)                        {}
+func (Noop) DeviceBound(context.Context, string)                                       {}
+func (Noop) AccountRecovery(context.Context, string, string, bool, string)             {}
+func (Noop) ServerRecovery(context.Context, string, string, bool)                      {}
+func (Noop) Mailbox(context.Context, Op, string, string)                               {}
+func (Noop) UserSearch(context.Context, string, bool)                                  {}
+func (Noop) FederationLifecycle(context.Context, string, string, string)               {}
+func (Noop) FederationDeliveryBacklog(context.Context, string, int)                    {}
 
 // TagCountAttr buckets tag counts for metric attributes (exact 0–3, then 4+).
 func TagCountAttr(n int) int {

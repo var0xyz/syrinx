@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -17,6 +18,7 @@ import (
 // place of the user, and revokes their unclaimed invites.
 func (h *Handlers) kickExecutor() adminExecutor {
 	var kicked []accountRemovalCert
+	revokedInvites := map[string]int64{}
 	return adminExecutor{
 		execute: func(ctx context.Context, tx *sql.Tx, req *adminRequest) error {
 			serverID := h.services.db.GetServerID()
@@ -37,12 +39,14 @@ func (h *Handlers) kickExecutor() adminExecutor {
 				if err := storeAccountRemovalTx(ctx, tx, cert, identityID(target)); err != nil {
 					return err
 				}
-				if _, err := tx.ExecContext(ctx, `
+				res, err := tx.ExecContext(ctx, `
 					UPDATE invites SET revoked_at = $2
 					WHERE created_by = $1 AND claimed_at IS NULL AND revoked_at IS NULL
-				`, target, now); err != nil {
+				`, target, now)
+				if err != nil {
 					return err
 				}
+				revokedInvites[target], _ = res.RowsAffected()
 				kicked = append(kicked, cert)
 			}
 			return nil
@@ -52,6 +56,8 @@ func (h *Handlers) kickExecutor() adminExecutor {
 				cert.Admin = req
 				h.kickUserDevices(cert.UserID)
 				h.afterAccountRemoval(context.Background(), cert.UserID, cert)
+				h.metrics.UserDeleted(context.Background(), cert.UserID, metrics.RemovalKick, false)
+				h.recordInvitesRevoked(req.Action, cert.UserID, revokedInvites[cert.UserID])
 			}
 		},
 	}

@@ -425,8 +425,8 @@ client-side (never server-side, which would reintroduce H1).
 
 See [`observability/`](observability/README.md). Closes the gap between the
 OTEL SDK wiring in `observability/` and an actual per-request trace with
-nested DB query spans, plus anonymized domain metrics (signups, publishes,
-WS traffic, per-reed coverage), landing in the same OpenObserve stack that
+nested DB query spans, plus domain metrics (signups, publishes, admin
+actions, abuse refusals, WS traffic, per-reed coverage), landing in the same OpenObserve stack that
 already receives logs and host metrics.
 
 | #   | Title                                                             | Status      |

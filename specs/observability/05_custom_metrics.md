@@ -1,4 +1,4 @@
-# Observability 05 — Custom business metrics (anonymized)
+# Observability 05 — Custom business metrics
 
 ## Status
 
@@ -14,8 +14,10 @@ registers one when `OTEL_COLLECTOR_HOST` is set).
 Steps 02–04 answer **how long** requests and queries take. Operators also need
 **what happened** counters and distributions: signups, publishes, echoes,
 replies, deletions (reeds and accounts), key revocations, WebSocket traffic,
-per-reed network reach, and reed shape (length, tags) — without usernames,
-bios, tag text, or content.
+per-reed network reach, admin requests and actions, and the refusals that
+show abuse (failed auth, suspended or blocked callers, rejected signups,
+cooldowns) — keyed by raw user id so an operator can name who did it, never
+by username, bio, tag text, or content.
 
 The OTEL SDK already exports **DB pool metrics** via `RegisterDBStatsMetrics`
 when observability is enabled. This step adds **domain metrics** on the same
@@ -25,22 +27,9 @@ OTLP HTTP pipeline (`localhost:4318` → app-host collector → OpenObserve).
 
 ### 5.1 Metric recorder API
 
-Add `observability/metrics` (or methods on `observability.Manager`) with a
-small typed recorder:
-
-```go
-type Recorder interface {
-    UserCreated(ctx context.Context, signupMode, userID string)
-    UserDeleted(ctx context.Context, userID string, noteHas bool)
-    ReedPublished(ctx context.Context, p ReedPublishedAttrs)
-    ReedDeleted(ctx context.Context, authorID, reedID string)
-    EchoTargeted(ctx context.Context, targetAuthorID, targetReedID string)
-    ReedRejectedLength(ctx context.Context, rawChars, visibleChars int)
-    KeyRevoked(ctx context.Context, userID string)
-    ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int)
-    WSMessage(ctx context.Context, direction Direction, msgType string)
-}
-```
+`observability/metrics.Recorder` is a typed interface with one method per
+event (see `metrics.go` for the full list); `Noop` is the inert
+implementation and `OTEL` the SDK-backed one.
 
 When observability is disabled, return a no-op implementation (same pattern as
 `Manager.Middleware` / `OpenDB`).
@@ -56,24 +45,62 @@ stream as host metrics today.
 
 | Instrument | OTEL type | When recorded | Attributes |
 |---|---|---|---|
-| `syrinx.users.created` | Counter | Successful signup or recovery import (new `users` row) | `signup.mode` (`open` \| `invite` \| `closed` \| `import`), `user.id_hash` |
-| `syrinx.users.deleted` | Counter | Successful account removal (`DeleteMe`, new cert) | `user.id_hash`, `note.has` (bool — whether a non-empty goodbye note was supplied; never the note text) |
-| `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay) | `reed.kind` (`plain` \| `echo` \| `reply`), `tags.has` (bool), `tags.count` (int 0–4+, see bucketing), `author.id_hash`, `reed.id` |
-| `syrinx.reeds.deleted` | Counter | Successful reed removal (`DeleteReed`, new cert) | `author.id_hash`, `reed.id` |
-| `syrinx.echoes.targeted` | Counter | Echo indexed on a target reed (`CreateReedWithEcho`) | `target.author.id_hash`, `target.reed.id` — the **echoed** reed, not the echoing one |
-| `syrinx.reeds.rejected.length` | Counter | `SignReed` rejected for length limits | `raw.exceeds_max`, `visible.exceeds_max` (bool) |
-| `syrinx.reed.content.raw_chars` | Histogram | Successful publish | `reed.kind`, `author.id_hash`, `reed.id` — value = `len(body)` (JS string length) |
-| `syrinx.reed.content.visible_chars` | Histogram | Successful publish | same — value = `CountMarkdownCharacters(body)` |
-| `syrinx.keys.revoked` | Counter | Successful `RevokeKey` persist | `user.id_hash` |
-| `syrinx.users.backup` | Counter | SPA reports a successful local export via `POST /users/me/backup` | `user.id_hash`, `backup.kind` (`identity` \| `full`) |
-| `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id_hash`, `reed.id` — value = `allocation_count` |
-| `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id_hash`, `reed.id` — value = `coveragePercent` (0–100) |
-| `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` (normalized type name) |
-| `syrinx.relay.event` | Counter | Every `pending_events` row created/fulfilled/deleted | `relay.lifecycle` (`created` \| `fulfilled` \| `deleted`), `event.kind` (`EventName`, e.g. `request_reed`), `event.id_hash` (SHA-256 of the event id, which embeds the requester's identity) |
-| `syrinx.federation.relay` | Counter | Every federation relay HTTP leg, either side | `federation.direction` (`in` \| `out`), `peer.server_id`, `federation.leg` (path's last segment, e.g. `request`, `deliver`), `ok` (bool — 2xx response) |
-| `syrinx.keys.fetch_errors` | Counter | Client-reported `KEY_FETCH_ERROR` WS message | `reporter.id_hash`, `target.id_hash`, `key.fingerprint` |
-| `syrinx.keys.revoked_used` | Counter | Client-reported `REVOKED_KEY_USED` WS message | `reporter.id_hash`, `target.id_hash`, `key.fingerprint` |
-| `syrinx.content.rejected` | Counter | Client-reported `CONTENT_REJECTED` WS message — a signed resource failed client-side verification and was refused a local write | `reporter.id_hash`, `store.name` (IndexedDB store, e.g. `reeds`, `invites`, `removedReeds`) |
+| `syrinx.users.created` | Counter | Successful signup or recovery import (new `users` row) | `signup.mode` (`open` \| `invite` \| `closed` \| `import`), `user.id`, `inviter.id` (empty without an invite) |
+| `syrinx.users.deleted` | Counter | Account removal: `DeleteMe` (new cert) or an approved kick | `user.id`, `removal.kind` (`self` \| `kick`), `note.has` (bool; never the note text) |
+| `syrinx.users.updated` | Counter | Successful `UpdateUser` | `user.id`, `renamed` (bool) |
+| `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay) | `reed.kind` (`plain` \| `echo` \| `reply`), `tags.has`, `tags.count` (0–4+), `author.id`, `reed.id` |
+| `syrinx.reeds.deleted` | Counter | Successful reed removal (new cert) | `author.id`, `reed.id` |
+| `syrinx.echoes.targeted` | Counter | Echo indexed on a target reed | `author.id` (who echoed), `target.author.id`, `target.reed.id` |
+| `syrinx.keys.revoked` | Counter | Key rotation, or an approved rebind | `user.id`, `revocation.kind` (`rotation` \| `rebind`) |
+| `syrinx.users.backup` | Counter | SPA reports a local export via `POST /users/me/backup` | `user.id`, `backup.kind` (`identity` \| `full`) |
+| `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | `author.id`, `reed.id` — value = `allocation_count` |
+| `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | `author.id`, `reed.id` — value = 0–100 |
+| `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` |
+| `syrinx.relay.event` | Counter | Every `pending_events` row created/fulfilled/deleted | `relay.lifecycle`, `event.kind`, `event.id`, `requester.id` (on `created` only) |
+| `syrinx.federation.relay` | Counter | Every federation HTTP call, either side (relay legs, proxied reads, follows, key fetches, connect) | `federation.direction`, `peer.server_id`, `federation.leg`, `ok` (2xx) |
+| `syrinx.federation.lifecycle` | Counter | Invitation created/revoked/redeemed, attempt approved/rejected, disconnect requested/confirmed/cancelled, purge | `event`, `peer.server_id` (empty when not yet known), `admin.id` |
+| `syrinx.federation.delivery.backlog` | Gauge | Each retry of behind peer streams | `peer.server_id` — value = author streams behind |
+| `syrinx.keys.fetch_errors` | Counter | Client-reported `KEY_FETCH_ERROR` | `reporter.id`, `target.id`, `key.id` |
+| `syrinx.keys.revoked_used` | Counter | Client-reported `REVOKED_KEY_USED` | `reporter.id`, `target.id`, `key.id` |
+| `syrinx.content.rejected` | Counter | Client-reported `CONTENT_REJECTED` | `reporter.id`, `store.name`, `reason` |
+| `syrinx.mentions.claim_rejected` | Counter | `DeleteMention` | `author.id`, `reporter.id`, `reason` |
+| `syrinx.admin.requests.opened` | Counter | `OpenAdminRequest` stores a request | `action`, `requester.id`, `requester.role`, `targets.count` |
+| `syrinx.admin.requests.refused` | Counter | An admin request or decision refused | `action`, `actor.id`, `stage` (`open` \| `decide`), `reason` (fixed code on each `refuse`) |
+| `syrinx.admin.requests.decided` | Counter | `DecideAdminRequest` closes a request | `action`, `decision`, `requester.id`, `decider.id` |
+| `syrinx.admin.request.decision_seconds` | Histogram | Approvals and rejections | `action` — value = open-to-decision seconds |
+| `syrinx.admin.requests.moot` | Counter | A pending request loses every target | `action` |
+| `syrinx.admin.actions.executed` | Counter | An approved action runs, once per target | `action`, `target.id`, `requester.id`, `approver.id`, `ok` |
+| `syrinx.admin.suspended_refusals` | Counter | A suspended user is refused | `user.id`, `surface` (`http` \| `ws`) |
+| `syrinx.admin.mail.sent` | Counter | Broadcast or private admin mail delivered | `action`, `sender.id`, `recipients.count`, `failed.count` |
+| `syrinx.admin.invites.revoked` | Counter (by count) | Kick, rebind or demote revokes open invites | `action`, `target.id` |
+| `syrinx.admin.reserved_usernames.changed` | Counter | Root reserves or releases a username | `op` (`add` \| `remove`), `root.id` |
+| `syrinx.admin.reserved_usernames.hits` | Counter | A reserved name is refused | `surface` (`signup` \| `rename`), `user.id` |
+| `syrinx.admin.foreign_kicks` | Counter | A peer's kick of its user is verified | `peer.server_id`, `ok` |
+| `syrinx.flags.created` | Counter | A flag is stored, from a member or a peer | `reporter.id`, `author.id`, `reed.id`, `origin` (`local` \| `peer`), `note.has` |
+| `syrinx.flags.dismissed` | Counter | An admin dismisses a reed's flags | `admin.id`, `reed.id`, `flags.count` |
+| `syrinx.ledger.appended` | Counter | A ledger entry commits | `entry.kind` |
+| `syrinx.server_key.revocations` | Gauge | Boot | `compromised` (bool) — a step between boots is a rotation |
+| `syrinx.auth.rejected` | Counter | Signature-auth, server-key-proof or device middleware refuses a request | `key.id` (as claimed), `user.id` (empty when the key is unknown), `reason`, `route` (mux template) |
+| `syrinx.ws.handshake.rejected` | Counter | A WebSocket handshake is refused | `key.id`, `user.id`, `reason` |
+| `syrinx.ws.connections` | UpDownCounter | WebSocket connect/disconnect | — |
+| `syrinx.ws.sessions` | Counter | WebSocket connect/disconnect | `user.id`, `event` |
+| `syrinx.signup.rejected` | Counter | `Signup` refused | `signup.mode`, `reason` |
+| `syrinx.username.checks` | Counter | Username availability checks | `user.id` (rename only), `available` |
+| `syrinx.cooldown.hits` | Counter | Key-rotation or vouch cooldown refuses | `kind`, `user.id` |
+| `syrinx.blocks.refusals` | Counter | A block refuses a read or request | `viewer.id`, `author.id`, `surface` |
+| `syrinx.blocks` | Counter | Block or unblock, local or from a peer | `op`, `user.id`, `blocked.id`, `origin` |
+| `syrinx.invites.created` / `.claimed` / `.deleted` | Counter | Invite lifecycle | `inviter.id`, `invitee.id` (claim), `admin_invite` |
+| `syrinx.follows` | Counter | Follow or unfollow | `op`, `follower.id`, `followee.id`, `remote` |
+| `syrinx.likes` | Counter | Like or unlike stored on the home server | `op`, `user.id`, `author.id`, `reed.id` |
+| `syrinx.ripples` | Counter | Ripple posted or deleted | `op`, `user.id`, `author.id`, `reed.id` |
+| `syrinx.pins` | Counter | Pin or unpin | `op`, `user.id` |
+| `syrinx.vouches` | Counter | Vouch created or withdrawn | `op`, `voucher.id`, `subject.id`, `ok`, `reason` |
+| `syrinx.verification_windows` | Counter | Window opened, pinged or closed | `op`, `user.id` |
+| `syrinx.devices.bound` | Counter | `BindDevice` or account-recovery bootstrap | `user.id` |
+| `syrinx.account_recovery` | Counter | Challenge issued, bootstrap attempted | `stage`, `user.id`, `ok`, `reason` |
+| `syrinx.server_recovery` | Counter | `/recovery/*` handlers (`RECOVERY_MODE`) | `stage`, `user.id`, `ok` |
+| `syrinx.mailbox` | Counter | Mailbox message sent or acked | `op`, `kind` (send only), `user.id` |
+| `syrinx.search.users` | Counter | Local search, or a peer's fan-out | `user.id` (local only), `remote` |
 
 **Echoes and replies** use two complementary counters:
 
@@ -85,42 +112,35 @@ stream as host metrics today.
 
 Dashboards that only care about echo volume can filter `reed.kind=echo` on
 publish; dashboards about target reach use `syrinx.echoes.targeted` grouped by
-`target.author.id_hash` / `target.reed.id`.
+`target.author.id` / `target.reed.id`.
 
 **Tag bucketing on publish:** store exact `tags.count` when ≤ 3; use `4` as
 “4 or more” on the attribute to cap cardinality from pathological tag spam.
 Never emit individual tag names.
-
-**Length abuse:** histograms show the distribution of accepted reeds; the
-rejected counter fires on HTTP 400 from `ReedContentWithinLimits` failure.
-If a reed ever passes the handler check with `raw_chars > MaxReedRawChars` or
-`visible_chars > MaxReedVisibleChars`, also set a log-only `[WARN]` — that
-would indicate a validation bug, not a normal metric path.
-
-Constants today: `MaxReedRawChars = 1400`, `MaxReedVisibleChars = 140`
-(`services.go`).
 
 **Relay lifecycle and wasted bandwidth:** `syrinx.relay.event` records one
 sample per `pending_events` row transition — `created` when a relay request
 is registered, `fulfilled` when a `RELAY_RESPONSE` is actually delivered for
 it, `deleted` when it's removed without ever recording a `fulfilled` (a
 cancellation, a `DATA_ACK`/`DATA_INVALID` cleanup, or the requester going
-offline). `event.id_hash` is stable per event, so dashboards can correlate
+offline). `event.id` is stable per event, so dashboards can correlate
 the three stages for the same request:
 
 - **Leaked requests**: `created` with no matching `fulfilled` or `deleted`
-  for the same `event.id_hash` — the request never got an answer and never
+  for the same `event.id` — the request never got an answer and never
   got cleaned up either (there is no timeout/expiry on `pending_events`
   today, so this is currently unbounded until the process restarts).
 - **Wasted/duplicate responses**: more than one `fulfilled` for the same
-  `event.id_hash` — a holder retransmitted a `RELAY_RESPONSE` after the
+  `event.id` — a holder retransmitted a `RELAY_RESPONSE` after the
   first one already satisfied the request (only possible for event types
   whose row isn't deleted immediately on delivery; see 5.3).
 
 `syrinx.federation.relay` is the same idea for cross-server traffic: one
 sample per federation relay HTTP leg, either a peer calling one of this
 server's 16 `/federation/relay/*` endpoints (`federation.direction=in`) or
-this server calling out to a peer (`federation.direction=out`).
+this server calling out to a peer (`federation.direction=out`), plus the
+proxied reads, follows, key fetches and connect calls that go through
+`doPeerRequest`.
 `peer.server_id` (this server's own DB id for the peer, never a raw
 domain/URL) lets an operator see how much relay traffic a specific foreign
 server is generating.
@@ -129,21 +149,20 @@ server is generating.
 
 | Event | Call site | Notes |
 |---|---|---|
-| User created (signup) | `Handlers.Signup` after success | `signup.mode` from server config, `user.id_hash` |
-| User created (import) | `recovery.ClaimIdentity` / `recovery.ReportPeerIdentity` when `SaveIdentityResult.Created` | `signup.mode=import`, `user.id_hash` |
-| User deleted | `Handlers.DeleteMe` after `InsertAccountRemoval` succeeds (not replay) | `user.id_hash` + `note.has` (`note != ""` after trim); no note text |
-| Reed published | `Handlers.SignReed` after successful create (not replay path) | Pass `kind`, tag slice length, `userID`, `reedID`, body lengths — emitted as `author.id_hash` |
-| Reed deleted | `Handlers.DeleteReed` after `InsertReedRemoval` succeeds (not replay) | `author.id_hash`, `reed.id` |
-| Echo targeted | `Handlers.SignReed` when `echoIndexed && echoRef != nil` | Target = `target.author.id_hash`, `target.reed.id` |
-| Reed rejected (length) | `Handlers.SignReed` before 400 on limit check | Raw + visible counts only |
-| Key revoked | `Handlers.RevokeKey` after successful persist | `user.id_hash` only — no fingerprint |
-| User backup | `Handlers.RecordBackup` after authenticated POST | `user.id_hash`, `backup.kind`; no DB — client queues in IndexedDB `pendingBackups` and retries on startup |
-| Reed holders + coverage | `RealtimeService.notifyReedCoverage` | Read `allocation_count` + percent already computed for WS; record both histograms with `author.id_hash` |
+| User created (signup) | `Handlers.Signup` after success | `signup.mode` from server config, `user.id` |
+| User created (import) | `recovery.ClaimIdentity` / `recovery.ReportPeerIdentity` when `SaveIdentityResult.Created` | `signup.mode=import`, `user.id` |
+| User deleted | `Handlers.DeleteMe` after `InsertAccountRemoval` succeeds (not replay) | `user.id` + `note.has` (`note != ""` after trim); no note text |
+| Reed published | `Handlers.SignReed` after successful create (not replay path) | Pass `kind`, tag slice length, `userID`, `reedID` |
+| Reed deleted | `Handlers.DeleteReed` after `InsertReedRemoval` succeeds (not replay) | `author.id`, `reed.id` |
+| Echo targeted | `Handlers.SignReed` when `echoIndexed && echoRef != nil` | Target = `target.author.id`, `target.reed.id` |
+| Key revoked | `Handlers.AddPublicKey` rotation, or the rebind executor | `user.id`, `revocation.kind` |
+| User backup | `Handlers.RecordBackup` after authenticated POST | `user.id`, `backup.kind`; no DB — client queues in IndexedDB `pendingBackups` and retries on startup |
+| Reed holders + coverage | `RealtimeService.notifyReedCoverage` | Read `allocation_count` + percent already computed for WS; record both histograms with `author.id` |
 | Initial coverage at publish | Same hook after author allocation on publish | Ensures every reed gets at least one coverage sample |
 | WS inbound | Start of `handleJSONMessage` / `handleProtobufMessage` | Normalize `msgType` / `pb.MessageType_*` to the same string enum |
 | WS outbound | `Client.writeMessage` (single choke point) | Parse JSON `type` field or protobuf message type from payload when cheap; else `ws.message.type=binary_unknown` / `json_unknown` |
 | Relay event created | `RealtimeService.createPendingReedEvent` / `createPendingAccountEvent` / `createProfileSubscriptionEvent` (wrap the `DBService` inserts) | Every `service.go` call site goes through these wrappers instead of `dbService` directly, so no creation path can skip the metric |
-| Relay event fulfilled | `RealtimeService.handleRelayResponse`, right after the `pe == nil` (already-resolved) check | Recorded once per processed `RELAY_RESPONSE`; a same-holder retransmit for a not-yet-deleted event type records a second `fulfilled` for the same `event.id_hash` — the duplicate-response signal |
+| Relay event fulfilled | `RealtimeService.handleRelayResponse`, right after the `pe == nil` (already-resolved) check | Recorded once per processed `RELAY_RESPONSE`; a same-holder retransmit for a not-yet-deleted event type records a second `fulfilled` for the same `event.id` — the duplicate-response signal |
 | Relay event deleted | `RealtimeService.deletePendingEvent` (wraps `DBService.DeletePendingEvent`) / `DeletePendingEventsByUser`'s `RETURNING` rows on disconnect | `DeletePendingEvent` now returns the deleted row's `event_name` so the wrapper can record it; skipped if the row was already gone |
 | Federation relay inbound | `main.go` route registration via `Handlers.withFederationRelayMetric` wrapping each of the 16 `/federation/relay/*` handlers | `peer.server_id` from `authenticateAsPeer`'s context value; not recorded if auth rejected the request before reaching the handler |
 | Federation relay outbound | `Handlers.callPeerRelayEndpoint` (single choke point for all 16 outbound legs) | `federation.leg` derived from the request path's last segment; `peer.server_id` passed in by each leg's caller (already resolved from the reed/author identity) |
@@ -173,30 +192,35 @@ bodies for metrics.
 
 ### 5.5 Privacy rules (extends [00](00_design.md))
 
+The server holds usernames and user ids, not content, and metrics exist to
+find who is abusing the system. User ids therefore go on attributes as-is;
+they were hashed once, but an unsalted hash of a public, enumerable id hid
+nothing (and `reed.id` already carried the author in the clear).
+
 Allowed on metric attributes:
 
-- **`user.id_hash` / `author.id_hash` / `target.author.id_hash`** — SHA-256
-  hex digest of the server-scoped user id (`metrics.UserIDHash`). Raw user ids
-  never appear on metrics.
-- **Reed IDs** (`reed.id`, `target.reed.id`) — opaque identifiers, not
-  usernames.
-- Structural enums (`reed.kind`, `signup.mode`, `ws.message.type`, booleans,
-  small integers).
-- Content **lengths** and **tag counts**, never tag text or body text.
+- **User ids** (`user.id`, `author.id`, `requester.id`, …) and **key ids**
+  (`key.id`), as the full canonical ids the server already stores.
+- **Reed IDs** (`reed.id`, `target.reed.id`) and **event ids** (`event.id`).
+- `peer.server_id` and the mux **route template** (never the raw URL).
+- Structural enums (`reed.kind`, `signup.mode`, `action`, `reason`, `op`,
+  `stage`, `surface`, `ws.message.type`), booleans and small integers.
+  `reason` and `stage` values are Go constants, never error text.
+- **Tag counts**, never tag text.
 
 Forbidden:
 
-- Raw **user ids** on any metric attribute.
 - Usernames, bios, display names.
-- Account-removal **note** text (goodbye messages).
+- Account-removal **note** text, admin request reasons, mailbox text, flag
+  notes, dismissal reasons.
 - Hashtag / pipe tag strings.
-- Key fingerprints, armored keys, signatures, tokens, invite secrets.
+- Armored keys, signatures, tokens, invite secrets.
 - Query arguments, request/response bodies, WS payload fields beyond the
   message type.
 - IP addresses or device ids.
 
-Per-reed series (`author.id_hash` + `reed.id`) are intentional — the operator
-asked for per-reed coverage and length/tag shape. They are not usernames.
+Per-reed series (`author.id` + `reed.id`) are intentional — the operator
+asked for per-reed coverage. They are not usernames.
 
 ### 5.6 OpenObserve usage (operator notes)
 
@@ -208,21 +232,24 @@ Example questions this unlocks:
 - Publish mix: `sum(syrinx_reeds_published)` by `reed_kind`.
 - Echo rate (sent): filter `reed_kind = echo` on publish.
 - Echo rate (received by originals): `sum(syrinx_echoes_targeted)` by
-  `target_author_id_hash` / `target_reed_id`.
+  `target_author_id` / `target_reed_id`.
 - Reply rate: filter `reed_kind = reply`.
 - Deletion rate: `sum(syrinx_reeds_deleted)`, `sum(syrinx_users_deleted)`.
 - Key revocations: `sum(syrinx_keys_revoked)` over time.
 - Backup adoption: `sum(syrinx_users_backup)` by `backup_kind`; group by
-  `user_id_hash` to see repeat exporters without raw user ids.
+  `user_id` to see repeat exporters.
 - WS health: `sum(syrinx_ws_messages)` by `ws_direction`, `ws_message_type`.
 - Reed reach: `syrinx_reed_holders` / `syrinx_reed_coverage_percent` for a
-  given `reed_id` + `author_id_hash`.
-- Length abuse: `syrinx_reeds_rejected_length` > 0, or
-  `syrinx_reed_content_raw_chars` p99 near 1400.
-- Leaked relay requests: per `event_id_hash`, `created` with no matching
+  given `reed_id` + `author_id`.
+- Who is probing auth: `sum(syrinx_auth_rejected)` by `user_id`, `key_id`,
+  `reason`; the same for `syrinx_ws_handshake_rejected`.
+- Admin key misuse: `sum(syrinx_admin_requests_refused)` by `actor_id`,
+  `reason`.
+- Flag pressure on an author: `sum(syrinx_flags_created)` by `author_id`.
+- Leaked relay requests: per `event_id`, `created` with no matching
   `fulfilled`/`deleted` in a sufficiently wide window (see the "Relay" tab's
   `syrinx_relay_leaked` panel for the exact SQL).
-- Wasted/duplicate responses: per `event_id_hash`, more than one `fulfilled`
+- Wasted/duplicate responses: per `event_id`, more than one `fulfilled`
   (`syrinx_relay_duplicate_fulfilled` panel).
 - Federation traffic by peer: `sum(syrinx_federation_relay)` by
   `peer_server_id`, `federation_direction`, `federation_leg`.
@@ -233,7 +260,7 @@ sampling; add explicit aggregation views or drop `reed.id` from long-retention
 rollups only if storage becomes an issue.
 
 **OpenObserve histogram queries:** OTLP histogram instruments (`syrinx.reed.*`
-length/holders/coverage) decompose into `_sum`, `_count`, and `_bucket`
+holders/coverage, admin decision time) decompose into `_sum`, `_count`, and `_bucket`
 metric streams — not a single stream named after the instrument. Dashboards
 should use `_sum / _count` for mean values (see
 `rpi/telemetry/dashboards/generate_syrinx_dashboard.py` `histogram_avg()`).
@@ -261,7 +288,7 @@ Querying the bare instrument name returns no data.
 6. Delete reed → `syrinx.reeds.deleted`; replay with same signature → no
    second increment.
 7. Delete account → `syrinx.users.deleted`; replay → no second increment.
-8. Revoke key → `syrinx.keys.revoked`; export backup → `syrinx.users.backup` with `user.id_hash`.
+8. Revoke key → `syrinx.keys.revoked`; export backup → `syrinx.users.backup` with `user.id`.
 9. Recovery claim / peer seed (new user) → `syrinx.users.created{signup_mode=import}`.
 10. Connect WS client; send `REQUEST_REED` → inbound counter; observe outbound
    counters for server responses.

@@ -51,6 +51,7 @@ func (h *Handlers) deliverBehindStreams(peerServerID string) {
 			log.Error().Err(err).Str("peerServerID", peer.ID).Msg("Failed to find streams behind for peer")
 			continue
 		}
+		h.metrics.FederationDeliveryBacklog(ctx, peer.ID, len(authors))
 		for _, author := range authors {
 			go h.drainPeerStream(peer, author)
 		}

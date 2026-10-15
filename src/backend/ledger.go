@@ -203,11 +203,12 @@ func newLedgerEntryMsg(e *ledgerEntry) *pb.WSMessage {
 // pushLedgerEntries sends committed entries to every connected member.
 // One that misses it backfills from the API.
 func (h *Handlers) pushLedgerEntries(entries ...*ledgerEntry) {
-	if h.realtimeRelay == nil {
-		return
-	}
 	for _, e := range entries {
 		if e == nil || e.ID == 0 {
+			continue
+		}
+		h.metrics.LedgerAppended(context.Background(), e.Kind)
+		if h.realtimeRelay == nil {
 			continue
 		}
 		if err := h.realtimeRelay.connManager.SendToAll(newLedgerEntryMsg(e)); err != nil {

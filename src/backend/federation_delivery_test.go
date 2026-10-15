@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"syrinx/observability/metrics"
 	"testing"
 	"time"
 )
@@ -44,7 +45,7 @@ func newDeliveryFixture(t *testing.T) *deliveryFixture {
 	ds.setServerIDForTest(deliveryHomeID)
 	return &deliveryFixture{
 		db:       db,
-		h:        &Handlers{services: &Services{db: ds, log: NewLoggingService()}},
+		h:        &Handlers{services: &Services{db: ds, log: NewLoggingService()}, metrics: metrics.Noop{}},
 		author:   author,
 		peer:     PeerServer{ID: deliveryPeerID, BaseURL: "https://peer.example"},
 		userSig:  userSig,
