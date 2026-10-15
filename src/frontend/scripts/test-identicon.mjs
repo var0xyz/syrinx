@@ -7,7 +7,6 @@ import {
   identiconFingerprint,
   identiconForUser,
   identiconFromDigest,
-  identiconIdentity,
   paletteFromRoot,
   sha256Utf8,
 } from '../src/lib/utils/identicon.ts';
@@ -18,16 +17,14 @@ if (!globalThis.crypto) {
 
 const SERVER = 'srv01abc';
 
-assert.equal(identiconIdentity('alice', SERVER), `alice@${SERVER}`);
-
-const a = await identiconForUser('03gkv33nkdd524ker8sgo0c11', SERVER);
-const a2 = await identiconForUser('03gkv33nkdd524ker8sgo0c11', SERVER);
+const a = await identiconForUser(`03gkv33nkdd524ker8sgo0c11@${SERVER}`);
+const a2 = await identiconForUser(`03gkv33nkdd524ker8sgo0c11@${SERVER}`);
 assert.equal(identiconFingerprint(a), identiconFingerprint(a2), 'stable for same identity');
 
-const b = await identiconForUser('different-user-id-xxxxx', SERVER);
+const b = await identiconForUser(`different-user-id-xxxxx@${SERVER}`);
 assert.notEqual(identiconFingerprint(a), identiconFingerprint(b), 'different user ids differ');
 
-const otherServer = await identiconForUser('03gkv33nkdd524ker8sgo0c11', 'otherSrv');
+const otherServer = await identiconForUser('03gkv33nkdd524ker8sgo0c11@otherSrv');
 assert.notEqual(identiconFingerprint(a), identiconFingerprint(otherServer), 'different servers differ');
 
 assert.equal(a.size, 11);
@@ -55,17 +52,17 @@ const shifted = paletteFromRoot(100, 70, 50, scale);
 assert.equal(shifted[0], 'hsl(100 70% 50%)');
 assert.equal(shifted[1], 'hsl(280 60% 55%)');
 
-const digest = await sha256Utf8(identiconIdentity('x', SERVER));
+const digest = await sha256Utf8(`x@${SERVER}`);
 const fromDigest = identiconFromDigest(digest);
 assert.equal(
   identiconFingerprint(fromDigest),
-  identiconFingerprint(await identiconForUser('x', SERVER))
+  identiconFingerprint(await identiconForUser(`x@${SERVER}`))
 );
 
 // Spot-check: many ids should not all collapse to one fingerprint.
 const seen = new Set();
 for (let i = 0; i < 40; i++) {
-  seen.add(identiconFingerprint(await identiconForUser(`user-${i}-abcdefghijkl`, SERVER)));
+  seen.add(identiconFingerprint(await identiconForUser(`user-${i}-abcdefghijkl@${SERVER}`)));
 }
 assert.ok(seen.size >= 35, `expected high uniqueness, got ${seen.size}`);
 
@@ -75,7 +72,7 @@ function occupancy(model) {
 }
 const masks = new Set();
 for (let i = 0; i < 40; i++) {
-  masks.add(occupancy(await identiconForUser(`shape-${i}-abcdefghijkl`, SERVER)));
+  masks.add(occupancy(await identiconForUser(`shape-${i}-abcdefghijkl@${SERVER}`)));
 }
 assert.ok(masks.size >= 30, `expected distinct silhouettes, got ${masks.size}`);
 

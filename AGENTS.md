@@ -92,6 +92,11 @@ npm run test:signing        # canonicalJSON parity (shared JCS vectors)
 npm run test:verify-binary  # binary WS verify
 ```
 
+CI (`.github/workflows/tests.yml`) runs on pushes and PRs to `main`: Go
+vet/build (incl. the `ops`/cleanup tags) and `go test` against a Postgres
+service, then the SPA's `npm run check` and every `test:*` script except
+e2e. A new `test:*` harness is picked up automatically.
+
 The Go server serves the built SPA:
 `router.PathPrefix("/").Handler(spaHandler("../frontend/build"))` — a
 local-dev-only path (the binary runs with cwd=`src/backend`); production

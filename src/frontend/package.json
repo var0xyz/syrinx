@@ -24,7 +24,7 @@
     "test:relay-refusal": "node --experimental-strip-types scripts/test-relay-refusal.mjs",
     "test:key-change": "node --experimental-strip-types scripts/test-key-change.mjs",
     "test:verify-binary": "node scripts/test-verify-binary.mjs",
-    "test:reed-markdown": "node --experimental-strip-types scripts/test-reed-markdown.mjs",
+    "test:reed-markdown": "node --experimental-strip-types --import ./scripts/lib-alias.mjs scripts/test-reed-markdown.mjs",
     "test:identicon": "node --experimental-strip-types scripts/test-identicon.mjs",
     "test:key-revocation": "node --experimental-strip-types scripts/test-key-revocation.mjs",
     "test:key-id": "node --experimental-strip-types scripts/test-key-id.mjs",

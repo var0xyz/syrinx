@@ -151,7 +151,7 @@ assert.equal(internalPath('https://x'), null);
   assert.equal(nodes[1].type, 'link');
   assert.equal(nodes[1].href, formatPipeHref('world'));
   assert.equal(nodes[1].children[0].value, '#world');
-  assert.equal(internalPath(nodes[1].href), '/pipe/world');
+  assert.equal(internalPath(nodes[1].href), '/feed/pipes/world');
 }
 
 // hashtag at start
@@ -274,14 +274,14 @@ for (const { name, markdown, href } of attacks) {
   assert.equal(b.children[0].value, '#[hashtag](https://var0.xyz)');
   assert.equal(
     internalPath(b.href),
-    `/pipe/${encodeURIComponent('[hashtag](https://var0.xyz)')}`
+    `/feed/pipes/${encodeURIComponent('[hashtag](https://var0.xyz)')}`
   );
 
   // #hashtag → normal pipe link
   const c = onlyLink('#hashtag');
   assert.equal(c.href, formatPipeHref('hashtag'));
   assert.equal(c.children[0].value, '#hashtag');
-  assert.equal(internalPath(c.href), '/pipe/hashtag');
+  assert.equal(internalPath(c.href), '/feed/pipes/hashtag');
 }
 
 // ---------------------------------------------------------------------------

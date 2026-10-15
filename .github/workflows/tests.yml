@@ -1,0 +1,81 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: syrinx
+          POSTGRES_PASSWORD: syrinx
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U syrinx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: syrinx
+      DB_PASSWORD: syrinx
+      PGPASSWORD: syrinx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/backend/go.mod
+          cache-dependency-path: src/backend/go.sum
+      # The tests skip rather than fail without a database, so prove it's there.
+      - name: Check the test database
+        run: psql -h localhost -U syrinx -d postgres -c 'SELECT 1'
+      - name: Vet
+        run: go vet -C src/backend ./...
+      - name: Build the other binaries
+        run: |
+          go build -C src/backend -tags ops -o /dev/null .
+          go build -C src/backend -tags ripplescleanup -o /dev/null .
+          go build -C src/backend -tags challengescleanup -o /dev/null .
+      - name: Test
+        run: go test -C src/backend ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npm run check
+      # Every test:* script but the Playwright e2e ones, which need the full stack.
+      - name: Parity and unit harnesses
+        run: |
+          for s in $(node -p 'Object.keys(require("./package.json").scripts).filter(k => k.startsWith("test:") && !k.startsWith("test:e2e")).join(" ")'); do
+            echo "::group::$s"
+            npm run -s "$s"
+            echo "::endgroup::"
+          done
