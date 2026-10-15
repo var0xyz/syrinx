@@ -656,7 +656,7 @@
         <ReedsList
           authorId={userId}
           {isOwner}
-          showWriteButton={isOwner}
+          showWriteButton={isOwner && !isEditing}
           {scrollRestoreY}
           bind:pageDepth
           {expectContent}
