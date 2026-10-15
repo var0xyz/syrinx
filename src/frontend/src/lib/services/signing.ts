@@ -473,13 +473,17 @@ export function buildAdminRequestServerPayload(
 }
 
 /** Mirror of buildLedgerEntryPayload in identity.go. prevID and
- * prevSignature are the previous entry's, absent on the first. targets must
+ * prevSignature are the previous entry's, absent on the first. requesterID
+ * and requestedAt are absent off a request or admin invite. targets must
  * already be sorted. */
 export function buildLedgerEntryPayload(
   id: number,
   prevID: number | undefined,
   prevSignature: string,
+  kind: string,
   userID: string,
+  requesterID: string,
+  requestedAt: string,
   message: string,
   content: string,
   targets: string[],
@@ -492,7 +496,10 @@ export function buildLedgerEntryPayload(
     id,
     prevID: prevID || undefined,
     prevSignature,
+    kind,
     userID,
+    requesterID,
+    requestedAt,
     message,
     content,
     targets,

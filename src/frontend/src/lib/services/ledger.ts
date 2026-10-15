@@ -32,7 +32,10 @@ function markTampered(reason: string, id: number): void {
 function sameEntry(a: LedgerRecord, b: LedgerRecord): boolean {
   return (
     a.prevID === b.prevID &&
+    a.kind === b.kind &&
     a.userID === b.userID &&
+    a.requesterID === b.requesterID &&
+    a.requestedAt === b.requestedAt &&
     a.message === b.message &&
     a.content === b.content &&
     a.targets.join('\n') === b.targets.join('\n') &&

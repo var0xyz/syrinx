@@ -559,6 +559,7 @@ const (
 	identityTypeAdminRequest       = "admin-request"
 	identityTypeAdminDecision      = "admin-decision"
 	identityTypeAdminRequestServer = "admin-request-server"
+	identityTypeAdminRequestOpened = "admin-request-opened"
 )
 
 // buildAdminRequestPayload returns the bytes an admin signs to open a
@@ -600,6 +601,25 @@ func buildAdminDecisionPayload(requestID, decision, deciderID, keyID, requestSig
 	})
 }
 
+// buildAdminRequestOpenedPayload returns the bytes the server countersigns
+// when a request opens, stamping when it was proposed.
+func buildAdminRequestOpenedPayload(
+	requestID,
+	requestSignature,
+	serverID,
+	serverKeyFingerprint string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeAdminRequestOpened,
+		"requestID":            requestID,
+		"requestSignature":     requestSignature,
+		"serverID":             serverID,
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"signedAt":             signedTime(signedAt),
+	})
+}
+
 // buildAdminRequestServerPayload returns the bytes the server countersigns
 // when a request closes. decisionSignature is empty for a moot request.
 func buildAdminRequestServerPayload(
@@ -628,11 +648,15 @@ const identityTypeLedgerEntry = "ledger-entry"
 
 // buildLedgerEntryPayload returns the bytes the server signs for a ledger
 // entry. prevID and prevSignature are the previous entry's, absent (0 and
-// "") on the first. targets must already be sorted.
+// "") on the first. requesterID and requestedAt are absent off a request or
+// admin invite. targets must already be sorted.
 func buildLedgerEntryPayload(
 	id, prevID uint64,
 	prevSignature,
+	kind,
 	userID,
+	requesterID string,
+	requestedAt time.Time,
 	message,
 	content string,
 	targets []string,
@@ -644,12 +668,19 @@ func buildLedgerEntryPayload(
 	if prevID != 0 {
 		prev = prevID
 	}
+	var requested string
+	if !requestedAt.IsZero() {
+		requested = signedTime(requestedAt)
+	}
 	return canonicalJSON(signedFields{
 		"type":                 identityTypeLedgerEntry,
 		"id":                   id,
 		"prevID":               prev,
 		"prevSignature":        prevSignature,
+		"kind":                 kind,
 		"userID":               userID,
+		"requesterID":          requesterID,
+		"requestedAt":          requested,
 		"message":              message,
 		"content":              content,
 		"targets":              targets,

@@ -65,7 +65,7 @@ func TestRebind_RevokesLostKeyAndBindsRestrictedKey(t *testing.T) {
 
 	entries := f.ledger(t)
 	if len(entries) == 0 || !strings.Contains(entries[0].Message, "Key rebind to "+newKeyID+". Reason: Lost their phone") {
-		t.Fatalf("opened entry = %+v, want the new key ID in it", entries)
+		t.Fatalf("entries = %+v, want the new key ID in the approval entry", entries)
 	}
 
 	f.keys["u1"] = kp

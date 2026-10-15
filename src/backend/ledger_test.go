@@ -46,8 +46,8 @@ func (f *adminFixture) verifyChain(t *testing.T, entries []*ledgerEntry) {
 		if e.PrevID != prevID {
 			t.Fatalf("entry %d prevID=%d, want %d", e.ID, e.PrevID, prevID)
 		}
-		payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSig, e.UserID, e.Message, e.Content,
-			e.Targets, f.srv, f.h.signingKey.Fingerprint, e.ServerSignature.SignedAt)
+		payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSig, e.Kind, e.UserID, e.RequesterID, e.RequestedAt,
+			e.Message, e.Content, e.Targets, f.srv, f.h.signingKey.Fingerprint, e.ServerSignature.SignedAt)
 		if err := f.h.services.crypto.verifySignature(string(payload), e.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
 			t.Fatalf("entry %d signature: %v", e.ID, err)
 		}
@@ -55,31 +55,50 @@ func (f *adminFixture) verifyChain(t *testing.T, entries []*ledgerEntry) {
 	}
 }
 
-func TestLedger_RequestWritesOpenedAndClosedEntries(t *testing.T) {
+// approveAs opens a request as requester and approves it as approver.
+func (f *adminFixture) approveAs(t *testing.T, requester, approver string, msg *pb.AdminRequest) {
+	t.Helper()
+	f.openAs(t, requester, msg)
+	if rr := f.decide(t, approver, msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
+		t.Fatalf("approve: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestLedger_ApprovalWritesOneEntryWithBothAdmins(t *testing.T) {
 	f := newAdminFixture(t)
 	msg := f.request(t, "a1", adminActionKick, "Scam links", "", "u1", "u2")
 	f.openAs(t, "a1", msg)
+	if entries := f.ledger(t); len(entries) != 0 {
+		t.Fatalf("entries = %+v, want none while pending", entries)
+	}
 	if rr := f.decide(t, "a2", msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
 		t.Fatalf("approve: %d %s", rr.Code, rr.Body.String())
 	}
 
 	entries := f.ledger(t)
-	if len(entries) != 2 {
-		t.Fatalf("entries = %d, want 2", len(entries))
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(entries))
 	}
-	opened, closed := entries[0], entries[1]
-	if opened.UserID != f.ids["a1"] || opened.Message != "["+msg.Id+"] Kick. Reason: Scam links" ||
-		!slices.Equal(opened.Targets, msg.Targets) {
-		t.Errorf("opened entry = %+v", opened)
+	e := entries[0]
+	if e.Kind != ledgerKindRequest || e.UserID != f.ids["a2"] || e.RequesterID != f.ids["a1"] || e.Message != "["+msg.Id+"] Kick. Reason: Scam links" ||
+		!slices.Equal(e.Targets, msg.Targets) {
+		t.Errorf("entry = %+v", e)
 	}
-	if closed.UserID != f.ids["a2"] || closed.Message != "["+msg.Id+"] Approved" || len(closed.Targets) != 0 {
-		t.Errorf("closed entry = %+v", closed)
+	req, err := f.ds.GetAdminRequest(context.Background(), msg.Id)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, e := range entries {
-		for _, name := range []string{"u1", "u2", "a1", "a2"} {
-			if strings.Contains(e.Message, name) && !strings.Contains(msg.Id, name) {
-				t.Errorf("entry %d message %q carries a username", e.ID, e.Message)
-			}
+	if e.RequestedAt.IsZero() || !e.RequestedAt.Equal(req.RequesterServerSignature.SignedAt) || e.RequestedAt.After(e.ServerSignature.SignedAt) {
+		t.Errorf("requestedAt = %v, want the open countersignature's %v", e.RequestedAt, req.RequesterServerSignature.SignedAt)
+	}
+	payload := buildAdminRequestOpenedPayload(req.ID, req.RequesterSignature.Armor, f.srv, f.h.signingKey.Fingerprint,
+		req.RequesterServerSignature.SignedAt)
+	if err := f.h.services.crypto.verifySignature(string(payload), req.RequesterServerSignature.Armor, f.h.signingKey.Armor); err != nil {
+		t.Errorf("open countersignature: %v", err)
+	}
+	for _, name := range []string{"u1", "u2", "a1", "a2"} {
+		if strings.Contains(e.Message, name) && !strings.Contains(msg.Id, name) {
+			t.Errorf("message %q carries a username", e.Message)
 		}
 	}
 	f.verifyChain(t, entries)
@@ -88,9 +107,9 @@ func TestLedger_RequestWritesOpenedAndClosedEntries(t *testing.T) {
 func TestLedger_PermissionsAndBroadcastCarryContent(t *testing.T) {
 	f := newAdminFixture(t)
 	promote := f.request(t, "root", adminActionPromote, "Helps a lot", formatPermissionSet([]string{permUserKick}), "u1")
-	f.openAs(t, "root", promote)
+	f.approveAs(t, "root", "root", promote)
 	broadcast := f.request(t, "root", adminActionBroadcast, "", "Maintenance tonight")
-	f.openAs(t, "root", broadcast)
+	f.approveAs(t, "root", "root", broadcast)
 
 	entries := f.ledger(t)
 	if len(entries) != 2 {
@@ -107,20 +126,26 @@ func TestLedger_PermissionsAndBroadcastCarryContent(t *testing.T) {
 
 func TestLedger_PrivateMessageWritesNoEntry(t *testing.T) {
 	f := newAdminFixture(t)
-	msg := f.request(t, "root", adminActionUnicast, "", "Can we talk?", "u1")
-	f.openAs(t, "root", msg)
-	if rr := f.decide(t, "root", msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
-		t.Fatalf("approve: %d %s", rr.Code, rr.Body.String())
-	}
+	f.approveAs(t, "root", "root", f.request(t, "root", adminActionUnicast, "", "Can we talk?", "u1"))
 	if entries := f.ledger(t); len(entries) != 0 {
 		t.Fatalf("entries = %+v, want none", entries)
 	}
 }
 
-func TestLedger_MootEntryHasNoUser(t *testing.T) {
+func TestLedger_UnapprovedRequestsWriteNoEntry(t *testing.T) {
 	f := newAdminFixture(t)
-	msg := f.request(t, "a1", adminActionKick, "Spam", "", "u1")
-	f.openAs(t, "a1", msg)
+	rejected := f.request(t, "a1", adminActionKick, "Spam", "", "u1")
+	f.openAs(t, "a1", rejected)
+	if rr := f.decide(t, "a2", rejected.Id, adminDecisionReject); rr.Code != http.StatusOK {
+		t.Fatalf("reject: %d %s", rr.Code, rr.Body.String())
+	}
+	withdrawn := f.request(t, "a1", adminActionKick, "Spam", "", "u1")
+	f.openAs(t, "a1", withdrawn)
+	if rr := f.decide(t, "a1", withdrawn.Id, adminDecisionWithdraw); rr.Code != http.StatusOK {
+		t.Fatalf("withdraw: %d %s", rr.Code, rr.Body.String())
+	}
+	moot := f.request(t, "a1", adminActionKick, "Spam", "", "u1")
+	f.openAs(t, "a1", moot)
 	if _, err := f.db.Exec(`
 		WITH us AS (INSERT INTO user_signatures (public_key_id, signature) VALUES ($2, 's') RETURNING id),
 		     ss AS (INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id)
@@ -130,12 +155,12 @@ func TestLedger_MootEntryHasNoUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.h.dropFromAdminRequests(context.Background(), f.ids["u1"])
-
-	entries := f.ledger(t)
-	if len(entries) != 2 || entries[1].UserID != "" || entries[1].Message != "["+msg.Id+"] Closed. Reason: every target left" {
-		t.Fatalf("entries = %+v, want opened then a server-closed moot entry", entries)
+	if f.state(t, moot.Id) != adminStateMoot {
+		t.Fatal("request didn't go moot")
 	}
-	f.verifyChain(t, entries)
+	if entries := f.ledger(t); len(entries) != 0 {
+		t.Fatalf("entries = %+v, want none", entries)
+	}
 }
 
 func TestLedger_FailedExecutorWritesNoEntry(t *testing.T) {
@@ -151,32 +176,27 @@ func TestLedger_FailedExecutorWritesNoEntry(t *testing.T) {
 	if f.state(t, msg.Id) != adminStatePending {
 		t.Fatal("request closed although the executor failed")
 	}
-	reject := f.decide(t, "a2", msg.Id, adminDecisionReject)
-	if reject.Code != http.StatusOK {
-		t.Fatalf("reject: %d %s", reject.Code, reject.Body.String())
+	if entries := f.ledger(t); len(entries) != 0 {
+		t.Fatalf("entries = %+v, want none", entries)
 	}
-	entries := f.ledger(t)
-	if len(entries) != 2 || entries[1].Message != "["+msg.Id+"] Rejected" {
-		t.Fatalf("entries = %+v, want the opened and rejected entries only", entries)
-	}
-	f.verifyChain(t, entries)
 }
 
 func TestLedger_SingleChain(t *testing.T) {
 	f := newAdminFixture(t)
-	f.openAs(t, "a1", f.request(t, "a1", adminActionKick, "Spam", "", "u1"))
-	f.openAs(t, "a1", f.request(t, "a1", adminActionKick, "Spam", "", "u2"))
+	f.approveAs(t, "a1", "a2", f.request(t, "a1", adminActionKick, "Spam", "", "u1"))
+	f.approveAs(t, "a1", "a2", f.request(t, "a1", adminActionKick, "Spam", "", "u2"))
 	entries := f.ledger(t)
 
 	var sigID int64
 	if err := f.db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id`).Scan(&sigID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.db.Exec(`INSERT INTO ledger_entries (message, signed_at, server_signature_id) VALUES ('x', NOW(), $1)`, sigID); err == nil {
+	if _, err := f.db.Exec(`INSERT INTO ledger_entries (kind, user_id, message, signed_at, server_signature_id) VALUES ('mesh', $1, 'x', NOW(), $2)`,
+		f.ids["a1"], sigID); err == nil {
 		t.Error("a second head was stored")
 	}
-	if _, err := f.db.Exec(`INSERT INTO ledger_entries (prev_id, message, signed_at, server_signature_id) VALUES ($1, 'x', NOW(), $2)`,
-		entries[0].ID, sigID); err == nil {
+	if _, err := f.db.Exec(`INSERT INTO ledger_entries (prev_id, kind, user_id, message, signed_at, server_signature_id) VALUES ($1, 'mesh', $2, 'x', NOW(), $3)`,
+		entries[0].ID, f.ids["a1"], sigID); err == nil {
 		t.Error("a fork was stored")
 	}
 }
@@ -186,7 +206,7 @@ func TestGetLedger_HeadTailAndAuth(t *testing.T) {
 	var opened []string
 	for range 3 {
 		msg := f.request(t, "a1", adminActionKick, "Spam", "", "u1")
-		f.openAs(t, "a1", msg)
+		f.approveAs(t, "a1", "a2", msg)
 		opened = append(opened, msg.Id)
 	}
 

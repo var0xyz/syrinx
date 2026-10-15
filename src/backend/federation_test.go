@@ -228,7 +228,10 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS ledger_entries (
 			id BIGSERIAL PRIMARY KEY,
 			prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
-			user_id VARCHAR(255) REFERENCES identities(id),
+			kind VARCHAR(16) NOT NULL,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			requester_id VARCHAR(255) REFERENCES identities(id),
+			requested_at TIMESTAMP,
 			message TEXT NOT NULL,
 			content TEXT,
 			signed_at TIMESTAMP NOT NULL,

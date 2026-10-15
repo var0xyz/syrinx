@@ -335,11 +335,13 @@ func hasAccountRemovalQ(ctx context.Context, q adminQuerier, userID string) (boo
 const adminRequestSelect = `
 	SELECT r.id, r.action, r.requester_id, COALESCE(r.reason, ''), r.created_at, r.state,
 		us.public_key_id, us.signature,
+		rs.private_key_id, rs.signature, rs.signed_at,
 		COALESCE(c.body, ''),
 		r.closed_by, cs.public_key_id, cs.signature,
 		ss.private_key_id, ss.signature, ss.signed_at
 	FROM admin_requests r
 	JOIN user_signatures us ON us.id = r.requester_signature_id
+	JOIN server_signatures rs ON rs.id = r.requester_server_signature_id
 	LEFT JOIN admin_request_content c ON c.request_id = r.id
 	LEFT JOIN user_signatures cs ON cs.id = r.closer_signature_id
 	LEFT JOIN server_signatures ss ON ss.id = r.server_signature_id`
@@ -351,6 +353,7 @@ func scanAdminRequest(row interface{ Scan(dest ...any) error }) (*adminRequest, 
 	err := row.Scan(
 		&req.ID, &req.Action, &req.RequesterID, &req.Reason, &req.CreatedAt, &req.State,
 		&req.RequesterSignature.ID, &req.RequesterSignature.Armor,
+		&req.RequesterServerSignature.ID, &req.RequesterServerSignature.Armor, &req.RequesterServerSignature.SignedAt,
 		&req.Body,
 		&closedBy, &closerKeyID, &closerSig,
 		&serverKeyID, &serverSig, &signedAt,
@@ -359,6 +362,7 @@ func scanAdminRequest(row interface{ Scan(dest ...any) error }) (*adminRequest, 
 		return nil, err
 	}
 	req.CreatedAt = req.CreatedAt.UTC()
+	req.RequesterServerSignature.SignedAt = req.RequesterServerSignature.SignedAt.UTC()
 	if closedBy.Valid && closerSig.Valid {
 		req.Decision = &adminDecision{
 			Decision:  decisionForState(req.State),
@@ -423,10 +427,15 @@ func (s *DataService) GetAdminRequest(ctx context.Context, id string) (*adminReq
 // ErrAdminRequestExists: a request with that ID was already opened.
 var ErrAdminRequestExists = errors.New("admin request already exists")
 
-// insertAdminRequestTx stores a newly opened request with its targets and
-// content.
+// insertAdminRequestTx stores a newly opened request with its targets,
+// content and the server's countersignature.
 func insertAdminRequestTx(ctx context.Context, tx *sql.Tx, req *adminRequest) error {
 	sigID, err := insertUserSignature(ctx, tx, req.RequesterSignature.ID, req.RequesterSignature.Armor)
+	if err != nil {
+		return err
+	}
+	ss := req.RequesterServerSignature
+	serverSigID, err := insertServerSignature(ctx, tx, ss.ID, ss.Armor, ss.SignedAt)
 	if err != nil {
 		return err
 	}
@@ -436,9 +445,10 @@ func insertAdminRequestTx(ctx context.Context, tx *sql.Tx, req *adminRequest) er
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO admin_requests (
-			id, action, requester_id, requester_key_id, requester_signature_id, reason, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, req.ID, req.Action, req.RequesterID, req.RequesterSignature.ID, sigID, reason, req.CreatedAt)
+			id, action, requester_id, requester_key_id, requester_signature_id,
+			requester_server_signature_id, reason, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, req.ID, req.Action, req.RequesterID, req.RequesterSignature.ID, sigID, serverSigID, reason, req.CreatedAt)
 	var pqErr *pq.Error
 	if errors.As(err, &pqErr) && pqErr.Code == "23505" {
 		return ErrAdminRequestExists
@@ -897,15 +907,16 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry := ledgerOpenedEntry(req, h.rebindKeyID(req))
+	now := time.Now().UTC().Truncate(time.Second)
+	req.RequesterServerSignature, err = h.countersign(buildAdminRequestOpenedPayload(req.ID, req.RequesterSignature.Armor,
+		h.services.db.GetServerID(), h.signingKey.Fingerprint, now), now)
+	if err != nil {
+		log.Error().Err(err).Msg("Error countersigning admin request")
+		internalServerError(w)
+		return
+	}
 	err = withAdminTx(h.services.db.db, r.Context(), func(tx *sql.Tx) error {
-		if err := insertAdminRequestTx(r.Context(), tx, req); err != nil {
-			return err
-		}
-		if entry == nil {
-			return nil
-		}
-		return h.appendLedgerTx(r.Context(), tx, entry)
+		return insertAdminRequestTx(r.Context(), tx, req)
 	})
 	if errors.Is(err, ErrAdminRequestExists) {
 		writeError(w, http.StatusConflict, "A request with that ID already exists")
@@ -915,7 +926,6 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, r, err, "Error storing admin request")
 		return
 	}
-	h.pushLedgerEntries(entry)
 	log.Info().Str("requestID", req.ID).Str("action", req.Action).Str("requesterID", callerID).Msg("Admin request opened")
 	writeResponse(w, http.StatusCreated, pbAdminRequest(req))
 }
@@ -1084,7 +1094,10 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		req = locked
-		if entry = ledgerClosedEntry(locked, state, callerID); entry == nil {
+		if state != adminStateExecuted {
+			return nil
+		}
+		if entry = ledgerApprovedEntry(locked, callerID, h.rebindKeyID(locked)); entry == nil {
 			return nil
 		}
 		return h.appendLedgerTx(r.Context(), tx, entry)
@@ -1138,24 +1151,13 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 	if err != nil {
 		return err
 	}
-	var entry *ledgerEntry
-	err = withAdminTx(h.services.db.db, ctx, func(tx *sql.Tx) error {
+	return withAdminTx(h.services.db.db, ctx, func(tx *sql.Tx) error {
 		locked, err := getAdminRequestQ(ctx, tx, requestID, true)
 		if err != nil || locked == nil || locked.State != adminStatePending || len(locked.remainingTargets()) > 0 {
 			return err
 		}
-		if err := closeAdminRequestTx(ctx, tx, locked, adminStateMoot, nil, serverSig); err != nil {
-			return err
-		}
-		if entry = ledgerClosedEntry(locked, adminStateMoot, ""); entry == nil {
-			return nil
-		}
-		return h.appendLedgerTx(ctx, tx, entry)
+		return closeAdminRequestTx(ctx, tx, locked, adminStateMoot, nil, serverSig)
 	})
-	if err == nil {
-		h.pushLedgerEntries(entry)
-	}
-	return err
 }
 
 // adminRequestFromPB reads a request as it travels in a certificate.

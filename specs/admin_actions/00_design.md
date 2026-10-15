@@ -50,9 +50,10 @@ review) is a **request** with two signatures:
 3. The server executes it, countersigns with a server-authoritative
    timestamp, and writes the result to the [ledger](#public-ledger).
 
-A request can also be **rejected** by any eligible approver, or
-**withdrawn** by its requester. Both are final and go in the ledger as the
-request's closing entry.
+The server also countersigns the request when it is opened, which stamps
+when it was proposed. A request can also be **rejected** by any eligible
+approver, or **withdrawn** by its requester. Both are final and stay out of
+the ledger.
 
 **Permissions.** An admin can do only what their permissions allow, and an
 admin can only grant permissions they hold. Root holds every permission.
@@ -98,22 +99,23 @@ in the ledger, with no approval needed.
 Every admin action is logged, and every **signed-in local member** can read
 the log. The only admin action left out is a private message. Logged:
 
-- every closed request: executed, rejected, withdrawn or moot. That covers
-  kicks, suspensions and reinstatements, promotions and demotions, key
-  rebinds (an admin adding a key to an account) and broadcasts;
+- every approved request: kicks, suspensions and reinstatements,
+  promotions and demotions, key rebinds (an admin adding a key to an
+  account) and broadcasts. Pending, rejected, withdrawn and moot requests
+  aren't public: a pending kick could push its target to misbehave;
 - mesh: a server invite created or canceled, a connection approved or
   rejected by this server's admin (whatever the peer did on their side),
   and a disconnection;
-- admin invites created (with the permissions they grant) and claimed;
+- claimed admin invites, with the inviter, the new admin and the
+  permissions granted;
 - reserved usernames added or released.
 
 Each entry is **signed by the server**: its ID, the ID and signature of the
-entry before it, the server timestamp, the user ID of the one admin who
-acted, a message built by the server, the user IDs the entry is about,
-and its content (a broadcast's text, or a permission set). Messages never
-carry usernames. A request gives two entries: one
-when it is opened, with the reason, and one when it is approved, rejected,
-withdrawn or goes moot, naming the request by its ID. Every member
+entry before it, the server timestamp, the user ID of the admin who acted,
+a message built by the server, the user IDs the entry is about, and its
+content (a broadcast's text, or a permission set). Messages never carry
+usernames. An approved request is one entry, with the reason, the
+requester and approver, and when it was proposed and approved. Every member
 gets each new entry over the WebSocket and stores it locally. That local
 copy is the guarantee: the server can't rewrite or drop an entry without
 members noticing when they compare. New members backfill the whole ledger
@@ -273,7 +275,8 @@ a second admin's approval. On approval, the server encrypts the message into
 the recipients' mailboxes. Neither is a reed: they don't appear in feeds,
 can't be replied to, and never reach peers.
 
-Neither takes a reason. A broadcast's ledger entry carries its message. A private message
+Neither takes a reason. A broadcast's ledger entry, written on approval,
+carries its message; a rejected one never reaches the ledger. A private message
 is **never** in the ledger: only admins see it, through the pending and
 closed requests list.
 

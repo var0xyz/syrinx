@@ -7,7 +7,12 @@ import { verifyLedgerRecord } from '$lib/verifiers';
 export interface LedgerRecord {
   id: number;
   prevID?: number;
+  /** What the entry records: request, admin-invite, mesh or reserved-name. */
+  kind: string;
   userID: string;
+  /** Who proposed the request or admin invite this entry completes, and when. */
+  requesterID: string;
+  requestedAt?: number;
   message: string;
   content: string;
   targets: string[];
@@ -18,7 +23,10 @@ export function ledgerRecord(entry: api.LedgerEntry): LedgerRecord {
   return {
     id: Number(entry.id),
     prevID: entry.prevId === undefined ? undefined : Number(entry.prevId),
+    kind: entry.kind,
     userID: entry.userId,
+    requesterID: entry.requesterId,
+    requestedAt: entry.requestedAt || undefined,
     message: entry.message,
     content: entry.content,
     targets: [...entry.targets],

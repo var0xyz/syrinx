@@ -57,20 +57,22 @@ console.log('admin payload parity: ok');
 const { buildLedgerEntryPayload } = await import('../src/lib/services/signing.ts');
 
 assert.equal(
-  buildLedgerEntryPayload(1, undefined, '', 'a1@home1234', 'Admin invite inv1 created',
-    'admin.create,user.kick', [], 'home1234', 'SERVERKEY01', '2026-10-12T11:00:00Z'),
-  '{"content":"admin.create,user.kick","id":1,"message":"Admin invite inv1 created",' +
+  buildLedgerEntryPayload(1, undefined, '', 'reserved-name', 'a1@home1234', '', '', 'Username admin reserved',
+    '', [], 'home1234', 'SERVERKEY01', '2026-10-12T11:00:00Z'),
+  '{"id":1,"kind":"reserved-name","message":"Username admin reserved",' +
     '"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",' +
     '"type":"ledger-entry","userID":"a1@home1234"}',
   'first ledger entry payload'
 );
 
 assert.equal(
-  buildLedgerEntryPayload(7, 5, 'PREVSIG', '', 'Closed request r1: every target left', '',
-    ['u1@home1234', 'u2@home1234'], 'home1234', 'SERVERKEY01', '2026-10-12T11:00:00Z'),
-  '{"id":7,"message":"Closed request r1: every target left","prevID":5,"prevSignature":"PREVSIG",' +
+  buildLedgerEntryPayload(7, 5, 'PREVSIG', 'request', 'a2@home1234', 'a1@home1234', '2026-10-12T10:00:00Z',
+    '[r1] Kick. Reason: Spam', '', ['u1@home1234', 'u2@home1234'], 'home1234', 'SERVERKEY01',
+    '2026-10-12T11:00:00Z'),
+  '{"id":7,"kind":"request","message":"[r1] Kick. Reason: Spam","prevID":5,"prevSignature":"PREVSIG",' +
+    '"requestedAt":"2026-10-12T10:00:00Z","requesterID":"a1@home1234",' +
     '"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",' +
-    '"targets":["u1@home1234","u2@home1234"],"type":"ledger-entry"}',
+    '"targets":["u1@home1234","u2@home1234"],"type":"ledger-entry","userID":"a2@home1234"}',
   'chained ledger entry payload'
 );
 

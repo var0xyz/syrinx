@@ -1191,8 +1191,12 @@ type LedgerEntry struct {
 	Content         string                 `protobuf:"bytes,5,opt,name=content,proto3" json:"content,omitempty"`
 	Targets         []string               `protobuf:"bytes,6,rep,name=targets,proto3" json:"targets,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Who proposed the request or admin invite an entry completes, and when.
+	RequesterId   string `protobuf:"bytes,8,opt,name=requester_id,json=requesterID,proto3" json:"requester_id,omitempty"`
+	RequestedAt   uint32 `protobuf:"varint,9,opt,name=requested_at,json=requestedAt,proto3" json:"requested_at,omitempty"`
+	Kind          string `protobuf:"bytes,10,opt,name=kind,proto3" json:"kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LedgerEntry) Reset() {
@@ -1272,6 +1276,27 @@ func (x *LedgerEntry) GetServerSignature() *ServerSignature {
 		return x.ServerSignature
 	}
 	return nil
+}
+
+func (x *LedgerEntry) GetRequesterId() string {
+	if x != nil {
+		return x.RequesterId
+	}
+	return ""
+}
+
+func (x *LedgerEntry) GetRequestedAt() uint32 {
+	if x != nil {
+		return x.RequestedAt
+	}
+	return 0
+}
+
+func (x *LedgerEntry) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
 }
 
 var File_common_proto protoreflect.FileDescriptor
@@ -1379,7 +1404,7 @@ const file_common_proto_rawDesc = "" +
 	"decider_id\x18\x02 \x01(\tR\tdeciderID\x123\n" +
 	"\tsignature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"D\n" +
 	"\x12AdminAuthorization\x12.\n" +
-	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestR\arequest\"\xf2\x01\n" +
+	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestR\arequest\"\xcc\x02\n" +
 	"\vLedgerEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1c\n" +
 	"\aprev_id\x18\x02 \x01(\x04H\x00R\x06prevID\x88\x01\x01\x12\x17\n" +
@@ -1387,7 +1412,11 @@ const file_common_proto_rawDesc = "" +
 	"\amessage\x18\x04 \x01(\tR\amessage\x12\x18\n" +
 	"\acontent\x18\x05 \x01(\tR\acontent\x12\x18\n" +
 	"\atargets\x18\x06 \x03(\tR\atargets\x12B\n" +
-	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignatureB\n" +
+	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12!\n" +
+	"\frequester_id\x18\b \x01(\tR\vrequesterID\x12!\n" +
+	"\frequested_at\x18\t \x01(\rR\vrequestedAt\x12\x12\n" +
+	"\x04kind\x18\n" +
+	" \x01(\tR\x04kindB\n" +
 	"\n" +
 	"\b_prev_idB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 

@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -6513,17 +6515,6 @@ const inviteCreateSkew = 5 * time.Minute
 // adminInviteTTL is how long an unclaimed admin invite stays redeemable.
 const adminInviteTTL = 24 * time.Hour
 
-// maskInviteID shows only an invite uuid's first two groups (its creation
-// time) so a public record never hands out a redeemable id.
-func maskInviteID(id string) string {
-	uuid := id[strings.LastIndex(id, "/")+1:]
-	groups := strings.SplitN(uuid, "-", 3)
-	if len(groups) < 3 {
-		return "********-****-****-****-************"
-	}
-	return groups[0] + "-" + groups[1] + "-****-****-************"
-}
-
 var adminInviteCutoffSQL = fmt.Sprintf("NOW() - make_interval(secs => %d)", int64(adminInviteTTL/time.Second))
 
 // hashSecret returns SHA-256(secret). Create sends this digest (hex); the
@@ -6579,7 +6570,48 @@ var (
 	errInviteLimitReached   = errors.New("invite limit reached")
 	errInviteRequired       = errors.New("invite required")
 	errInvalidInvite        = errors.New("invalid or claimed invite")
+	errInviterLacksGrant    = errors.New("inviter no longer holds what the invite grants")
 )
+
+// adminInviteClaimEntryTx checks the inviter still holds everything
+// inviteID grants, and returns the ledger entry for adminID claiming it.
+func adminInviteClaimEntryTx(ctx context.Context, tx *sql.Tx, inviteID, adminID, serverID string) (*ledgerEntry, error) {
+	var inviter string
+	var requestedAt time.Time
+	if err := tx.QueryRowContext(ctx, `
+		SELECT i.created_by, ss.signed_at
+		FROM invites i JOIN server_signatures ss ON ss.id = i.server_signature_id
+		WHERE i.id = $1
+	`, inviteID).Scan(&inviter, &requestedAt); err != nil {
+		return nil, err
+	}
+	granted, err := queryStringsQ(ctx, tx, `SELECT permission FROM invite_permissions WHERE invite_id = $1`, inviteID)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(granted)
+	role, err := userRoleQ(ctx, tx, inviter)
+	if err != nil {
+		return nil, err
+	}
+	held, err := userPermissionsQ(ctx, tx, inviter, role, serverID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range append([]string{permAdminCreate}, granted...) {
+		if !slices.Contains(held, p) {
+			return nil, errInviterLacksGrant
+		}
+	}
+	return &ledgerEntry{
+		Kind:        ledgerKindAdminInvite,
+		UserID:      adminID,
+		RequesterID: inviter,
+		RequestedAt: requestedAt.UTC(),
+		Message:     fmt.Sprintf("[%s] Admin invite claimed", inviteID),
+		Content:     formatPermissionSet(granted),
+	}, nil
+}
 
 // inviteRecord is the durable invite row (never includes the raw token).
 // CreatedBy/ClaimedBy hold the full "userID@serverID" form; ClaimedBy is
@@ -6657,20 +6689,8 @@ func (s *DataService) countInvitesByCreator(ctx context.Context, creatorID strin
 	return n, err
 }
 
-func (s *DataService) insertInvite(
-	ctx context.Context,
-	id, creatorID string,
-	tokenHash []byte,
-	createdAt time.Time,
-	grantedRole string,
-	userKeyID, userSignatureArmor string,
-	maxInvites int,
-) error {
-	return s.insertInviteWith(ctx, id, creatorID, tokenHash, createdAt, grantedRole, userKeyID, userSignatureArmor, maxInvites, nil, nil)
-}
-
-// insertInviteWith is insertInvite with an admin invite's permissions, and
-// a hook run in the same transaction (its ledger entry).
+// insertInviteWith stores an invite with its signatures and, for an admin
+// invite, the permissions it grants.
 func (s *DataService) insertInviteWith(
 	ctx context.Context,
 	id, creatorID string,
@@ -6678,9 +6698,9 @@ func (s *DataService) insertInviteWith(
 	createdAt time.Time,
 	grantedRole string,
 	userKeyID, userSignatureArmor string,
+	serverSig ServerSignature,
 	maxInvites int,
 	permissions []string,
-	hook func(tx *sql.Tx) error,
 ) error {
 	if grantedRole == "" {
 		grantedRole = "user"
@@ -6700,11 +6720,15 @@ func (s *DataService) insertInviteWith(
 	if err != nil {
 		return err
 	}
+	serverSignatureID, err := insertServerSignature(ctx, tx, serverSig.ID, serverSig.Armor, serverSig.SignedAt)
+	if err != nil {
+		return err
+	}
 	res, err := tx.ExecContext(ctx, `
-		INSERT INTO invites (id, created_by, token_hash, created_at, granted_role, user_signature_id)
-		SELECT $1, $2::varchar, $3, $4, $5, $6
-		WHERE $7 < 0 OR (SELECT COUNT(*) FROM invites WHERE created_by = $2::varchar) < $7
-	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID, maxInvites)
+		INSERT INTO invites (id, created_by, token_hash, created_at, granted_role, user_signature_id, server_signature_id)
+		SELECT $1, $2::varchar, $3, $4, $5, $6, $7
+		WHERE $8 < 0 OR (SELECT COUNT(*) FROM invites WHERE created_by = $2::varchar) < $8
+	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID, serverSignatureID, maxInvites)
 	if isUniqueViolation(err) {
 		return errInviteExists
 	}
@@ -6720,11 +6744,6 @@ func (s *DataService) insertInviteWith(
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO invite_permissions (invite_id, permission) VALUES ($1, $2)
 		`, id, p); err != nil {
-			return err
-		}
-	}
-	if hook != nil {
-		if err := hook(tx); err != nil {
 			return err
 		}
 	}
@@ -8400,7 +8419,12 @@ func (s *DataService) DeletePublicKeyAllocation(ctx context.Context, userID, key
 
 // queryStrings runs a query returning one string column.
 func (s *DataService) queryStrings(ctx context.Context, query string, args ...any) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	return queryStringsQ(ctx, s.db, query, args...)
+}
+
+// queryStringsQ is queryStrings on q, a transaction or the database.
+func queryStringsQ(ctx context.Context, q adminQuerier, query string, args ...any) ([]string, error) {
+	rows, err := q.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

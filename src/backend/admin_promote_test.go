@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"slices"
 	"testing"
@@ -139,6 +140,26 @@ func TestDemote_ClearsPermissionsAndRevokesAdminInvites(t *testing.T) {
 	}
 }
 
+// claimAdminInvite signs newadmin up with inviteID, logging the claim as
+// signup does.
+func (f *adminFixture) claimAdminInvite(t *testing.T, inviteID string) error {
+	t.Helper()
+	inv, err := f.ds.getInviteByID(context.Background(), inviteID)
+	if err != nil || inv == nil {
+		t.Fatalf("invite %v %v", inv, err)
+	}
+	in := signupInput("newadmin", "newadmin", inv)
+	in.OnAdminClaim = func(tx *sql.Tx) error {
+		entry, err := adminInviteClaimEntryTx(context.Background(), tx, inv.ID, string(canonicalID(f.srv, "newadmin")), f.srv)
+		if err != nil {
+			return err
+		}
+		return f.h.appendLedgerTx(context.Background(), tx, entry)
+	}
+	_, err = f.ds.Signup(context.Background(), in)
+	return err
+}
+
 func TestAdminInvite_PermissionsCheckedLoggedAndGrantedOnClaim(t *testing.T) {
 	f := newAdminFixture(t)
 	f.h.cfg.MaxInvitesPerUser = maxInvitesUnlimited
@@ -166,31 +187,60 @@ func TestAdminInvite_PermissionsCheckedLoggedAndGrantedOnClaim(t *testing.T) {
 	}
 	var created pb.Invite
 	decodeProto(t, rr.body, &created)
-	entries := f.ledger(t)
-	if len(entries) != 1 || entries[0].Content != "admin.create,user.kick" || entries[0].UserID != creator {
-		t.Fatalf("ledger = %+v, want the invite's entry with its permissions", entries)
+	if entries := f.ledger(t); len(entries) != 0 {
+		t.Fatalf("ledger = %+v, want nothing until the invite is claimed", entries)
 	}
 
-	inv, err := f.ds.getInviteByID(context.Background(), created.Id)
-	if err != nil || inv == nil {
-		t.Fatalf("invite %v %v", inv, err)
-	}
-	in := signupInput("newadmin", "newadmin", inv)
-	in.OnAdminClaim = func(tx *sql.Tx) error {
-		return f.h.appendLedgerTx(context.Background(), tx, &ledgerEntry{
-			Message: "Admin invite " + inv.ID + " claimed",
-			Targets: []string{string(canonicalID(f.srv, "newadmin"))},
-		})
-	}
-	if _, err := f.ds.Signup(context.Background(), in); err != nil {
+	if err := f.claimAdminInvite(t, created.Id); err != nil {
 		t.Fatal(err)
 	}
-	perms, err := f.ds.GetUserPermissions(context.Background(), string(canonicalID(f.srv, "newadmin")))
+	newAdmin := string(canonicalID(f.srv, "newadmin"))
+	perms, err := f.ds.GetUserPermissions(context.Background(), newAdmin)
 	if err != nil || !slices.Equal(perms, []string{permAdminCreate, permUserKick}) {
 		t.Fatalf("claimed permissions = %v err=%v", perms, err)
 	}
-	if entries := f.ledger(t); len(entries) != 2 || entries[1].Targets[0] != string(canonicalID(f.srv, "newadmin")) {
-		t.Fatalf("ledger = %+v, want the claim entry naming the new admin", entries)
+	entries := f.ledger(t)
+	if len(entries) != 1 {
+		t.Fatalf("ledger = %+v, want the claim entry", entries)
+	}
+	e := entries[0]
+	if e.Kind != ledgerKindAdminInvite || e.UserID != newAdmin || e.RequesterID != creator ||
+		e.Message != "["+created.Id+"] Admin invite claimed" || e.Content != "admin.create,user.kick" || len(e.Targets) != 0 {
+		t.Errorf("claim entry = %+v", e)
+	}
+	if !e.RequestedAt.Equal(timeFromUnix(created.ServerSignature.GetSignedAt())) || e.RequestedAt.After(e.ServerSignature.SignedAt) {
+		t.Errorf("requestedAt = %v, want the invite's countersignature time", e.RequestedAt)
+	}
+	f.verifyChain(t, entries)
+}
+
+func TestAdminInvite_ClaimRefusedOnceInviterLostAGrantedPermission(t *testing.T) {
+	f := newAdminFixture(t)
+	f.h.cfg.MaxInvitesPerUser = maxInvitesUnlimited
+	f.grant(t, "a1", permAdminCreate)
+	creator, kp := f.ids["a1"], f.keys["a1"]
+	body := inviteCreateBody(t, f.h, creator, kp, "", "", time.Now(), roleAdmin)
+	var msg pb.CreateInviteRequest
+	if err := proto.Unmarshal(body.Bytes(), &msg); err != nil {
+		t.Fatal(err)
+	}
+	msg.Permissions = permUserKick
+	b, _ := proto.Marshal(&msg)
+	rr := postCreateInvite(f.h, creator, bytes.NewBuffer(b))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("admin invite: %d %q", rr.Code, rr.Body.String())
+	}
+	var created pb.Invite
+	decodeProto(t, rr.Body.Bytes(), &created)
+
+	if _, err := f.db.Exec(`DELETE FROM user_permissions WHERE user_id = $1 AND permission = $2`, creator, permUserKick); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.claimAdminInvite(t, created.Id); !errors.Is(err, errInviterLacksGrant) {
+		t.Fatalf("claim = %v, want errInviterLacksGrant", err)
+	}
+	if entries := f.ledger(t); len(entries) != 0 {
+		t.Fatalf("ledger = %+v, want none", entries)
 	}
 }
 

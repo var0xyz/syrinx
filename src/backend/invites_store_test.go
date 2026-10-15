@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -60,7 +59,8 @@ func ensureInviteStoreSchema(db *sql.DB) error {
 			revoked_at TIMESTAMPTZ,
 			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
 				CHECK (granted_role IN ('admin', 'user')),
-			user_signature_id INT NOT NULL REFERENCES user_signatures(id)
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
@@ -403,12 +403,17 @@ func TestAdminInviteExpires(t *testing.T) {
 	}
 }
 
-func TestMaskInviteID(t *testing.T) {
-	got := maskInviteID("1@srv/01a1348c-dc77-7abc-8def-0123456789ab")
-	if want := "01a1348c-dc77-****-****-************"; got != want {
-		t.Fatalf("maskInviteID = %q, want %q", got, want)
-	}
-	if got := maskInviteID("garbage"); strings.Contains(got, "garbage") {
-		t.Fatalf("maskInviteID leaked input: %q", got)
-	}
+// insertInvite stores a plain invite with placeholder signatures.
+func (s *DataService) insertInvite(
+	ctx context.Context,
+	id, creatorID string,
+	tokenHash []byte,
+	createdAt time.Time,
+	grantedRole string,
+	userKeyID, userSignatureArmor string,
+	maxInvites int,
+) error {
+	serverSig := ServerSignature{ID: "seed-sfp", Armor: "sig", SignedAt: createdAt}
+	return s.insertInviteWith(ctx, id, creatorID, tokenHash, createdAt, grantedRole, userKeyID, userSignatureArmor,
+		serverSig, maxInvites, nil)
 }

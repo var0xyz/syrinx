@@ -42,8 +42,11 @@
         <ol class="entry-list">
           {#each entries as e (e.id)}
             {@const signedAt = fromUnix(e.serverSignature.signedAt) ?? new Date(0)}
+            {@const requestedAt = e.requestedAt ? fromUnix(e.requestedAt) : null}
             {@const permissions = e.content ? parsePermissionSet(e.content) : null}
+            {@const verbs = e.kind === 'admin-invite' ? ['Created', 'Claimed'] : ['Proposed', 'Approved']}
             <li class="entry">
+              <span class="entry-id">#{e.id}</span>
               <p class="message">{e.message}</p>
               {#if e.targets.length > 0}
                 <p class="targets">
@@ -57,17 +60,27 @@
               {:else if e.content}
                 <blockquote class="content">{e.content}</blockquote>
               {/if}
-              <div class="meta">
-                <span class="entry-id">#{e.id}</span>
-                {#if e.userID}
+              {#if e.requesterID && requestedAt}
+                <p class="meta">
+                  {verbs[0]} by <Username userID={e.requesterID} color="var(--primary)" />
+                  <time datetime={requestedAt.toISOString()} title={formatAbsoluteDateTime(requestedAt)}>
+                    {formatRelativeTime(requestedAt)}
+                  </time>
+                </p>
+                <p class="meta">
+                  {verbs[1]} by <Username userID={e.userID} color="var(--primary)" />
+                  <time datetime={signedAt.toISOString()} title={formatAbsoluteDateTime(signedAt)}>
+                    {formatRelativeTime(signedAt)}
+                  </time>
+                </p>
+              {:else}
+                <div class="meta">
                   <Username userID={e.userID} color="var(--primary)" />
-                {:else}
-                  <span>Server</span>
-                {/if}
-                <time datetime={signedAt.toISOString()} title={formatAbsoluteDateTime(signedAt)}>
-                  {formatRelativeTime(signedAt)}
-                </time>
-              </div>
+                  <time datetime={signedAt.toISOString()} title={formatAbsoluteDateTime(signedAt)}>
+                    {formatRelativeTime(signedAt)}
+                  </time>
+                </div>
+              {/if}
             </li>
           {/each}
         </ol>
@@ -190,12 +203,16 @@
   .meta {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
   }
 
   .entry-id {
+    color: var(--muted);
     font-family: monospace;
+    font-size: 0.8rem;
   }
 </style>

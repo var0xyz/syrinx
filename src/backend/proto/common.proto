@@ -158,4 +158,8 @@ message LedgerEntry {
   string content = 5;
   repeated string targets = 6;
   ServerSignature server_signature = 7;
+  // Who proposed the request or admin invite an entry completes, and when.
+  string requester_id = 8 [json_name = "requesterID"];
+  uint32 requested_at = 9;
+  string kind = 10;
 }

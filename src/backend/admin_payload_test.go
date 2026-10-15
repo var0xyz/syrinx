@@ -61,22 +61,35 @@ func TestAdminRequestServerPayloadCanonicalShape(t *testing.T) {
 	}
 }
 
+func TestAdminRequestOpenedPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
+	got := buildAdminRequestOpenedPayload("5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50", "REQSIG", "home1234", "SERVERKEY01", signedAt)
+	want := `{"requestID":"5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50","requestSignature":"REQSIG",` +
+		`"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T10:00:00Z",` +
+		`"type":"admin-request-opened"}`
+	if string(got) != want {
+		t.Errorf("opened payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
 func TestLedgerEntryPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
-	got := buildLedgerEntryPayload(1, 0, "", "a1@home1234", "Admin invite inv1 created",
-		"admin.create,user.kick", nil, "home1234", "SERVERKEY01", signedAt)
-	want := `{"content":"admin.create,user.kick","id":1,"message":"Admin invite inv1 created",` +
+	got := buildLedgerEntryPayload(1, 0, "", "reserved-name", "a1@home1234", "", time.Time{}, "Username admin reserved",
+		"", nil, "home1234", "SERVERKEY01", signedAt)
+	want := `{"id":1,"kind":"reserved-name","message":"Username admin reserved",` +
 		`"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",` +
 		`"type":"ledger-entry","userID":"a1@home1234"}`
 	if string(got) != want {
 		t.Errorf("first ledger entry payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 
-	got = buildLedgerEntryPayload(7, 5, "PREVSIG", "", "[r1] Closed. Reason: every target left",
+	requestedAt := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
+	got = buildLedgerEntryPayload(7, 5, "PREVSIG", "request", "a2@home1234", "a1@home1234", requestedAt, "[r1] Kick. Reason: Spam",
 		"", []string{"u1@home1234", "u2@home1234"}, "home1234", "SERVERKEY01", signedAt)
-	want = `{"id":7,"message":"[r1] Closed. Reason: every target left","prevID":5,"prevSignature":"PREVSIG",` +
+	want = `{"id":7,"kind":"request","message":"[r1] Kick. Reason: Spam","prevID":5,"prevSignature":"PREVSIG",` +
+		`"requestedAt":"2026-10-12T10:00:00Z","requesterID":"a1@home1234",` +
 		`"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",` +
-		`"targets":["u1@home1234","u2@home1234"],"type":"ledger-entry"}`
+		`"targets":["u1@home1234","u2@home1234"],"type":"ledger-entry","userID":"a2@home1234"}`
 	if string(got) != want {
 		t.Errorf("chained ledger entry payload mismatch:\n got=%q\nwant=%q", got, want)
 	}

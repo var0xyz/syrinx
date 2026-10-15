@@ -92,9 +92,11 @@ type adminRequest struct {
 	Body               string
 	CreatedAt          time.Time
 	RequesterSignature UserSignature
-	State              string
-	Decision           *adminDecision
-	ServerSignature    *ServerSignature
+	// RequesterServerSignature is the server's, from when it was opened.
+	RequesterServerSignature ServerSignature
+	State                    string
+	Decision                 *adminDecision
+	ServerSignature          *ServerSignature
 }
 
 // adminDecision is the signed approval, rejection or withdrawal that
@@ -369,6 +371,7 @@ func InitDB(db *sql.DB) error {
 		requester_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 		requester_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
 		requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		requester_server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		reason TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
 		created_at TIMESTAMP NOT NULL,
 		state VARCHAR(16) NOT NULL DEFAULT 'pending'
@@ -1449,7 +1452,8 @@ func InitDB(db *sql.DB) error {
 		revoked_at TIMESTAMPTZ,
 		granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
 			CHECK (granted_role IN ('admin', 'user')),
-		user_signature_id INT NOT NULL REFERENCES user_signatures(id)
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
 	createInvitesIndexes := `
@@ -1459,17 +1463,24 @@ func InitDB(db *sql.DB) error {
 
 	// The public ledger of admin actions, chained: each entry signs prev_id
 	// and that entry's signature; prev_id is NULL only on the first entry.
-	// user_id is NULL when the server acted (a request going moot).
+	// A request or admin invite is logged once done: requester_id proposed
+	// it, user_id approved or claimed it.
 	createLedgerEntriesTable := `
 	CREATE TABLE IF NOT EXISTS ledger_entries (
 		id BIGSERIAL PRIMARY KEY,
 		prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
-		user_id VARCHAR(255) REFERENCES identities(id),
+		kind VARCHAR(16) NOT NULL
+			CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name')),
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+		requester_id VARCHAR(255) REFERENCES identities(id),
+		requested_at TIMESTAMP,
 		message TEXT NOT NULL,
 		-- A broadcast's text, or the permission set an entry grants.
 		content TEXT,
 		signed_at TIMESTAMP NOT NULL,
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+
+		CONSTRAINT ledger_entries_requested CHECK ((requester_id IS NULL) = (requested_at IS NULL))
 	);`
 
 	// The users an entry is about, so messages never carry usernames.

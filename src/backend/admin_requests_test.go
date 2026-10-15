@@ -98,9 +98,13 @@ func (f *adminFixture) setInvitedBy(t *testing.T, inviter, invitee string) {
 	if err := f.db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ('k', 's') RETURNING id`).Scan(&sigID); err != nil {
 		t.Fatal(err)
 	}
+	var serverSigID int64
+	if err := f.db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id`).Scan(&serverSigID); err != nil {
+		t.Fatal(err)
+	}
 	inviteID := f.ids[inviter] + "/" + uuid.NewString()
-	if _, err := f.db.Exec(`INSERT INTO invites (id, created_by, token_hash, claimed_by, granted_role, user_signature_id)
-		VALUES ($1, $2, $3, $4, 'admin', $5)`, inviteID, f.ids[inviter], []byte(inviteID), f.ids[invitee], sigID); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO invites (id, created_by, token_hash, claimed_by, granted_role, user_signature_id, server_signature_id)
+		VALUES ($1, $2, $3, $4, 'admin', $5, $6)`, inviteID, f.ids[inviter], []byte(inviteID), f.ids[invitee], sigID, serverSigID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.db.Exec(`UPDATE users SET invite_id = $1 WHERE id = $2`, inviteID, f.ids[invitee]); err != nil {

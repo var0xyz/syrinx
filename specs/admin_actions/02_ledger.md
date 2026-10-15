@@ -23,25 +23,27 @@ signed copy and can compare it with what the server returns.
 
 ## Entry
 
-One entry per admin action, written in the same transaction as the action.
-Every entry has exactly one actor:
+One entry per admin action, written in the same transaction as the action:
 
-| Field           | Meaning                                                                          |
-| --------------- | -------------------------------------------------------------------------------- |
-| `id`            | The entry's ID                                                                   |
-| `prevID`        | The ID of the entry before it; absent on the first entry                         |
-| `prevSignature` | The server signature of the entry before it; absent on the first entry           |
-| `userID`        | The admin who performed the action; absent when the server did (a moot request)  |
-| `message`       | Human-readable text built by the server, never containing a username             |
-| `targets`       | The user IDs the entry is about, sorted                                          |
-| `content`       | A broadcast's text, or the permission set an entry grants                        |
-| `signedAt`      | Server timestamp                                                                 |
+| Field           | Meaning                                                                               |
+| --------------- | ------------------------------------------------------------------------------------- |
+| `id`            | The entry's ID                                                                        |
+| `prevID`        | The ID of the entry before it; absent on the first entry                              |
+| `prevSignature` | The server signature of the entry before it; absent on the first entry                |
+| `kind`          | `request`, `admin-invite`, `mesh` or `reserved-name`                                  |
+| `userID`        | Who acted: a request's approver, an admin invite's claimer, or the admin otherwise    |
+| `requesterID`   | Who opened the request, or created the admin invite; absent otherwise                 |
+| `requestedAt`   | When that was, from the server's countersignature then; absent otherwise              |
+| `message`       | Human-readable text built by the server, never containing a username                  |
+| `targets`       | The user IDs the entry is about, sorted                                               |
+| `content`       | A broadcast's text, or the permission set an entry grants                             |
+| `signedAt`      | Server timestamp; for a request, when it was approved                                 |
 
 ```go
-func buildLedgerEntryPayload(id, prevID uint64, prevSignature, userID, message,
-    content string, targets []string, serverID, serverKeyFingerprint string,
-    signedAt time.Time) []byte
-// {"content","id","message","prevID","prevSignature","serverID","serverKeyFingerprint","signedAt","targets","type":"ledger-entry","userID"}
+func buildLedgerEntryPayload(id, prevID uint64, prevSignature, kind, userID, requesterID string,
+    requestedAt time.Time, message, content string, targets []string, serverID,
+    serverKeyFingerprint string, signedAt time.Time) []byte
+// {"content","id","kind","message","prevID","prevSignature","requestedAt","requesterID","serverID","serverKeyFingerprint","signedAt","targets","type":"ledger-entry","userID"}
 ```
 
 In `identity.go`, mirrored in `signing.ts`.
@@ -50,11 +52,16 @@ In `identity.go`, mirrored in `signing.ts`.
 CREATE TABLE IF NOT EXISTS ledger_entries (
   id                  BIGSERIAL PRIMARY KEY,
   prev_id             BIGINT UNIQUE REFERENCES ledger_entries(id),
-  user_id             VARCHAR(255) REFERENCES identities(id),
+  kind                VARCHAR(16) NOT NULL
+    CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name')),
+  user_id             VARCHAR(255) NOT NULL REFERENCES identities(id),
+  requester_id        VARCHAR(255) REFERENCES identities(id),
+  requested_at        TIMESTAMP,
   message             TEXT NOT NULL,
   content             TEXT,
   signed_at           TIMESTAMP NOT NULL,
-  server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+  server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+  CONSTRAINT ledger_entries_requested CHECK ((requester_id IS NULL) = (requested_at IS NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_entries_first
   ON ledger_entries((prev_id IS NULL)) WHERE prev_id IS NULL;
@@ -70,7 +77,8 @@ Usernames change and can contain any character, so messages never carry
 them. The users an entry is about are in `targets`, as user IDs, and the
 SPA shows each one's current username in its own color. Data a client
 needs to act on, a broadcast's text or a permission set, is in `content`,
-so no client ever parses `message`.
+and what the entry records is its `kind`, so no client ever parses
+`message`.
 
 IDs say nothing about order or count: the chain is `prev_id`. It is unique
 and only one entry may have none, so the ledger is a single chain. The
@@ -84,24 +92,20 @@ entry it holds or fetches.
 
 ## What gets an entry
 
-A two-admin request produces **two** entries: one when it is opened, by the
-requester, and one when it closes, by the approver (or by the requester on
-a withdrawal, or by the server when it goes moot). The reason is only in
-the first. The second names the request by its **request ID**, never by a
-ledger entry ID.
+A two-admin request produces **one** entry, when it is approved: the
+approver is `userID`, the requester `requesterID`, and `requestedAt` /
+`signedAt` say when it was proposed and approved. A pending, rejected,
+withdrawn or moot request writes nothing, so members never learn of an
+action that didn't happen: a kick that is still pending, say, could push
+its target to misbehave. Only admins see those, in the requests list.
 
 | Event                             | Message                                                 | `targets`         | `content`           |
 | --------------------------------- | ------------------------------------------------------- | ----------------- | ------------------- |
-| Request opened                    | `[{requestID}] {Action}. Reason: {reason}`              | The targets       |                     |
-| Rebind opened                     | `[{requestID}] Key rebind to {keyID}. Reason: {reason}` | The target        |                     |
-| Promote or permissions opened     | `[{requestID}] {Action}. Reason: {reason}`              | The target        | The permission set  |
-| Broadcast opened                  | `[{requestID}] Broadcast`                               |                   | The message         |
-| Request approved                  | `[{requestID}] Approved`                                |                   |                     |
-| Request rejected                  | `[{requestID}] Rejected`                                |                   |                     |
-| Request withdrawn                 | `[{requestID}] Withdrawn`                               |                   |                     |
-| Request moot                      | `[{requestID}] Closed. Reason: every target left`       |                   |                     |
-| Admin invite created              | `Admin invite {maskedInviteID} created`                 |                   | The permission set  |
-| Admin invite claimed              | `Admin invite {maskedInviteID} claimed`                 | The new admin     |                     |
+| Request approved                  | `[{requestID}] {Action}. Reason: {reason}`              | The targets       |                     |
+| Rebind approved                   | `[{requestID}] Key rebind to {keyID}. Reason: {reason}` | The target        |                     |
+| Promote or permissions approved   | `[{requestID}] {Action}. Reason: {reason}`              | The target        | The permission set  |
+| Broadcast approved                | `[{requestID}] Broadcast`                               |                   | The message         |
+| Admin invite claimed              | `[{inviteID}] Admin invite claimed`                     |                   | The permission set  |
 | Mesh invite created               | `Server invite {invitationID} created for {name}`       |                   |                     |
 | Mesh invite canceled              | `Canceled server invite {invitationID}`                 |                   |                     |
 | Mesh connection approved          | `Approved connection to {serverID}`                     |                   |                     |
@@ -110,15 +114,17 @@ ledger entry ID.
 | Reserved username added / removed | `Username {name} reserved` / `Username {name} released` |                   |                     |
 
 `{Action}` is the action's display name: Suspension, Reinstatement, Kick,
-Promotion, Demotion, Permission change. `{maskedInviteID}` keeps only the
-first two groups of the invite's UUID (`01a1348c-dc77-****-****-************`),
-its creation time. Requests cover every two-admin action: kick,
+Promotion, Demotion, Permission change. Requests cover every two-admin action: kick,
 suspend, reinstate, promote, demote, permission changes, key rebinds (an
 admin adding a key to an account) and broadcasts.
 
 An admin invite needs no approval, but it creates an admin, so it is
-logged twice: when it is created, by its inviter, with the permissions it
-grants, and when it is claimed, by the server, naming the new admin.
+logged like a request, once claimed: `requesterID` and `requestedAt` are
+the inviter and the invite's server countersignature time, `userID` and
+`signedAt` the new admin and the claim. An unclaimed invite never appears,
+and a claimed one's ID is spent, so it is shown in full. The claim is
+refused if the inviter no longer holds `admin.create` and every permission
+the invite grants.
 
 Every change to who is an admin and what they may do is in the ledger:
 promotions, permission changes, demotions and admin invites. Replaying it
@@ -130,8 +136,8 @@ permission from the start.
 A mesh connection is logged when **this** server's admin approves it.
 Whether the peer has approved on their side doesn't matter.
 
-**Not logged:** private messages, at either step, and flags (a flag is a
-member's action, not an admin's).
+**Not logged:** requests that aren't approved, private messages, and flags
+(a flag is a member's action, not an admin's).
 
 ## WebSocket
 
@@ -172,8 +178,8 @@ before it. Its copy is always a complete chain back to the first entry. A
 backfill page whose entries don't chain is refused as a whole.
 
 When the API returns an entry the client already holds, the client compares
-it with its local copy. A different message, content, targets or timestamp
-for the same ID,
+it with its local copy. A different message, content, targets, admin or
+timestamp for the same ID,
 or an entry the client holds that the server no longer returns, means the
 server rewrote its ledger. The client keeps its own copy and warns the
 member.
@@ -184,18 +190,21 @@ member.
 version info: at the bottom of the side nav on large screens, and on the
 account page on small ones:
 
-- One row per entry: the message, the targets as usernames in their own
-  color, the content (a broadcast's text, or the permissions granted), then
-  a footer with `#id`, the admin (or "Server") and the relative time. Newest
-  first.
+- One row per entry: `#id`, the message, the targets as usernames in their
+  own color, the content (a broadcast's text, or the permissions granted),
+  then "Proposed by {requester} {time}" and "Approved by {approver} {time}"
+  on two lines ("Created" and "Claimed" for an admin invite), or the admin
+  and the relative time for the other kinds. Newest first.
 - Rendered from the local `ledger` store (offline-first).
 - A warning banner when the local copy and the server disagree.
 
 ## Tests
 
-- Opening and closing a request each write one entry, the second chained
-  to the first; only the opening entry carries the reason.
-- A private message and a flag write no entry.
+- Approving a request writes one entry, with the reason, both admins, and
+  the open countersignature's timestamp as `requestedAt`; opening one writes
+  none.
+- A rejected, withdrawn or moot request, a private message and a flag write
+  no entry.
 - A rolled-back executor writes no entry, and the next entry still chains
   to the last one written.
 - Every entry's `prevID` and `prevSignature` are the previous entry's; a
@@ -207,8 +216,10 @@ account page on small ones:
 - `GET /api/ledger` returns the entry with no `prevID` as `head`, and a
   `tail` where each entry's `prevID` is the entry before it.
 - An unauthenticated read gets 401; a suspended member's read gets 403.
-- Creating and claiming an admin invite each write one entry, the first
-  with the permission set, the second with the new admin as its target.
+- Creating an admin invite writes no entry; claiming it writes one, with
+  the inviter, the new admin, the full invite ID, both timestamps and the
+  permission set. A claim after the inviter lost a granted permission is
+  refused and writes nothing.
 - No message contains a username; targets are signed as user IDs.
 - `LEDGER_ENTRY` reaches every connected local member.
 - SPA: a tampered message fails verification; a server copy that differs

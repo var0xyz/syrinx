@@ -68,7 +68,8 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			revoked_at TIMESTAMPTZ,
 			granted_role VARCHAR(16) NOT NULL DEFAULT 'user'
 				CHECK (granted_role IN ('admin', 'user')),
-			user_signature_id INT NOT NULL REFERENCES user_signatures(id)
+			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -127,7 +128,10 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		`CREATE TABLE ledger_entries (
 			id BIGSERIAL PRIMARY KEY,
 			prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
-			user_id VARCHAR(255) REFERENCES identities(id),
+			kind VARCHAR(16) NOT NULL,
+			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			requester_id VARCHAR(255) REFERENCES identities(id),
+			requested_at TIMESTAMP,
 			message TEXT NOT NULL,
 			content TEXT,
 			signed_at TIMESTAMP NOT NULL,

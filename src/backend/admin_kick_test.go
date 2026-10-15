@@ -37,9 +37,13 @@ func (f *adminFixture) unclaimedInvite(t *testing.T, inviter string) string {
 	if err := f.db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ('k', 's') RETURNING id`).Scan(&sigID); err != nil {
 		t.Fatal(err)
 	}
+	var serverSigID int64
+	if err := f.db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id`).Scan(&serverSigID); err != nil {
+		t.Fatal(err)
+	}
 	id := f.ids[inviter] + "/" + uuid.NewString()
-	if _, err := f.db.Exec(`INSERT INTO invites (id, created_by, token_hash, user_signature_id) VALUES ($1, $2, $3, $4)`,
-		id, f.ids[inviter], []byte(id), sigID); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO invites (id, created_by, token_hash, user_signature_id, server_signature_id) VALUES ($1, $2, $3, $4, $5)`,
+		id, f.ids[inviter], []byte(id), sigID, serverSigID); err != nil {
 		t.Fatal(err)
 	}
 	return id

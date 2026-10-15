@@ -38,13 +38,15 @@ eligibility already requires root.
 
 An admin invite carries the permissions it grants, stored in
 `invite_permissions`. Creating one needs `admin.create`, and an inviter can
-only grant permissions they hold. It needs no approval, but it is logged
-when created, with its permission set, and when claimed
-([02](02_ledger.md)). On claim, the permissions move to `user_permissions`.
+only grant permissions they hold. It needs no approval. It is logged once,
+when claimed, with its permission set ([02](02_ledger.md)). On claim, the
+permissions move to `user_permissions`, and the claim is refused if the
+inviter no longer holds `admin.create` and every permission it grants.
 
 The inviter doesn't sign the permission set: the invite payload is
-unchanged. The ledger entry the server writes when the invite is created is
-the public record of what it grants.
+unchanged. The claim's ledger entry is the public record of what it
+granted. The server stores its countersignature of the invite, whose
+timestamp is the entry's `requestedAt`.
 
 ## SPA
 

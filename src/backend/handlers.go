@@ -501,16 +501,22 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Invite:             invite,
 		DeviceID:           deviceID,
 		OnAdminClaim: func(tx *sql.Tx) error {
-			claimEntry = &ledgerEntry{
-				Message: fmt.Sprintf("Admin invite %s claimed", maskInviteID(invite.ID)),
-				Targets: []string{string(canonicalID(h.services.db.GetServerID(), userID))},
+			serverID := h.services.db.GetServerID()
+			entry, err := adminInviteClaimEntryTx(r.Context(), tx, invite.ID, string(canonicalID(serverID, userID)), serverID)
+			if err != nil {
+				return err
 			}
+			claimEntry = entry
 			return h.appendLedgerTx(r.Context(), tx, claimEntry)
 		},
 	})
 	if err != nil {
 		if errors.Is(err, errInvalidInvite) {
 			writeError(w, http.StatusForbidden, "Invalid or claimed invite")
+			return
+		}
+		if errors.Is(err, errInviterLacksGrant) {
+			writeError(w, http.StatusForbidden, "The inviter no longer holds the permissions this invite grants")
 			return
 		}
 		// Username race → 400. A userID collision (or anything else) is a
@@ -4583,7 +4589,7 @@ func (h *Handlers) CreateFederationInvitation(w http.ResponseWriter, r *http.Req
 
 	secretHash := cryptoHash(secret)
 	now := time.Now().UTC().Truncate(time.Second)
-	entry := &ledgerEntry{UserID: caller, Message: fmt.Sprintf("Server invite %s created for %s", inviteID, name)}
+	entry := &ledgerEntry{Kind: ledgerKindMesh, UserID: caller, Message: fmt.Sprintf("Server invite %s created for %s", inviteID, name)}
 	if err := h.services.db.InsertFederationInvitation(r.Context(), inviteID, name, caller, remoteFingerprint, remoteArmor, secretHash, connectionString, now,
 		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) }); err != nil {
 		switch {
@@ -5050,7 +5056,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	entry := &ledgerEntry{UserID: caller}
+	entry := &ledgerEntry{Kind: ledgerKindMesh, UserID: caller}
 	serverID, established, err := h.services.db.ApproveFederationAttempt(r.Context(), attemptID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot, h.countersign, h.notifyPeerOfApproval,
 		func(tx *sql.Tx, serverID string) error {
 			entry.Message = fmt.Sprintf("Approved connection to %s", serverID)
@@ -5109,7 +5115,7 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	entry := &ledgerEntry{UserID: caller}
+	entry := &ledgerEntry{Kind: ledgerKindMesh, UserID: caller}
 	err := h.services.db.RejectFederationAttempt(r.Context(), attemptID, caller, reason, time.Now().UTC().Truncate(time.Second),
 		func(tx *sql.Tx, serverID string) error {
 			entry.Message = fmt.Sprintf("Rejected connection to %s", serverID)
@@ -5203,7 +5209,7 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 		return
 	}
 
-	entry := &ledgerEntry{UserID: caller, Message: fmt.Sprintf("Disconnected from %s", serverID)}
+	entry := &ledgerEntry{Kind: ledgerKindMesh, UserID: caller, Message: fmt.Sprintf("Disconnected from %s", serverID)}
 	reason, err := h.services.db.ConfirmFederationServerDisconnect(r.Context(), serverID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot,
 		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) })
 	switch {
@@ -5382,7 +5388,7 @@ func (h *Handlers) RevokeFederationInvitation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	entry := &ledgerEntry{UserID: caller, Message: fmt.Sprintf("Canceled server invite %s", id)}
+	entry := &ledgerEntry{Kind: ledgerKindMesh, UserID: caller, Message: fmt.Sprintf("Canceled server invite %s", id)}
 	err := h.services.db.RevokeFederationInvitation(r.Context(), id, caller, time.Now().UTC().Truncate(time.Second),
 		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) })
 	switch {
@@ -6253,8 +6259,6 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid permissions: "+err.Error())
 		return
 	}
-	var ledger func(tx *sql.Tx) error
-	var entry *ledgerEntry
 	if grantedRole == roleAdmin {
 		held, err := h.services.db.GetUserPermissions(r.Context(), caller)
 		if err != nil {
@@ -6271,12 +6275,6 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		entry = &ledgerEntry{
-			UserID:  caller,
-			Message: fmt.Sprintf("Admin invite %s created", maskInviteID(req.ID)),
-			Content: formatPermissionSet(permissions),
-		}
-		ledger = func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) }
 	} else if len(permissions) > 0 {
 		writeError(w, http.StatusBadRequest, "Only an admin invite grants permissions")
 		return
@@ -6304,23 +6302,6 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.insertInviteWith(
-		r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole,
-		req.UserSignature.ID, req.UserSignature.Armor, h.cfg.MaxInvitesPerUser,
-		permissions, ledger,
-	); err != nil {
-		if errors.Is(err, errInviteExists) {
-			writeError(w, http.StatusConflict, "Invite already exists")
-			return
-		}
-		if errors.Is(err, errInviteLimitReached) {
-			writeError(w, http.StatusForbidden, "Invite limit reached")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-
 	signedAt := now
 	serverPayload := buildInviteServerPayload(
 		h.services.db.GetServerID(),
@@ -6338,7 +6319,23 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.pushLedgerEntries(entry)
+	if err := h.services.db.insertInviteWith(
+		r.Context(), req.ID, caller, tokenHash, createdAt, grantedRole,
+		req.UserSignature.ID, req.UserSignature.Armor, serverSig, h.cfg.MaxInvitesPerUser,
+		permissions,
+	); err != nil {
+		if errors.Is(err, errInviteExists) {
+			writeError(w, http.StatusConflict, "Invite already exists")
+			return
+		}
+		if errors.Is(err, errInviteLimitReached) {
+			writeError(w, http.StatusForbidden, "Invite limit reached")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "Internal Server Error")
+		return
+	}
+
 	writeResponse(w, http.StatusCreated, &pb.Invite{
 		Id:              req.ID,
 		TokenHash:       tokenHashHex,

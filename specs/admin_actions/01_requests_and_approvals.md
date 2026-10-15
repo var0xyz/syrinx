@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   requester_id          VARCHAR(255) NOT NULL REFERENCES identities(id),
   requester_key_id      VARCHAR(255) NOT NULL REFERENCES public_keys(id),
   requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
+  requester_server_signature_id INT NOT NULL REFERENCES server_signatures(id),
   reason                TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
   created_at            TIMESTAMP NOT NULL,
   state                 VARCHAR(16) NOT NULL DEFAULT 'pending'
@@ -111,6 +112,9 @@ CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
   other form. A `permissions` request's set is the target's full new set.
 - `closed_by` is the approver (`executed`, `rejected`), the requester
   (`withdrawn`), or NULL (`moot`, closed by the server).
+- `requester_server_signature_id` is the server's countersignature when the
+  request is opened. Its timestamp is when the request was proposed.
+  `created_at` is the requester's own claim, only checked against the clock.
 - `server_signature_id` is set once the request closes, for every outcome.
 
 ## Canonical payloads
@@ -126,6 +130,11 @@ func buildAdminDecisionPayload(requestID, decision, deciderID, keyID, requestSig
 // {"decision","deciderID","keyID","requestID","requestSignature","type":"admin-decision"}
 // decision ∈ approve | reject | withdraw
 
+func buildAdminRequestOpenedPayload(requestID, requestSignature, serverID,
+    serverKeyFingerprint string, signedAt time.Time) []byte
+// {"requestID","requestSignature","serverID","serverKeyFingerprint","signedAt","type":"admin-request-opened"}
+// Go only: it is stored, not sent, and its timestamp reaches members in the ledger.
+
 func buildAdminRequestServerPayload(requestID, state, requestSignature, decisionSignature,
     serverID, serverKeyFingerprint string, signedAt time.Time) []byte
 // {"decisionSignature","requestID","requestSignature","serverID","serverKeyFingerprint","signedAt","state","type":"admin-request-server"}
@@ -135,8 +144,9 @@ func buildAdminRequestServerPayload(requestID, state, requestSignature, decision
 - `body` is the armored key or the message, as a plain string. It is
   empty for most actions and then dropped, following the `canonicalJSON`
   rules.
-- The server payload has its own `type`, so a requester's signature and the
-  server's can never stand in for each other.
+- The server payloads have their own `type`s, so a requester's signature
+  and the server's, or the server's at opening and at closing, can never
+  stand in for each other.
 - Embedding the request signature in the decision means an approval is
   bound to exactly one request.
 

@@ -95,7 +95,7 @@ func (h *Handlers) changeReservedUsername(w http.ResponseWriter, r *http.Request
 		if n, err := res.RowsAffected(); err != nil || n == 0 {
 			return err
 		}
-		entry = &ledgerEntry{UserID: callerID, Message: message}
+		entry = &ledgerEntry{Kind: ledgerKindReservedName, UserID: callerID, Message: message}
 		return h.appendLedgerTx(r.Context(), tx, entry)
 	})
 	if err != nil {

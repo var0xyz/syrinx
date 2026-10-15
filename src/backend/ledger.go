@@ -24,16 +24,28 @@ const ledgerPageSize = 100
 
 // ledgerEntry is one public record of an admin action. PrevID is 0 on the
 // first entry. Messages never carry usernames: the users an entry is
-// about are Targets, as user IDs.
+// about are Targets, as user IDs. For a request or an admin invite,
+// RequesterID proposed it and UserID approved or claimed it.
 type ledgerEntry struct {
 	ID              uint64
 	PrevID          uint64
+	Kind            string
 	UserID          string
+	RequesterID     string
+	RequestedAt     time.Time
 	Message         string
 	Content         string
 	Targets         []string
 	ServerSignature ServerSignature
 }
+
+// What a ledger entry records, so a client never parses its message.
+const (
+	ledgerKindRequest      = "request"
+	ledgerKindAdminInvite  = "admin-invite"
+	ledgerKindMesh         = "mesh"
+	ledgerKindReservedName = "reserved-name"
+)
 
 // ledgerSigner countersigns a ledger entry's payload.
 type ledgerSigner func(payload []byte, ts time.Time) (ServerSignature, error)
@@ -64,8 +76,8 @@ func appendLedgerEntryTx(ctx context.Context, tx *sql.Tx, sign ledgerSigner, ser
 	e.PrevID = uint64(prevID.Int64)
 	sort.Strings(e.Targets)
 	now := time.Now().UTC().Truncate(time.Second)
-	payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSignature.String, e.UserID, e.Message,
-		e.Content, e.Targets, serverID, serverKeyFingerprint, now)
+	payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSignature.String, e.Kind, e.UserID, e.RequesterID,
+		e.RequestedAt, e.Message, e.Content, e.Targets, serverID, serverKeyFingerprint, now)
 	sig, err := sign(payload, now)
 	if err != nil {
 		return fmt.Errorf("sign ledger entry: %w", err)
@@ -74,10 +86,14 @@ func appendLedgerEntryTx(ctx context.Context, tx *sql.Tx, sign ledgerSigner, ser
 	if err != nil {
 		return err
 	}
+	var requestedAt sql.NullTime
+	if !e.RequestedAt.IsZero() {
+		requestedAt = sql.NullTime{Time: e.RequestedAt.UTC(), Valid: true}
+	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO ledger_entries (id, prev_id, user_id, message, content, signed_at, server_signature_id)
-		VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7)
-	`, e.ID, prevID, e.UserID, e.Message, e.Content, now, serverSigID); err != nil {
+		INSERT INTO ledger_entries (id, prev_id, kind, user_id, requester_id, requested_at, message, content, signed_at, server_signature_id)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, NULLIF($8, ''), $9, $10)
+	`, e.ID, prevID, e.Kind, e.UserID, e.RequesterID, requestedAt, e.Message, e.Content, now, serverSigID); err != nil {
 		return fmt.Errorf("insert ledger entry: %w", err)
 	}
 	for _, target := range e.Targets {
@@ -92,7 +108,8 @@ func appendLedgerEntryTx(ctx context.Context, tx *sql.Tx, sign ledgerSigner, ser
 }
 
 const ledgerEntrySelect = `
-	SELECT e.id, e.prev_id, COALESCE(e.user_id, ''), e.message, COALESCE(e.content, ''),
+	SELECT e.id, e.prev_id, e.kind, e.user_id, COALESCE(e.requester_id, ''), e.requested_at,
+		e.message, COALESCE(e.content, ''),
 		ss.private_key_id, ss.signature, ss.signed_at
 	FROM ledger_entries e
 	JOIN server_signatures ss ON ss.id = e.server_signature_id`
@@ -100,12 +117,16 @@ const ledgerEntrySelect = `
 func scanLedgerEntry(row interface{ Scan(dest ...any) error }) (*ledgerEntry, error) {
 	var e ledgerEntry
 	var prevID sql.NullInt64
-	err := row.Scan(&e.ID, &prevID, &e.UserID, &e.Message, &e.Content,
+	var requestedAt sql.NullTime
+	err := row.Scan(&e.ID, &prevID, &e.Kind, &e.UserID, &e.RequesterID, &requestedAt, &e.Message, &e.Content,
 		&e.ServerSignature.ID, &e.ServerSignature.Armor, &e.ServerSignature.SignedAt)
 	if err != nil {
 		return nil, err
 	}
 	e.PrevID = uint64(prevID.Int64)
+	if requestedAt.Valid {
+		e.RequestedAt = requestedAt.Time.UTC()
+	}
 	e.ServerSignature.SignedAt = e.ServerSignature.SignedAt.UTC()
 	return &e, nil
 }
@@ -207,10 +228,16 @@ var ledgerActionNames = map[string]string{
 	adminActionPermissions: "Permission change",
 }
 
-// ledgerOpenedEntry is the entry for req being opened, nil for a private
-// message. rebindKeyID names the key a rebind adds.
-func ledgerOpenedEntry(req *adminRequest, rebindKeyID string) *ledgerEntry {
-	e := &ledgerEntry{UserID: req.RequesterID, Targets: req.Targets}
+// ledgerApprovedEntry is the entry for req approved by approverID, nil for
+// a private message. rebindKeyID names the key a rebind adds.
+func ledgerApprovedEntry(req *adminRequest, approverID, rebindKeyID string) *ledgerEntry {
+	e := &ledgerEntry{
+		Kind:        ledgerKindRequest,
+		UserID:      approverID,
+		RequesterID: req.RequesterID,
+		RequestedAt: req.RequesterServerSignature.SignedAt,
+		Targets:     req.Targets,
+	}
 	switch req.Action {
 	case adminActionUnicast:
 		return nil
@@ -228,28 +255,6 @@ func ledgerOpenedEntry(req *adminRequest, rebindKeyID string) *ledgerEntry {
 	return e
 }
 
-// ledgerClosedEntry is the entry for req closing in state, nil for a
-// private message. A moot request is closed by the server, so it has no
-// user.
-func ledgerClosedEntry(req *adminRequest, state, deciderID string) *ledgerEntry {
-	if req.Action == adminActionUnicast {
-		return nil
-	}
-	e := &ledgerEntry{UserID: deciderID}
-	switch state {
-	case adminStateExecuted:
-		e.Message = fmt.Sprintf("[%s] Approved", req.ID)
-	case adminStateRejected:
-		e.Message = fmt.Sprintf("[%s] Rejected", req.ID)
-	case adminStateWithdrawn:
-		e.Message = fmt.Sprintf("[%s] Withdrawn", req.ID)
-	case adminStateMoot:
-		e.UserID = ""
-		e.Message = fmt.Sprintf("[%s] Closed. Reason: every target left", req.ID)
-	}
-	return e
-}
-
 // appendLedgerTx signs and stores e in tx.
 func (h *Handlers) appendLedgerTx(ctx context.Context, tx *sql.Tx, e *ledgerEntry) error {
 	return appendLedgerEntryTx(ctx, tx, h.countersign, h.services.db.GetServerID(), h.signingKey.Fingerprint, e)
@@ -258,7 +263,10 @@ func (h *Handlers) appendLedgerTx(ctx context.Context, tx *sql.Tx, e *ledgerEntr
 func pbLedgerEntry(e *ledgerEntry) *pb.LedgerEntry {
 	out := &pb.LedgerEntry{
 		Id:              e.ID,
+		Kind:            e.Kind,
 		UserId:          e.UserID,
+		RequesterId:     e.RequesterID,
+		RequestedAt:     unixOrZero(e.RequestedAt),
 		Message:         e.Message,
 		Content:         e.Content,
 		Targets:         e.Targets,

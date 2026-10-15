@@ -80,6 +80,7 @@ The mailbox only holds system messages; interactions have their own page.
 
 - Approval puts one mailbox row per active local member, none for suspended
   or removed members.
-- The broadcast's ledger entry shows the message.
+- The broadcast's ledger entry, written on approval, shows the message; a
+  rejected broadcast writes no entry.
 - A private message puts one mailbox row for its recipient and never appears
   in the ledger, in any outcome.

@@ -85,7 +85,9 @@ All of the above succeeds or fails together — if signup fails, the invite stay
 
 ### Admin invites expire
 
-An admin invite expires **24 hours** after it is created. After that, check and redeem treat it as invalid, just like a revoked one. The public ledger records an admin invite's creation and claim, but shows only the first two groups of its id (`01a1348c-dc77-****-****-************`). Those groups are the UUIDv7 timestamp, so readers learn when an invite was made but get no id to try secrets against.
+An admin invite expires **24 hours** after it is created. After that, check and redeem treat it as invalid, just like a revoked one. The public ledger records an admin invite only once it is claimed, in one entry: the full invite id (spent by then, so there's nothing left to redeem), who created it and when, who claimed it and when, and the permissions it granted. An invite that expires or is revoked unclaimed never appears.
+
+A claim is refused when the inviter no longer holds `admin.create` and every permission the invite grants, so the ledger never shows an admin granting what they didn't hold.
 
 ## Why the secret stays on the client
 
