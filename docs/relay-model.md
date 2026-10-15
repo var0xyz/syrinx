@@ -2,72 +2,71 @@
 
 [Content distribution](/content) and [Architecture](/architecture) describe
 the tracker/relay design conceptually. This page is the schema-level
-reference for the same machinery — written as groundwork for federation,
-which needs to know exactly which identities are hard-wired to a local
-`users` row today, and where.
+reference for the same machinery, local and across server borders. The
+DDL lives in `InitDB` (`src/backend/db.go`).
 
 ## Tables
 
-### `reed_allocations`
+### `reed_allocations` / `reed_server_allocations`
 
 Who currently holds a verified copy of a reed's body.
 
 ```sql
 CREATE TABLE reed_allocations (
-    reed_id VARCHAR(255) NOT NULL,
+    reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
     holder_user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    author_user_id VARCHAR(255) NOT NULL,
     delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (holder_user_id, reed_id)
+);
 
-    PRIMARY KEY (holder_user_id, author_user_id, reed_id),
-    FOREIGN KEY (author_user_id, reed_id) REFERENCES reeds(user_id, id) ON DELETE CASCADE
+CREATE TABLE reed_server_allocations (
+    reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
+    server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    delivered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (reed_id, server_id)
 );
 ```
 
-- `holder_user_id` is a **hard FK to `users(id)`** — a holder must be a
-  local user row.
-- `(author_user_id, reed_id)` FKs to `reeds(user_id, id)` — the reed's
-  metadata row, not its body (the server never stores bodies).
-- A reed can have many allocation rows (many holders); a holder earns one
-  by successfully verifying a body they requested (`DATA_ACK` — see
-  below).
+- `holder_user_id` is a local user; a holder earns a row by verifying a
+  body it requested (`DATA_ACK` — see below).
+- `reed_id` references `reed_identities`, not `reeds`, so a local user can
+  hold a **foreign** reed the same way as a local one.
+- `reed_server_allocations` records that a **peer server** has a holder of
+  one of our reeds: one row per peer, never per remote user. It is the
+  fallback when no local holder is online.
 
-### `pending_events` / `pending_reed_events` / `pending_account_events`
+### `pending_events` and its subject tables
 
 The event ledger that gates every relay delivery — nothing is pushed to a
-client without a row here first.
+client without a row here first. All of these are `UNLOGGED`: they are
+in-flight state, not history.
 
 ```sql
-CREATE TABLE pending_events (
+CREATE UNLOGGED TABLE pending_events (
     event_id VARCHAR(255) PRIMARY KEY,
     request_id VARCHAR(255) NOT NULL,
-    requester_user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
+    requester_user_id VARCHAR(255) REFERENCES online_users(user_id) ON DELETE CASCADE,
     event_name VARCHAR(255) NOT NULL,
     subscription_id VARCHAR(255) REFERENCES profile_subscriptions(subscription_id) ON DELETE CASCADE,
     dispatched_at TIMESTAMP,
+    dispatched_to VARCHAR(255),   -- only this holder may answer
+    relayed_at TIMESTAMP,         -- content reached the requester; gates DATA_ACK
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE pending_reed_events (
-    event_id VARCHAR(255) PRIMARY KEY REFERENCES pending_events(event_id) ON DELETE CASCADE,
-    user_id VARCHAR(255) NOT NULL,   -- the reed's author
-    reed_id VARCHAR(255) NOT NULL,
-    FOREIGN KEY (user_id, reed_id) REFERENCES reeds(user_id, id) ON DELETE CASCADE
-);
-
-CREATE TABLE pending_account_events (
-    event_id VARCHAR(255) PRIMARY KEY REFERENCES pending_events(event_id) ON DELETE CASCADE,
-    user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE
 );
 ```
 
-- `requester_user_id` is a **hard FK to `online_users(user_id)`**, which
-  is itself FK'd to `users(id)`. A pending event's requester must be a
-  currently-online **local** user — not just any local user, an online one.
-- `pending_reed_events.user_id` (the reed's author) and
-  `pending_account_events.user_id` are also hard FKs to local tables.
-- Every identity slot in this ledger — requester, author, holder — is
-  wired to a row that only exists on this server.
+Each event has one subject row: `pending_reed_events` (a `reed_id` in
+`reed_identities`), `pending_account_events` (a `user_id` in `identities`),
+or `pending_key_events` (a revoked `key_id`). Local and foreign subjects
+look the same.
+
+### Cross-border bookkeeping
+
+| Table | Lives on | Records |
+|-------|----------|---------|
+| `foreign_pending_events` | The requester's server | Which peer is home to the reed, and the id that peer knows the event by |
+| `foreign_relay_requests` | The reed's home server | Which peer, user and key an event is really for; the event itself is attributed to a per-peer sentinel identity |
+| `pending_thread_parts` | The requester's server | The verified parts of a foreign thread relayed for an event, allocated on `DATA_ACK` |
 
 ## Lifecycle: explicit fetch (`REQUEST_REED`)
 
@@ -76,9 +75,10 @@ CREATE TABLE pending_account_events (
    `event_id` fresh) + a `pending_reed_events` row (author, reed), replies
    `REQUEST_ACK`.
 3. Server picks a holder: `GetOnlineReedHolder` joins `reed_allocations` ×
-   `online_users` on `(author_user_id, reed_id)` and takes the **first
-   row** — no ranking, no preference, arbitrary DB order among online
-   holders.
+   `online_users` on `reed_id` and takes the **first row** — no ranking,
+   no preference, arbitrary DB order among online holders. For a foreign
+   reed with no local holder online, the request crosses to the reed's
+   home server instead (see [Crossing a server border](#crossing-a-server-border)).
 4. `dispatchNext(holderID)` finds the **oldest undispatched** pending
    event whose subject is allocated to that holder
    (`GetNextPendingForHolder`, `ORDER BY created_at LIMIT 1`), atomically
@@ -104,8 +104,8 @@ CREATE TABLE pending_account_events (
    to be asking right now. No `reedID`/`userID`: the real reed id only
    exists inside the decrypted ciphertext, so an outer copy would only
    ever duplicate it.
-8. Viewer verifies signatures. Valid → `DATA_ACK` (server inserts a new
-   `reed_allocations` row for the viewer, deletes the pending event, which
+8. Viewer verifies signatures. Valid → `DATA_ACK`, accepted only once
+   `relayed_at` is set (server inserts a new `reed_allocations` row for the viewer, deletes the pending event, which
    cascades to its subject row). Invalid → `DATA_INVALID` (pending event
    deleted, no allocation).
 9. After resolving one event for a holder, the server calls
@@ -119,7 +119,7 @@ removal notices, account-removal notices) all funnel through the same
 which wire message wraps the payload differ (`FOLLOW_REED`, `PIPE_REED`,
 `BROADCAST_REED`).
 
-## Wire messages (`realtime/messages.go`, `realtime/wire.go`)
+## Wire messages (`src/backend/proto/websocket.proto`)
 
 The event/relay id lives at the message **root** as `id`, sibling to
 `type`, not nested inside `data` — so a payload never reads as the
@@ -139,27 +139,16 @@ confusing `data.data` a fully-nested shape would produce.
 | Viewer → Server | `DATA_ACK` / `DATA_INVALID` | yes | — |
 | Server → Viewer | `REED_NOT_FOUND` / `REED_NOT_HELD` | no | failure paths — no metadata, or metadata exists but no holder |
 
-## Why this matters for federation
+## Foreign requesters
 
-Every identity slot in this pipeline — `reed_allocations.holder_user_id`,
-`pending_events.requester_user_id` (via `online_users`),
-`pending_reed_events`/`pending_account_events.user_id` — is a **hard FK to
-a local table**. None of them can hold a federated identity
-(`~user@remote-server`) as-is: there is no local `users` row, and
-therefore no local `online_users` row, for someone who lives on another
-instance.
-
-The design that closes this gap: `pending_events.requester_user_id`
-becomes nullable (`NULL` = the requester is a peer server, not a local
-user) with a new `server_id` column recording *which* server is asking;
-`pending_reed_events` drops its FK to `reeds` and gets its own `server_id`
-recording the *author's* server. `dispatchNext` and the rest of the
-holder-selection machinery on this page stay local-only and untouched —
-the branch between "dispatch to a local holder" and "relay to a peer
-server" happens once, at the point a `pending_events` row is created, not
-inside the dispatch loop itself. Full design, including the new
-`POST /api/federation/relay/reed` endpoints and their auth:
-[`specs/federation/06_content_relay`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/06_content_relay.md).
+A request from a member of a peer server can't be a normal pending event:
+that member has no `users` or `online_users` row here. The home server
+attributes the event to a **per-peer sentinel identity** and records the
+real requester in `foreign_relay_requests`. Dispatch to a local holder runs
+unchanged; on delivery, `deliverOrForward` sees the foreign request and
+sends the ciphertext to the requesting peer over HTTP instead of a
+WebSocket. The holder encrypts to the key the requester's server named
+(`requesting_key_id`).
 
 ## Crossing a server border
 
@@ -221,4 +210,4 @@ Status. Every path that crosses the border folds:
 - [`specs/federation/`](https://github.com/var0xyz/syrinx/tree/main/specs/federation)
   — the handshake spec (peering) and
   [06_content_relay.md](https://github.com/var0xyz/syrinx/tree/main/specs/federation/06_content_relay.md)
-  (cross-instance relay, proposed)
+  (cross-instance relay)

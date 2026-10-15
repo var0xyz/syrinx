@@ -83,7 +83,7 @@ Use when the **operator wiped or rebuilt the server database** and turned on **`
 
 Keys-only (`.sxi.gpg`) **cannot** drive server recovery—you need the full backup’s countersigned identity nest.
 
-Operator and step-by-step client flow: [Server recovery (hostile takeover / DB loss)](#server-recovery-hostile-takeover--db-loss) below.
+Operator and step-by-step client flow: [Server recovery (hostile takeover / DB loss)](#server-recovery-hostile-takeover-db-loss) below.
 
 ```mermaid
 flowchart TD
@@ -126,7 +126,7 @@ When an instance must be rebuilt:
 
 ### Operator
 
-1. Stand up a new empty database.
+1. Stand up a new empty database, on the same domain or a new one—say, after a seizure. The server's identity is its key, not its domain.
 2. Ensure the **server key passphrase** is available (keychain or env)—same passphrase that wrapped keys in the backup bundle.
 3. Run **`ops import-identity`** on the encrypted identity bundle (`.sxi.gpg`). Bundle password decrypts the file; server passphrase unwraps keys. Restores `serverID`, name, and key history.
 4. Start the server with **`RECOVERY_MODE`**. Without a prior successful identity import, boot should refuse.
@@ -142,7 +142,9 @@ While recovery mode is on:
 
 The server never learns private keys. It reconstructs **public, signed** state from the community.
 
-Operators end the window by turning `RECOVERY_MODE` off when the community has reported in sufficiently.
+Operators end the window by turning `RECOVERY_MODE` off when the community has reported in sufficiently. If the domain changed, federation with peer servers has to be re-established.
+
+Members can do their part even when the old domain is gone: the app is offline-first and keeps running from the device's cache, so they open it there, export a full backup, and import it under the new domain.
 
 ## Device binding
 

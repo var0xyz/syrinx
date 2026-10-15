@@ -4,7 +4,7 @@ Orientation for AI agents (and humans) working in this repo. Read this first;
 it captures the architecture, conventions, and "where things live" so you don't
 have to rediscover them each session.
 
-The canonical, human-facing docs live in [`docs/`](docs/) (published at
+The human-facing docs live in [`docs/`](docs/) (published at
 <https://var0xyz.github.io/syrinx/>). The forward-looking plan and per-feature
 implementation steps live in [`specs/`](specs/README.md) — start there to see
 what's built vs. proposed (each track table has a **Status** column).
@@ -214,8 +214,8 @@ same-named root file instead:
   `avatars/`, `pipes/`, `account_recovery/`, `protobuf/`, `observability/`) has
   its own `README.md` with the authoritative status and locked decisions for
   that feature.
-- `docs/` — canonical human docs (architecture, trust, cryptography, identity,
-  deletion, invites, operators, contributors, philosophy, `planned.md`).
+- `docs/` — human docs (architecture, trust, cryptography, identity,
+  deletion, invites, admins, operators, contributors, philosophy, `planned.md`).
 
 ## Conventions & invariants
 

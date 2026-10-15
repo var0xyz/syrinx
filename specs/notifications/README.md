@@ -14,12 +14,12 @@ renamed) is stale — see that file's superseded notice.
 
 | # | Title | Depends on | Status |
 |---|-------|------------|--------|
-| [00](00_glossary_and_design.md) | Glossary + design + locked model | — | Proposed |
+| [00](00_glossary_and_design.md) | Glossary + design + locked model | — | Implemented |
 | [01](01_everyone_handle.md) | `@everyone` admin broadcast handle | 00 | Proposed |
-| [02](02_mentions_tab.md) | Mentions tab (list API + SPA) | 00, 01 | Proposed |
-| [03](03_mailbox_message_schema_and_producers.md) | Mailbox message schema + `SendMailboxMessage` + `ops mailbox-send` | 00 | Proposed |
-| [04](04_mailbox_message_ws_delivery.md) | Mailbox message WS delivery + ACK-and-delete | 03 | Proposed |
-| [05](05_mailbox_message_spa_bell.md) | SPA bell + popover (read/delete) | 04 | Proposed |
+| [02](02_mentions_tab.md) | Mentions tab (list API + SPA) | 00, 01 | Implemented |
+| [03](03_mailbox_message_schema_and_producers.md) | Mailbox message schema + `SendMailboxMessage` + `ops mailbox-send` | 00 | Implemented |
+| [04](04_mailbox_message_ws_delivery.md) | Mailbox message WS delivery + ACK-and-delete | 03 | Implemented |
+| [05](05_mailbox_message_spa_bell.md) | SPA bell + popover (read/delete) | 04 | Implemented |
 
 ## Glossary
 

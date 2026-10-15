@@ -10,9 +10,9 @@ Proposed.
 
 ## Context
 
-`docs/planned.md` § Ripples (ephemeral comments) describes a comment layer on reeds
-that behaves opposite to a reed: high-churn, low-permanence, gone after a
-week of silence. Reeds are signed, p2p-propagated, and (per
+Ripples are a comment layer on reeds
+that behaves opposite to a reed: high-churn, low-permanence, gone after 30
+days of silence. Reeds are signed, p2p-propagated, and (per
 [`conversations/00_design.md`](../conversations/00_design.md)) the server
 never retains reed bodies — durability lives entirely in the p2p mesh.
 Ripples share the *lifetime* contrast (short-lived vs. permanent) but
@@ -59,14 +59,14 @@ Contrast with a reed:
 | Signed | Yes (`BytesToSign` + detached PGP sig + server countersignature) | **Yes** — same envelope shape, see Signing below |
 | Stored body | Not retained server-side (see [conversations/00](../conversations/00_design.md)) | Stored server-side (only copy) |
 | Propagation | p2p, held by peers, counted in coverage | Server-only, never leaves this instance |
-| Lifetime | Permanent until signed removal | 7 days from last activity anywhere on the parent reed's ripples, unattended |
+| Lifetime | Permanent until signed removal | 30 days from last activity anywhere on the parent reed's ripples, unattended |
 | Identity of author | Cryptographic (signature verifies key ownership) | **Cryptographic** — same as a reed, see Signing below |
 | Id | Client-minted UUIDv7 | Server-computed content hash, see Signing below |
 
 The remaining, genuine contrast with a reed is **propagation and
 retention**, not trust: a ripple is signed and verified exactly like a
 reed, but the server is still the only copy (never p2p-propagated, never
-counted in holder coverage, gone after a week of silence). Signing a
+counted in holder coverage, gone after 30 days of silence). Signing a
 ripple does not make it durable — it makes its authorship and content
 tamper-evident for as long as it exists.
 
@@ -296,7 +296,7 @@ undifferentiated stream, while still keeping the render itself simple.
 ### Lifetime / expiry rule (locked)
 
 - A **reed** has a single shared `expires_at` timestamp = `last_activity_at
-  + 7 days`, covering **all of that reed's threads together** — not one
+  + 30 days`, covering **all of that reed's threads together** — not one
   `expires_at` per thread. This is a deliberate choice: activity in any one
   thread on a reed keeps the *entire* ripples section on that reed alive,
   not just that one thread.
@@ -372,7 +372,7 @@ tombstone is handled without a signature re-check).
 
 A self-delete does **not** delete the whole reed's ripples section, does
 **not** delete the response's own thread, and does **not** count as
-"activity" for the shared 7-day clock (deleting isn't posting). Rows only
+"activity" for the shared 30-day clock (deleting isn't posting). Rows only
 disappear from storage entirely via the expiry sweep described in
 [01](01_schema_and_expiry.md), which operates at the whole-reed level
 (deleting the bookkeeping row cascades away every response, deleted or
@@ -386,7 +386,7 @@ Reuse the existing reed visible-length constant as the ripple cap:
 (short-form, terse). No markdown grammar — ripples render as **plain
 text** (no `reedMarkdown.ts` parsing, no mentions, no hashtags, no links).
 Keeping ripples markdown-free avoids re-litigating the entire mention/link
-security surface for a feature that's deleted in a week anyway; plain text
+security surface for a feature that's deleted within 30 days anyway; plain text
 is escaped/rendered as-is by the SPA. Server-side, the 140-char limit is
 validated with a plain character count (`countCharacters`, grapheme
 clusters), not the markdown-aware character counter reeds use elsewhere in
@@ -417,7 +417,7 @@ for ripples:
 - **A removed user's own past responses, posted on other people's reeds,
   are unaffected.** They persist exactly as posted — same content, same
   position, same thread — until the reed they're on naturally reaches the
-  end of its own 7-day shared-activity window, same as any other response
+  end of its own 30-day shared-activity window, same as any other response
   on that reed. Account removal does not force early cleanup of a user's
   own comment history elsewhere; the client renders the response as usual,
   substituting a neutral "removed account" label for the author's username
@@ -431,7 +431,7 @@ for ripples:
   by a removed account returns the same not-found/removed response a
   request against an individually-removed reed would (see
   [02](02_post_and_list_api.md)), regardless of how much time is left on
-  the 7-day timer. This falls out of the existing parent-reed-lookup
+  the 30-day timer. This falls out of the existing parent-reed-lookup
   convention every ripples endpoint already uses to validate the parent
   reed — that lookup already treats a removed account's reed the same way
   it treats an individually-removed reed, so no new server-side mechanism

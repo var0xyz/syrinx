@@ -9,9 +9,10 @@ Syrinx is a small stack with a sharp division of responsibility: the server coor
 | **HTTP API** (Go) | REST with protobuf bodies: identity, reeds metadata, invites, deletion certs, recovery, server info, federation |
 | **Realtime service** (Go) | WebSockets, binary protobuf events, fanout and catch-up via Go channels |
 | **SPA** (SvelteKit) | Primary client / PWA: local keys, IndexedDB, signing, feeds, restore |
-| **Ops CLI** (`bin/ops`) | Operator tooling: export/import server identity bundles |
+| **Ops CLI** (`bin/ops`) | Operator tooling: export/import server identity bundles, rotate the server key and its passphrase |
+| **Cleanup jobs** | Cron binaries that expire idle ripples and stale challenges |
 
-The API and realtime layers run in one process and talk over **in-process Go channels**—not a mesh of microservices. Docker Compose can run Postgres, the API, and the static SPA together.
+The API and realtime layers run in one process and talk over **in-process Go channels**—not a mesh of microservices. Docker Compose can run Postgres, the API, and the SPA dev server together.
 
 ```mermaid
 flowchart LR
@@ -35,7 +36,7 @@ Published **reeds** (posts) are authenticated and distributed in a P2P-*ish* fas
 3. **Holders**—peers that already have the reed—relay the content when someone requests it.
 4. Recipients **verify signatures** before trusting or persisting the body.
 
-Most users sit behind NAT, so true peer-to-peer sockets are rare. The server **relays in transit**. That is why this is “P2P-*ish*”: distribution semantics without trusting the server with your corpus.
+Most users sit behind NAT, so true peer-to-peer sockets are rare. The server **relays in transit**, and the holder encrypts each body to the requester first, so the server only ever carries ciphertext. That is why this is “P2P-*ish*”: distribution semantics without trusting the server with your corpus.
 
 ```mermaid
 sequenceDiagram
@@ -47,9 +48,9 @@ sequenceDiagram
   Server-->>Holder: Notify / allocate
   Viewer->>Server: Request reed content
   Server->>Holder: Relay request
-  Holder->>Server: Relay response (content in transit)
-  Server->>Viewer: Deliver content
-  Viewer->>Viewer: Verify signatures
+  Holder->>Server: Relay response (ciphertext)
+  Server->>Viewer: Deliver ciphertext
+  Viewer->>Viewer: Decrypt, verify signatures
 ```
 
 ## Client responsibilities
@@ -66,6 +67,12 @@ The SPA is not a thin view over a database. It:
 ## Realtime path
 
 WebSocket sessions authenticate with PGP (detached signatures over a timestamp). Clients subscribe to user-specific and broadcast channels. Events cover new reeds, relay requests/responses, removals, account gone notices, sync catch-up, and related bookkeeping. Missed deliveries are reconciled on reconnect via sync—not by trusting the server’s word alone when certificates are involved.
+
+## Federation
+
+Servers peer explicitly: one admin sends an encrypted invite, the other server calls back, and an admin approves the connection before any trust is extended. Once connected, members follow, reply to and fetch reeds across the border. Each server folds what it sends: one delivery per piece of content per peer, which the peer then distributes to its own members. See [Relay model — Crossing a server border](/relay-model#crossing-a-server-border).
+
+A server's identity is its signing key, not its domain. After a move to a new domain, peering has to be re-established.
 
 ## Where to go next
 

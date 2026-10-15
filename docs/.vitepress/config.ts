@@ -5,7 +5,7 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 export default withMermaid(
   defineConfig({
     title: 'Syrinx',
-    description: 'A distributed, P2P-ish content platform',
+    description: 'A censorship-resistant communications platform',
     // Project Pages: https://var0xyz.github.io/syrinx/
     base: '/syrinx/',
     cleanUrls: true,
@@ -36,10 +36,12 @@ export default withMermaid(
             { text: 'Trust model', link: '/trust' },
             { text: 'Cryptography', link: '/cryptography' },
             { text: 'Content distribution', link: '/content' },
+            { text: 'Content privacy', link: '/content_privacy' },
             { text: 'Relay model', link: '/relay-model' },
             { text: 'Invites', link: '/invites' },
             { text: 'Identity, invites & recovery', link: '/identity' },
-            { text: 'Deletion', link: '/deletion' }
+            { text: 'Deletion', link: '/deletion' },
+            { text: 'Admins', link: '/admins' }
           ]
         },
         {
