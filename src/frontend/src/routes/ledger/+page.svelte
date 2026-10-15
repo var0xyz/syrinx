@@ -29,6 +29,9 @@
   <div class="ledger-container">
     <div class="ledger-content">
       <h1 class="title">Ledger</h1>
+      <p class="intro">
+        A public record of every admin action on this server, so the people who run it stay accountable to its members.
+      </p>
 
       {#if $ledgerTampered}
         <p class="warning" role="alert">
@@ -127,9 +130,16 @@
   }
 
   .title {
-    margin: 0 0 1rem;
+    margin: 0 0 0.5rem;
     color: var(--fg);
     font-size: 1.25rem;
+  }
+
+  .intro {
+    margin: 0 0 1rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
   }
 
   .warning {
