@@ -24,7 +24,7 @@ The server stores no content. It works more like a BitTorrent **tracker**: it kn
 
 True peer-to-peer sockets are unreliable for most people. NAT makes hole-punching fragile, so Syrinx uses the server as a **relay** when content must move between devices. Relayed bytes are in transit only. Nothing is archived there as a library of posts.
 
-What does travel the network is still safe to treat as untrusted infrastructure: every reed and sensitive record is **cryptographically signed**. Clients verify OpenPGP signatures before they trust or keep anything. The path may be plain to the wire; authenticity does not depend on trusting the relay.
+What does travel the network is still safe to treat as untrusted infrastructure: every reed and sensitive record is **cryptographically signed**. Clients verify OpenPGP signatures before they trust or keep anything. Relayed reed bodies are also encrypted to the reader, so the relay carries ciphertext it can't read—see [Content privacy](/content_privacy). Authenticity never depends on trusting the relay.
 
 That is the *ish*: distribution and verification like a peer network, with a tracker/relay in the middle because the internet we actually have is full of NATs.
 

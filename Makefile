@@ -65,7 +65,7 @@ up:
 	docker-compose up --build
 
 down:
-	@echo "Stopping all servicema ..."
+	@echo "Stopping all services..."
 	docker-compose down
 
 clean:
@@ -87,6 +87,6 @@ install:
 env:
 	@echo "Setting up environment files..."
 	@if [ ! -f .env ]; then \
-		cp env.example .env; \
-		echo "Created .env from env.example"; \
+		cp .env.example .env; \
+		echo "Created .env from .env.example"; \
 	fi

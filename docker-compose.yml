@@ -24,6 +24,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: syrinx_api
+    working_dir: /app/src/backend
     environment:
       DB_HOST: db
       DB_PORT: "5432"
@@ -33,10 +34,10 @@ services:
       DB_SSLMODE: disable
       PORT: "8080"
       ALLOWED_ORIGIN: "http://localhost:5173"
+      API_BASE_URL: "http://localhost:8080"
       SERVER_NAME: "${SERVER_NAME:-}"
-      SERVER_PRIVATE_KEY_FILE: ./keys/private.pgp
-      SERVER_PUBLIC_KEY_FILE: ./keys/public.pgp
-      SERVER_PRIVATE_KEY_PASSPHRASE: "${SERVER_PRIVATE_KEY_PASSPHRASE:-}"
+      SERVER_KEY_PASSPHRASE: "${SERVER_KEY_PASSPHRASE:-}"
+      ROOT_KEY_EXPORT_PASSPHRASE: "${ROOT_KEY_EXPORT_PASSPHRASE:-}"
     volumes:
       - .:/app
       - go-modules:/go/pkg/mod
