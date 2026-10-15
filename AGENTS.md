@@ -400,6 +400,26 @@ After `setup`, fetch the (re)minted root identity export with
 `deploy/scripts/syrinx/cp-root-creds.sh` — also non-interactive once the host
 is saved (it only prompts y/N about deleting the remote copy, default No).
 
+### Telemetry host (OpenObserve dashboard)
+
+The telemetry stack runs on its own host, separate from the app host; see
+[`deploy/scripts/telemetry/README.md`](deploy/scripts/telemetry/README.md).
+The "Syrinx" dashboard is generated, never hand-edited:
+
+1. Edit `deploy/scripts/telemetry/dashboards/generate_syrinx_dashboard.py`
+   (add a panel whenever you add or rename a `syrinx.*` metric or attribute;
+   OTEL dots become underscores, `user.id` → `user_id`).
+2. Run `python3 deploy/scripts/telemetry/dashboards/generate_syrinx_dashboard.py`
+   and commit both the script and `syrinx-app.dashboard.json`.
+3. Push it live with `./deploy/telemetry.sh update` (host saved in
+   `deploy/scripts/telemetry/deploy.env`). This also refreshes the
+   OpenObserve/collector binaries and restarts both services, so ask before
+   running it. It warns, without stopping, if the live dashboard was edited
+   in the UI, then overwrites it.
+
+A dashboard update only shows data once the app build emitting those
+metrics is deployed (`./deploy/syrinx.sh update`).
+
 ## House rules for changes
 
 - Prefer editing existing files. Feature logic goes in root `package main`
