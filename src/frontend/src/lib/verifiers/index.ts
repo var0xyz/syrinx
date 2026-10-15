@@ -51,6 +51,7 @@ import {
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
+import { countCharacters } from '$lib/utils/text';
 
 export type Verifier<T = unknown> = (data: T) => Promise<boolean>;
 
@@ -900,7 +901,7 @@ export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<bo
     console.error('[verifyAccountRemoval] missing fields or wrong type', cert?.$typeName);
     return false;
   }
-  if ((cert.note?.length ?? 0) > MAX_ACCOUNT_NOTE_LEN) {
+  if (countCharacters(cert.note ?? '') > MAX_ACCOUNT_NOTE_LEN) {
     console.error('[verifyAccountRemoval] note too long');
     return false;
   }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { removeAccountAsAuthor } from '$lib/services/accountRemoval';
@@ -102,12 +103,11 @@
 
       <label class="note-label" for="goodbye-note">
         Optional goodbye note
-        <span class="note-count">{note.length}/140</span>
+        <span class="note-count">{countCharacters(note)}/140</span>
       </label>
       <textarea
         id="goodbye-note"
         class="note-input"
-        maxlength="140"
         rows="3"
         placeholder="Taking a long break. Thanks for reading."
         bind:value={note}
@@ -132,7 +132,7 @@
       <button
         class="btn btn-danger"
         on:click={handleDeleteAccount}
-        disabled={deleting || !$isOnline}
+        disabled={deleting || !$isOnline || countCharacters(note) > 140}
       >
         {deleting ? 'Deleting...' : 'I understand, delete my account'}
       </button>

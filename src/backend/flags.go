@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gorilla/mux"
 
@@ -65,7 +64,7 @@ func checkFlag(f reedFlag) error {
 	if _, ok := authorOf(identityID(f.ReedID)); !ok {
 		return refuse(http.StatusBadRequest, "Invalid reed ID")
 	}
-	if utf8.RuneCountInString(f.Note) > maxFlagNoteChars {
+	if countCharacters(f.Note) > maxFlagNoteChars {
 		return refuse(http.StatusBadRequest, "A note can't exceed %d characters", maxFlagNoteChars)
 	}
 	if d := time.Since(f.CreatedAt); d > flagClockSkew || d < -flagClockSkew {
@@ -501,7 +500,7 @@ func (h *Handlers) DismissFlags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reason := strings.TrimSpace(msg.GetReason())
-	if reason == "" || utf8.RuneCountInString(reason) > maxDismissalReasonChars {
+	if reason == "" || countCharacters(reason) > maxDismissalReasonChars {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("A reason of 1 to %d characters is required", maxDismissalReasonChars))
 		return
 	}

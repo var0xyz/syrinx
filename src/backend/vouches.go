@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -452,7 +451,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if utf8.RuneCountInString(note) > MaxVouchNoteChars {
+	if countCharacters(note) > MaxVouchNoteChars {
 		log.Error().Str("voucherID", voucherID).Msg("Vouch note too long")
 		writeError(w, http.StatusBadRequest, "Note cannot exceed 140 characters")
 		return

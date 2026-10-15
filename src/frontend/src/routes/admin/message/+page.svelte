@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { page } from '$app/stores';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -45,6 +46,7 @@
   $: canSend =
     !sending &&
     message.trim().length > 0 &&
+    countCharacters(message) <= MAX_LENGTH &&
     (recipientMode === 'broadcast' || username.trim().length > 0);
 
   /** The local member named name, case-insensitively. */
@@ -107,13 +109,13 @@
 
           <label class="field">
             <span>Message</span>
-            <textarea bind:value={message} rows="4" maxlength={MAX_LENGTH}></textarea>
+            <textarea bind:value={message} rows="4"></textarea>
           </label>
 
           {#if error}<p class="error" role="alert">{error}</p>{/if}
 
           <div class="composer-footer">
-            <span class="char-count">{message.length}/{MAX_LENGTH}</span>
+            <span class="char-count">{countCharacters(message)}/{MAX_LENGTH}</span>
             <button class="btn primary" type="submit" disabled={!canSend}>
               {sending ? 'Sending…' : 'Send for approval'}
             </button>

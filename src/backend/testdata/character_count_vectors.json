@@ -1,0 +1,67 @@
+[
+  {
+    "name": "plain ASCII",
+    "text": "hello",
+    "count": 5
+  },
+  {
+    "name": "empty",
+    "text": "",
+    "count": 0
+  },
+  {
+    "name": "accented letter, precomposed",
+    "text": "café",
+    "count": 4
+  },
+  {
+    "name": "accented letter, combining mark",
+    "text": "café",
+    "count": 4
+  },
+  {
+    "name": "emoji outside the BMP",
+    "text": "👍",
+    "count": 1
+  },
+  {
+    "name": "emoji with a skin tone",
+    "text": "👍🏽",
+    "count": 1
+  },
+  {
+    "name": "ZWJ family",
+    "text": "👨‍👩‍👧‍👦",
+    "count": 1
+  },
+  {
+    "name": "flag",
+    "text": "🇺🇾",
+    "count": 1
+  },
+  {
+    "name": "keycap",
+    "text": "1️⃣",
+    "count": 1
+  },
+  {
+    "name": "heart with variation selector",
+    "text": "❤️",
+    "count": 1
+  },
+  {
+    "name": "mixed text and emoji",
+    "text": "hi 👋🏿!",
+    "count": 5
+  },
+  {
+    "name": "CJK",
+    "text": "日本語",
+    "count": 3
+  },
+  {
+    "name": "CRLF is one",
+    "text": "a\r\nb",
+    "count": 3
+  }
+]

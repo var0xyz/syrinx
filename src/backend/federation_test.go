@@ -138,7 +138,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		// signature-id FKs from the real schema are omitted.
 		`CREATE TABLE IF NOT EXISTS account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
-			note VARCHAR(140) NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
 			public_key_id VARCHAR(255) NOT NULL DEFAULT '',
 			user_signature_id INT,
 			admin_request_id VARCHAR(255),

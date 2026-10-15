@@ -18,3 +18,13 @@ export function trimInvisibleChars(s: string): string {
     .join('');
   return filtered.trim();
 }
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** Mirror of `countCharacters` in utils.go: counts what a reader sees as one
+ * character each, so an emoji with a skin tone or a ZWJ sequence counts once. */
+export function countCharacters(text: string): number {
+  let n = 0;
+  for (const _ of graphemes.segment(text)) n++;
+  return n;
+}

@@ -252,6 +252,13 @@ newest-server-timestamp wins; revocation state is sticky. User-supplied
 timestamps are never trusted for globally-contended decisions (username
 squatting / revocation replay). See `specs/recovery/README.md` "Trust model".
 
+**Character limits count what a reader sees.** Every limit counts grapheme
+clusters via `countCharacters` (Go `utils.go`, SPA `lib/utils/text.ts`;
+shared vectors in `src/backend/testdata/character_count_vectors.json`), so
+an emoji with a skin tone counts once. Never use `.length`,
+`utf8.RuneCountInString`, `maxlength`, `VARCHAR(n)` or `char_length` for a
+user-facing limit. See `specs/README.md` → "Character limits".
+
 **Blank slate everywhere.** No DB migrations, no dual-write, no backward compat.
 Schema changes go in `InitDB`; recreate the DB. Callers ship in lockstep.
 

@@ -388,8 +388,8 @@ text** (no `reedMarkdown.ts` parsing, no mentions, no hashtags, no links).
 Keeping ripples markdown-free avoids re-litigating the entire mention/link
 security surface for a feature that's deleted in a week anyway; plain text
 is escaped/rendered as-is by the SPA. Server-side, the 140-char limit is
-validated with a plain Unicode code-point count (`utf8.RuneCountInString`
-in Go), not the markdown-aware character counter reeds use elsewhere in
+validated with a plain character count (`countCharacters`, grapheme
+clusters), not the markdown-aware character counter reeds use elsewhere in
 this codebase — that counter strips markdown syntax before counting, which
 is the wrong tool for content that's never parsed as markdown in the first
 place and would let markdown-syntax-heavy plain text dodge the visible

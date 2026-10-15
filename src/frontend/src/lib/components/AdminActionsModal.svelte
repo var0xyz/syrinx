@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import Username from '$lib/components/Username.svelte';
   import PermissionPicker from '$lib/components/PermissionPicker.svelte';
@@ -102,11 +103,11 @@
   $: picksTargets = action === 'suspend' || action === 'kick';
   $: picksPermissions = action === 'promote' || action === 'permissions';
   $: needsReason = action !== 'unicast';
-  $: reasonOk = reason.trim().length > 0 && reason.length <= MAX_REASON;
+  $: reasonOk = reason.trim().length > 0 && countCharacters(reason) <= MAX_REASON;
   $: canSubmit =
     !submitting &&
     (action === 'unicast'
-      ? message.trim().length > 0 && message.length <= MAX_MESSAGE
+      ? message.trim().length > 0 && countCharacters(message) <= MAX_MESSAGE
       : reasonOk && (!picksTargets || checked.size > 0) && (action !== 'rebind' || !!keyArmor));
 
   /** Whether the viewer may pick node for the chosen action. */
@@ -267,12 +268,14 @@
       {#if action === 'unicast'}
         <label class="field">
           <span>Message</span>
-          <textarea bind:value={message} rows="4" maxlength={MAX_MESSAGE}></textarea>
+          <textarea bind:value={message} rows="4"></textarea>
+          <span class="character-counter">{countCharacters(message)}/{MAX_MESSAGE} characters</span>
         </label>
       {:else}
         <label class="field">
           <span>Reason</span>
-          <textarea bind:value={reason} rows="3" maxlength={MAX_REASON}></textarea>
+          <textarea bind:value={reason} rows="3"></textarea>
+          <span class="character-counter">{countCharacters(reason)}/{MAX_REASON} characters</span>
         </label>
       {/if}
 
@@ -480,6 +483,11 @@
     border-radius: 999px;
     background: var(--input-bg);
     color: var(--muted);
+  }
+
+  .character-counter {
+    text-align: right;
+    font-size: 0.8rem;
   }
 
   .field {

@@ -372,7 +372,7 @@ func InitDB(db *sql.DB) error {
 		requester_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
 		requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		requester_server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		reason TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
+		reason TEXT CHECK (reason <> ''),
 		created_at TIMESTAMP NOT NULL,
 		state VARCHAR(16) NOT NULL DEFAULT 'pending'
 			CHECK (state IN ('pending', 'executed', 'rejected', 'withdrawn', 'moot')),
@@ -645,21 +645,19 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_reed_removals_thread
 		ON reed_removals(thread_id) WHERE thread_id IS NOT NULL;`
 
-	// Signed account-removal certificates. One cert per user; public keys
-	// remain. Signed by the user (public_key_id + user_signature_id) or, for
-	// a kick, by two admins: this server's own request, or a peer's signed
-	// approval as received (admin_authorization). note ≤140, CHECK + API.
+	// Account-removal certificates, one per user: signed by the user, or for a
+	// kick by two admins (our request, or a peer's admin_authorization). Public
+	// keys remain. The API caps note at 140 characters, as a reader counts them.
 	createAccountRemovalsTable := `
 	CREATE TABLE IF NOT EXISTS account_removals (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
-		note VARCHAR(140) NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
 		public_key_id VARCHAR(255) REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT REFERENCES user_signatures(id),
 		admin_request_id VARCHAR(255) REFERENCES admin_requests(id),
 		admin_authorization BYTEA,
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140),
 		CONSTRAINT account_removals_signer CHECK (
 			(CASE WHEN public_key_id IS NOT NULL AND user_signature_id IS NOT NULL THEN 1 ELSE 0 END) +
 			(CASE WHEN admin_request_id IS NOT NULL THEN 1 ELSE 0 END) +
@@ -760,7 +758,7 @@ func InitDB(db *sql.DB) error {
 		voucher_key_id VARCHAR(255) NOT NULL,
 		subject_user_id VARCHAR(255) NOT NULL,
 		subject_key_id VARCHAR(255) NOT NULL,
-		note VARCHAR(140) NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -822,7 +820,7 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL REFERENCES ripples(reed_id) ON DELETE CASCADE,
 		thread_id UUID NOT NULL,
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		content VARCHAR(140) NOT NULL,
+		content TEXT NOT NULL,
 		replying_to VARCHAR(64) REFERENCES ripple_responses(id) ON DELETE SET NULL,
 		deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		posted_at TIMESTAMP NOT NULL,
@@ -1513,7 +1511,7 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		dismissed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
-		reason VARCHAR(140) NOT NULL,
+		reason TEXT NOT NULL,
 		dismissed_at TIMESTAMP NOT NULL
 	);`
 
@@ -1525,7 +1523,7 @@ func InitDB(db *sql.DB) error {
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		reporter_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		note VARCHAR(140) NOT NULL DEFAULT '',
+		note TEXT NOT NULL DEFAULT '',
 		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		created_at TIMESTAMP NOT NULL,

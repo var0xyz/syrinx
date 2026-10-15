@@ -33,13 +33,12 @@ signature, this server's admin request, or a peer's signed approval is set:
 ```sql
 CREATE TABLE IF NOT EXISTS account_removals (
   user_id             VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
-  note                VARCHAR(140) NOT NULL DEFAULT '',
+  note                TEXT NOT NULL DEFAULT '',  -- ≤ 140 characters, checked by the API
   public_key_id       VARCHAR(255) REFERENCES public_keys(id) ON DELETE CASCADE,
   user_signature_id   INT REFERENCES user_signatures(id),
   admin_request_id    VARCHAR(255) REFERENCES admin_requests(id),
   admin_authorization BYTEA,          -- a peer's kick, as received
   server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-  CONSTRAINT account_removals_note_len CHECK (char_length(note) <= 140),
   CONSTRAINT account_removals_signer CHECK (
     (CASE WHEN public_key_id IS NOT NULL AND user_signature_id IS NOT NULL THEN 1 ELSE 0 END) +
     (CASE WHEN admin_request_id IS NOT NULL THEN 1 ELSE 0 END) +

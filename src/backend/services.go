@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -3573,8 +3572,9 @@ var (
 	reHashtag = regexp.MustCompile(`(^|\s)#(\S)`)
 )
 
-// CountMarkdownCharacters strips formatting syntax before counting runes
-// (aligned with the SPA visible-character budget), ignoring surrounding whitespace.
+// CountMarkdownCharacters strips formatting syntax before counting
+// characters (aligned with the SPA visible-character budget), ignoring
+// surrounding whitespace.
 func CountMarkdownCharacters(text string) int {
 	if text == "" {
 		return 0
@@ -3587,7 +3587,7 @@ func CountMarkdownCharacters(text string) int {
 	result = reItalic.ReplaceAllString(result, "$1")
 	result = reBold.ReplaceAllString(result, "$1")
 	result = reHashtag.ReplaceAllString(result, "$1$2")
-	return utf8.RuneCountInString(strings.TrimSpace(result))
+	return countCharacters(strings.TrimSpace(result))
 }
 
 // ================= //
@@ -6250,7 +6250,7 @@ type accountRemovalCert struct {
 
 // validateAccountNote returns an error if note exceeds maxAccountNoteLen.
 func validateAccountNote(note string) error {
-	if utf8.RuneCountInString(note) > maxAccountNoteLen {
+	if countCharacters(note) > maxAccountNoteLen {
 		return fmt.Errorf("note exceeds %d characters", maxAccountNoteLen)
 	}
 	return nil

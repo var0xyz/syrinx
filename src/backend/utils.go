@@ -9,7 +9,14 @@ import (
 	"unicode"
 
 	"github.com/gowebpki/jcs"
+	"github.com/rivo/uniseg"
 )
+
+// countCharacters counts what a reader sees as one character each, so an
+// emoji with a skin tone or a ZWJ sequence counts once. Mirrors the SPA's.
+func countCharacters(s string) int {
+	return uniseg.GraphemeClusterCount(s)
+}
 
 // trimInvisibleChars removes invisible characters from a string
 func trimInvisibleChars(s string) string {

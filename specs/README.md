@@ -571,6 +571,19 @@ the older proposals below still describe.
 - One helper, called from both signer and verifier in each proposal, so
   the two cannot drift (the specific bug Proposal 01 fixes for reeds).
 
+### Character limits
+
+Every character limit counts what a reader sees as one character (a
+Unicode grapheme cluster), so an emoji with a skin tone, a flag or a ZWJ
+sequence counts once. One helper per side, `countCharacters` (Go
+`utils.go` via `github.com/rivo/uniseg`, SPA `lib/utils/text.ts` via
+`Intl.Segmenter`), with shared vectors in
+`src/backend/testdata/character_count_vectors.json`. Postgres can't count
+this way, so limited columns are `TEXT` and the API enforces the cap.
+Fields never use `maxlength`, which counts UTF-16 units. The one
+exception is a reed's raw cap (`MAX_REED_RAW_CHARS`), which guards size,
+not what a reader sees, and stays in UTF-16 units.
+
 ### Two-round flows
 
 Several proposals introduce a `init` → `complete` handshake so the

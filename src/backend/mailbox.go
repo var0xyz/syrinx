@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"unicode/utf8"
 )
 
 // ErrNoActiveKey means the recipient has no usable (present, unrevoked)
@@ -51,7 +50,7 @@ type MailboxPayload struct {
 // (the server never mails a foreign user), so there's no ambiguity to
 // resolve a bare id against.
 func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, userID, kind, message, link string, meta any) (id, ciphertext string, err error) {
-	if utf8.RuneCountInString(message) > MaxMailboxMessageChars {
+	if countCharacters(message) > MaxMailboxMessageChars {
 		return "", "", ErrMailboxMessageTooLong
 	}
 

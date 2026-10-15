@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   requester_key_id      VARCHAR(255) NOT NULL REFERENCES public_keys(id),
   requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
   requester_server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-  reason                TEXT CHECK (char_length(reason) BETWEEN 1 AND 1000),
+  reason                TEXT CHECK (reason <> ''),  -- ≤ 1000 characters, checked by the API
   created_at            TIMESTAMP NOT NULL,
   state                 VARCHAR(16) NOT NULL DEFAULT 'pending'
     CHECK (state IN ('pending', 'executed', 'rejected', 'withdrawn', 'moot')),

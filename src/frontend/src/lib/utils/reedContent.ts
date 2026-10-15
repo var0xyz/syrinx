@@ -1,3 +1,5 @@
+import { countCharacters } from '$lib/utils/text';
+
 /**
  * Visible (markdown-stripped) and raw content caps for reeds.
  * Raw limit blocks markdown padding abuse; visible limit is the UX budget.
@@ -40,7 +42,7 @@ export function countMarkdownCharacters(text: string): number {
   result = result.replace(/\*([^*]+)\*/g, '$1');
   result = result.replace(/(^|\s)#(?=\S)/g, '$1');
 
-  return result.trim().length;
+  return countCharacters(result.trim());
 }
 
 /** True when content is within both the raw and markdown-visible caps. */

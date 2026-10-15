@@ -2,6 +2,7 @@ import { dbService } from '$lib/services/db';
 import { allowUnsigned } from '$lib/verifiers';
 import { generateUserListId } from '$lib/utils/id';
 import type { UserListType } from '$lib/types/userList';
+import { countCharacters } from '$lib/utils/text';
 
 export const USER_LIST_NAME_MAX = 32;
 export const USER_LIST_DESCRIPTION_MAX = 140;
@@ -15,10 +16,10 @@ export interface UserListInput {
 
 function validate(name: string, description: string): void {
   if (!name) throw new Error('List name is required');
-  if (name.length > USER_LIST_NAME_MAX) {
+  if (countCharacters(name) > USER_LIST_NAME_MAX) {
     throw new Error(`List name cannot exceed ${USER_LIST_NAME_MAX} characters`);
   }
-  if (description.length > USER_LIST_DESCRIPTION_MAX) {
+  if (countCharacters(description) > USER_LIST_DESCRIPTION_MAX) {
     throw new Error(`Description cannot exceed ${USER_LIST_DESCRIPTION_MAX} characters`);
   }
 }

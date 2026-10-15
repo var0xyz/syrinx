@@ -69,7 +69,7 @@ clickable action on the message (e.g. a mention notification linking to
 `/mentions`, once [02](02_mentions_tab.md) lands). Omit it for messages
 with nothing to link to.
 
-`Message` is capped at 140 characters (rune count, not bytes), the same
+`Message` is capped at 140 characters (`countCharacters`, not bytes), the same
 limit used elsewhere in this app (`MaxRippleContentChars`/
 `MaxReedVisibleChars`, `handlers.go`) — enforced by `SendMailboxMessage`
 before encryption, rejecting with `ErrMailboxMessageTooLong` rather than

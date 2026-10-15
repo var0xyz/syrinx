@@ -38,7 +38,7 @@ func ensureVouchSchema(db *sql.DB) error {
 			voucher_key_id VARCHAR(255) NOT NULL,
 			subject_user_id VARCHAR(255) NOT NULL,
 			subject_key_id VARCHAR(255) NOT NULL,
-			note VARCHAR(140) NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

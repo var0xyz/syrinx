@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import Auth from '$lib/components/Auth.svelte';
@@ -151,8 +152,8 @@
       <div class="decision-form">
         <label class="dismiss-field">
           <span>Why are you dismissing these flags?</span>
-          <textarea bind:value={dismissReason} rows="3" maxlength={MAX_DISMISS_REASON}></textarea>
-          <span class="character-counter">{dismissReason.length}/{MAX_DISMISS_REASON} characters</span>
+          <textarea bind:value={dismissReason} rows="3"></textarea>
+          <span class="character-counter">{countCharacters(dismissReason)}/{MAX_DISMISS_REASON} characters</span>
         </label>
         {#if dismissError}<p class="decision-error" role="alert">{dismissError}</p>{/if}
         <div class="decision-actions">
@@ -160,7 +161,7 @@
           <button
             class="btn primary"
             type="button"
-            disabled={dismissSubmitting || !dismissReason.trim()}
+            disabled={dismissSubmitting || !dismissReason.trim() || countCharacters(dismissReason) > MAX_DISMISS_REASON}
             on:click={() => submitDismiss(f)}
           >
             Dismiss

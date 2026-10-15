@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { createEventDispatcher } from 'svelte';
   import { flagReed } from '$lib/services/flags';
 
@@ -56,13 +57,13 @@
     {:else}
       <label class="field">
         <span>Note for the admins (optional)</span>
-        <textarea bind:value={note} rows="3" maxlength={MAX_NOTE}></textarea>
-        <span class="character-counter">{note.length}/{MAX_NOTE} characters</span>
+        <textarea bind:value={note} rows="3"></textarea>
+        <span class="character-counter">{countCharacters(note)}/{MAX_NOTE} characters</span>
       </label>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="actions">
         <button class="btn btn-secondary" type="button" on:click={close}>Cancel</button>
-        <button class="btn btn-primary" type="button" disabled={sending} on:click={send}>
+        <button class="btn btn-primary" type="button" disabled={sending || countCharacters(note) > MAX_NOTE} on:click={send}>
           {sending ? 'Flagging…' : 'Flag'}
         </button>
       </div>

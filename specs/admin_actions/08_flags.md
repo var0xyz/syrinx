@@ -29,14 +29,14 @@ CREATE TABLE IF NOT EXISTS flag_dismissals (
   reed_id      VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
   author_id    VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
   dismissed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
-  reason       VARCHAR(140) NOT NULL,
+  reason       TEXT NOT NULL,  -- ≤ 140 characters, checked by the API
   dismissed_at TIMESTAMP NOT NULL
 );
 CREATE TABLE IF NOT EXISTS reed_flags (
   reed_id     VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
   author_id   VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
   reporter_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-  note        VARCHAR(140) NOT NULL DEFAULT '',
+  note        TEXT NOT NULL DEFAULT '',  -- ≤ 140 characters, checked by the API
   public_key_id     VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
   user_signature_id INT NOT NULL REFERENCES user_signatures(id),
   created_at  TIMESTAMP NOT NULL,   -- the timestamp the reporter signed

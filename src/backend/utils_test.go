@@ -46,3 +46,24 @@ func TestCanonicalJSONVectors(t *testing.T) {
 		}
 	}
 }
+
+// Shared with the SPA's test:character-count harness, which asserts the same counts.
+func TestCountCharactersVectors(t *testing.T) {
+	raw, err := os.ReadFile("testdata/character_count_vectors.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var vectors []struct {
+		Name  string `json:"name"`
+		Text  string `json:"text"`
+		Count int    `json:"count"`
+	}
+	if err := json.Unmarshal(raw, &vectors); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vectors {
+		if got := countCharacters(v.Text); got != v.Count {
+			t.Errorf("%s: got %d, want %d", v.Name, got, v.Count)
+		}
+	}
+}

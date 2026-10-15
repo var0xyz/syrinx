@@ -1,4 +1,5 @@
 <script>
+  import { countCharacters } from '$lib/utils/text';
   // The ripple composer, rendered by the parent RipplesSection either as
   // the top-level composer (behind the "post ripple" button, no
   // replyingTo) or inline right after any ripple being replied to — several
@@ -31,7 +32,7 @@
   let postError = '';
   /** @type {HTMLTextAreaElement | undefined} */
   let textareaEl;
-  $: remaining = MAX_RIPPLE_CHARS - draft.length;
+  $: remaining = MAX_RIPPLE_CHARS - countCharacters(draft);
   $: overLimit = remaining < 0;
 
   onMount(() => {
@@ -100,7 +101,6 @@
     placeholder="Join the ripple…"
     bind:value={draft}
     bind:this={textareaEl}
-    maxlength={MAX_RIPPLE_CHARS + 20}
     rows="2"
     disabled={posting}
   ></textarea>

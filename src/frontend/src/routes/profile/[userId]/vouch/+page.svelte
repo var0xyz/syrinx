@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import Auth from '$lib/components/Auth.svelte';
@@ -120,13 +121,12 @@
       class="note-input"
       type="text"
       bind:value={note}
-      maxlength={MAX_VOUCH_NOTE_CHARS}
       placeholder="Met at…"
     />
-    <span class="note-count">{note.length}/{MAX_VOUCH_NOTE_CHARS}</span>
+    <span class="note-count">{countCharacters(note)}/{MAX_VOUCH_NOTE_CHARS}</span>
 
     <div class="actions">
-      <button class="btn primary" disabled={submitting} on:click={confirm}>
+      <button class="btn primary" disabled={submitting || countCharacters(note) > MAX_VOUCH_NOTE_CHARS} on:click={confirm}>
         {submitting ? 'Saving…' : 'Verify Identity'}
       </button>
       <button class="btn secondary" on:click={() => goto(`/profile/${data.subjectUserID}`)}>

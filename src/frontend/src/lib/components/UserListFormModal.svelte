@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { countCharacters } from '$lib/utils/text';
   import { createEventDispatcher, onMount } from 'svelte';
   import { dbService } from '$lib/services/db';
   import { userRepository } from '$lib/repositories/user';
@@ -21,8 +22,8 @@
   let saving = false;
   let memberSearch = '';
 
-  $: nameCount = name.length;
-  $: descriptionCount = description.length;
+  $: nameCount = countCharacters(name);
+  $: descriptionCount = countCharacters(description);
   $: filteredFollowingUsers = memberSearch.trim()
     ? followingUsers.filter((u) =>
         u.username.toLowerCase().includes(memberSearch.trim().toLowerCase())
@@ -82,13 +83,13 @@
 
   <div class="field">
     <label for="user-list-name">Name</label>
-    <input id="user-list-name" type="text" bind:value={name} maxlength={USER_LIST_NAME_MAX} placeholder="List name" />
+    <input id="user-list-name" type="text" bind:value={name} placeholder="List name" />
     <div class="char-count" class:over-limit={nameCount > USER_LIST_NAME_MAX}>{nameCount}/{USER_LIST_NAME_MAX}</div>
   </div>
 
   <div class="field">
     <label for="user-list-description">Description</label>
-    <textarea id="user-list-description" bind:value={description} maxlength={USER_LIST_DESCRIPTION_MAX} rows="2" placeholder="Optional description"></textarea>
+    <textarea id="user-list-description" bind:value={description} rows="2" placeholder="Optional description"></textarea>
     <div class="char-count" class:over-limit={descriptionCount > USER_LIST_DESCRIPTION_MAX}>{descriptionCount}/{USER_LIST_DESCRIPTION_MAX}</div>
   </div>
 

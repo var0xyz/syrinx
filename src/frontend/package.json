@@ -29,7 +29,8 @@
     "test:key-revocation": "node --experimental-strip-types scripts/test-key-revocation.mjs",
     "test:key-id": "node --experimental-strip-types scripts/test-key-id.mjs",
     "test:block-payload": "node --experimental-strip-types scripts/test-block-payload.mjs",
-    "test:admin-payload": "node --experimental-strip-types scripts/test-admin-payload.mjs"
+    "test:admin-payload": "node --experimental-strip-types scripts/test-admin-payload.mjs",
+    "test:character-count": "node --experimental-strip-types scripts/test-character-count.mjs"
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.15.0",

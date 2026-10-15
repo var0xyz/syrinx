@@ -14,7 +14,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
@@ -716,7 +715,7 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 	}
 
 	noReason := req.Action == adminActionBroadcast || req.Action == adminActionUnicast
-	reasonLen := utf8.RuneCountInString(req.Reason)
+	reasonLen := countCharacters(req.Reason)
 	if noReason && req.Reason != "" {
 		return refuse(http.StatusBadRequest, "A %s has no reason", req.Action)
 	}
@@ -726,7 +725,7 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 
 	switch req.Action {
 	case adminActionBroadcast, adminActionUnicast:
-		if strings.TrimSpace(req.Body) == "" || utf8.RuneCountInString(req.Body) > MaxMailboxMessageChars {
+		if strings.TrimSpace(req.Body) == "" || countCharacters(req.Body) > MaxMailboxMessageChars {
 			return refuse(http.StatusBadRequest, "A message of 1 to %d characters is required", MaxMailboxMessageChars)
 		}
 	case adminActionPromote, adminActionPermissions:

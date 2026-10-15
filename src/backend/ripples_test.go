@@ -131,7 +131,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
-			note VARCHAR(140) NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
 			public_key_id VARCHAR(255) NOT NULL DEFAULT '',
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			admin_request_id VARCHAR(255),
@@ -186,7 +186,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 			reed_id VARCHAR(255) NOT NULL,
 			thread_id UUID NOT NULL,
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-			content VARCHAR(140) NOT NULL,
+			content TEXT NOT NULL,
 			replying_to VARCHAR(64) REFERENCES ripple_responses(id) ON DELETE SET NULL,
 			deleted BOOLEAN NOT NULL DEFAULT FALSE,
 			posted_at TIMESTAMP NOT NULL,

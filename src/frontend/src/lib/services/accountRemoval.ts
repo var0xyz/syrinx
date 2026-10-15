@@ -12,6 +12,7 @@ import { verifyAccountRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
 import { isOnline } from './pwa';
 import { serverInfo } from './serverInfo';
+import { countCharacters } from '$lib/utils/text';
 
 const MAX_NOTE_LEN = 140;
 
@@ -56,7 +57,7 @@ export async function verifyAndCommitAccountRemoval(
  * Caller is responsible for wiping the local device session afterward.
  */
 export async function removeAccountAsAuthor(note: string = ''): Promise<api.AccountRemoval> {
-  if (note.length > MAX_NOTE_LEN) {
+  if (countCharacters(note) > MAX_NOTE_LEN) {
     throw new Error(`Note must be at most ${MAX_NOTE_LEN} characters`);
   }
   if (!get(isOnline) || !navigator.onLine) {

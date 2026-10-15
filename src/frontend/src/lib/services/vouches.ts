@@ -16,6 +16,7 @@ import { classifyKeyChange, type KeyChangeKind } from '$lib/utils/keyChange';
 import { dbService } from './db';
 import { foreignServerOf } from './peerServers';
 import { revocationRepository } from '$lib/repositories/revocation';
+import { countCharacters } from '$lib/utils/text';
 
 export type { TrustMark, KeyChangeKind };
 
@@ -218,7 +219,7 @@ export async function createVouch(
   subjectKeyID: string,
   note = ''
 ): Promise<api.Vouch> {
-  if (note.length > MAX_VOUCH_NOTE_CHARS) {
+  if (countCharacters(note) > MAX_VOUCH_NOTE_CHARS) {
     throw new Error(`Note cannot exceed ${MAX_VOUCH_NOTE_CHARS} characters`);
   }
   const voucherKeyID = authService.getActiveKeyId();

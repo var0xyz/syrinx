@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"syrinx/observability/metrics"
 	pb "syrinx/proto"
@@ -5837,7 +5836,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Comment cannot be empty")
 		return
 	}
-	if utf8.RuneCountInString(content) > MaxRippleContentChars {
+	if countCharacters(content) > MaxRippleContentChars {
 		writeError(w, http.StatusBadRequest, "Comment is too long (max 140 characters)")
 		return
 	}
