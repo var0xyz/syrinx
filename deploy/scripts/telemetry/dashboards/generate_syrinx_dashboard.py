@@ -263,6 +263,8 @@ USERS_WITHOUT_FULL = metric_stream("syrinx.users.without_full_backup")
 KEYS_REVOKED = metric_stream("syrinx.keys.revoked")
 REEDS_PUBLISHED = metric_stream("syrinx.reeds.published")
 REEDS_DELETED = metric_stream("syrinx.reeds.deleted")
+THREADS_PUBLISHED = metric_stream("syrinx.threads.published")
+THREAD_SIZE = metric_stream("syrinx.thread.size")
 ECHOES_TARGETED = metric_stream("syrinx.echoes.targeted")
 REEDS_REJECTED_LENGTH = metric_stream("syrinx.reeds.rejected.length")
 REED_RAW_CHARS = metric_stream("syrinx.reed.content.raw_chars")
@@ -833,7 +835,12 @@ reeds = [
             *promql_labeled_queries(
                 REEDS_PUBLISHED,
                 "reed_kind",
-                [("plain", "plain"), ("echo", "echo"), ("reply", "reply")],
+                [
+                    ("plain", "plain"),
+                    ("echo", "echo"),
+                    ("reply", "reply"),
+                    ("thread", "thread part"),
+                ],
             ),
         ],
         layout=layout(0, 0, 96, 14, 40),
@@ -934,6 +941,30 @@ reeds = [
             "together — coverage % = holders / active users) so they're merged here. "
             "Shape from OTLP histogram buckets instead of a flattened mean. "
             "Per-reed series (author.id + reed.id) aggregate; filter in Explore."
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_threads_published",
+        title="Threads published",
+        queries=[
+            (THREADS_PUBLISHED, "threads", THREADS_PUBLISHED),
+            promql_labeled(REEDS_PUBLISHED, "reed_kind", "thread", "thread parts"),
+        ],
+        layout=layout(0, 56, 96, 14, 48),
+        description=(
+            "Successful CreateThread calls (not replays), next to the reeds they "
+            "contain (syrinx.reeds.published with reed.kind=thread)."
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_thread_size",
+        title="Thread size (parts) — p50/p90/p99",
+        ptype="area",
+        queries=histogram_percentile_bands(THREAD_SIZE),
+        layout=layout(96, 56, 96, 14, 49),
+        description=(
+            "Parts per thread at publish, from OTLP histogram buckets. "
+            "Threads cap at 30 parts."
         ),
     ),
 ]

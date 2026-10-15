@@ -2470,12 +2470,13 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 
 	for i, part := range parts {
 		h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
-			Kind:     metrics.ReedKindPlain,
+			Kind:     metrics.ReedKindThread,
 			AuthorID: userID,
 			ReedID:   part.ReedID,
 			TagCount: len(parts[i].Tags),
 		})
 	}
+	h.metrics.ThreadPublished(r.Context(), userID, threadID, len(parts))
 	log.Debug().Str("userID", userID).Str("threadID", threadID).Int("reeds", len(parts)).Msg("Thread created")
 	writeResponse(w, http.StatusCreated, pbServerSignatures(sigs))
 }
