@@ -238,3 +238,60 @@ func TestRecoveryBundleCarriesKeyChain(t *testing.T) {
 		t.Fatal("restored middle key is not revoked")
 	}
 }
+
+func TestRotationIsLoggedAndRetiresTheOldSigner(t *testing.T) {
+	db, ds, first := newServerKeyTestDB(t)
+	ctx := context.Background()
+	cryptoSvc := newCryptoService()
+
+	rotated, err := revokeServerKey(ctx, db, cryptoSvc, serverKeyTestPassphrase, false, "")
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	compromised, err := revokeServerKey(ctx, db, cryptoSvc, serverKeyTestPassphrase, true, "leaked")
+	if err != nil {
+		t.Fatalf("revoke compromised: %v", err)
+	}
+
+	head, err := ds.GetLedgerHead(ctx)
+	if err != nil || head == nil {
+		t.Fatalf("head %v err %v", head, err)
+	}
+	tail, err := ds.GetLedgerTail(ctx, head.ID, 10)
+	if err != nil || len(tail) != 1 {
+		t.Fatalf("tail %v err %v, want one more entry", tail, err)
+	}
+	entries := []*ledgerEntry{head, tail[0]}
+	wantMessages := []string{
+		"Server key " + rotated.KeyID + " rotated to " + rotated.Successor,
+		"Server key " + compromised.KeyID + " rotated to " + compromised.Successor + " (compromised). Reason: leaked",
+	}
+	prevSig := ""
+	for i, e := range entries {
+		rev := []*serverKeyRevocation{rotated, compromised}[i]
+		if e.Kind != ledgerKindServerKey || e.UserID != "" || e.Message != wantMessages[i] || e.ServerSignature.ID != rev.Successor {
+			t.Fatalf("entry %d = %+v", i, e)
+		}
+		fp, _, _ := parseIdentityID(identityID(rev.Successor))
+		payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSig, e.Kind, "", "", time.Time{}, e.Message, "", nil,
+			"Ab3xY9pQ", fp, e.ServerSignature.SignedAt)
+		if err := cryptoSvc.verifySignature(string(payload), e.ServerSignature.Armor, publicArmorOf(t, db, rev.Successor)); err != nil {
+			t.Fatalf("entry %d signature: %v", i, err)
+		}
+		prevSig = e.ServerSignature.Armor
+	}
+
+	retired := func(payload []byte, ts time.Time) (ServerSignature, error) {
+		armor, err := cryptoSvc.sign(string(payload), first.Armor)
+		return ServerSignature{ID: rotated.KeyID, Armor: armor, SignedAt: ts}, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	entry := &ledgerEntry{Kind: ledgerKindServerKey, Message: "x"}
+	if err := appendLedgerEntryTx(ctx, tx, retired, "Ab3xY9pQ", first.Fingerprint, entry); !errors.Is(err, errLedgerSignerRotated) {
+		t.Fatalf("append with the retired key = %v, want errLedgerSignerRotated", err)
+	}
+}

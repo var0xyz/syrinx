@@ -108,7 +108,9 @@ the log. The only admin action left out is a private message. Logged:
   and a disconnection;
 - claimed admin invites, with the inviter, the new admin and the
   permissions granted;
-- reserved usernames added or released.
+- reserved usernames added or released;
+- server key rotations, with their reason, credited to the server operator
+  rather than a member.
 
 Each entry is **signed by the server**: its ID, the ID and signature of the
 entry before it, the server timestamp, the user ID of the admin who acted,

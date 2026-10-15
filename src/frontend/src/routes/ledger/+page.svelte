@@ -45,8 +45,11 @@
             {@const requestedAt = e.requestedAt ? fromUnix(e.requestedAt) : null}
             {@const permissions = e.content ? parsePermissionSet(e.content) : null}
             {@const verbs = e.kind === 'admin-invite' ? ['Created', 'Claimed'] : ['Proposed', 'Approved']}
-            <li class="entry">
+            <li class="entry" class:server-key={e.kind === 'server-key'}>
               <span class="entry-id">#{e.id}</span>
+              {#if e.kind === 'server-key'}
+                <span class="badge">Server key rotated</span>
+              {/if}
               <p class="message">{e.message}</p>
               {#if e.targets.length > 0}
                 <p class="targets">
@@ -75,7 +78,11 @@
                 </p>
               {:else}
                 <div class="meta">
-                  <Username userID={e.userID} color="var(--primary)" />
+                  {#if e.userID}
+                    <Username userID={e.userID} color="var(--primary)" />
+                  {:else}
+                    <span>Server operator</span>
+                  {/if}
                   <time datetime={signedAt.toISOString()} title={formatAbsoluteDateTime(signedAt)}>
                     {formatRelativeTime(signedAt)}
                   </time>
@@ -158,6 +165,20 @@
 
   .entry + .entry {
     border-top: 1px solid var(--border);
+  }
+
+  .entry.server-key {
+    border-left: 3px solid var(--error);
+  }
+
+  .badge {
+    align-self: flex-start;
+    padding: 0 0.5rem;
+    border: 1px solid var(--error);
+    border-radius: 999px;
+    color: var(--error);
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
   .message,

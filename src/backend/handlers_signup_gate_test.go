@@ -23,6 +23,15 @@ func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 	return newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "invite"})
 }
 
+// useTestSigningKey makes fingerprint the self server's signing key, which
+// ledger writes check before they sign.
+func useTestSigningKey(t *testing.T, db *sql.DB, serverID, fingerprint string) {
+	t.Helper()
+	if _, err := db.Exec(`UPDATE servers SET signing_key = $1 WHERE self = TRUE`, string(canonicalID(serverID, fingerprint))); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	t.Helper()
 	dataService := NewDataService(db, "test")
@@ -42,6 +51,7 @@ func newSignupGateHandlers(t *testing.T, db *sql.DB, cfg AppConfig) *Handlers {
 	if cfg.ServerName == "" {
 		cfg.ServerName = "test"
 	}
+	useTestSigningKey(t, db, dataService.GetServerID(), serverKP.Fingerprint)
 	return NewHandlers(
 		services,
 		cfg,

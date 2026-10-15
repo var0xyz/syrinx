@@ -129,7 +129,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			id BIGSERIAL PRIMARY KEY,
 			prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
 			kind VARCHAR(16) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			user_id VARCHAR(255) REFERENCES identities(id),
 			requester_id VARCHAR(255) REFERENCES identities(id),
 			requested_at TIMESTAMP,
 			message TEXT NOT NULL,

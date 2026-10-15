@@ -30,8 +30,8 @@ One entry per admin action, written in the same transaction as the action:
 | `id`            | The entry's ID                                                                        |
 | `prevID`        | The ID of the entry before it; absent on the first entry                              |
 | `prevSignature` | The server signature of the entry before it; absent on the first entry                |
-| `kind`          | `request`, `admin-invite`, `mesh` or `reserved-name`                                  |
-| `userID`        | Who acted: a request's approver, an admin invite's claimer, or the admin otherwise    |
+| `kind`          | `request`, `admin-invite`, `mesh`, `reserved-name` or `server-key`                    |
+| `userID`        | Who acted: a request's approver, an admin invite's claimer, or the admin otherwise; absent on `server-key` |
 | `requesterID`   | Who opened the request, or created the admin invite; absent otherwise                 |
 | `requestedAt`   | When that was, from the server's countersignature then; absent otherwise              |
 | `message`       | Human-readable text built by the server, never containing a username                  |
@@ -53,15 +53,16 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   id                  BIGSERIAL PRIMARY KEY,
   prev_id             BIGINT UNIQUE REFERENCES ledger_entries(id),
   kind                VARCHAR(16) NOT NULL
-    CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name')),
-  user_id             VARCHAR(255) NOT NULL REFERENCES identities(id),
+    CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name', 'server-key')),
+  user_id             VARCHAR(255) REFERENCES identities(id),
   requester_id        VARCHAR(255) REFERENCES identities(id),
   requested_at        TIMESTAMP,
   message             TEXT NOT NULL,
   content             TEXT,
   signed_at           TIMESTAMP NOT NULL,
   server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-  CONSTRAINT ledger_entries_requested CHECK ((requester_id IS NULL) = (requested_at IS NULL))
+  CONSTRAINT ledger_entries_requested CHECK ((requester_id IS NULL) = (requested_at IS NULL)),
+  CONSTRAINT ledger_entries_user CHECK ((user_id IS NULL) = (kind = 'server-key'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_entries_first
   ON ledger_entries((prev_id IS NULL)) WHERE prev_id IS NULL;
@@ -82,7 +83,9 @@ and what the entry records is its `kind`, so no client ever parses
 
 IDs say nothing about order or count: the chain is `prev_id`. It is unique
 and only one entry may have none, so the ledger is a single chain. The
-writer reads the last entry under a lock in the same transaction.
+writer reads the last entry under a lock in the same transaction. Under
+the same lock it re-reads `servers.signing_key` and refuses to sign with
+any other key, so nothing is appended with a key a rotation retired.
 
 Every entry signs the previous entry's signature, so changing or removing
 any entry breaks every entry after it, and the server would have to re-sign
@@ -112,6 +115,7 @@ its target to misbehave. Only admins see those, in the requests list.
 | Mesh connection rejected          | `Rejected connection to {serverID}`                     |                   |                     |
 | Mesh disconnection                | `Disconnected from {serverID}`                          |                   |                     |
 | Reserved username added / removed | `Username {name} reserved` / `Username {name} released` |                   |                     |
+| Server key rotated                | `Server key {oldKeyID} rotated to {newKeyID}[ (compromised)][. Reason: {reason}]` | |                     |
 
 `{Action}` is the action's display name: Suspension, Reinstatement, Kick,
 Promotion, Demotion, Permission change. Requests cover every two-admin action: kick,
@@ -132,6 +136,14 @@ from the head gives every admin's permissions at any entry, so a client
 can check that the requester and approver of every executed request held
 its permission ([01](01_requests_and_approvals.md)). Root holds every
 permission from the start.
+
+A server key rotation is logged by `ops rotate-key`, in the rotation's own
+transaction, signed by the new key and chained to the last entry signed by
+the old one ([server key rotation 01](../server_key_rotation/01_ops_commands.md)).
+It has no `userID`: the operator who ran the command isn't a signer, and
+the ledger doesn't attribute an action to someone who didn't sign it. The
+CLI can't push over the WebSocket; members get the entry on their next
+catch-up.
 
 A mesh connection is logged when **this** server's admin approves it.
 Whether the peer has approved on their side doesn't matter.
@@ -194,7 +206,9 @@ account page on small ones:
   own color, the content (a broadcast's text, or the permissions granted),
   then "Proposed by {requester} {time}" and "Approved by {approver} {time}"
   on two lines ("Created" and "Claimed" for an admin invite), or the admin
-  and the relative time for the other kinds. Newest first.
+  and the relative time for the other kinds. A server key rotation stands
+  out with an accent and a "Server key rotated" badge, credited to "Server
+  operator". Newest first.
 - Rendered from the local `ledger` store (offline-first).
 - A warning banner when the local copy and the server disagree.
 

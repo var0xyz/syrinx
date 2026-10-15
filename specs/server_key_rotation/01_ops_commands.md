@@ -47,6 +47,15 @@ hand. It refuses without a terminal; a blank answer cancels. Then it calls
 3. Build the revocation and sign it with both keys.
 4. Store the successor, the revocation and `predecessor_id`; set the old key's
    `revoked_at`; set `servers.signing_key` to the successor.
+5. Append a `server-key` entry to the [ledger](../admin_actions/02_ledger.md),
+   signed by the successor: `Server key {old} rotated to {new}`, with
+   ` (compromised)` and `. Reason: {reason}` when given. It has no user: the
+   operator who ran the command isn't a signer. The reason has no length
+   limit. Members get it on their next catch-up, since the CLI can't push.
+
+Every ledger write re-reads `servers.signing_key` under the ledger lock and
+refuses to sign with any other key, so a server still running on the old key
+can't append past the rotation.
 
 A compromised revocation with a blank reason is refused. Revoking a key that is
 already revoked is refused (only the current key has no successor yet). Then
@@ -73,6 +82,9 @@ two may share a second.
 - Rotate then boot: the successor signs, the old key is revoked and not
   compromised, both signatures verify and are stored under their keys.
 - Compromised revocation with a blank reason → refused; stored with its reason.
+- Each rotation appends a `server-key` ledger entry with no user, signed by
+  the successor and chained to the entry before; a ledger write signed with a
+  retired key is refused.
 - Revoking a revoked key, or booting with one as current → refused.
 - Bundle round trip across a rotation and a compromise keeps the chain.
 - Go/SPA parity for the revocation payload (`test:server-key-payload`).

@@ -1464,14 +1464,14 @@ func InitDB(db *sql.DB) error {
 	// The public ledger of admin actions, chained: each entry signs prev_id
 	// and that entry's signature; prev_id is NULL only on the first entry.
 	// A request or admin invite is logged once done: requester_id proposed
-	// it, user_id approved or claimed it.
+	// it, user_id approved or claimed it. A server key rotation has no user.
 	createLedgerEntriesTable := `
 	CREATE TABLE IF NOT EXISTS ledger_entries (
 		id BIGSERIAL PRIMARY KEY,
 		prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
 		kind VARCHAR(16) NOT NULL
-			CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name')),
-		user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name', 'server-key')),
+		user_id VARCHAR(255) REFERENCES identities(id),
 		requester_id VARCHAR(255) REFERENCES identities(id),
 		requested_at TIMESTAMP,
 		message TEXT NOT NULL,
@@ -1480,7 +1480,8 @@ func InitDB(db *sql.DB) error {
 		signed_at TIMESTAMP NOT NULL,
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 
-		CONSTRAINT ledger_entries_requested CHECK ((requester_id IS NULL) = (requested_at IS NULL))
+		CONSTRAINT ledger_entries_requested CHECK ((requester_id IS NULL) = (requested_at IS NULL)),
+		CONSTRAINT ledger_entries_user CHECK ((user_id IS NULL) = (kind = 'server-key'))
 	);`
 
 	// The users an entry is about, so messages never carry usernames.

@@ -10,7 +10,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/lib/pq"
@@ -22,93 +21,8 @@ import (
 // ledgerPageSize caps the entries one ledger page returns.
 const ledgerPageSize = 100
 
-// ledgerEntry is one public record of an admin action. PrevID is 0 on the
-// first entry. Messages never carry usernames: the users an entry is
-// about are Targets, as user IDs. For a request or an admin invite,
-// RequesterID proposed it and UserID approved or claimed it.
-type ledgerEntry struct {
-	ID              uint64
-	PrevID          uint64
-	Kind            string
-	UserID          string
-	RequesterID     string
-	RequestedAt     time.Time
-	Message         string
-	Content         string
-	Targets         []string
-	ServerSignature ServerSignature
-}
-
-// What a ledger entry records, so a client never parses its message.
-const (
-	ledgerKindRequest      = "request"
-	ledgerKindAdminInvite  = "admin-invite"
-	ledgerKindMesh         = "mesh"
-	ledgerKindReservedName = "reserved-name"
-)
-
-// ledgerSigner countersigns a ledger entry's payload.
-type ledgerSigner func(payload []byte, ts time.Time) (ServerSignature, error)
-
-// appendLedgerEntryTx chains e after the last entry and stores it. The
-// advisory lock serializes writers, so the ledger never forks.
-func appendLedgerEntryTx(ctx context.Context, tx *sql.Tx, sign ledgerSigner, serverID, serverKeyFingerprint string, e *ledgerEntry) error {
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('ledger_entries'))`); err != nil {
-		return fmt.Errorf("lock ledger: %w", err)
-	}
-	var prevID sql.NullInt64
-	var prevSignature sql.NullString
-	err := tx.QueryRowContext(ctx, `
-		SELECT e.id, ss.signature
-		FROM ledger_entries e
-		JOIN server_signatures ss ON ss.id = e.server_signature_id
-		WHERE NOT EXISTS (SELECT 1 FROM ledger_entries n WHERE n.prev_id = e.id)
-	`).Scan(&prevID, &prevSignature)
-	if err != nil && err != sql.ErrNoRows {
-		return fmt.Errorf("load last ledger entry: %w", err)
-	}
-	var id uint64
-	if err := tx.QueryRowContext(ctx, `SELECT nextval(pg_get_serial_sequence('ledger_entries', 'id'))`).Scan(&id); err != nil {
-		return fmt.Errorf("next ledger id: %w", err)
-	}
-
-	e.ID = id
-	e.PrevID = uint64(prevID.Int64)
-	sort.Strings(e.Targets)
-	now := time.Now().UTC().Truncate(time.Second)
-	payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSignature.String, e.Kind, e.UserID, e.RequesterID,
-		e.RequestedAt, e.Message, e.Content, e.Targets, serverID, serverKeyFingerprint, now)
-	sig, err := sign(payload, now)
-	if err != nil {
-		return fmt.Errorf("sign ledger entry: %w", err)
-	}
-	serverSigID, err := insertServerSignature(ctx, tx, sig.ID, sig.Armor, sig.SignedAt)
-	if err != nil {
-		return err
-	}
-	var requestedAt sql.NullTime
-	if !e.RequestedAt.IsZero() {
-		requestedAt = sql.NullTime{Time: e.RequestedAt.UTC(), Valid: true}
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO ledger_entries (id, prev_id, kind, user_id, requester_id, requested_at, message, content, signed_at, server_signature_id)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $7, NULLIF($8, ''), $9, $10)
-	`, e.ID, prevID, e.Kind, e.UserID, e.RequesterID, requestedAt, e.Message, e.Content, now, serverSigID); err != nil {
-		return fmt.Errorf("insert ledger entry: %w", err)
-	}
-	for _, target := range e.Targets {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO ledger_entry_targets (entry_id, user_id) VALUES ($1, $2)
-		`, e.ID, target); err != nil {
-			return fmt.Errorf("insert ledger entry target: %w", err)
-		}
-	}
-	e.ServerSignature = sig
-	return nil
-}
-
 const ledgerEntrySelect = `
-	SELECT e.id, e.prev_id, e.kind, e.user_id, COALESCE(e.requester_id, ''), e.requested_at,
+	SELECT e.id, e.prev_id, e.kind, COALESCE(e.user_id, ''), COALESCE(e.requester_id, ''), e.requested_at,
 		e.message, COALESCE(e.content, ''),
 		ss.private_key_id, ss.signature, ss.signed_at
 	FROM ledger_entries e

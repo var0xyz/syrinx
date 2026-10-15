@@ -33,7 +33,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
 			frontend_url TEXT NOT NULL,
-			connected BOOLEAN NOT NULL DEFAULT FALSE
+			connected BOOLEAN NOT NULL DEFAULT FALSE,
+			signing_key VARCHAR(255)
 		)`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
@@ -229,7 +230,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			id BIGSERIAL PRIMARY KEY,
 			prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
 			kind VARCHAR(16) NOT NULL,
-			user_id VARCHAR(255) NOT NULL REFERENCES identities(id),
+			user_id VARCHAR(255) REFERENCES identities(id),
 			requester_id VARCHAR(255) REFERENCES identities(id),
 			requested_at TIMESTAMP,
 			message TEXT NOT NULL,
@@ -353,6 +354,7 @@ func testFederationHandlers(t *testing.T) (*Handlers, *DataService, *cryptoKeyPa
 		crypto: cryptoSvc,
 		log:    NewLoggingService(),
 	}
+	useTestSigningKey(t, db, dataService.GetServerID(), serverKP.Fingerprint)
 	h := NewHandlers(services, AppConfig{ServerName: "test", APIBaseURL: "https://test.example"}, make(chan realtimeBroadcastMessage, 1), ServerSigningKey{
 		Fingerprint: serverKP.Fingerprint,
 		Armor:       serverKP.PrivateKey,

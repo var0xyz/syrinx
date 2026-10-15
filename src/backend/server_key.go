@@ -173,11 +173,31 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 	); err != nil {
 		return nil, fmt.Errorf("set signing key: %w", err)
 	}
+	signWithNext := func(payload []byte, ts time.Time) (ServerSignature, error) {
+		armor, err := cryptoSvc.sign(string(payload), next.PrivateArmor)
+		return ServerSignature{ID: next.KeyID, Armor: armor, SignedAt: ts}, err
+	}
+	if err := appendLedgerEntryTx(ctx, tx, signWithNext, serverID, next.Fingerprint, serverKeyLedgerEntry(rev)); err != nil {
+		return nil, fmt.Errorf("log rotation in the ledger: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &rev, nil
+}
+
+// serverKeyLedgerEntry is the ledger's record of rev, with no user: the
+// operator who ran it isn't a signer.
+func serverKeyLedgerEntry(rev serverKeyRevocation) *ledgerEntry {
+	message := fmt.Sprintf("Server key %s rotated to %s", rev.KeyID, rev.Successor)
+	if rev.Compromised {
+		message += " (compromised)"
+	}
+	if rev.Reason != "" {
+		message += ". Reason: " + rev.Reason
+	}
+	return &ledgerEntry{Kind: ledgerKindServerKey, Message: message}
 }
 
 // insertServerKeyRevocationTx stores a revocation, its two signatures in
