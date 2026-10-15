@@ -184,6 +184,42 @@ def histogram_percentile_bands(
     ]
 
 
+def promql_sum_by_values(
+    metric: str, attr: str, values: list[str]
+) -> list[tuple[str, str, str]]:
+    """One summed line per label value; series are split per user id."""
+    return [(f'sum({metric}{{{attr}="{v}"}})', v, metric) for v in values]
+
+
+def top_users_sql(stream: str, labels: list[str], keys: list[str], limit: int = 25) -> str:
+    """Top rows by cumulative count. Each series' max(value) is its total;
+    a server restart resets it, so totals undercount across restarts."""
+    inner = ", ".join(labels)
+    outer = ", ".join(keys)
+    return (
+        f"SELECT {outer}, sum(total) AS total FROM ( "
+        f"SELECT {inner}, max(value) AS total FROM {stream} GROUP BY {inner} ) "
+        f"WHERE {keys[0]} IS NOT NULL AND {keys[0]} != '' "
+        f"GROUP BY {outer} ORDER BY total DESC LIMIT {limit}"
+    )
+
+
+def top_table(*, pid: str, title: str, stream: str, labels: list[str],
+              keys: list[tuple[str, str]], layout: dict, description: str) -> dict:
+    return sql_panel(
+        pid=pid,
+        title=title,
+        ptype="table",
+        sql=top_users_sql(stream, labels, [k for k, _ in keys]),
+        layout=layout,
+        x=[axis(label, key) for key, label in keys] + [axis("Total", "total")],
+        y=[],
+        stream=stream,
+        stream_type="metrics",
+        description=description,
+    )
+
+
 def promql_labeled_queries(
     metric: str, attr: str, pairs: list[tuple[str, str]]
 ) -> list[tuple[str, str, str]]:
@@ -236,6 +272,44 @@ REED_COVERAGE = metric_stream("syrinx.reed.coverage_percent")
 WS_MESSAGES = metric_stream("syrinx.ws.messages")
 RELAY_EVENTS = metric_stream("syrinx.relay.event")
 FEDERATION_RELAY = metric_stream("syrinx.federation.relay")
+ADMIN_OPENED = metric_stream("syrinx.admin.requests.opened")
+ADMIN_REFUSED = metric_stream("syrinx.admin.requests.refused")
+ADMIN_DECIDED = metric_stream("syrinx.admin.requests.decided")
+ADMIN_DECISION_SECONDS = metric_stream("syrinx.admin.request.decision_seconds")
+ADMIN_EXECUTED = metric_stream("syrinx.admin.actions.executed")
+ADMIN_SUSPENDED_REFUSALS = metric_stream("syrinx.admin.suspended_refusals")
+ADMIN_MAIL = metric_stream("syrinx.admin.mail.sent")
+FLAGS_CREATED = metric_stream("syrinx.flags.created")
+FLAGS_DISMISSED = metric_stream("syrinx.flags.dismissed")
+LEDGER_APPENDED = metric_stream("syrinx.ledger.appended")
+AUTH_REJECTED = metric_stream("syrinx.auth.rejected")
+WS_HANDSHAKE_REJECTED = metric_stream("syrinx.ws.handshake.rejected")
+WS_CONNECTIONS = metric_stream("syrinx.ws.connections")
+SIGNUP_REJECTED = metric_stream("syrinx.signup.rejected")
+COOLDOWN_HITS = metric_stream("syrinx.cooldown.hits")
+BLOCK_REFUSALS = metric_stream("syrinx.blocks.refusals")
+RESERVED_HITS = metric_stream("syrinx.admin.reserved_usernames.hits")
+USERNAME_CHECKS = metric_stream("syrinx.username.checks")
+
+ADMIN_ACTIONS = [
+    "suspend", "reinstate", "kick", "promote", "demote",
+    "permissions", "rebind", "broadcast", "unicast",
+]
+AUTH_REASONS = [
+    "bad_signature", "stale_timestamp", "missing_headers", "bad_scope",
+    "key_not_found", "key_revoked", "restricted_key", "account_removed",
+    "suspended", "device_mismatch", "not_peer", "server_key_proof",
+]
+WS_HANDSHAKE_REASONS = [
+    "bad_signature", "stale_timestamp", "missing_params", "key_not_found",
+    "key_revoked", "not_user_key", "account_removed", "suspended",
+    "device_mismatch", "ongoing_import", "internal",
+]
+SIGNUP_REASONS = [
+    "username_taken", "reserved", "invite_required", "invite_invalid",
+    "inviter_lacks_grant", "bad_signature", "bad_key", "invalid_request",
+    "closed", "recovery_mode",
+]
 
 # High-signal WS message types (the full set lives in Explore).
 WS_IN_TYPES = [
@@ -1066,6 +1140,199 @@ relay = [
     ),
 ]
 
+admin = [
+    promql_panel(
+        pid="syrinx_admin_opened",
+        title="Admin requests opened by action",
+        queries=promql_sum_by_values(ADMIN_OPENED, "action", ADMIN_ACTIONS),
+        layout=layout(0, 0, 96, 14, 67),
+        description="Requests an admin signed and the server stored, awaiting a second admin",
+    ),
+    promql_panel(
+        pid="syrinx_admin_decided",
+        title="Admin decisions",
+        queries=promql_sum_by_values(ADMIN_DECIDED, "decision", ["approve", "reject", "withdraw"]),
+        layout=layout(96, 0, 96, 14, 68),
+        description="Requests closed by approval, rejection, or the requester's withdrawal",
+    ),
+    promql_panel(
+        pid="syrinx_admin_executed",
+        title="Admin actions executed",
+        queries=[
+            *promql_sum_by_values(ADMIN_EXECUTED, "action", ADMIN_ACTIONS),
+            (f'sum({ADMIN_EXECUTED}{{ok="false"}})', "failed", ADMIN_EXECUTED),
+        ],
+        layout=layout(0, 14, 96, 14, 69),
+        description="Approved actions, counted once per target (once for a broadcast)",
+    ),
+    promql_panel(
+        pid="syrinx_admin_refused",
+        title="Admin refusals by stage",
+        queries=promql_sum_by_values(ADMIN_REFUSED, "stage", ["open", "decide"]),
+        layout=layout(96, 14, 96, 14, 70),
+        description=(
+            "Requests or decisions the admin rules refused. A burst from one "
+            "admin is the signal that their key is being misused; see the table below."
+        ),
+    ),
+    top_table(
+        pid="syrinx_admin_refused_by_actor",
+        title="Admin refusals by admin and reason",
+        stream=ADMIN_REFUSED,
+        labels=["actor_id", "action", "stage", "reason"],
+        keys=[("actor_id", "Admin"), ("action", "Action"), ("reason", "Reason")],
+        layout=layout(0, 28, 96, 16, 71),
+        description="Who keeps hitting admin refusals, and which rule stopped them",
+    ),
+    top_table(
+        pid="syrinx_admin_targets",
+        title="Admin actions by target",
+        stream=ADMIN_EXECUTED,
+        labels=["target_id", "action", "requester_id", "approver_id", "ok"],
+        keys=[("target_id", "Target"), ("action", "Action"),
+              ("requester_id", "Requested by"), ("approver_id", "Approved by")],
+        layout=layout(96, 28, 96, 16, 72),
+        description="Who was suspended, kicked, rebound or messaged, and by which two admins",
+    ),
+    promql_panel(
+        pid="syrinx_admin_decision_time",
+        title="Time to decision (seconds)",
+        queries=histogram_percentile_bands(ADMIN_DECISION_SECONDS),
+        layout=layout(0, 44, 96, 14, 73),
+        ptype="area",
+        description="Open-to-decision time for approvals and rejections",
+    ),
+    promql_panel(
+        pid="syrinx_admin_suspended_refusals",
+        title="Suspended users refused",
+        queries=promql_sum_by_values(ADMIN_SUSPENDED_REFUSALS, "surface", ["http", "ws"]),
+        layout=layout(96, 44, 96, 14, 74),
+        description="Requests and WebSocket handshakes from suspended accounts",
+    ),
+    promql_panel(
+        pid="syrinx_flags",
+        title="Flags raised vs dismissed",
+        queries=[
+            *promql_sum_by_values(FLAGS_CREATED, "origin", ["local", "peer"]),
+            (f"sum({FLAGS_DISMISSED})", "dismissals", FLAGS_DISMISSED),
+        ],
+        layout=layout(0, 58, 96, 14, 75),
+        description="Flags from this server's members and from peers', and admin dismissals",
+    ),
+    top_table(
+        pid="syrinx_flags_by_author",
+        title="Most flagged authors",
+        stream=FLAGS_CREATED,
+        labels=["author_id", "reed_id", "reporter_id", "origin", "note_has"],
+        keys=[("author_id", "Author")],
+        layout=layout(96, 58, 96, 14, 76),
+        description="Authors whose reeds draw the most flags",
+    ),
+    promql_panel(
+        pid="syrinx_admin_mail",
+        title="Admin mail",
+        queries=[
+            (f'sum({ADMIN_MAIL}{{action="broadcast"}})', "broadcasts", ADMIN_MAIL),
+            (f'sum({ADMIN_MAIL}{{action="unicast"}})', "private messages", ADMIN_MAIL),
+        ],
+        layout=layout(0, 72, 96, 14, 77),
+        description="Approved broadcasts and private messages delivered to mailboxes",
+    ),
+    promql_panel(
+        pid="syrinx_ledger_appended",
+        title="Ledger entries",
+        queries=[(f"sum({LEDGER_APPENDED})", "entries", LEDGER_APPENDED)],
+        layout=layout(96, 72, 96, 14, 78),
+        description="Committed ledger entries; split by entry.kind in Explore",
+    ),
+]
+
+abuse = [
+    promql_panel(
+        pid="syrinx_auth_rejected",
+        title="Auth rejections by reason",
+        queries=promql_sum_by_values(AUTH_REJECTED, "reason", AUTH_REASONS),
+        layout=layout(0, 0, 96, 14, 79),
+        description="HTTP requests the signature-auth, server-key-proof or device middleware refused",
+    ),
+    promql_panel(
+        pid="syrinx_ws_handshake_rejected",
+        title="WebSocket handshake rejections by reason",
+        queries=promql_sum_by_values(WS_HANDSHAKE_REJECTED, "reason", WS_HANDSHAKE_REASONS),
+        layout=layout(96, 0, 96, 14, 80),
+        description="Refused WebSocket handshakes; internal = a server-side error, not the caller",
+    ),
+    top_table(
+        pid="syrinx_auth_rejected_by_user",
+        title="Auth rejections by user and key",
+        stream=AUTH_REJECTED,
+        labels=["user_id", "key_id", "reason", "route"],
+        keys=[("key_id", "Key (as claimed)"), ("user_id", "User"), ("reason", "Reason")],
+        layout=layout(0, 14, 96, 16, 81),
+        description=(
+            "Keys behind the most refused requests. The key is as the caller "
+            "claimed it; user is empty when the server doesn't know the key."
+        ),
+    ),
+    top_table(
+        pid="syrinx_auth_rejected_by_route",
+        title="Auth rejections by route",
+        stream=AUTH_REJECTED,
+        labels=["route", "reason", "key_id", "user_id"],
+        keys=[("route", "Route"), ("reason", "Reason")],
+        layout=layout(96, 14, 96, 16, 82),
+        description="Which endpoints are being probed (mux route template)",
+    ),
+    promql_panel(
+        pid="syrinx_signup_rejected",
+        title="Signup rejections by reason",
+        queries=promql_sum_by_values(SIGNUP_REJECTED, "reason", SIGNUP_REASONS),
+        layout=layout(0, 30, 96, 14, 83),
+        description="Refused signups; reserved = a name root reserved",
+    ),
+    promql_panel(
+        pid="syrinx_username_checks",
+        title="Username availability checks",
+        queries=[
+            (f'sum({USERNAME_CHECKS}{{available="true"}})', "available", USERNAME_CHECKS),
+            (f'sum({USERNAME_CHECKS}{{available="false"}})', "taken", USERNAME_CHECKS),
+            (f"sum({RESERVED_HITS})", "reserved name hits", RESERVED_HITS),
+        ],
+        layout=layout(96, 30, 96, 14, 84),
+        description="A spike in checks without signups suggests username enumeration",
+    ),
+    promql_panel(
+        pid="syrinx_cooldown_hits",
+        title="Cooldown hits",
+        queries=promql_sum_by_values(COOLDOWN_HITS, "kind", ["key_rotation", "vouch"]),
+        layout=layout(0, 44, 96, 14, 85),
+        description="Key rotations and vouches refused for coming too soon",
+    ),
+    promql_panel(
+        pid="syrinx_block_refusals",
+        title="Block refusals",
+        queries=promql_sum_by_values(BLOCK_REFUSALS, "surface", ["http", "ws"]),
+        layout=layout(96, 44, 96, 14, 86),
+        description="Reads and requests refused because the author blocked the viewer",
+    ),
+    top_table(
+        pid="syrinx_block_refusals_by_viewer",
+        title="Blocked viewers who keep trying",
+        stream=BLOCK_REFUSALS,
+        labels=["viewer_id", "author_id", "surface"],
+        keys=[("viewer_id", "Viewer"), ("author_id", "Blocked by")],
+        layout=layout(0, 58, 96, 16, 87),
+        description="Viewers repeatedly refused by an author who blocked them",
+    ),
+    promql_panel(
+        pid="syrinx_ws_connections",
+        title="Open WebSocket connections",
+        queries=[(f"sum({WS_CONNECTIONS})", "connections", WS_CONNECTIONS)],
+        layout=layout(96, 58, 96, 16, 88),
+        description="Sockets open right now across replicas; resets when a process restarts",
+    ),
+]
+
 dashboard = {
     "version": 8,
     "title": "Syrinx",
@@ -1085,6 +1352,8 @@ dashboard = {
         {"tabId": "reeds", "name": "Reeds", "panels": reeds},
         {"tabId": "websocket", "name": "WebSocket", "panels": websocket},
         {"tabId": "relay", "name": "Relay", "panels": relay},
+        {"tabId": "admin", "name": "Admin", "panels": admin},
+        {"tabId": "abuse", "name": "Abuse", "panels": abuse},
     ],
     "variables": {"list": [], "showDynamicFilters": False},
     "defaultDatetimeDuration": {

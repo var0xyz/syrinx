@@ -52,7 +52,8 @@ real values).
 - **`dashboards/generate_syrinx_dashboard.py`** — regenerates
   `dashboards/syrinx-app.dashboard.json` (the bundled "Syrinx" OpenObserve
   dashboard: HTTP golden signals, DB pool/query stats, user/reed business
-  metrics, WebSocket message volume). Re-run this after adding a new
+  metrics, WebSocket message volume, relay, admin actions and abuse
+  refusals). Re-run this after adding a new
   `syrinx.*` metric or trace attribute; `setup.sh`/`update.sh` import or
   update the dashboard from this file automatically.
 

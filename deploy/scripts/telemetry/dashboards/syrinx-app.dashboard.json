@@ -4768,6 +4768,2863 @@
           }
         }
       ]
+    },
+    {
+      "tabId": "admin",
+      "name": "Admin",
+      "panels": [
+        {
+          "id": "syrinx_admin_opened",
+          "type": "line",
+          "title": "Admin requests opened by action",
+          "description": "Requests an admin signed and the server stored, awaiting a second admin",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"suspend\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "suspend",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"reinstate\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reinstate",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"kick\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "kick",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"promote\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "promote",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"demote\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "demote",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"permissions\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "permissions",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"rebind\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "rebind",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"broadcast\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "broadcast",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_opened{action=\"unicast\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_opened",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "unicast",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 67
+          }
+        },
+        {
+          "id": "syrinx_admin_decided",
+          "type": "line",
+          "title": "Admin decisions",
+          "description": "Requests closed by approval, rejection, or the requester's withdrawal",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_admin_requests_decided{decision=\"approve\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_decided",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "approve",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_decided{decision=\"reject\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_decided",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reject",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_decided{decision=\"withdraw\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_decided",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "withdraw",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 68
+          }
+        },
+        {
+          "id": "syrinx_admin_executed",
+          "type": "line",
+          "title": "Admin actions executed",
+          "description": "Approved actions, counted once per target (once for a broadcast)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"suspend\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "suspend",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"reinstate\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reinstate",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"kick\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "kick",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"promote\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "promote",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"demote\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "demote",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"permissions\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "permissions",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"rebind\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "rebind",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"broadcast\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "broadcast",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{action=\"unicast\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "unicast",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_actions_executed{ok=\"false\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 69
+          }
+        },
+        {
+          "id": "syrinx_admin_refused",
+          "type": "line",
+          "title": "Admin refusals by stage",
+          "description": "Requests or decisions the admin rules refused. A burst from one admin is the signal that their key is being misused; see the table below.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_admin_requests_refused{stage=\"open\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_refused",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "open",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_requests_refused{stage=\"decide\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_refused",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "decide",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 70
+          }
+        },
+        {
+          "id": "syrinx_admin_refused_by_actor",
+          "type": "table",
+          "title": "Admin refusals by admin and reason",
+          "description": "Who keeps hitting admin refusals, and which rule stopped them",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT actor_id, action, reason, sum(total) AS total FROM ( SELECT actor_id, action, stage, reason, max(value) AS total FROM syrinx_admin_requests_refused GROUP BY actor_id, action, stage, reason ) WHERE actor_id IS NOT NULL AND actor_id != '' GROUP BY actor_id, action, reason ORDER BY total DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_requests_refused",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Admin",
+                    "alias": "actor_id",
+                    "column": "actor_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "actor_id",
+                        "function": null,
+                        "alias": "actor_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Action",
+                    "alias": "action",
+                    "column": "action",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "action",
+                        "function": null,
+                        "alias": "action"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Reason",
+                    "alias": "reason",
+                    "column": "reason",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reason",
+                        "function": null,
+                        "alias": "reason"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 96,
+            "h": 16,
+            "i": 71
+          }
+        },
+        {
+          "id": "syrinx_admin_targets",
+          "type": "table",
+          "title": "Admin actions by target",
+          "description": "Who was suspended, kicked, rebound or messaged, and by which two admins",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT target_id, action, requester_id, approver_id, sum(total) AS total FROM ( SELECT target_id, action, requester_id, approver_id, ok, max(value) AS total FROM syrinx_admin_actions_executed GROUP BY target_id, action, requester_id, approver_id, ok ) WHERE target_id IS NOT NULL AND target_id != '' GROUP BY target_id, action, requester_id, approver_id ORDER BY total DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_actions_executed",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Target",
+                    "alias": "target_id",
+                    "column": "target_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "target_id",
+                        "function": null,
+                        "alias": "target_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Action",
+                    "alias": "action",
+                    "column": "action",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "action",
+                        "function": null,
+                        "alias": "action"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Requested by",
+                    "alias": "requester_id",
+                    "column": "requester_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "requester_id",
+                        "function": null,
+                        "alias": "requester_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Approved by",
+                    "alias": "approver_id",
+                    "column": "approver_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "approver_id",
+                        "function": null,
+                        "alias": "approver_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 28,
+            "w": 96,
+            "h": 16,
+            "i": 72
+          }
+        },
+        {
+          "id": "syrinx_admin_decision_time",
+          "type": "area",
+          "title": "Time to decision (seconds)",
+          "description": "Open-to-decision time for approvals and rejections",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "histogram_quantile(0.5, sum(syrinx_admin_request_decision_seconds_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_request_decision_seconds_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p50",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.9, sum(syrinx_admin_request_decision_seconds_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_request_decision_seconds_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p90",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "histogram_quantile(0.99, sum(syrinx_admin_request_decision_seconds_bucket) by (le))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_request_decision_seconds_bucket",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "p99",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 44,
+            "w": 96,
+            "h": 14,
+            "i": 73
+          }
+        },
+        {
+          "id": "syrinx_admin_suspended_refusals",
+          "type": "line",
+          "title": "Suspended users refused",
+          "description": "Requests and WebSocket handshakes from suspended accounts",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_admin_suspended_refusals{surface=\"http\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_suspended_refusals",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "http",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_suspended_refusals{surface=\"ws\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_suspended_refusals",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "ws",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 44,
+            "w": 96,
+            "h": 14,
+            "i": 74
+          }
+        },
+        {
+          "id": "syrinx_flags",
+          "type": "line",
+          "title": "Flags raised vs dismissed",
+          "description": "Flags from this server's members and from peers', and admin dismissals",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_flags_created{origin=\"local\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "local",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_flags_created{origin=\"peer\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_created",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "peer",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_flags_dismissed)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_dismissed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "dismissals",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 58,
+            "w": 96,
+            "h": 14,
+            "i": 75
+          }
+        },
+        {
+          "id": "syrinx_flags_by_author",
+          "type": "table",
+          "title": "Most flagged authors",
+          "description": "Authors whose reeds draw the most flags",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT author_id, sum(total) AS total FROM ( SELECT author_id, reed_id, reporter_id, origin, note_has, max(value) AS total FROM syrinx_flags_created GROUP BY author_id, reed_id, reporter_id, origin, note_has ) WHERE author_id IS NOT NULL AND author_id != '' GROUP BY author_id ORDER BY total DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_created",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Author",
+                    "alias": "author_id",
+                    "column": "author_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "author_id",
+                        "function": null,
+                        "alias": "author_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 58,
+            "w": 96,
+            "h": 14,
+            "i": 76
+          }
+        },
+        {
+          "id": "syrinx_admin_mail",
+          "type": "line",
+          "title": "Admin mail",
+          "description": "Approved broadcasts and private messages delivered to mailboxes",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_admin_mail_sent{action=\"broadcast\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_mail_sent",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "broadcasts",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_mail_sent{action=\"unicast\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_mail_sent",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "private messages",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 72,
+            "w": 96,
+            "h": 14,
+            "i": 77
+          }
+        },
+        {
+          "id": "syrinx_ledger_appended",
+          "type": "line",
+          "title": "Ledger entries",
+          "description": "Committed ledger entries; split by entry.kind in Explore",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_ledger_appended)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ledger_appended",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "entries",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 72,
+            "w": 96,
+            "h": 14,
+            "i": 78
+          }
+        }
+      ]
+    },
+    {
+      "tabId": "abuse",
+      "name": "Abuse",
+      "panels": [
+        {
+          "id": "syrinx_auth_rejected",
+          "type": "line",
+          "title": "Auth rejections by reason",
+          "description": "HTTP requests the signature-auth, server-key-proof or device middleware refused",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"bad_signature\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "bad_signature",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"stale_timestamp\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "stale_timestamp",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"missing_headers\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "missing_headers",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"bad_scope\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "bad_scope",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"key_not_found\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "key_not_found",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"key_revoked\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "key_revoked",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"restricted_key\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "restricted_key",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"account_removed\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "account_removed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"suspended\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "suspended",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"device_mismatch\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "device_mismatch",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"not_peer\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "not_peer",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_auth_rejected{reason=\"server_key_proof\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "server_key_proof",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 79
+          }
+        },
+        {
+          "id": "syrinx_ws_handshake_rejected",
+          "type": "line",
+          "title": "WebSocket handshake rejections by reason",
+          "description": "Refused WebSocket handshakes; internal = a server-side error, not the caller",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"bad_signature\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "bad_signature",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"stale_timestamp\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "stale_timestamp",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"missing_params\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "missing_params",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"key_not_found\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "key_not_found",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"key_revoked\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "key_revoked",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"not_user_key\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "not_user_key",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"account_removed\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "account_removed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"suspended\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "suspended",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"device_mismatch\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "device_mismatch",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"ongoing_import\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "ongoing_import",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_ws_handshake_rejected{reason=\"internal\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_handshake_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "internal",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 80
+          }
+        },
+        {
+          "id": "syrinx_auth_rejected_by_user",
+          "type": "table",
+          "title": "Auth rejections by user and key",
+          "description": "Keys behind the most refused requests. The key is as the caller claimed it; user is empty when the server doesn't know the key.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT key_id, user_id, reason, sum(total) AS total FROM ( SELECT user_id, key_id, reason, route, max(value) AS total FROM syrinx_auth_rejected GROUP BY user_id, key_id, reason, route ) WHERE key_id IS NOT NULL AND key_id != '' GROUP BY key_id, user_id, reason ORDER BY total DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Key (as claimed)",
+                    "alias": "key_id",
+                    "column": "key_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "key_id",
+                        "function": null,
+                        "alias": "key_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "User",
+                    "alias": "user_id",
+                    "column": "user_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "user_id",
+                        "function": null,
+                        "alias": "user_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Reason",
+                    "alias": "reason",
+                    "column": "reason",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reason",
+                        "function": null,
+                        "alias": "reason"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 96,
+            "h": 16,
+            "i": 81
+          }
+        },
+        {
+          "id": "syrinx_auth_rejected_by_route",
+          "type": "table",
+          "title": "Auth rejections by route",
+          "description": "Which endpoints are being probed (mux route template)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT route, reason, sum(total) AS total FROM ( SELECT route, reason, key_id, user_id, max(value) AS total FROM syrinx_auth_rejected GROUP BY route, reason, key_id, user_id ) WHERE route IS NOT NULL AND route != '' GROUP BY route, reason ORDER BY total DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_auth_rejected",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Route",
+                    "alias": "route",
+                    "column": "route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "route",
+                        "function": null,
+                        "alias": "route"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Reason",
+                    "alias": "reason",
+                    "column": "reason",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reason",
+                        "function": null,
+                        "alias": "reason"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 16,
+            "i": 82
+          }
+        },
+        {
+          "id": "syrinx_signup_rejected",
+          "type": "line",
+          "title": "Signup rejections by reason",
+          "description": "Refused signups; reserved = a name root reserved",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"username_taken\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "username_taken",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"reserved\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reserved",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"invite_required\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "invite_required",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"invite_invalid\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "invite_invalid",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"inviter_lacks_grant\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "inviter_lacks_grant",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"bad_signature\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "bad_signature",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"bad_key\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "bad_key",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"invalid_request\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "invalid_request",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"closed\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "closed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_signup_rejected{reason=\"recovery_mode\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_signup_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "recovery_mode",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 30,
+            "w": 96,
+            "h": 14,
+            "i": 83
+          }
+        },
+        {
+          "id": "syrinx_username_checks",
+          "type": "line",
+          "title": "Username availability checks",
+          "description": "A spike in checks without signups suggests username enumeration",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_username_checks{available=\"true\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_username_checks",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "available",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_username_checks{available=\"false\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_username_checks",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "taken",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_admin_reserved_usernames_hits)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_admin_reserved_usernames_hits",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reserved name hits",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 30,
+            "w": 96,
+            "h": 14,
+            "i": 84
+          }
+        },
+        {
+          "id": "syrinx_cooldown_hits",
+          "type": "line",
+          "title": "Cooldown hits",
+          "description": "Key rotations and vouches refused for coming too soon",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_cooldown_hits{kind=\"key_rotation\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_cooldown_hits",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "key_rotation",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_cooldown_hits{kind=\"vouch\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_cooldown_hits",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "vouch",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 44,
+            "w": 96,
+            "h": 14,
+            "i": 85
+          }
+        },
+        {
+          "id": "syrinx_block_refusals",
+          "type": "line",
+          "title": "Block refusals",
+          "description": "Reads and requests refused because the author blocked the viewer",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_blocks_refusals{surface=\"http\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_blocks_refusals",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "http",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_blocks_refusals{surface=\"ws\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_blocks_refusals",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "ws",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 44,
+            "w": 96,
+            "h": 14,
+            "i": 86
+          }
+        },
+        {
+          "id": "syrinx_block_refusals_by_viewer",
+          "type": "table",
+          "title": "Blocked viewers who keep trying",
+          "description": "Viewers repeatedly refused by an author who blocked them",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT viewer_id, author_id, sum(total) AS total FROM ( SELECT viewer_id, author_id, surface, max(value) AS total FROM syrinx_blocks_refusals GROUP BY viewer_id, author_id, surface ) WHERE viewer_id IS NOT NULL AND viewer_id != '' GROUP BY viewer_id, author_id ORDER BY total DESC LIMIT 25",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_blocks_refusals",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Viewer",
+                    "alias": "viewer_id",
+                    "column": "viewer_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "viewer_id",
+                        "function": null,
+                        "alias": "viewer_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Blocked by",
+                    "alias": "author_id",
+                    "column": "author_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "author_id",
+                        "function": null,
+                        "alias": "author_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 58,
+            "w": 96,
+            "h": 16,
+            "i": 87
+          }
+        },
+        {
+          "id": "syrinx_ws_connections",
+          "type": "line",
+          "title": "Open WebSocket connections",
+          "description": "Sockets open right now across replicas; resets when a process restarts",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_ws_connections)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_connections",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "connections",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 58,
+            "w": 96,
+            "h": 16,
+            "i": 88
+          }
+        }
+      ]
     }
   ],
   "variables": {
