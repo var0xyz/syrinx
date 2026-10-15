@@ -11,7 +11,6 @@ import { pendingKeyEvictionsRepository } from '$lib/repositories/pendingKeyEvict
 import { reedRequestsRepository } from '$lib/repositories/reedRequests';
 import { dbService } from './db';
 import { serverConnection } from './serverConnection';
-import { syncPendingEvictions } from './eviction';
 
 /** Bumped whenever a block of the viewer is stored or dropped, so an open
  * profile page can re-check it. */
@@ -62,13 +61,12 @@ export async function receiveUnblock(userID: string): Promise<void> {
   serverConnection.sendUserUnblockedAck(userID);
 }
 
-/** Drops a block of the viewer and the blocking user's keys with it, from
- * Stored users. Their profile fetches it again the next time it is opened. */
+/** Drops a block of the viewer and queues the blocking user's keys, from
+ * Stored users, which drains the queue. Their profile fetches it again. */
 export async function forgetBlock(userID: string): Promise<void> {
   for (const key of await publicKeyRepository.listPublicKeys()) {
     if (key.userId === userID) await pendingKeyEvictionsRepository.put({ keyID: key.id, userID });
   }
   await blockedByRepository.delete(userID);
   blockedByChanged.update((n) => n + 1);
-  void syncPendingEvictions();
 }

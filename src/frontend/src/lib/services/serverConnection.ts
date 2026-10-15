@@ -115,6 +115,8 @@ class ServerConnection {
   /** `reed:<id>` / `key:<id>` → settler for an eviction awaiting its ack.
    * Called with false when the socket closes before the ack arrives. */
   private pendingEvictions: Map<string, (acked: boolean) => void> = new Map();
+  /** The wait behind each pendingEvictions entry, shared by a repeat call. */
+  private evictionWaits: Map<string, Promise<boolean>> = new Map();
   private dispatchedReedRequests = new Set<string>();
   // Subscriptions live server-side per-connection: a fresh socket after a
   // network drop starts with none of them, so we replay whatever was
@@ -676,8 +678,9 @@ class ServerConnection {
     await this.connect();
     if (!this.isConnected()) return false;
 
-    const existing = this.pendingEvictions.get(pendingKey);
-    if (existing) return false;
+    // A second caller for the same eviction waits on the first one's ack.
+    const existing = this.evictionWaits.get(pendingKey);
+    if (existing) return existing;
 
     const acked = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
@@ -690,6 +693,8 @@ class ServerConnection {
       });
     });
 
+    this.evictionWaits.set(pendingKey, acked);
+    void acked.finally(() => this.evictionWaits.delete(pendingKey));
     send();
     return acked;
   }
