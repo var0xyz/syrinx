@@ -42,7 +42,9 @@
 </div>
 
 <div class="desktop-placeholder">
-  <div class="empty-icon">📋</div>
+  {#if $userLists.length === 0}
+    <div class="empty-icon">📋</div>
+  {/if}
   <p>Select a list to see its reeds.</p>
 </div>
 

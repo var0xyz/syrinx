@@ -69,7 +69,6 @@
   <div class="reeds-list">
     {#if reeds.length === 0}
       <div class="empty-state">
-        <div class="empty-icon">📋</div>
         {#if userList.memberIds.length === 0}
           <h3>This list has no members</h3>
           <p>Edit the list to add people you follow.</p>
@@ -196,11 +195,6 @@
     text-align: center;
     padding: 3rem 1rem;
     color: var(--muted);
-  }
-
-  .empty-icon {
-    font-size: 3rem;
-    margin-bottom: 1rem;
   }
 
   .empty-state h3 {
