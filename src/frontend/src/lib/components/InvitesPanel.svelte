@@ -31,6 +31,8 @@
 
   let user = null;
   let invites: api.Invite[] = [];
+  // Until the local copy is read, show nothing rather than an empty list.
+  let loaded = false;
   let refreshingIds: string[] = [];
   let creating = false;
   let revokingId: string | null = null;
@@ -66,6 +68,8 @@
         : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} (including revoked) — ${invitesRemaining} left.`;
 
   onMount(async () => {
+    invites = await invitesRepository.getAll();
+    loaded = true;
     user = await authService.getCurrentUser();
     if (!user) return;
 
@@ -76,8 +80,6 @@
         .catch(() => {});
     }
 
-    // Show local invites immediately so the toolbar stays mounted.
-    invites = await invitesRepository.getAll();
     void refreshServerInfo();
     void resolveClaimerUsernames(invites);
     await refreshPendingStatuses();
@@ -262,114 +264,116 @@
 </script>
 
 <div class="invites-content">
-  {#if canCreate}
-    <button
-      class="floating-create-btn"
-      disabled={creating}
-      on:click={onCreateClick}
-      aria-label={creating ? 'Creating invite' : 'Create invite'}
-    >
-      {#if creating}
-        <span class="icon">…</span>
-      {:else}
-        <span class="icon icon-invite"></span>
-      {/if}
-    </button>
-  {/if}
+  {#if loaded}
+    {#if canCreate}
+      <button
+        class="floating-create-btn"
+        disabled={creating}
+        on:click={onCreateClick}
+        aria-label={creating ? 'Creating invite' : 'Create invite'}
+      >
+        {#if creating}
+          <span class="icon">…</span>
+        {:else}
+          <span class="icon icon-invite"></span>
+        {/if}
+      </button>
+    {/if}
 
-  {#if !$isSignupClosed}
-    <p class="quota">{quotaSummary}</p>
-  {/if}
+    {#if !$isSignupClosed}
+      <p class="quota">{quotaSummary}</p>
+    {/if}
 
-  {#if $isSignupClosed}
-    <div class="empty-state">
-      <div class="empty-icon">🚫</div>
-      <h3>Signups are closed</h3>
-      <p>This server isn’t accepting new invites right now.</p>
-    </div>
-  {:else if invites.length === 0}
-    <div class="empty-state">
-      <div class="empty-icon">📭</div>
-      <h3>No invites yet</h3>
-      <p>
-        Create an invite to share a signup link with someone you trust.
-      </p>
-    </div>
-  {:else}
-    <ul class="invite-list">
-      {#each invites as invite (invite.id)}
-        <li class="invite-row">
-          <div class="invite-main">
-            <span class="badge-row">
-              <span class="badge" data-status={invite.status}
-                >{statusLabel(invite.status)}</span
-              >
-              {#if invite.grantedRole === 'admin'}
-                <span class="badge admin-badge">Admin</span>
-              {/if}
-              {#if refreshingIds.includes(invite.id)}
-                <span
-                  class="status-spinner"
-                  aria-label="Refreshing invite status"
-                ></span>
-              {/if}
-            </span>
-            <span class="meta"
-              >Created {formatRelativeTime(fromUnix(invite.createdAt))}</span
-            >
-            {#if invite.status === 'claimed' && invite.claimedBy}
-              <span class="meta">
-                Claimed by <Username
-                  userID={invite.claimedBy}
-                  username={claimerUsernames[invite.claimedBy] ?? invite.claimedBy}
-                  class="meta-link"
-                  at
-                  fire={false}
-                />{#if claimerDefunct[invite.claimedBy]}
-                  &nbsp;(defunct)
+    {#if $isSignupClosed}
+      <div class="empty-state">
+        <div class="empty-icon">🚫</div>
+        <h3>Signups are closed</h3>
+        <p>This server isn’t accepting new invites right now.</p>
+      </div>
+    {:else if invites.length === 0}
+      <div class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h3>No invites yet</h3>
+        <p>
+          Create an invite to share a signup link with someone you trust.
+        </p>
+      </div>
+    {:else}
+      <ul class="invite-list">
+        {#each invites as invite (invite.id)}
+          <li class="invite-row">
+            <div class="invite-main">
+              <span class="badge-row">
+                <span class="badge" data-status={invite.status}
+                  >{statusLabel(invite.status)}</span
+                >
+                {#if invite.grantedRole === 'admin'}
+                  <span class="badge admin-badge">Admin</span>
+                {/if}
+                {#if refreshingIds.includes(invite.id)}
+                  <span
+                    class="status-spinner"
+                    aria-label="Refreshing invite status"
+                  ></span>
                 {/if}
               </span>
-            {/if}
-          </div>
-          <div class="invite-actions">
-            {#if invite.status === 'pending' && shareURL(invite)}
-              <CopyButton
-                ariaLabel="Copy invite link"
-                copy={() => copyLink(shareURL(invite)!)}
-              />
-              <QRButton
-                ariaLabel="Show invite QR code"
-                on:click={() => openQRModal(shareURL(invite)!)}
-              />
-            {/if}
-            {#if invite.status === 'pending'}
-              <button
-                class="btn danger"
-                disabled={revokingId === invite.id}
-                on:click={() => requestRevoke(invite.id)}
+              <span class="meta"
+                >Created {formatRelativeTime(fromUnix(invite.createdAt))}</span
               >
-                {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
-              </button>
-            {/if}
-          </div>
-        </li>
-      {/each}
-    </ul>
-  {/if}
+              {#if invite.status === 'claimed' && invite.claimedBy}
+                <span class="meta">
+                  Claimed by <Username
+                    userID={invite.claimedBy}
+                    username={claimerUsernames[invite.claimedBy] ?? invite.claimedBy}
+                    class="meta-link"
+                    at
+                    fire={false}
+                  />{#if claimerDefunct[invite.claimedBy]}
+                    &nbsp;(defunct)
+                  {/if}
+                </span>
+              {/if}
+            </div>
+            <div class="invite-actions">
+              {#if invite.status === 'pending' && shareURL(invite)}
+                <CopyButton
+                  ariaLabel="Copy invite link"
+                  copy={() => copyLink(shareURL(invite)!)}
+                />
+                <QRButton
+                  ariaLabel="Show invite QR code"
+                  on:click={() => openQRModal(shareURL(invite)!)}
+                />
+              {/if}
+              {#if invite.status === 'pending'}
+                <button
+                  class="btn danger"
+                  disabled={revokingId === invite.id}
+                  on:click={() => requestRevoke(invite.id)}
+                >
+                  {revokingId === invite.id ? 'Revoking…' : 'Revoke'}
+                </button>
+              {/if}
+            </div>
+          </li>
+        {/each}
+      </ul>
+    {/if}
 
-  {#if canCreate}
-    <div class="desktop-create">
-      <button class="btn primary" disabled={creating} on:click={onCreateClick}>
-        {creating ? 'Creating…' : 'Create invite'}
+    {#if canCreate}
+      <div class="desktop-create">
+        <button class="btn primary" disabled={creating} on:click={onCreateClick}>
+          {creating ? 'Creating…' : 'Create invite'}
+        </button>
+      </div>
+    {/if}
+
+    {#if !$isSignupClosed}
+      <button type="button" class="explain-btn" on:click={() => (showInviteInfo = true)}>
+        About invites
+        <span class="info-icon" aria-hidden="true"></span>
       </button>
-    </div>
-  {/if}
-
-  {#if !$isSignupClosed}
-    <button type="button" class="explain-btn" on:click={() => (showInviteInfo = true)}>
-      About invites
-      <span class="info-icon" aria-hidden="true"></span>
-    </button>
+    {/if}
   {/if}
 </div>
 
