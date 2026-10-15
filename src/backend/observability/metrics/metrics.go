@@ -34,6 +34,8 @@ const (
 	ReedKindPlain ReedKind = "plain"
 	ReedKindEcho  ReedKind = "echo"
 	ReedKindReply ReedKind = "reply"
+	// ReedKindThread is one part of a thread.
+	ReedKindThread ReedKind = "thread"
 )
 
 // RemovalKind says who removed an account.
@@ -112,6 +114,7 @@ type Recorder interface {
 	UserUpdated(ctx context.Context, userID string, renamed bool)
 	ReedPublished(ctx context.Context, p ReedPublishedAttrs)
 	ReedDeleted(ctx context.Context, authorID, reedID string)
+	ThreadPublished(ctx context.Context, authorID, threadID string, parts int)
 	EchoTargeted(ctx context.Context, authorID, targetAuthorID, targetReedID string)
 	KeyRevoked(ctx context.Context, userID string, kind RevocationKind)
 	KeyFetchError(ctx context.Context, reporterUserID, targetUserID, keyID string)
@@ -176,6 +179,7 @@ func (Noop) UserDeleted(context.Context, string, RemovalKind, bool)             
 func (Noop) UserUpdated(context.Context, string, bool)                               {}
 func (Noop) ReedPublished(context.Context, ReedPublishedAttrs)                       {}
 func (Noop) ReedDeleted(context.Context, string, string)                             {}
+func (Noop) ThreadPublished(context.Context, string, string, int)                    {}
 func (Noop) EchoTargeted(context.Context, string, string, string)                    {}
 func (Noop) KeyRevoked(context.Context, string, RevocationKind)                      {}
 func (Noop) KeyFetchError(context.Context, string, string, string)                   {}

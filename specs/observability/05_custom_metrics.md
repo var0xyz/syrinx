@@ -48,8 +48,10 @@ stream as host metrics today.
 | `syrinx.users.created` | Counter | Successful signup or recovery import (new `users` row) | `signup.mode` (`open` \| `invite` \| `closed` \| `import`), `user.id`, `inviter.id` (empty without an invite) |
 | `syrinx.users.deleted` | Counter | Account removal: `DeleteMe` (new cert) or an approved kick | `user.id`, `removal.kind` (`self` \| `kick`), `note.has` (bool; never the note text) |
 | `syrinx.users.updated` | Counter | Successful `UpdateUser` | `user.id`, `renamed` (bool) |
-| `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay) | `reed.kind` (`plain` \| `echo` \| `reply`), `tags.has`, `tags.count` (0–4+), `author.id`, `reed.id` |
+| `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay), and once per part of a new thread | `reed.kind` (`plain` \| `echo` \| `reply` \| `thread`), `tags.has`, `tags.count` (0–4+), `author.id`, `reed.id` |
 | `syrinx.reeds.deleted` | Counter | Successful reed removal (new cert) | `author.id`, `reed.id` |
+| `syrinx.threads.published` | Counter | Successful `CreateThread` (new thread, not replay) | `author.id`, `thread.id` |
+| `syrinx.thread.size` | Histogram | Same hook as `syrinx.threads.published` | `author.id`, `thread.id` — value = number of parts |
 | `syrinx.echoes.targeted` | Counter | Echo indexed on a target reed | `author.id` (who echoed), `target.author.id`, `target.reed.id` |
 | `syrinx.keys.revoked` | Counter | Key rotation, or an approved rebind | `user.id`, `revocation.kind` (`rotation` \| `rebind`) |
 | `syrinx.users.backup` | Counter | SPA reports a local export via `POST /users/me/backup` | `user.id`, `backup.kind` (`identity` \| `full`) |
@@ -234,6 +236,8 @@ Example questions this unlocks:
 - Echo rate (received by originals): `sum(syrinx_echoes_targeted)` by
   `target_author_id` / `target_reed_id`.
 - Reply rate: filter `reed_kind = reply`.
+- Thread volume: `sum(syrinx_threads_published)`; parts per thread from
+  `syrinx_thread_size`; thread parts among publishes via `reed_kind = thread`.
 - Deletion rate: `sum(syrinx_reeds_deleted)`, `sum(syrinx_users_deleted)`.
 - Key revocations: `sum(syrinx_keys_revoked)` over time.
 - Backup adoption: `sum(syrinx_users_backup)` by `backup_kind`; group by

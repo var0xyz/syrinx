@@ -112,3 +112,39 @@ func TestOTELRecordsRawUserIDs(t *testing.T) {
 		t.Errorf("reason = %q", got.AsString())
 	}
 }
+
+// A thread counts once, and its size is recorded as the part count.
+func TestOTELThreadPublished(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	r := New(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(scope))
+
+	r.ThreadPublished(context.Background(), "alice@srv", "alice@srv/t1", 5)
+
+	published := collect(t, reader, "syrinx.threads.published")
+	if len(published) != 1 {
+		t.Fatalf("threads.published points = %d", len(published))
+	}
+	if got, _ := published[0].Value("thread.id"); got.AsString() != "alice@srv/t1" {
+		t.Errorf("thread.id = %q", got.AsString())
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var sum, count int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if h, ok := m.Data.(metricdata.Histogram[int64]); ok && m.Name == "syrinx.thread.size" {
+				for _, dp := range h.DataPoints {
+					sum += dp.Sum
+					count += int64(dp.Count)
+				}
+			}
+		}
+	}
+	if count != 1 || sum != 5 {
+		t.Errorf("thread.size count = %d sum = %d, want 1 and 5", count, sum)
+	}
+}

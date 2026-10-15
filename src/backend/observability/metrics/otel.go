@@ -18,6 +18,8 @@ type OTEL struct {
 	usersUpdated         metric.Int64Counter
 	reedsPublished       metric.Int64Counter
 	reedsDeleted         metric.Int64Counter
+	threadsPublished     metric.Int64Counter
+	threadSize           metric.Int64Histogram
 	echoesTargeted       metric.Int64Counter
 	keysRevoked          metric.Int64Counter
 	keyFetchErrors       metric.Int64Counter
@@ -114,6 +116,8 @@ func New(m metric.Meter) *OTEL {
 	r.usersUpdated = counter("syrinx.users.updated")
 	r.reedsPublished = counter("syrinx.reeds.published")
 	r.reedsDeleted = counter("syrinx.reeds.deleted")
+	r.threadsPublished = counter("syrinx.threads.published")
+	r.threadSize = histogram("syrinx.thread.size")
 	r.echoesTargeted = counter("syrinx.echoes.targeted")
 	r.keysRevoked = counter("syrinx.keys.revoked")
 	r.keyFetchErrors = counter("syrinx.keys.fetch_errors")
@@ -237,6 +241,11 @@ func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 
 func (r *OTEL) ReedDeleted(ctx context.Context, authorID, reedID string) {
 	add(ctx, r.reedsDeleted, str("author.id", authorID), str("reed.id", reedID))
+}
+
+func (r *OTEL) ThreadPublished(ctx context.Context, authorID, threadID string, parts int) {
+	add(ctx, r.threadsPublished, str("author.id", authorID), str("thread.id", threadID))
+	record(ctx, r.threadSize, int64(parts), str("author.id", authorID), str("thread.id", threadID))
 }
 
 func (r *OTEL) EchoTargeted(ctx context.Context, authorID, targetAuthorID, targetReedID string) {
