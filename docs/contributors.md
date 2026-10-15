@@ -1,6 +1,6 @@
 # Contributors
 
-This site is the **canonical source of truth** for design intent. When you change behavior, update the relevant page here in the same effort as the code.
+These pages explain how Syrinx works. Design proposals and per-feature status live in [`specs/`](https://github.com/var0xyz/syrinx/tree/main/specs); start with [`AGENTS.md`](https://github.com/var0xyz/syrinx/blob/main/AGENTS.md) for orientation. If you change behavior a page describes, please update it too.
 
 ## Repository layout
 
@@ -24,8 +24,9 @@ this server, matching `observability/`'s bar.
 
 ## Local development
 
-- `make run` / Compose for the full stack, or `dev.sh` for a tmux-oriented setup if you use it.
-- SPA: Node 20+, install under `src/frontend/`, `pnpm dev` / `npm run dev`.
+- `make run` / Compose for the full stack (see [Operators](/operators#quick-start-local)), or `scripts/dev.sh` for a tmux-oriented setup if you use it.
+- `scripts/federation-dev-up.sh` runs two federated instances side by side for cross-server work.
+- SPA: install under `src/frontend/`, `npm run dev`.
 - Docs: under `docs/`, `npm install && npm run dev`.
 
 Project `.gitignore` is intentionally narrow (project artifacts only). Put personal editor ignores in `.git/info/exclude`.
@@ -41,13 +42,11 @@ Project `.gitignore` is intentionally narrow (project artifacts only). Put perso
 ## Documentation workflow
 
 1. Read the pages under *How it works* for the subsystem you touch.
-2. Implement in the owning package.
+2. Implement the change.
 3. Update `docs/*.md` so the site still matches reality.
 4. Run `npm run build` in `docs/` if you changed structure or config.
 
 CI builds VitePress from `docs/` on `main` and deploys the artifact. In repo Settings → Pages, set **Source: GitHub Actions**. Do not use “Deploy from a branch” with `main` / `docs` — that serves raw markdown through Jekyll instead of the built site.
-
-Do not reintroduce a parallel “design folder” that drifts from this site.
 
 ## Voice
 

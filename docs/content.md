@@ -16,8 +16,19 @@ Server-side reed records bind identifiers important for authenticity (reed id, a
 |------|---------|
 | **Followcast** | Reeds from people you follow—explicit subscription |
 | **Broadcast** | Community-wide traffic you opted to watch |
+| **Pipes** | Live hashtag subscriptions |
 
 Syrinx will not invent a “For You” firehose of accounts you never chose. Pagination and finite windows beat infinite engagement scroll.
+
+## Likes
+
+A like is a signed certificate: “this member liked this reed”, user-signed and server-countersigned like any other record. It has no content of its own. Unliking deletes it. The server keeps the certificates, so it knows who liked what.
+
+## Ripples
+
+A **ripple** is a comment on a reed, and the one kind of content the server *does* hold. Ripples are never relayed or kept by peers; the server is the only copy. They are signed like reeds, but stored on the server in the clear.
+
+Ripples are meant to be conversation, not archive. A reed's ripples disappear **30 days** after the last ripple on that reed; any new one resets the clock for all of them. Deleting your own ripple replaces its text with `[DELETED]`.
 
 ## How content moves
 

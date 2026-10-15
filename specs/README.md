@@ -28,12 +28,12 @@ Each table below has a **Status** column per step. Values:
 | Server key rotation   | Implemented | —                                                      |
 | Key revocation events | Implemented | — (supersedes prerequisite 09)                         |
 | Threads               | Implemented | —                                                      |
-| Ripples               | Proposed    | 00–04                                                  |
-| Notifications         | Proposed    | 00–05                                                  |
+| Ripples               | Implemented | —                                                      |
+| Notifications         | In progress | 01 (`@everyone` handle)                                |
 | Load testing          | Proposed    | 00–03                                                  |
-| Federation            | In progress | 00, 02–05 (depends on roles)                           |
+| Federation            | Implemented | — (07 out of scope by design)                          |
 | Protobuf wire         | Implemented | —                                                      |
-| Depackaging           | Proposed    | 00–10 (fold 11 packages into root)                     |
+| Depackaging           | Implemented | —                                                      |
 | Publish ready         | Implemented | —                                                      |
 | Pipes                 | Implemented | —                                                      |
 | Conversations         | Implemented | —                                                      |
@@ -43,7 +43,7 @@ Each table below has a **Status** column per step. Values:
 | Roles                 | Implemented | 00–02                                                  |
 | Prerequisites         | Implemented | 01–10 (11 superseded — see Notifications)              |
 | Avatars               | Deferred    | 00–05                                                  |
-| Likes                 | Proposed    | 00–06                                                  |
+| Likes                 | Implemented | —                                                      |
 | Invites               | In progress | 06 (00–05 implemented)                                 |
 | Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
 | Eviction              | Implemented | —                                                      |
@@ -171,15 +171,15 @@ per-reed WS subscription (`REED_LIKES` alongside
 `REED_ECHOES`/`REED_COVERAGE`), and a "Liked reeds" feed entry point on
 the profile page.
 
-| #   | Title                                              | Status   |
-| --- | -------------------------------------------------- | -------- |
-| 00  | Design + locked model                              | Proposed |
-| 01  | `reeds_liked` schema + denormalized like count     | Proposed |
-| 02  | Like canonical payload + countersign               | Proposed |
-| 03  | Like (signed) / unlike (unsigned) API (idempotent) | Proposed |
-| 04  | `REED_LIKES` subscribe snapshot + live updates     | Proposed |
-| 05  | SPA `pendingLikes`/`pendingUnlike` + like button   | Proposed |
-| 06  | SPA "Liked reeds" list (profile entry point)       | Proposed |
+| #   | Title                                              | Status      |
+| --- | -------------------------------------------------- | ----------- |
+| 00  | Design + locked model                              | Implemented |
+| 01  | `reeds_liked` schema + denormalized like count     | Implemented |
+| 02  | Like canonical payload + countersign               | Implemented |
+| 03  | Like (signed) / unlike (unsigned) API (idempotent) | Implemented |
+| 04  | `REED_LIKES` subscribe snapshot + live updates     | Implemented |
+| 05  | SPA `pendingLikes`/`pendingUnlike` + like button   | Implemented |
+| 06  | SPA "Liked reeds" list (profile entry point)       | Implemented |
 
 ## Publish ready (fanout gate)
 
@@ -236,18 +236,16 @@ table is just the rollup.
 | 00  | Design + handshake model                         | Superseded by shipped design (02)                                                                                                                                                                       |
 | 01  | Invitation create + `federation_invitation` + UI | Implemented                                                                                                                                                                                             |
 | 02  | Connect handshake + `federation_attempt`         | Implemented (deviated — see doc for exact shape)                                                                                                                                                        |
-| 03  | Second-admin approval + `federation_established` | Implemented as a single-admin gate on `federation_attempt` — no `federation_established` table, and the "second admin" check is never enforced (any admin, including the invite's creator, can approve) |
+| 03  | Second-admin approval + `federation_established` | Implemented, with the second-admin check on the initiator side (root can bypass); approval state lives on `federation_attempt`, no `federation_established` table |
 | 04  | Runtime verify + foreign ref display             | Implemented (trust store simplified, see 03)                                                                                                                                                            |
-| 05  | Revoke peering + 401 incoming peer traffic       | **Gap: check exists, nothing ever sets `revoked = true`** — no way to actually revoke an approved peer today                                                                                            |
+| 05  | Revoke peering + 401 incoming peer traffic       | Implemented; disconnecting notifies the peer, which revokes back, plus a root-only hard purge |
 | 06  | Cross-instance content relay                     | Implemented, via a per-operation "leg" pattern (`federation_relay.go`) instead of this doc's generic relay endpoints                                                                                    |
-| 07  | Server presence + durable event delivery         | **Gap: shipped fire-and-forget, no durability** — an unreachable peer at notify time silently loses the event, no backlog/retry                                                                         |
+| 07  | Server presence + durable event delivery         | Out of scope for v1 by design: fire-and-forget notifies, no presence or backlog |
 
 Beyond this doc set's original scope, `federation_relay.go` also covers
-mentions, federated user search, and reed-stats/like-count propagation —
-none of which had a numbered spec when built. Two feature areas have zero
-federation story at all: account/plain-reed deletion (no removal-notify
-leg outside reply/echo) and key revocation (no propagation to peers
-holding content signed by a revoked key).
+mentions, federated user search, reed-stats/like-count propagation, account
+and reed removal notifies, and pushed key revocations. See
+[`federation/`](federation/README.md) for the per-step breakdown.
 
 ## Custom avatars (hash + processed PNG)
 
@@ -301,12 +299,12 @@ ordinary reed).
 
 | #   | Title                                                             | Status   |
 | --- | ----------------------------------------------------------------- | -------- |
-| 00  | Glossary + design + locked model                                  | Proposed |
+| 00  | Glossary + design + locked model                                  | Implemented |
 | 01  | `@everyone` admin broadcast handle                                | Proposed |
-| 02  | Mentions tab (list API + SPA)                                     | Proposed |
-| 03  | `user_mailbox` schema + `SendMailboxMessage` + `ops mailbox-send` | Proposed |
-| 04  | WS delivery + ACK-and-delete                                      | Proposed |
-| 05  | SPA bell + `/mailbox/[id]` detail                                 | Proposed |
+| 02  | Mentions tab (list API + SPA)                                     | Implemented |
+| 03  | `user_mailbox` schema + `SendMailboxMessage` + `ops mailbox-send` | Implemented |
+| 04  | WS delivery + ACK-and-delete                                      | Implemented |
+| 05  | SPA bell + `/mailbox/[id]` detail                                 | Implemented |
 
 ## Account recovery (key-only restore)
 
@@ -523,11 +521,9 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
   `loadtest/`, follow the depends-on column (00→03); 01 (extracting
   `performSignup`/`performPublish`) can land and be verified against the
   existing e2e suite independently of 02/03.
-- **Ripples** ([`ripples/`](ripples/README.md)) — unsigned, server-only,
-  ephemeral reed comments; independent of every other track (new package,
-  no shared schema). Within `ripples/`, follow 00→04 in order (schema
-  before API before realtime before SPA). Implements
-  `docs/planned.md` § Ripples (ephemeral comments).
+- **Ripples** ([`ripples/`](ripples/README.md)) — signed, server-only
+  reed comments that expire 30 days after the last activity on a reed;
+  independent of every other track. Implemented.
 
 ## Shared conventions
 

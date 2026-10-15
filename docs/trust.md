@@ -14,12 +14,16 @@ Syrinx assumes the server is useful and usually honest—but **not** an oracle y
 | Pushing unsolicited reed bodies onto clients | Pending-event ledger + client request correlation; clients only keep what they agreed to hold |
 | A compromised server operator reading reed bodies | Server never receives content, even transiently; relayed bodies are end-to-end encrypted holder→requester—see [Content privacy](/content_privacy) |
 | A spoofed hashtag/mention routing garbage into a pipe or an inbox | Server routes on the author's unverified claim, but the receiving/mentioned client re-derives the real value from decrypted content and reports a mismatch |
+| Admins quietly kicking, suspending or promoting members | Admin actions need a second admin's approval and land in a server-signed, chained ledger with the reason; members keep a local copy, so a rewritten ledger is detectable—see [Admins](/admins) |
+| Shutting a community down by seizing its domain | The server's identity is its key, not its domain; with a key backup the community comes back under a new domain and members restore from their devices |
 
 | We do **not** claim to stop… | Why |
 |------------------------------|-----|
 | Physical coercion of a key holder | [Wrench attacks](https://xkcd.com/538/) exist; no crypto fixes that |
 | A holder who already saw content keeping a copy | Permanence after display is honest physics |
 | Perfect anonymity against a global network observer | That’s a different product class |
+| A seized server revealing metadata | It holds user ids, usernames, emails and bios (all but the id member-provided and unvalidated), the follow graph, who holds and who liked which reed, ripples in plain text for 30 days after a reed's last ripple, and the admin ledger |
+| The public edge seeing traffic metadata | The home-deploy scripts put the server behind Cloudflare; in Tunnel mode Cloudflare terminates TLS and sees what the server sees, though not reed bodies—see [Operators](/operators#running-at-home) |
 
 ## Two signatures, two trust domains
 
@@ -91,6 +95,7 @@ The server **is** trusted to:
 - Route realtime events and in-transit relay
 - Enforce signup policy and invite quotas
 - Hold **public** key material and metadata needed for discovery and recovery bookkeeping
+- Hold [ripples](/content#ripples), the one kind of content it is the only copy of
 - Countersign records so peers share a common “this instance witnessed X” anchor
 
 The server is **not** trusted to:
@@ -101,7 +106,7 @@ The server is **not** trusted to:
 
 ## Recovery and distrust of empty databases
 
-If an instance is destroyed or taken over, a new host can import the **server identity** (key history) and enter **recovery mode**. Peers then **report back** signed identities and holdings they already verified. The empty database is not trusted; the network’s signed evidence is. See [Identity, invites & recovery](/identity).
+If an instance is destroyed or taken over, a new host—under the same domain or a new one—can import the **server identity** (key history) and enter **recovery mode**. Peers then **report back** signed identities and holdings they already verified. The empty database is not trusted; the network’s signed evidence is. See [Identity, invites & recovery](/identity).
 
 ## Content consent and relay
 

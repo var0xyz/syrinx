@@ -42,7 +42,7 @@ mechanism.
 -- One row PER REED that has ever received a ripple (bookkeeping only, no
 -- content). Created lazily on the reed's first-ever response, across any
 -- of its threads. expires_at is bumped by ANY new response on ANY
--- thread under this reed — the 7-day clock is shared across all threads on
+-- thread under this reed — the 30-day clock is shared across all threads on
 -- a reed, not per-thread (see 00's Lifetime / expiry rule).
 --
 -- FK to reeds(user_id, id) uses ON DELETE CASCADE. This is a deliberate
@@ -159,7 +159,7 @@ touches `reeds` at all — see the Account removal section below and
 The accepted tradeoff: deleting an individual reed immediately removes
 its ripples bookkeeping row (and, via the second cascade, every response
 across every thread on it) — even if some of those responses are under
-7 days old and would otherwise still have time left on the shared clock.
+30 days old and would otherwise still have time left on the shared clock.
 This is a deliberate behavior change, not a subtle side effect: ripples
 do not outlive a removed reed.
 
@@ -173,7 +173,7 @@ the cascade at all. Concretely:
 
 - A removed user's own past responses, posted on other people's reeds,
   are completely unaffected by the removal — they simply live out their
-  reed's normal shared 7-day window like any other response, and their
+  reed's normal shared 30-day window like any other response, and their
   signatures remain valid and re-verifiable regardless of the author's
   current account-removal state (see [00](00_design.md)).
 - The ripples section on a removed user's *own* reeds becomes

@@ -27,8 +27,7 @@ first shape as `pendingRemoval` / `removedReeds`
 
 ## Status
 
-**Proposed.** Nothing in this directory is implemented yet — this is a spec
-only; no code changes accompany it.
+**Implemented** (00–06).
 
 ## Motivation
 
