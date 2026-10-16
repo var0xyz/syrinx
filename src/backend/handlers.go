@@ -683,6 +683,16 @@ func (h *Handlers) parseCheckUsernameForm(w http.ResponseWriter, r *http.Request
 	return req, username, true
 }
 
+// usernameRefusalReason classifies a username that answered as taken, for
+// metrics, recording a reserved-name hit on surface when it was reserved.
+func (h *Handlers) usernameRefusalReason(ctx context.Context, username, surface, userID string) string {
+	if !h.services.db.isReservedUsername(username) {
+		return "username_taken"
+	}
+	h.metrics.ReservedUsernameHit(ctx, surface, userID)
+	return "reserved"
+}
+
 // respondUsernameAvailability checks username availability and writes the
 // shared 200/409/500 response, used by both CheckUsername and
 // CheckUsernameForRename after their distinct gating logic.

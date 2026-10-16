@@ -267,51 +267,6 @@ func (x *InviteTree) GetNodes() []*InviteTreeNode {
 	return nil
 }
 
-// The usernames root has reserved, lowercased.
-type ReservedUsernameList struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Usernames     []string               `protobuf:"bytes,1,rep,name=usernames,proto3" json:"usernames,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ReservedUsernameList) Reset() {
-	*x = ReservedUsernameList{}
-	mi := &file_admin_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ReservedUsernameList) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ReservedUsernameList) ProtoMessage() {}
-
-func (x *ReservedUsernameList) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ReservedUsernameList.ProtoReflect.Descriptor instead.
-func (*ReservedUsernameList) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *ReservedUsernameList) GetUsernames() []string {
-	if x != nil {
-		return x.Usernames
-	}
-	return nil
-}
-
 // A member's signed flag on a reed. POST /api/flags and the peer relay
 // both carry it.
 type ReedFlag struct {
@@ -327,7 +282,7 @@ type ReedFlag struct {
 
 func (x *ReedFlag) Reset() {
 	*x = ReedFlag{}
-	mi := &file_admin_proto_msgTypes[5]
+	mi := &file_admin_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -339,7 +294,7 @@ func (x *ReedFlag) String() string {
 func (*ReedFlag) ProtoMessage() {}
 
 func (x *ReedFlag) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[5]
+	mi := &file_admin_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -352,7 +307,7 @@ func (x *ReedFlag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReedFlag.ProtoReflect.Descriptor instead.
 func (*ReedFlag) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{5}
+	return file_admin_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ReedFlag) GetReedId() string {
@@ -404,7 +359,7 @@ type FlagDismissal struct {
 
 func (x *FlagDismissal) Reset() {
 	*x = FlagDismissal{}
-	mi := &file_admin_proto_msgTypes[6]
+	mi := &file_admin_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -416,7 +371,7 @@ func (x *FlagDismissal) String() string {
 func (*FlagDismissal) ProtoMessage() {}
 
 func (x *FlagDismissal) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[6]
+	mi := &file_admin_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -429,7 +384,7 @@ func (x *FlagDismissal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlagDismissal.ProtoReflect.Descriptor instead.
 func (*FlagDismissal) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{6}
+	return file_admin_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FlagDismissal) GetId() string {
@@ -473,7 +428,7 @@ type FlaggedReed struct {
 
 func (x *FlaggedReed) Reset() {
 	*x = FlaggedReed{}
-	mi := &file_admin_proto_msgTypes[7]
+	mi := &file_admin_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -485,7 +440,7 @@ func (x *FlaggedReed) String() string {
 func (*FlaggedReed) ProtoMessage() {}
 
 func (x *FlaggedReed) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[7]
+	mi := &file_admin_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -498,7 +453,7 @@ func (x *FlaggedReed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlaggedReed.ProtoReflect.Descriptor instead.
 func (*FlaggedReed) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{7}
+	return file_admin_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FlaggedReed) GetReedId() string {
@@ -539,7 +494,7 @@ type DismissFlagsRequest struct {
 
 func (x *DismissFlagsRequest) Reset() {
 	*x = DismissFlagsRequest{}
-	mi := &file_admin_proto_msgTypes[8]
+	mi := &file_admin_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -551,7 +506,7 @@ func (x *DismissFlagsRequest) String() string {
 func (*DismissFlagsRequest) ProtoMessage() {}
 
 func (x *DismissFlagsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[8]
+	mi := &file_admin_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -564,7 +519,7 @@ func (x *DismissFlagsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DismissFlagsRequest.ProtoReflect.Descriptor instead.
 func (*DismissFlagsRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{8}
+	return file_admin_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DismissFlagsRequest) GetReason() string {
@@ -584,7 +539,7 @@ type FlaggedReedList struct {
 
 func (x *FlaggedReedList) Reset() {
 	*x = FlaggedReedList{}
-	mi := &file_admin_proto_msgTypes[9]
+	mi := &file_admin_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -596,7 +551,7 @@ func (x *FlaggedReedList) String() string {
 func (*FlaggedReedList) ProtoMessage() {}
 
 func (x *FlaggedReedList) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[9]
+	mi := &file_admin_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -609,7 +564,7 @@ func (x *FlaggedReedList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlaggedReedList.ProtoReflect.Descriptor instead.
 func (*FlaggedReedList) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{9}
+	return file_admin_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FlaggedReedList) GetReeds() []*FlaggedReed {
@@ -637,7 +592,7 @@ type UserPermissions struct {
 
 func (x *UserPermissions) Reset() {
 	*x = UserPermissions{}
-	mi := &file_admin_proto_msgTypes[10]
+	mi := &file_admin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -649,7 +604,7 @@ func (x *UserPermissions) String() string {
 func (*UserPermissions) ProtoMessage() {}
 
 func (x *UserPermissions) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[10]
+	mi := &file_admin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -662,7 +617,7 @@ func (x *UserPermissions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserPermissions.ProtoReflect.Descriptor instead.
 func (*UserPermissions) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{10}
+	return file_admin_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *UserPermissions) GetRole() string {
@@ -704,9 +659,7 @@ const file_admin_proto_rawDesc = "" +
 	"\aremoved\x18\a \x01(\bR\aremoved\":\n" +
 	"\n" +
 	"InviteTree\x12,\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"4\n" +
-	"\x14ReservedUsernameList\x12\x1c\n" +
-	"\tusernames\x18\x01 \x03(\tR\tusernames\"\xac\x01\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"\xac\x01\n" +
 	"\bReedFlag\x12\x17\n" +
 	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1f\n" +
 	"\vreporter_id\x18\x02 \x01(\tR\n" +
@@ -747,32 +700,31 @@ func file_admin_proto_rawDescGZIP() []byte {
 	return file_admin_proto_rawDescData
 }
 
-var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_admin_proto_goTypes = []any{
-	(*AdminRequestList)(nil),     // 0: syrinx.AdminRequestList
-	(*LedgerPage)(nil),           // 1: syrinx.LedgerPage
-	(*InviteTreeNode)(nil),       // 2: syrinx.InviteTreeNode
-	(*InviteTree)(nil),           // 3: syrinx.InviteTree
-	(*ReservedUsernameList)(nil), // 4: syrinx.ReservedUsernameList
-	(*ReedFlag)(nil),             // 5: syrinx.ReedFlag
-	(*FlagDismissal)(nil),        // 6: syrinx.FlagDismissal
-	(*FlaggedReed)(nil),          // 7: syrinx.FlaggedReed
-	(*DismissFlagsRequest)(nil),  // 8: syrinx.DismissFlagsRequest
-	(*FlaggedReedList)(nil),      // 9: syrinx.FlaggedReedList
-	(*UserPermissions)(nil),      // 10: syrinx.UserPermissions
-	(*AdminRequest)(nil),         // 11: syrinx.AdminRequest
-	(*LedgerEntry)(nil),          // 12: syrinx.LedgerEntry
-	(*UserSignature)(nil),        // 13: syrinx.UserSignature
+	(*AdminRequestList)(nil),    // 0: syrinx.AdminRequestList
+	(*LedgerPage)(nil),          // 1: syrinx.LedgerPage
+	(*InviteTreeNode)(nil),      // 2: syrinx.InviteTreeNode
+	(*InviteTree)(nil),          // 3: syrinx.InviteTree
+	(*ReedFlag)(nil),            // 4: syrinx.ReedFlag
+	(*FlagDismissal)(nil),       // 5: syrinx.FlagDismissal
+	(*FlaggedReed)(nil),         // 6: syrinx.FlaggedReed
+	(*DismissFlagsRequest)(nil), // 7: syrinx.DismissFlagsRequest
+	(*FlaggedReedList)(nil),     // 8: syrinx.FlaggedReedList
+	(*UserPermissions)(nil),     // 9: syrinx.UserPermissions
+	(*AdminRequest)(nil),        // 10: syrinx.AdminRequest
+	(*LedgerEntry)(nil),         // 11: syrinx.LedgerEntry
+	(*UserSignature)(nil),       // 12: syrinx.UserSignature
 }
 var file_admin_proto_depIdxs = []int32{
-	11, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
-	12, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
-	12, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
+	10, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
+	11, // 1: syrinx.LedgerPage.head:type_name -> syrinx.LedgerEntry
+	11, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
 	2,  // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
-	13, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
-	5,  // 5: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
-	6,  // 6: syrinx.FlaggedReed.dismissal:type_name -> syrinx.FlagDismissal
-	7,  // 7: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
+	12, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
+	4,  // 5: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
+	5,  // 6: syrinx.FlaggedReed.dismissal:type_name -> syrinx.FlagDismissal
+	6,  // 7: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
 	8,  // [8:8] is the sub-list for method output_type
 	8,  // [8:8] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name
@@ -793,7 +745,7 @@ func file_admin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_admin_proto_rawDesc), len(file_admin_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

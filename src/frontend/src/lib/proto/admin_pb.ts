@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSIpChRSZXNlcnZlZFVzZXJuYW1lTGlzdBIRCgl1c2VybmFtZXMYASADKAkikAEKCFJlZWRGbGFnEhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBIfCgtyZXBvcnRlcl9pZBgCIAEoCVIKcmVwb3J0ZXJJRBIMCgRub3RlGAMgASgJEhIKCmNyZWF0ZWRfYXQYBCABKA0SKAoJc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUiVwoNRmxhZ0Rpc21pc3NhbBIKCgJpZBgBIAEoCRIUCgxkaXNtaXNzZWRfYnkYAiABKAkSDgoGcmVhc29uGAMgASgJEhQKDGRpc21pc3NlZF9hdBgEIAEoDSKOAQoLRmxhZ2dlZFJlZWQSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEhsKCWF1dGhvcl9pZBgCIAEoCVIIYXV0aG9ySUQSHwoFZmxhZ3MYAyADKAsyEC5zeXJpbnguUmVlZEZsYWcSKAoJZGlzbWlzc2FsGAQgASgLMhUuc3lyaW54LkZsYWdEaXNtaXNzYWwiJQoTRGlzbWlzc0ZsYWdzUmVxdWVzdBIOCgZyZWFzb24YASABKAkiSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJIjQKD1VzZXJQZXJtaXNzaW9ucxIMCgRyb2xlGAEgASgJEhMKC3Blcm1pc3Npb25zGAIgAygJQiBaHmdpdGh1Yi5jb20vYWx2YXJvL3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSKQAQoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoDRIoCglzaWduYXR1cmUYBSABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZSJXCg1GbGFnRGlzbWlzc2FsEgoKAmlkGAEgASgJEhQKDGRpc21pc3NlZF9ieRgCIAEoCRIOCgZyZWFzb24YAyABKAkSFAoMZGlzbWlzc2VkX2F0GAQgASgNIo4BCgtGbGFnZ2VkUmVlZBIXCgdyZWVkX2lkGAEgASgJUgZyZWVkSUQSGwoJYXV0aG9yX2lkGAIgASgJUghhdXRob3JJRBIfCgVmbGFncxgDIAMoCzIQLnN5cmlueC5SZWVkRmxhZxIoCglkaXNtaXNzYWwYBCABKAsyFS5zeXJpbnguRmxhZ0Rpc21pc3NhbCIlChNEaXNtaXNzRmxhZ3NSZXF1ZXN0Eg4KBnJlYXNvbhgBIAEoCSJKCg9GbGFnZ2VkUmVlZExpc3QSIgoFcmVlZHMYASADKAsyEy5zeXJpbnguRmxhZ2dlZFJlZWQSEwoLbmV4dF9jdXJzb3IYAiABKAkiNAoPVXNlclBlcm1pc3Npb25zEgwKBHJvbGUYASABKAkSEwoLcGVybWlzc2lvbnMYAiADKAlCIVofZ2l0aHViLmNvbS92YXIweHl6L3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -133,25 +133,6 @@ export const InviteTreeSchema: GenMessage<InviteTree> = /*@__PURE__*/
   messageDesc(file_admin, 3);
 
 /**
- * The usernames root has reserved, lowercased.
- *
- * @generated from message syrinx.ReservedUsernameList
- */
-export type ReservedUsernameList = Message<"syrinx.ReservedUsernameList"> & {
-  /**
-   * @generated from field: repeated string usernames = 1;
-   */
-  usernames: string[];
-};
-
-/**
- * Describes the message syrinx.ReservedUsernameList.
- * Use `create(ReservedUsernameListSchema)` to create a new message.
- */
-export const ReservedUsernameListSchema: GenMessage<ReservedUsernameList> = /*@__PURE__*/
-  messageDesc(file_admin, 4);
-
-/**
  * A member's signed flag on a reed. POST /api/flags and the peer relay
  * both carry it.
  *
@@ -189,7 +170,7 @@ export type ReedFlag = Message<"syrinx.ReedFlag"> & {
  * Use `create(ReedFlagSchema)` to create a new message.
  */
 export const ReedFlagSchema: GenMessage<ReedFlag> = /*@__PURE__*/
-  messageDesc(file_admin, 5);
+  messageDesc(file_admin, 4);
 
 /**
  * An admin closing a reed's open flags. dismissed_by is unset once their
@@ -224,7 +205,7 @@ export type FlagDismissal = Message<"syrinx.FlagDismissal"> & {
  * Use `create(FlagDismissalSchema)` to create a new message.
  */
 export const FlagDismissalSchema: GenMessage<FlagDismissal> = /*@__PURE__*/
-  messageDesc(file_admin, 6);
+  messageDesc(file_admin, 5);
 
 /**
  * A reed with flags, for admins: open ones, or the ones a dismissal closed.
@@ -258,7 +239,7 @@ export type FlaggedReed = Message<"syrinx.FlaggedReed"> & {
  * Use `create(FlaggedReedSchema)` to create a new message.
  */
 export const FlaggedReedSchema: GenMessage<FlaggedReed> = /*@__PURE__*/
-  messageDesc(file_admin, 7);
+  messageDesc(file_admin, 6);
 
 /**
  * POST /admin/flags/{reedID}/dismiss.
@@ -277,7 +258,7 @@ export type DismissFlagsRequest = Message<"syrinx.DismissFlagsRequest"> & {
  * Use `create(DismissFlagsRequestSchema)` to create a new message.
  */
 export const DismissFlagsRequestSchema: GenMessage<DismissFlagsRequest> = /*@__PURE__*/
-  messageDesc(file_admin, 8);
+  messageDesc(file_admin, 7);
 
 /**
  * @generated from message syrinx.FlaggedReedList
@@ -299,7 +280,7 @@ export type FlaggedReedList = Message<"syrinx.FlaggedReedList"> & {
  * Use `create(FlaggedReedListSchema)` to create a new message.
  */
 export const FlaggedReedListSchema: GenMessage<FlaggedReedList> = /*@__PURE__*/
-  messageDesc(file_admin, 9);
+  messageDesc(file_admin, 8);
 
 /**
  * A user's role and the admin permissions they hold, sorted.
@@ -323,5 +304,5 @@ export type UserPermissions = Message<"syrinx.UserPermissions"> & {
  * Use `create(UserPermissionsSchema)` to create a new message.
  */
 export const UserPermissionsSchema: GenMessage<UserPermissions> = /*@__PURE__*/
-  messageDesc(file_admin, 10);
+  messageDesc(file_admin, 9);
 

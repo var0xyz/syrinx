@@ -30,7 +30,7 @@ One entry per admin action, written in the same transaction as the action:
 | `id`            | The entry's ID                                                                        |
 | `prevID`        | The ID of the entry before it; absent on the first entry                              |
 | `prevSignature` | The server signature of the entry before it; absent on the first entry                |
-| `kind`          | `request`, `admin-invite`, `mesh`, `reserved-name` or `server-key`                    |
+| `kind`          | `request`, `admin-invite`, `mesh` or `server-key`                                    |
 | `userID`        | Who acted: a request's approver, an admin invite's claimer, or the admin otherwise; absent on `server-key` |
 | `requesterID`   | Who opened the request, or created the admin invite; absent otherwise                 |
 | `requestedAt`   | When that was, from the server's countersignature then; absent otherwise              |
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
   id                  BIGSERIAL PRIMARY KEY,
   prev_id             BIGINT UNIQUE REFERENCES ledger_entries(id),
   kind                VARCHAR(16) NOT NULL
-    CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name', 'server-key')),
+    CHECK (kind IN ('request', 'admin-invite', 'mesh', 'server-key')),
   user_id             VARCHAR(255) REFERENCES identities(id),
   requester_id        VARCHAR(255) REFERENCES identities(id),
   requested_at        TIMESTAMP,
@@ -114,7 +114,6 @@ its target to misbehave. Only admins see those, in the requests list.
 | Mesh connection approved          | `Approved connection to {serverID}`                     |                   |                     |
 | Mesh connection rejected          | `Rejected connection to {serverID}`                     |                   |                     |
 | Mesh disconnection                | `Disconnected from {serverID}`                          |                   |                     |
-| Reserved username added / removed | `Username {name} reserved` / `Username {name} released` |                   |                     |
 | Server key rotated                | `Server key {oldKeyID} rotated to {newKeyID}[ (compromised)][. Reason: {reason}]` | |                     |
 
 `{Action}` is the action's display name: Suspension, Reinstatement, Kick,

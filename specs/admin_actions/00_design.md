@@ -41,8 +41,7 @@ Two Syrinx properties shape everything below:
 
 ### Requests and approvals
 
-Every action (except [reserved usernames](#reserved-usernames) and flag
-review) is a **request** with two signatures:
+Every action (except flag review) is a **request** with two signatures:
 
 1. The **requester** (admin or root) picks the action and targets, writes a
    reason, and signs the request.
@@ -108,7 +107,6 @@ the log. The only admin action left out is a private message. Logged:
   and a disconnection;
 - claimed admin invites, with the inviter, the new admin and the
   permissions granted;
-- reserved usernames added or released;
 - server key rotations, with their reason, credited to the server operator
   rather than a member.
 
@@ -244,10 +242,9 @@ over to the new key; the voucher has to verify the person again.
 
 ### Reserved usernames
 
-**Root only**, no approval, but logged in the ledger. Matching is case-insensitive,
-the same as the existing `LOWER(username)` uniqueness. A reservation only
-blocks **future** signups and renames; a user who already holds the name
-keeps it.
+A short list fixed in code, plus the server's own name; nobody reserves or
+releases names at runtime. Matching is case-insensitive, the same as the
+existing `LOWER(username)` uniqueness.
 
 `root` (case-insensitive) is reserved for the **root identity** permanently,
 outside the reservation list: no one else can ever take it, even after root
@@ -292,10 +289,10 @@ closed requests list.
 | 04  | Invite-tree query, kick execution, dual-admin removal certificate, holder verification, fanout, invite revocation            |
 | 05  | Role change execution + fresh profile countersignature                                                                       |
 | 06  | Lost-device page, file format, upload endpoint, restricted key enforcement, admin-rebound revocation, vouch warning          |
-| 07  | `reserved_usernames`, signup/rename check, root-only endpoints                                                               |
+| 07  | Fixed reserved-name list, signup/rename check                                                                                |
 | 08  | `reed_flags`, flag API, visibility rules                                                                                     |
 | 09  | Broadcast and private-message execution into `user_mailbox`                                                                  |
-| 10  | Admin SPA: requests, approvals, tree picker, ledger, flags, broadcasts, reserved names                                       |
+| 10  | Admin SPA: requests, approvals, tree picker, ledger, flags, broadcasts                                                       |
 
 ## Security notes
 

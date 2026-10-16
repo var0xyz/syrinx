@@ -36,11 +36,6 @@ message InviteTree {
   repeated InviteTreeNode nodes = 1;
 }
 
-// The usernames root has reserved, lowercased.
-message ReservedUsernameList {
-  repeated string usernames = 1;
-}
-
 // A member's signed flag on a reed. POST /api/flags and the peer relay
 // both carry it.
 message ReedFlag {

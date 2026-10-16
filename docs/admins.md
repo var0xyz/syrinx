@@ -6,7 +6,7 @@ Admins run a community, but they don't control its content, and members can see 
 
 | Role | Who | Can |
 |------|-----|-----|
-| **Root** | The operator identity minted on the server's first boot | Every admin permission; reserves usernames; approves actions on admins |
+| **Root** | The operator identity minted on the server's first boot | Every admin permission; approves actions on admins |
 | **Admin** | A member promoted by another admin, or invited as one | The permissions granted at promotion, and no more |
 | **Member** | Everyone else | Read the ledger, flag reeds, reach the admins with `@admins` |
 
@@ -28,7 +28,7 @@ Every action except a broadcast or a private message needs a reason. Requests ne
 
 ## The ledger
 
-Every admin action lands in a ledger that every signed-in member who isn't suspended can read. That covers requests (executed, rejected, withdrawn or moot), key rebinds, broadcasts, admin invites, mesh invites, mesh connections and disconnections, reserved usernames, and server key rotations. Each request writes two entries: one when it's opened, with the reason, and one when it closes. An entry records who asked, who approved, the targets and the reason.
+Every admin action lands in a ledger that every signed-in member who isn't suspended can read. That covers requests (executed, rejected, withdrawn or moot), key rebinds, broadcasts, admin invites, mesh invites, mesh connections and disconnections, and server key rotations. Each request writes two entries: one when it's opened, with the reason, and one when it closes. An entry records who asked, who approved, the targets and the reason.
 
 Entries are server-signed and chained, and pushed to every member, who keeps a copy on their device. A server that rewrites its ledger contradicts the copies its members already hold.
 
@@ -47,7 +47,6 @@ Two things stay out of the ledger:
 | **Rebind a lost key** | A member who lost every device mints a new key on the lost-device page and hands the public key to an admin out of band. The old key is revoked as lost, so old reeds stay valid, and the new key can only sign a rotation to a fresh one. |
 | **Broadcast** | A message of up to 140 characters to every local member's mailbox. |
 | **Private message** | The same, to one member. Not in the ledger, but visible to every admin. |
-| **Reserve usernames** | Root only, no approval. Affects future signups only. |
 | **Admin invites** | An admin invite expires after 24 hours and is logged once it's claimed. See [Invites](/invites#admin-invites-expire). |
 | **Federation** | Peering with another server needs an admin's approval; see [Architecture — Federation](/architecture#federation). |
 

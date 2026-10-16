@@ -75,7 +75,6 @@ stream as host metrics today.
 | `syrinx.admin.suspended_refusals` | Counter | A suspended user is refused | `user.id`, `surface` (`http` \| `ws`) |
 | `syrinx.admin.mail.sent` | Counter | Broadcast or private admin mail delivered | `action`, `sender.id`, `recipients.count`, `failed.count` |
 | `syrinx.admin.invites.revoked` | Counter (by count) | Kick, rebind or demote revokes open invites | `action`, `target.id` |
-| `syrinx.admin.reserved_usernames.changed` | Counter | Root reserves or releases a username | `op` (`add` \| `remove`), `root.id` |
 | `syrinx.admin.reserved_usernames.hits` | Counter | A reserved name is refused | `surface` (`signup` \| `rename`), `user.id` |
 | `syrinx.admin.foreign_kicks` | Counter | A peer's kick of its user is verified | `peer.server_id`, `ok` |
 | `syrinx.flags.created` | Counter | A flag is stored, from a member or a peer | `reporter.id`, `author.id`, `reed.id`, `origin` (`local` \| `peer`), `note.has` |

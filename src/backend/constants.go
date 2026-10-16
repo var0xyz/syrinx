@@ -24,9 +24,9 @@ const peerServerIDKey contextKey = "peerServerID"
 // build tag, needs it across all three binary variants.
 const rootUserID = "1"
 
-// reservedUsernames can't be signed up with or renamed to, by anyone.
-// "admins" is the @admins handle.
-var reservedUsernames = []string{"admins"}
+// reservedUsernames can't be signed up with or renamed to, by anyone, nor
+// can the server's own name. "admins" is the @admins handle.
+var reservedUsernames = []string{"admins", "admin", "__root__", "webmaster", "syrinx"}
 
 // rippleTTL is how long a reed's ripple thread lives after its last post.
 // Shared by the server and the ripples-cleanup binary.

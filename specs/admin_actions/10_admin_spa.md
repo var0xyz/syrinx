@@ -27,12 +27,6 @@ search page, whose choice is kept in the URL hash (`#closed`, `#dismissed`):
 | `/admin/message` | Compose a **Broadcast** (everyone) or a **Unicast** (one user) → opens a `broadcast` or `unicast` request ([09](09_broadcasts.md)). Below it, **Open** / **Closed** broadcast and unicast requests, with the same buttons as Actions. Each option shows only with its permission. The recipient field autocompletes this server's members like an @-mention |
 | `/admin/mesh` | Server connections (moved from `/network/mesh`). Inviting, approving and disconnecting each show only with `mesh.invite`, `mesh.connect` and `mesh.disconnect` |
 
-Not in the nav:
-
-| Route | Shows |
-|-------|-------|
-| `/admin/reserved-usernames` | Root only ([07](07_reserved_usernames.md)) |
-
 **Invites** is a top-level nav item for every member, admins included.
 
 On the profile of a **local** user other than root, admins see an **Admin**

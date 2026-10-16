@@ -74,9 +74,9 @@ func TestAdminRequestOpenedPayloadCanonicalShape(t *testing.T) {
 
 func TestLedgerEntryPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
-	got := buildLedgerEntryPayload(1, 0, "", "reserved-name", "a1@home1234", "", time.Time{}, "Username admin reserved",
+	got := buildLedgerEntryPayload(1, 0, "", "mesh", "a1@home1234", "", time.Time{}, "Server peer1234 connected",
 		"", nil, "home1234", "SERVERKEY01", signedAt)
-	want := `{"id":1,"kind":"reserved-name","message":"Username admin reserved",` +
+	want := `{"id":1,"kind":"mesh","message":"Server peer1234 connected",` +
 		`"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",` +
 		`"type":"ledger-entry","userID":"a1@home1234"}`
 	if string(got) != want {
