@@ -129,3 +129,15 @@ func TestReedFlagPayloadCanonicalShape(t *testing.T) {
 		t.Errorf("reed flag payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
+
+func TestProfilePayloadSignsPermissions(t *testing.T) {
+	ts := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
+	got := buildProfilePayload("a1@home1234", "a1", "a1@home1234/K1", "home1234", "SERVERKEY01", "SIG", "",
+		"admin", []string{"user.kick", "user.suspend"}, "", ts, ts)
+	want := `{"keyID":"a1@home1234/K1","memberSince":"2026-10-12T11:00:00Z","permissions":["user.kick","user.suspend"],` +
+		`"role":"admin","serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",` +
+		`"type":"identity-server","userID":"a1@home1234","userSignature":"SIG","username":"a1"}`
+	if string(got) != want {
+		t.Errorf("admin profile payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}

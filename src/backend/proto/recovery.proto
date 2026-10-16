@@ -40,6 +40,7 @@ message RecoveryProfile {
   ServerSignature server_signature = 8;
   bool has_reeds = 9;
   UserInvite invite = 10;
+  repeated string permissions = 11;
 }
 
 // POST /users/status: complete, unknown or ongoing, also on 404 and 409.

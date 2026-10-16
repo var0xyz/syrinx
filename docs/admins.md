@@ -10,7 +10,7 @@ Admins run a community, but they don't control its content, and members can see 
 | **Admin** | A member promoted by another admin, or invited as one | The permissions granted at promotion, and no more |
 | **Member** | Everyone else | Read the ledger, flag reeds, reach the admins with `@admins` |
 
-Permissions are granted one by one: `admin.create`, `admin.demote`, `user.kick`, `user.suspend`, `user.rebind`, `message.unicast`, `message.broadcast`, `mesh.invite`, `mesh.connect`, `mesh.disconnect`. Nobody can grant a permission they don't hold.
+Permissions are granted one by one: `admin.create`, `admin.demote`, `user.kick`, `user.suspend`, `user.rebind`, `message.unicast`, `message.broadcast`, `mesh.invite`, `mesh.connect`, `mesh.disconnect`. Nobody can grant a permission they don't hold. An admin's permissions are signed into their profile, next to their role.
 
 ## What admins can't do
 

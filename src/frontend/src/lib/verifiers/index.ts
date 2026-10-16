@@ -363,6 +363,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
     user.userSignature.armor,
     user.invite?.id ?? '',
     user.role,
+    [...user.permissions],
     user.bio ?? '',
     signedAtHeader(user.memberSince),
     signedAtHeader(user.serverSignature.signedAt)

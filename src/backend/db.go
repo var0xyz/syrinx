@@ -30,6 +30,7 @@ type User struct {
 	UserSignature   UserSignature   `json:"userSignature"`
 	ServerSignature ServerSignature `json:"serverSignature"`
 	Invite          *Invite         `json:"invite"`
+	Permissions     []string        `json:"permissions"`
 }
 
 // UserInfo is the unsigned, frequently changing view of a user

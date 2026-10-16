@@ -24,6 +24,12 @@ same two-person rule.
 | `permissions` | `admin.create` to add, `admin.demote` to remove | Target role is `admin` | `user_permissions` = the request's permission set |
 | `demote` | `admin.demote` | Target role is `admin` | `role = user`; `user_permissions` cleared |
 
+Each of the three countersigns the target's profile afresh: the role and
+the sorted permission set are both in the profile payload, so a profile
+always says what its holder may do, and a rebuilt server reads it back
+from there. An admin invite's permissions are signed into the new admin's
+profile at signup the same way.
+
 The permission set is the request's `body`
 ([01](01_requests_and_approvals.md)). A `promote` may grant an empty set: an
 admin without permissions can still review flags. Nobody grants a

@@ -54,7 +54,7 @@ func TestReedRemovalServerPayloadCanonicalShape(t *testing.T) {
 func TestProfilePayloadEmbedsArmorVerbatim(t *testing.T) {
 	ts := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
 	got := buildProfilePayload("alice@home", "alice", "alice@home/k1", "home", "SERVERKEY01",
-		"-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n", "", "user", "line 1\nline \"2\"", ts, ts)
+		"-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n", "", "user", nil, "line 1\nline \"2\"", ts, ts)
 	want := `{"bio":"line 1\nline \"2\"","keyID":"alice@home/k1","memberSince":"2026-07-16T12:00:00Z","role":"user",` +
 		`"serverID":"home","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-07-16T12:00:00Z",` +
 		`"type":"identity-server","userID":"alice@home",` +

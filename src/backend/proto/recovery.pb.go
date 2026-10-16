@@ -217,6 +217,7 @@ type RecoveryProfile struct {
 	ServerSignature      *ServerSignature       `protobuf:"bytes,8,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	HasReeds             bool                   `protobuf:"varint,9,opt,name=has_reeds,json=hasReeds,proto3" json:"has_reeds,omitempty"`
 	Invite               *UserInvite            `protobuf:"bytes,10,opt,name=invite,proto3" json:"invite,omitempty"`
+	Permissions          []string               `protobuf:"bytes,11,rep,name=permissions,proto3" json:"permissions,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -317,6 +318,13 @@ func (x *RecoveryProfile) GetHasReeds() bool {
 func (x *RecoveryProfile) GetInvite() *UserInvite {
 	if x != nil {
 		return x.Invite
+	}
+	return nil
+}
+
+func (x *RecoveryProfile) GetPermissions() []string {
+	if x != nil {
+		return x.Permissions
 	}
 	return nil
 }
@@ -822,7 +830,7 @@ const file_recovery_proto_rawDesc = "" +
 	"\tfollowing\x18\x02 \x03(\tR\tfollowing\x12#\n" +
 	"\vtip_reed_id\x18\x03 \x01(\tH\x00R\ttipReedID\x88\x01\x01\x12\x19\n" +
 	"\breed_ids\x18\x04 \x03(\tR\areedIDsB\x0e\n" +
-	"\f_tip_reed_id\"\x87\x03\n" +
+	"\f_tip_reed_id\"\xa9\x03\n" +
 	"\x0fRecoveryProfile\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
@@ -834,7 +842,8 @@ const file_recovery_proto_rawDesc = "" +
 	"\x10server_signature\x18\b \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1b\n" +
 	"\thas_reeds\x18\t \x01(\bR\bhasReeds\x12*\n" +
 	"\x06invite\x18\n" +
-	" \x01(\v2\x12.syrinx.UserInviteR\x06invite\",\n" +
+	" \x01(\v2\x12.syrinx.UserInviteR\x06invite\x12 \n" +
+	"\vpermissions\x18\v \x03(\tR\vpermissions\",\n" +
 	"\x12UserStatusResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\"\x9a\x02\n" +
 	"\x12RecoveryRevocation\x12 \n" +

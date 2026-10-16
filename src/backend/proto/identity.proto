@@ -72,6 +72,8 @@ message User {
   UserSignature user_signature = 6;
   ServerSignature server_signature = 7;
   UserInvite invite = 8;
+  // An admin's permissions, sorted; root holds every one without listing them.
+  repeated string permissions = 9;
 }
 
 // The unsigned, frequently changing view of a user (GET /users/{id}/info).

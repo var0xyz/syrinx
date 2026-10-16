@@ -496,8 +496,10 @@ type User struct {
 	UserSignature   *UserSignature         `protobuf:"bytes,6,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	Invite          *UserInvite            `protobuf:"bytes,8,opt,name=invite,proto3" json:"invite,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// An admin's permissions, sorted; root holds every one without listing them.
+	Permissions   []string `protobuf:"bytes,9,rep,name=permissions,proto3" json:"permissions,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *User) Reset() {
@@ -582,6 +584,13 @@ func (x *User) GetServerSignature() *ServerSignature {
 func (x *User) GetInvite() *UserInvite {
 	if x != nil {
 		return x.Invite
+	}
+	return nil
+}
+
+func (x *User) GetPermissions() []string {
+	if x != nil {
+		return x.Permissions
 	}
 	return nil
 }
@@ -2048,7 +2057,7 @@ const file_identity_proto_rawDesc = "" +
 	"UserInvite\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x1a\n" +
-	"\busername\x18\x03 \x01(\tR\busername\"\xa9\x02\n" +
+	"\busername\x18\x03 \x01(\tR\busername\"\xcb\x02\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
@@ -2057,7 +2066,8 @@ const file_identity_proto_rawDesc = "" +
 	"\fmember_since\x18\x05 \x01(\rR\vmemberSince\x12<\n" +
 	"\x0euser_signature\x18\x06 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
 	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12*\n" +
-	"\x06invite\x18\b \x01(\v2\x12.syrinx.UserInviteR\x06invite\"\xbd\x02\n" +
+	"\x06invite\x18\b \x01(\v2\x12.syrinx.UserInviteR\x06invite\x12 \n" +
+	"\vpermissions\x18\t \x03(\tR\vpermissions\"\xbd\x02\n" +
 	"\bUserInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\rfirst_reed_id\x18\x02 \x01(\tH\x00R\vfirstReedId\x88\x01\x01\x12'\n" +

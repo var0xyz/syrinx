@@ -413,6 +413,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		user.UserSignature.Armor,
 		"",
 		user.Role,
+		user.Permissions,
 		user.Bio,
 		user.CreatedAt,
 		user.ServerSignature.SignedAt,

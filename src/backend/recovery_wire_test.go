@@ -108,7 +108,7 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 
 	profilePayload := buildNewProfilePayload(
 		userID, "alice", string(keyID), serverID, serverKP.Fingerprint,
-		userSig, "", "user", ts,
+		userSig, "", "user", nil, ts,
 	)
 	serverSigArmor, err := cryptoSvc.sign(string(profilePayload), serverKP.PrivateKey)
 	if err != nil {

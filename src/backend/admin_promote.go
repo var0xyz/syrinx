@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -25,9 +26,22 @@ func setUserPermissionsTx(ctx context.Context, tx *sql.Tx, userID string, perms 
 	return nil
 }
 
-// recountersignProfileTx sets userID's role and countersigns their current
-// profile with it and a fresh timestamp. The user's own signature stays.
-func (h *Handlers) recountersignProfileTx(ctx context.Context, tx *sql.Tx, userID, role string) error {
+// validateProfilePermissions refuses permissions on a non-admin, or a set
+// that isn't known, sorted and unique.
+func validateProfilePermissions(role string, perms []string) error {
+	if len(perms) == 0 {
+		return nil
+	}
+	if role != roleAdmin {
+		return fmt.Errorf("only an admin's profile carries permissions")
+	}
+	_, err := parsePermissionSet(strings.Join(perms, ","))
+	return err
+}
+
+// recountersignProfileTx sets userID's role and permissions and countersigns
+// their profile with them and a fresh timestamp. The user's signature stays.
+func (h *Handlers) recountersignProfileTx(ctx context.Context, tx *sql.Tx, userID, role string, perms []string) error {
 	var username, bio, inviteID, keyID, userSignature string
 	var memberSince time.Time
 	var oldServerSigID sql.NullInt64
@@ -41,7 +55,7 @@ func (h *Handlers) recountersignProfileTx(ctx context.Context, tx *sql.Tx, userI
 	}
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	sig, err := h.countersign(buildProfilePayload(userID, username, keyID, h.services.db.GetServerID(),
-		h.signingKey.Fingerprint, userSignature, inviteID, role, bio, memberSince.UTC(), signedAt), signedAt)
+		h.signingKey.Fingerprint, userSignature, inviteID, role, perms, bio, memberSince.UTC(), signedAt), signedAt)
 	if err != nil {
 		return err
 	}
@@ -59,7 +73,7 @@ func (h *Handlers) recountersignProfileTx(ctx context.Context, tx *sql.Tx, userI
 			return err
 		}
 	}
-	return nil
+	return setUserPermissionsTx(ctx, tx, userID, perms)
 }
 
 // announceProfile pushes userID's re-countersigned profile to whoever
@@ -102,11 +116,7 @@ func (h *Handlers) promoteExecutor() adminExecutor {
 			if err != nil {
 				return refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 			}
-			target := req.Targets[0]
-			if err := h.recountersignProfileTx(ctx, tx, target, roleAdmin); err != nil {
-				return err
-			}
-			return setUserPermissionsTx(ctx, tx, target, perms)
+			return h.recountersignProfileTx(ctx, tx, req.Targets[0], roleAdmin, perms)
 		},
 		after: func(req *adminRequest) { h.announceProfile(req.Targets[0]) },
 	}
@@ -123,8 +133,9 @@ func (h *Handlers) permissionsExecutor() adminExecutor {
 			if err != nil {
 				return refuse(http.StatusBadRequest, "bad_permissions", "Invalid permission set: %v", err)
 			}
-			return setUserPermissionsTx(ctx, tx, req.Targets[0], perms)
+			return h.recountersignProfileTx(ctx, tx, req.Targets[0], roleAdmin, perms)
 		},
+		after: func(req *adminRequest) { h.announceProfile(req.Targets[0]) },
 	}
 }
 
@@ -138,10 +149,7 @@ func (h *Handlers) demoteExecutor() adminExecutor {
 		},
 		execute: func(ctx context.Context, tx *sql.Tx, req *adminRequest) error {
 			target := req.Targets[0]
-			if err := h.recountersignProfileTx(ctx, tx, target, roleUser); err != nil {
-				return err
-			}
-			if err := setUserPermissionsTx(ctx, tx, target, nil); err != nil {
+			if err := h.recountersignProfileTx(ctx, tx, target, roleUser, nil); err != nil {
 				return err
 			}
 			res, err := tx.ExecContext(ctx, `

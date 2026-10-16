@@ -623,7 +623,8 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	err := s.db.QueryRowContext(ctx, `
 		SELECT u.id, u.username, u.role, u.bio, u.created_at,
 		       u.user_signature_id, u.server_signature_id,
-		       u.invite_id, inv.id, inv.username
+		       u.invite_id, inv.id, inv.username,
+		       ARRAY(SELECT permission FROM user_permissions WHERE user_id = u.id ORDER BY permission)
 		FROM users u
 		LEFT JOIN users inv ON inv.id = invite_creator(u.invite_id)
 		WHERE u.id = $1
@@ -638,6 +639,7 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 		&inviteID,
 		&inviterID,
 		&inviterUsername,
+		pq.Array(&user.Permissions),
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -7183,6 +7185,9 @@ func insertRecoveryUser(ctx context.Context, tx *sql.Tx, serverID string, profil
 	if err := validateProfileRole(profile.ID, profile.Role, serverID); err != nil {
 		return err
 	}
+	if err := validateProfilePermissions(profile.Role, profile.Permissions); err != nil {
+		return err
+	}
 
 	userSignatureID, err := insertUserSignature(ctx, tx, profile.UserSignature.KeyID, profile.UserSignature.Armor)
 	if err != nil {
@@ -7214,6 +7219,9 @@ func insertRecoveryUser(ctx context.Context, tx *sql.Tx, serverID string, profil
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
 	}
+	if err := setUserPermissionsTx(ctx, tx, string(selfIdentity), profile.Permissions); err != nil {
+		return err
+	}
 	return bumpActiveUsers(ctx, tx, 1)
 }
 
@@ -7228,6 +7236,9 @@ func updateRecoveryUserIfNewer(
 ) (bool, error) {
 	if !incomingSignedAt.After(existingSignedAt) {
 		return false, nil
+	}
+	if err := validateProfilePermissions(profile.Role, profile.Permissions); err != nil {
+		return false, err
 	}
 	username, err := claimRecoveryUsername(ctx, tx, selfIdentity, profile.Username, incomingSignedAt)
 	if err != nil {
@@ -7261,6 +7272,9 @@ func updateRecoveryUserIfNewer(
 	)
 	if err != nil {
 		return false, fmt.Errorf("update user: %w", err)
+	}
+	if err := setUserPermissionsTx(ctx, tx, string(selfIdentity), profile.Permissions); err != nil {
+		return false, err
 	}
 	return true, nil
 }
