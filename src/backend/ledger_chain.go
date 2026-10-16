@@ -29,11 +29,10 @@ type ledgerEntry struct {
 
 // What a ledger entry records, so a client never parses its message.
 const (
-	ledgerKindRequest      = "request"
-	ledgerKindAdminInvite  = "admin-invite"
-	ledgerKindMesh         = "mesh"
-	ledgerKindReservedName = "reserved-name"
-	ledgerKindServerKey    = "server-key"
+	ledgerKindRequest     = "request"
+	ledgerKindAdminInvite = "admin-invite"
+	ledgerKindMesh        = "mesh"
+	ledgerKindServerKey   = "server-key"
 )
 
 // ledgerSigner countersigns a ledger entry's payload.

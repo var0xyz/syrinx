@@ -41,7 +41,6 @@ import {
   InviteTreeSchema,
   LedgerPageSchema,
   ReedFlagSchema,
-  ReservedUsernameListSchema,
   UserPermissionsSchema,
 } from '$lib/proto/admin_pb';
 import {
@@ -897,14 +896,6 @@ export const apiService = {
       protoBody('POST', DismissFlagsRequestSchema, { reason }),
       FlagDismissalSchema
     );
-  },
-
-  async listReservedUsernames(): Promise<string[]> {
-    return (await request('/admin/reserved-usernames', { method: 'GET' }, ReservedUsernameListSchema)).usernames;
-  },
-
-  async setReservedUsername(username: string, reserved: boolean): Promise<void> {
-    await send(`/admin/reserved-usernames/${encodeURIComponent(username)}`, { method: reserved ? 'PUT' : 'DELETE' });
   },
 
   /** A signed flag; the server hands one on a remote reed to its home server. */

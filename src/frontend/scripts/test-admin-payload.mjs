@@ -57,9 +57,9 @@ console.log('admin payload parity: ok');
 const { buildLedgerEntryPayload } = await import('../src/lib/services/signing.ts');
 
 assert.equal(
-  buildLedgerEntryPayload(1, undefined, '', 'reserved-name', 'a1@home1234', '', '', 'Username admin reserved',
+  buildLedgerEntryPayload(1, undefined, '', 'mesh', 'a1@home1234', '', '', 'Server peer1234 connected',
     '', [], 'home1234', 'SERVERKEY01', '2026-10-12T11:00:00Z'),
-  '{"id":1,"kind":"reserved-name","message":"Username admin reserved",' +
+  '{"id":1,"kind":"mesh","message":"Server peer1234 connected",' +
     '"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",' +
     '"type":"ledger-entry","userID":"a1@home1234"}',
   'first ledger entry payload'

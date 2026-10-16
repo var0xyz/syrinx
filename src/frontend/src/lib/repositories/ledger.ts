@@ -7,7 +7,7 @@ import { verifyLedgerRecord } from '$lib/verifiers';
 export interface LedgerRecord {
   id: number;
   prevID?: number;
-  /** What the entry records: request, admin-invite, mesh or reserved-name. */
+  /** What the entry records: request, admin-invite, mesh or server-key. */
   kind: string;
   userID: string;
   /** Who proposed the request or admin invite this entry completes, and when. */

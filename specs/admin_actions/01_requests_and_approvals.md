@@ -10,8 +10,8 @@ Implemented.
 
 ## Context
 
-Every admin action except reserved usernames ([07](07_reserved_usernames.md))
-and flag review ([08](08_flags.md)) goes through one request → approval
+Every admin action except flag review ([08](08_flags.md)) goes through one
+request → approval
 pipeline. This step builds the pipeline with no actions behind it. Steps
 03–06 and 09 each plug in one action kind.
 

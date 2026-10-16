@@ -135,7 +135,6 @@ type Recorder interface {
 	SuspendedRefusal(ctx context.Context, userID string, surface Surface)
 	AdminMailSent(ctx context.Context, action, senderID string, recipients, failed int)
 	AdminInvitesRevoked(ctx context.Context, action, targetID string, count int)
-	ReservedUsernameChanged(ctx context.Context, op Op, rootID string)
 	ReservedUsernameHit(ctx context.Context, surface, userID string)
 	ForeignKick(ctx context.Context, peerServerID string, ok bool)
 	FlagCreated(ctx context.Context, reporterID, authorID, reedID string, origin Origin, noteHas bool)
@@ -200,7 +199,6 @@ func (Noop) AdminActionExecuted(context.Context, string, string, string, string,
 func (Noop) SuspendedRefusal(context.Context, string, Surface)                         {}
 func (Noop) AdminMailSent(context.Context, string, string, int, int)                   {}
 func (Noop) AdminInvitesRevoked(context.Context, string, string, int)                  {}
-func (Noop) ReservedUsernameChanged(context.Context, Op, string)                       {}
 func (Noop) ReservedUsernameHit(context.Context, string, string)                       {}
 func (Noop) ForeignKick(context.Context, string, bool)                                 {}
 func (Noop) FlagCreated(context.Context, string, string, string, Origin, bool)         {}

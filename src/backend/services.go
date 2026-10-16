@@ -883,26 +883,29 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	return tx.Commit()
 }
 
+// isReservedUsername reports whether username is in reservedUsernames or
+// is the server's name, case-insensitively.
+func (s *DataService) isReservedUsername(username string) bool {
+	if strings.EqualFold(username, s.serverName) {
+		return true
+	}
+	return slices.ContainsFunc(reservedUsernames, func(n string) bool { return strings.EqualFold(n, username) })
+}
+
 // UsernameExists reports whether username is unavailable to claimantID,
-// case-insensitively: another user holds it, it's reserved and claimantID
-// doesn't already hold it, it's root's and claimantID isn't root, or it's
-// in reservedUsernames. A reserved name answers as taken, so it doesn't stand out.
+// case-insensitively: another user holds it, it's root's and claimantID
+// isn't root, or it's reserved. A reserved name answers as taken.
 func (s *DataService) UsernameExists(ctx context.Context, username, claimantID string) (bool, error) {
 	if strings.EqualFold(username, rootUsername) && !isRootIdentity(claimantID, s.serverID) {
 		return true, nil
 	}
-	for _, reserved := range reservedUsernames {
-		if strings.EqualFold(username, reserved) {
-			return true, nil
-		}
+	if s.isReservedUsername(username) {
+		return true, nil
 	}
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM users WHERE LOWER(username) = LOWER($1) AND id <> $2
-		) OR (
-			EXISTS(SELECT 1 FROM reserved_usernames WHERE username = LOWER($1))
-			AND NOT EXISTS(SELECT 1 FROM users WHERE id = $2 AND LOWER(username) = LOWER($1))
 		)
 	`, username, claimantID).Scan(&exists)
 	if err != nil {

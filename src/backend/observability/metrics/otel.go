@@ -42,7 +42,6 @@ type OTEL struct {
 	suspendedRefusals      metric.Int64Counter
 	adminMailSent          metric.Int64Counter
 	adminInvitesRevoked    metric.Int64Counter
-	reservedNamesChanged   metric.Int64Counter
 	reservedNamesHits      metric.Int64Counter
 	foreignKicks           metric.Int64Counter
 	flagsCreated           metric.Int64Counter
@@ -140,7 +139,6 @@ func New(m metric.Meter) *OTEL {
 	r.suspendedRefusals = counter("syrinx.admin.suspended_refusals")
 	r.adminMailSent = counter("syrinx.admin.mail.sent")
 	r.adminInvitesRevoked = counter("syrinx.admin.invites.revoked")
-	r.reservedNamesChanged = counter("syrinx.admin.reserved_usernames.changed")
 	r.reservedNamesHits = counter("syrinx.admin.reserved_usernames.hits")
 	r.foreignKicks = counter("syrinx.admin.foreign_kicks")
 	r.flagsCreated = counter("syrinx.flags.created")
@@ -400,10 +398,6 @@ func (r *OTEL) AdminMailSent(ctx context.Context, action, senderID string, recip
 
 func (r *OTEL) AdminInvitesRevoked(ctx context.Context, action, targetID string, count int) {
 	addN(ctx, r.adminInvitesRevoked, int64(count), str("action", action), str("target.id", targetID))
-}
-
-func (r *OTEL) ReservedUsernameChanged(ctx context.Context, op Op, rootID string) {
-	add(ctx, r.reservedNamesChanged, str("op", string(op)), str("root.id", rootID))
 }
 
 func (r *OTEL) ReservedUsernameHit(ctx context.Context, surface, userID string) {

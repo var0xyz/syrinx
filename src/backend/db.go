@@ -1474,7 +1474,7 @@ func InitDB(db *sql.DB) error {
 		id BIGSERIAL PRIMARY KEY,
 		prev_id BIGINT UNIQUE REFERENCES ledger_entries(id),
 		kind VARCHAR(16) NOT NULL
-			CHECK (kind IN ('request', 'admin-invite', 'mesh', 'reserved-name', 'server-key')),
+			CHECK (kind IN ('request', 'admin-invite', 'mesh', 'server-key')),
 		user_id VARCHAR(255) REFERENCES identities(id),
 		requester_id VARCHAR(255) REFERENCES identities(id),
 		requested_at TIMESTAMP,
@@ -1501,13 +1501,6 @@ func InitDB(db *sql.DB) error {
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_entries_first
 		ON ledger_entries((prev_id IS NULL)) WHERE prev_id IS NULL;
 	`
-
-	// Usernames nobody can sign up with or rename to, stored lowercased.
-	createReservedUsernamesTable := `
-	CREATE TABLE IF NOT EXISTS reserved_usernames (
-		username VARCHAR(255) PRIMARY KEY,
-		created_at TIMESTAMP NOT NULL DEFAULT NOW()
-	);`
 
 	// An admin closing a reed's open flags, with their reason. Not in the
 	// ledger; a reed flagged again later gets a dismissal of its own.
@@ -1843,7 +1836,6 @@ func InitDB(db *sql.DB) error {
 		createLedgerEntriesTable,
 		createLedgerEntriesIndexes,
 		createLedgerEntryTargetsTable,
-		createReservedUsernamesTable,
 		createFlagDismissalsTable,
 		createReedFlagsTable,
 		createReedFlagsIndexes,
