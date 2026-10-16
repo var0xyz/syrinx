@@ -8,6 +8,7 @@ import type * as api from '$lib/types/api';
 import type { ReedType } from '$lib/types/reed';
 import { dbService } from './db';
 import { canAssembleKeyNest } from './recoveryKeyNest';
+import { enumerateRecoveryRecords, type RecoveryRecordRef } from './recoveryRecords';
 import { parseCanonicalId } from '$lib/utils/identityRef';
 
 export const RECOVERY_PROGRESS_KEY = 'recoveryProgress';
@@ -15,6 +16,9 @@ export const FOLLOW_PAGE_SIZE = 100;
 
 export const OWN_IDENTITY_KEY = 'own_identity';
 export const FOLLOWS_KEY = 'follows';
+export const RECORDS_KEY = 'records';
+export const PINS_KEY = 'pins';
+export const RECORD_PAGE_SIZE = 100;
 export const COMPLETE_KEY = 'complete';
 
 export type RecoveryEntityEntry = {
@@ -35,7 +39,18 @@ export type RecoveryFollowsEntry = {
   pages: RecoveryFollowPage[];
 };
 
-export type RecoveryProgressEntity = RecoveryEntityEntry | RecoveryFollowsEntry;
+export type RecoveryRecordPage = {
+  index: number;
+  refs: RecoveryRecordRef[];
+  startTime?: number;
+  endTime?: number;
+};
+
+export type RecoveryRecordsEntry = {
+  pages: RecoveryRecordPage[];
+};
+
+export type RecoveryProgressEntity = RecoveryEntityEntry | RecoveryFollowsEntry | RecoveryRecordsEntry;
 
 export type RecoveryProgressLedger = {
   version: 1;
@@ -57,6 +72,7 @@ export type EnumerateInput = {
   revocations: api.KeyRevocation[];
   reeds: ReedType[];
   following: { userId: string }[];
+  records: RecoveryRecordRef[];
 };
 
 type FollowRecord = { userId: string; timestamp?: number };
@@ -85,16 +101,29 @@ export function reedEntityKey(reedId: string): string {
   return `reed:${reedId}`;
 }
 
+/** Follows and records are paged; everything else is one unit. */
+function isPagedEntry(
+  entry: RecoveryProgressEntity | undefined
+): entry is RecoveryFollowsEntry | RecoveryRecordsEntry {
+  return !!entry && Array.isArray((entry as RecoveryFollowsEntry).pages);
+}
+
 export function isFollowsEntry(
   entry: RecoveryProgressEntity | undefined
 ): entry is RecoveryFollowsEntry {
-  return !!entry && Array.isArray((entry as RecoveryFollowsEntry).pages);
+  return isPagedEntry(entry) && entry.pages.every((page) => 'userIds' in page);
+}
+
+export function isRecordsEntry(
+  entry: RecoveryProgressEntity | undefined
+): entry is RecoveryRecordsEntry {
+  return isPagedEntry(entry) && entry.pages.every((page) => 'refs' in page);
 }
 
 export function isEntityEntry(
   entry: RecoveryProgressEntity | undefined
 ): entry is RecoveryEntityEntry {
-  return !!entry && !isFollowsEntry(entry);
+  return !!entry && !isPagedEntry(entry);
 }
 
 export function getRecoveryProgress(): RecoveryProgressLedger | null {
@@ -119,10 +148,10 @@ export function clearRecoveryProgress(): void {
   localStorage.removeItem(RECOVERY_PROGRESS_KEY);
 }
 
-function chunkFollowIds(userIds: string[]): string[][] {
-  const pages: string[][] = [];
-  for (let i = 0; i < userIds.length; i += FOLLOW_PAGE_SIZE) {
-    pages.push(userIds.slice(i, i + FOLLOW_PAGE_SIZE));
+function chunk<T>(items: T[], size: number): T[][] {
+  const pages: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    pages.push(items.slice(i, i + size));
   }
   return pages;
 }
@@ -186,12 +215,19 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   }
 
   const followIds = input.following.map((f) => f.userId).filter(Boolean);
-  const chunks = chunkFollowIds(followIds);
+  const chunks = chunk(followIds, FOLLOW_PAGE_SIZE);
   // Always keep a follows entry so resume/mutators have a stable key; empty
   // list means zero pages (no follow work units).
   entities[FOLLOWS_KEY] = {
     pages: chunks.map((userIds, index) => ({ index, userIds })),
   };
+
+  entities[RECORDS_KEY] = {
+    pages: chunk(input.records, RECORD_PAGE_SIZE).map((refs, index) => ({ index, refs })),
+  };
+
+  const ownPins = byInfo.get(input.selfUserId)?.pinnedReedIds;
+  if (ownPins?.length) entities[PINS_KEY] = {};
 
   entities[COMPLETE_KEY] = {};
 
@@ -210,6 +246,20 @@ function mergeEntity(
     endTime: existing.endTime ?? desired.endTime,
     skipped: existing.skipped ?? desired.skipped,
     skipReason: existing.skipReason ?? desired.skipReason,
+  };
+}
+
+/** A finished records page keeps what it sent; others take the fresh refs. */
+function mergeRecords(
+  desired: RecoveryRecordsEntry,
+  existing: RecoveryRecordsEntry | undefined
+): RecoveryRecordsEntry {
+  const byIndex = new Map(existing?.pages.map((page) => [page.index, page]));
+  return {
+    pages: desired.pages.map((page) => {
+      const prev = byIndex.get(page.index);
+      return prev?.endTime != null ? { ...prev } : { ...page, startTime: prev?.startTime };
+    }),
   };
 }
 
@@ -252,6 +302,8 @@ export function mergeRecoveryProgress(
         desiredEntry,
         isFollowsEntry(prev) ? prev : undefined
       );
+    } else if (key === RECORDS_KEY && isRecordsEntry(desiredEntry)) {
+      entities[key] = mergeRecords(desiredEntry, isRecordsEntry(prev) ? prev : undefined);
     } else if (isEntityEntry(desiredEntry)) {
       entities[key] = mergeEntity(
         desiredEntry,
@@ -264,17 +316,13 @@ export function mergeRecoveryProgress(
   return { version: 1, entities };
 }
 
-function isUnitDone(entry: RecoveryProgressEntity): boolean {
-  if (isFollowsEntry(entry)) {
-    // Follows contribute per-page; handled in summary, not here.
-    return false;
-  }
+function isUnitDone(entry: RecoveryEntityEntry): boolean {
   return entry.endTime != null || entry.skipped === true;
 }
 
 /**
  * completed / total units. Skipped peers count as completed.
- * Each follow page is one unit; an empty follows list adds 0 units.
+ * Each follow or records page is one unit; an empty list adds 0 units.
  */
 export function summarizeRecoveryProgress(
   ledger: RecoveryProgressLedger
@@ -284,7 +332,7 @@ export function summarizeRecoveryProgress(
   let elapsedMs = 0;
 
   for (const [key, entry] of Object.entries(ledger.entities)) {
-    if (key === FOLLOWS_KEY && isFollowsEntry(entry)) {
+    if (isPagedEntry(entry)) {
       for (const page of entry.pages) {
         total += 1;
         if (page.endTime != null) {
@@ -326,13 +374,14 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
   const selfUserId =
     typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
 
-  const [users, usersInfo, publicKeys, revocations, reeds, following] = await Promise.all([
+  const [users, usersInfo, publicKeys, revocations, reeds, following, records] = await Promise.all([
     dbService.getAll<api.User>('users'),
     dbService.getAll<api.UserInfo>('usersInfo'),
     dbService.getAll<api.PublicKey>('publicKeys'),
     dbService.getAll<api.KeyRevocation>('revocations'),
     dbService.getAll<ReedType>('reeds'),
     dbService.getAll<FollowRecord>('following'),
+    enumerateRecoveryRecords(),
   ]);
 
   const desired = enumerateRecoveryWork({
@@ -343,6 +392,7 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
     revocations,
     reeds,
     following,
+    records,
   });
   const merged = mergeRecoveryProgress(desired, getRecoveryProgress());
   writeLedger(merged);
@@ -355,8 +405,8 @@ function updateEntity(
 ): void {
   const ledger = getRecoveryProgress() ?? { version: 1 as const, entities: {} };
   const current = ledger.entities[key];
-  if (isFollowsEntry(current)) {
-    throw new Error(`recoveryProgress: ${key} is a follows group, not an entity`);
+  if (isPagedEntry(current)) {
+    throw new Error(`recoveryProgress: ${key} is a paged group, not an entity`);
   }
   ledger.entities[key] = patch(isEntityEntry(current) ? { ...current } : {});
   writeLedger(ledger);
@@ -428,4 +478,28 @@ export function markFollowPageFinished(
   if (page.startTime == null) page.startTime = at;
   page.endTime = at;
   writeLedger(ledger);
+}
+
+function updateRecordPage(pageIndex: number, patch: (page: RecoveryRecordPage) => void): void {
+  const ledger = getRecoveryProgress() ?? { version: 1 as const, entities: {} };
+  const records = ledger.entities[RECORDS_KEY];
+  const page = isRecordsEntry(records) ? records.pages.find((p) => p.index === pageIndex) : undefined;
+  if (!page) {
+    throw new Error(`recoveryProgress: records page ${pageIndex} missing`);
+  }
+  patch(page);
+  writeLedger(ledger);
+}
+
+export function markRecordPageStarted(pageIndex: number, at: number = Date.now()): void {
+  updateRecordPage(pageIndex, (page) => {
+    page.startTime ??= at;
+  });
+}
+
+export function markRecordPageFinished(pageIndex: number, at: number = Date.now()): void {
+  updateRecordPage(pageIndex, (page) => {
+    page.startTime ??= at;
+    page.endTime = at;
+  });
 }

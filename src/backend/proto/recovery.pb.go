@@ -699,13 +699,19 @@ func (x *PeerIdentityRequest) GetKey() *RecoveryKeyNode {
 	return nil
 }
 
-// POST /recovery/reeds.
+// POST /recovery/reeds. The links are the ones the author signed, which
+// the server can't check without the content, as when the reed was posted.
 type RecoveryReedRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
-	AuthorId        string                 `protobuf:"bytes,2,opt,name=author_id,json=authorID,proto3" json:"author_id,omitempty"`
-	UserSignature   *UserSignature         `protobuf:"bytes,3,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
-	ServerSignature *ServerSignature       `protobuf:"bytes,4,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	UserSignature   *UserSignature         `protobuf:"bytes,2,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,3,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	ReplyingTo      string                 `protobuf:"bytes,4,opt,name=replying_to,json=replyingTo,proto3" json:"replying_to,omitempty"`
+	ReplyingRoot    string                 `protobuf:"bytes,5,opt,name=replying_root,json=replyingRoot,proto3" json:"replying_root,omitempty"`
+	Echoing         string                 `protobuf:"bytes,6,opt,name=echoing,proto3" json:"echoing,omitempty"`
+	ThreadHead      string                 `protobuf:"bytes,7,opt,name=thread_head,json=threadHead,proto3" json:"thread_head,omitempty"`
+	ThreadIndex     uint32                 `protobuf:"varint,8,opt,name=thread_index,json=threadIndex,proto3" json:"thread_index,omitempty"`
+	Mentions        []string               `protobuf:"bytes,9,rep,name=mentions,proto3" json:"mentions,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -747,13 +753,6 @@ func (x *RecoveryReedRequest) GetReedId() string {
 	return ""
 }
 
-func (x *RecoveryReedRequest) GetAuthorId() string {
-	if x != nil {
-		return x.AuthorId
-	}
-	return ""
-}
-
 func (x *RecoveryReedRequest) GetUserSignature() *UserSignature {
 	if x != nil {
 		return x.UserSignature
@@ -768,6 +767,447 @@ func (x *RecoveryReedRequest) GetServerSignature() *ServerSignature {
 	return nil
 }
 
+func (x *RecoveryReedRequest) GetReplyingTo() string {
+	if x != nil {
+		return x.ReplyingTo
+	}
+	return ""
+}
+
+func (x *RecoveryReedRequest) GetReplyingRoot() string {
+	if x != nil {
+		return x.ReplyingRoot
+	}
+	return ""
+}
+
+func (x *RecoveryReedRequest) GetEchoing() string {
+	if x != nil {
+		return x.Echoing
+	}
+	return ""
+}
+
+func (x *RecoveryReedRequest) GetThreadHead() string {
+	if x != nil {
+		return x.ThreadHead
+	}
+	return ""
+}
+
+func (x *RecoveryReedRequest) GetThreadIndex() uint32 {
+	if x != nil {
+		return x.ThreadIndex
+	}
+	return 0
+}
+
+func (x *RecoveryReedRequest) GetMentions() []string {
+	if x != nil {
+		return x.Mentions
+	}
+	return nil
+}
+
+// One signed record a device holds, reported back to a rebuilt server.
+type RecoveryRecord struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Record:
+	//
+	//	*RecoveryRecord_Like
+	//	*RecoveryRecord_Block
+	//	*RecoveryRecord_Vouch
+	//	*RecoveryRecord_ReedRemoval
+	//	*RecoveryRecord_AccountRemoval
+	//	*RecoveryRecord_Thread
+	//	*RecoveryRecord_ThreadRemoval
+	//	*RecoveryRecord_LedgerEntry
+	//	*RecoveryRecord_AdminRequest
+	//	*RecoveryRecord_Flag
+	Record        isRecoveryRecord_Record `protobuf_oneof:"record"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecoveryRecord) Reset() {
+	*x = RecoveryRecord{}
+	mi := &file_recovery_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoveryRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoveryRecord) ProtoMessage() {}
+
+func (x *RecoveryRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_recovery_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoveryRecord.ProtoReflect.Descriptor instead.
+func (*RecoveryRecord) Descriptor() ([]byte, []int) {
+	return file_recovery_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *RecoveryRecord) GetRecord() isRecoveryRecord_Record {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetLike() *LikeCert {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_Like); ok {
+			return x.Like
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetBlock() *BlockCert {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_Block); ok {
+			return x.Block
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetVouch() *Vouch {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_Vouch); ok {
+			return x.Vouch
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetReedRemoval() *ReedRemovalCert {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_ReedRemoval); ok {
+			return x.ReedRemoval
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetAccountRemoval() *AccountRemovalCert {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_AccountRemoval); ok {
+			return x.AccountRemoval
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetThread() *ThreadRecord {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_Thread); ok {
+			return x.Thread
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetThreadRemoval() *ThreadRemoval {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_ThreadRemoval); ok {
+			return x.ThreadRemoval
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetLedgerEntry() *LedgerEntry {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_LedgerEntry); ok {
+			return x.LedgerEntry
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetAdminRequest() *AdminRequest {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_AdminRequest); ok {
+			return x.AdminRequest
+		}
+	}
+	return nil
+}
+
+func (x *RecoveryRecord) GetFlag() *ReedFlag {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_Flag); ok {
+			return x.Flag
+		}
+	}
+	return nil
+}
+
+type isRecoveryRecord_Record interface {
+	isRecoveryRecord_Record()
+}
+
+type RecoveryRecord_Like struct {
+	Like *LikeCert `protobuf:"bytes,1,opt,name=like,proto3,oneof"`
+}
+
+type RecoveryRecord_Block struct {
+	Block *BlockCert `protobuf:"bytes,2,opt,name=block,proto3,oneof"`
+}
+
+type RecoveryRecord_Vouch struct {
+	Vouch *Vouch `protobuf:"bytes,3,opt,name=vouch,proto3,oneof"`
+}
+
+type RecoveryRecord_ReedRemoval struct {
+	ReedRemoval *ReedRemovalCert `protobuf:"bytes,4,opt,name=reed_removal,json=reedRemoval,proto3,oneof"`
+}
+
+type RecoveryRecord_AccountRemoval struct {
+	AccountRemoval *AccountRemovalCert `protobuf:"bytes,5,opt,name=account_removal,json=accountRemoval,proto3,oneof"`
+}
+
+type RecoveryRecord_Thread struct {
+	Thread *ThreadRecord `protobuf:"bytes,6,opt,name=thread,proto3,oneof"`
+}
+
+type RecoveryRecord_ThreadRemoval struct {
+	ThreadRemoval *ThreadRemoval `protobuf:"bytes,7,opt,name=thread_removal,json=threadRemoval,proto3,oneof"`
+}
+
+type RecoveryRecord_LedgerEntry struct {
+	LedgerEntry *LedgerEntry `protobuf:"bytes,8,opt,name=ledger_entry,json=ledgerEntry,proto3,oneof"`
+}
+
+type RecoveryRecord_AdminRequest struct {
+	AdminRequest *AdminRequest `protobuf:"bytes,9,opt,name=admin_request,json=adminRequest,proto3,oneof"`
+}
+
+type RecoveryRecord_Flag struct {
+	Flag *ReedFlag `protobuf:"bytes,10,opt,name=flag,proto3,oneof"`
+}
+
+func (*RecoveryRecord_Like) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_Block) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_Vouch) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_ReedRemoval) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_AccountRemoval) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_Thread) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_ThreadRemoval) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_LedgerEntry) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_AdminRequest) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_Flag) isRecoveryRecord_Record() {}
+
+// POST /recovery/records.
+type RecoveryRecordsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Records       []*RecoveryRecord      `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecoveryRecordsRequest) Reset() {
+	*x = RecoveryRecordsRequest{}
+	mi := &file_recovery_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoveryRecordsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoveryRecordsRequest) ProtoMessage() {}
+
+func (x *RecoveryRecordsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_recovery_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoveryRecordsRequest.ProtoReflect.Descriptor instead.
+func (*RecoveryRecordsRequest) Descriptor() ([]byte, []int) {
+	return file_recovery_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RecoveryRecordsRequest) GetRecords() []*RecoveryRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+// One outcome per record, in request order: stored (or already held),
+// pending until what it refers to is restored, or refused with a reason.
+type RecoveryRecordResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecoveryRecordResult) Reset() {
+	*x = RecoveryRecordResult{}
+	mi := &file_recovery_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoveryRecordResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoveryRecordResult) ProtoMessage() {}
+
+func (x *RecoveryRecordResult) ProtoReflect() protoreflect.Message {
+	mi := &file_recovery_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoveryRecordResult.ProtoReflect.Descriptor instead.
+func (*RecoveryRecordResult) Descriptor() ([]byte, []int) {
+	return file_recovery_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *RecoveryRecordResult) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *RecoveryRecordResult) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+type RecoveryRecordsResponse struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	Results       []*RecoveryRecordResult `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecoveryRecordsResponse) Reset() {
+	*x = RecoveryRecordsResponse{}
+	mi := &file_recovery_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoveryRecordsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoveryRecordsResponse) ProtoMessage() {}
+
+func (x *RecoveryRecordsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_recovery_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoveryRecordsResponse.ProtoReflect.Descriptor instead.
+func (*RecoveryRecordsResponse) Descriptor() ([]byte, []int) {
+	return file_recovery_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *RecoveryRecordsResponse) GetResults() []*RecoveryRecordResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+// POST /recovery/pins: the caller's pinned reeds, most recent first.
+type RecoveryPinsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ReedIds       []string               `protobuf:"bytes,1,rep,name=reed_ids,json=reedIDs,proto3" json:"reed_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecoveryPinsRequest) Reset() {
+	*x = RecoveryPinsRequest{}
+	mi := &file_recovery_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoveryPinsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoveryPinsRequest) ProtoMessage() {}
+
+func (x *RecoveryPinsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_recovery_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoveryPinsRequest.ProtoReflect.Descriptor instead.
+func (*RecoveryPinsRequest) Descriptor() ([]byte, []int) {
+	return file_recovery_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RecoveryPinsRequest) GetReedIds() []string {
+	if x != nil {
+		return x.ReedIds
+	}
+	return nil
+}
+
 // POST /recovery/following.
 type RecoveryFollowingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -778,7 +1218,7 @@ type RecoveryFollowingRequest struct {
 
 func (x *RecoveryFollowingRequest) Reset() {
 	*x = RecoveryFollowingRequest{}
-	mi := &file_recovery_proto_msgTypes[10]
+	mi := &file_recovery_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -790,7 +1230,7 @@ func (x *RecoveryFollowingRequest) String() string {
 func (*RecoveryFollowingRequest) ProtoMessage() {}
 
 func (x *RecoveryFollowingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[10]
+	mi := &file_recovery_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -803,7 +1243,7 @@ func (x *RecoveryFollowingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryFollowingRequest.ProtoReflect.Descriptor instead.
 func (*RecoveryFollowingRequest) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{10}
+	return file_recovery_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RecoveryFollowingRequest) GetUserIds() []string {
@@ -817,7 +1257,8 @@ var File_recovery_proto protoreflect.FileDescriptor
 
 const file_recovery_proto_rawDesc = "" +
 	"\n" +
-	"\x0erecovery.proto\x12\x06syrinx\x1a\fcommon.proto\x1a\x0eidentity.proto\"1\n" +
+	"\x0erecovery.proto\x12\x06syrinx\x1a\fcommon.proto\x1a\x0eidentity.proto\x1a\n" +
+	"reed.proto\x1a\vadmin.proto\"1\n" +
 	"\x11ChallengeResponse\x12\x1c\n" +
 	"\tchallenge\x18\x01 \x01(\tR\tchallenge\"\x8d\x01\n" +
 	"\x1fAccountRecoveryBootstrapRequest\x12\x1c\n" +
@@ -878,12 +1319,41 @@ const file_recovery_proto_rawDesc = "" +
 	"\x03key\x18\x04 \x01(\v2\x17.syrinx.RecoveryKeyNodeR\x03key\"s\n" +
 	"\x13PeerIdentityRequest\x121\n" +
 	"\aprofile\x18\x01 \x01(\v2\x17.syrinx.RecoveryProfileR\aprofile\x12)\n" +
-	"\x03key\x18\x02 \x01(\v2\x17.syrinx.RecoveryKeyNodeR\x03key\"\xcd\x01\n" +
+	"\x03key\x18\x02 \x01(\v2\x17.syrinx.RecoveryKeyNodeR\x03key\"\xf0\x02\n" +
 	"\x13RecoveryReedRequest\x12\x17\n" +
-	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1b\n" +
-	"\tauthor_id\x18\x02 \x01(\tR\bauthorID\x12<\n" +
-	"\x0euser_signature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"5\n" +
+	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12<\n" +
+	"\x0euser_signature\x18\x02 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
+	"\x10server_signature\x18\x03 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1f\n" +
+	"\vreplying_to\x18\x04 \x01(\tR\n" +
+	"replyingTo\x12#\n" +
+	"\rreplying_root\x18\x05 \x01(\tR\freplyingRoot\x12\x18\n" +
+	"\aechoing\x18\x06 \x01(\tR\aechoing\x12\x1f\n" +
+	"\vthread_head\x18\a \x01(\tR\n" +
+	"threadHead\x12!\n" +
+	"\fthread_index\x18\b \x01(\rR\vthreadIndex\x12\x1a\n" +
+	"\bmentions\x18\t \x03(\tR\bmentions\"\xa8\x04\n" +
+	"\x0eRecoveryRecord\x12&\n" +
+	"\x04like\x18\x01 \x01(\v2\x10.syrinx.LikeCertH\x00R\x04like\x12)\n" +
+	"\x05block\x18\x02 \x01(\v2\x11.syrinx.BlockCertH\x00R\x05block\x12%\n" +
+	"\x05vouch\x18\x03 \x01(\v2\r.syrinx.VouchH\x00R\x05vouch\x12<\n" +
+	"\freed_removal\x18\x04 \x01(\v2\x17.syrinx.ReedRemovalCertH\x00R\vreedRemoval\x12E\n" +
+	"\x0faccount_removal\x18\x05 \x01(\v2\x1a.syrinx.AccountRemovalCertH\x00R\x0eaccountRemoval\x12.\n" +
+	"\x06thread\x18\x06 \x01(\v2\x14.syrinx.ThreadRecordH\x00R\x06thread\x12>\n" +
+	"\x0ethread_removal\x18\a \x01(\v2\x15.syrinx.ThreadRemovalH\x00R\rthreadRemoval\x128\n" +
+	"\fledger_entry\x18\b \x01(\v2\x13.syrinx.LedgerEntryH\x00R\vledgerEntry\x12;\n" +
+	"\radmin_request\x18\t \x01(\v2\x14.syrinx.AdminRequestH\x00R\fadminRequest\x12&\n" +
+	"\x04flag\x18\n" +
+	" \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flagB\b\n" +
+	"\x06record\"J\n" +
+	"\x16RecoveryRecordsRequest\x120\n" +
+	"\arecords\x18\x01 \x03(\v2\x16.syrinx.RecoveryRecordR\arecords\"F\n" +
+	"\x14RecoveryRecordResult\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x16\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\"Q\n" +
+	"\x17RecoveryRecordsResponse\x126\n" +
+	"\aresults\x18\x01 \x03(\v2\x1c.syrinx.RecoveryRecordResultR\aresults\"0\n" +
+	"\x13RecoveryPinsRequest\x12\x19\n" +
+	"\breed_ids\x18\x01 \x03(\tR\areedIDs\"5\n" +
 	"\x18RecoveryFollowingRequest\x12\x19\n" +
 	"\buser_ids\x18\x01 \x03(\tR\auserIDsB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 
@@ -899,7 +1369,7 @@ func file_recovery_proto_rawDescGZIP() []byte {
 	return file_recovery_proto_rawDescData
 }
 
-var file_recovery_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_recovery_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_recovery_proto_goTypes = []any{
 	(*ChallengeResponse)(nil),                // 0: syrinx.ChallengeResponse
 	(*AccountRecoveryBootstrapRequest)(nil),  // 1: syrinx.AccountRecoveryBootstrapRequest
@@ -911,33 +1381,60 @@ var file_recovery_proto_goTypes = []any{
 	(*ClaimIdentityRequest)(nil),             // 7: syrinx.ClaimIdentityRequest
 	(*PeerIdentityRequest)(nil),              // 8: syrinx.PeerIdentityRequest
 	(*RecoveryReedRequest)(nil),              // 9: syrinx.RecoveryReedRequest
-	(*RecoveryFollowingRequest)(nil),         // 10: syrinx.RecoveryFollowingRequest
-	(*User)(nil),                             // 11: syrinx.User
-	(*UserSignature)(nil),                    // 12: syrinx.UserSignature
-	(*ServerSignature)(nil),                  // 13: syrinx.ServerSignature
-	(*UserInvite)(nil),                       // 14: syrinx.UserInvite
+	(*RecoveryRecord)(nil),                   // 10: syrinx.RecoveryRecord
+	(*RecoveryRecordsRequest)(nil),           // 11: syrinx.RecoveryRecordsRequest
+	(*RecoveryRecordResult)(nil),             // 12: syrinx.RecoveryRecordResult
+	(*RecoveryRecordsResponse)(nil),          // 13: syrinx.RecoveryRecordsResponse
+	(*RecoveryPinsRequest)(nil),              // 14: syrinx.RecoveryPinsRequest
+	(*RecoveryFollowingRequest)(nil),         // 15: syrinx.RecoveryFollowingRequest
+	(*User)(nil),                             // 16: syrinx.User
+	(*UserSignature)(nil),                    // 17: syrinx.UserSignature
+	(*ServerSignature)(nil),                  // 18: syrinx.ServerSignature
+	(*UserInvite)(nil),                       // 19: syrinx.UserInvite
+	(*LikeCert)(nil),                         // 20: syrinx.LikeCert
+	(*BlockCert)(nil),                        // 21: syrinx.BlockCert
+	(*Vouch)(nil),                            // 22: syrinx.Vouch
+	(*ReedRemovalCert)(nil),                  // 23: syrinx.ReedRemovalCert
+	(*AccountRemovalCert)(nil),               // 24: syrinx.AccountRemovalCert
+	(*ThreadRecord)(nil),                     // 25: syrinx.ThreadRecord
+	(*ThreadRemoval)(nil),                    // 26: syrinx.ThreadRemoval
+	(*LedgerEntry)(nil),                      // 27: syrinx.LedgerEntry
+	(*AdminRequest)(nil),                     // 28: syrinx.AdminRequest
+	(*ReedFlag)(nil),                         // 29: syrinx.ReedFlag
 }
 var file_recovery_proto_depIdxs = []int32{
-	11, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
-	12, // 1: syrinx.RecoveryProfile.user_signature:type_name -> syrinx.UserSignature
-	13, // 2: syrinx.RecoveryProfile.server_signature:type_name -> syrinx.ServerSignature
-	14, // 3: syrinx.RecoveryProfile.invite:type_name -> syrinx.UserInvite
-	12, // 4: syrinx.RecoveryRevocation.user_signature:type_name -> syrinx.UserSignature
-	13, // 5: syrinx.RecoveryRevocation.server_signature:type_name -> syrinx.ServerSignature
-	13, // 6: syrinx.RecoveryKeyNode.server_signature:type_name -> syrinx.ServerSignature
+	16, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
+	17, // 1: syrinx.RecoveryProfile.user_signature:type_name -> syrinx.UserSignature
+	18, // 2: syrinx.RecoveryProfile.server_signature:type_name -> syrinx.ServerSignature
+	19, // 3: syrinx.RecoveryProfile.invite:type_name -> syrinx.UserInvite
+	17, // 4: syrinx.RecoveryRevocation.user_signature:type_name -> syrinx.UserSignature
+	18, // 5: syrinx.RecoveryRevocation.server_signature:type_name -> syrinx.ServerSignature
+	18, // 6: syrinx.RecoveryKeyNode.server_signature:type_name -> syrinx.ServerSignature
 	5,  // 7: syrinx.RecoveryKeyNode.revocation:type_name -> syrinx.RecoveryRevocation
 	6,  // 8: syrinx.RecoveryKeyNode.predecessor:type_name -> syrinx.RecoveryKeyNode
 	3,  // 9: syrinx.ClaimIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
 	6,  // 10: syrinx.ClaimIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
 	3,  // 11: syrinx.PeerIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
 	6,  // 12: syrinx.PeerIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
-	12, // 13: syrinx.RecoveryReedRequest.user_signature:type_name -> syrinx.UserSignature
-	13, // 14: syrinx.RecoveryReedRequest.server_signature:type_name -> syrinx.ServerSignature
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	17, // 13: syrinx.RecoveryReedRequest.user_signature:type_name -> syrinx.UserSignature
+	18, // 14: syrinx.RecoveryReedRequest.server_signature:type_name -> syrinx.ServerSignature
+	20, // 15: syrinx.RecoveryRecord.like:type_name -> syrinx.LikeCert
+	21, // 16: syrinx.RecoveryRecord.block:type_name -> syrinx.BlockCert
+	22, // 17: syrinx.RecoveryRecord.vouch:type_name -> syrinx.Vouch
+	23, // 18: syrinx.RecoveryRecord.reed_removal:type_name -> syrinx.ReedRemovalCert
+	24, // 19: syrinx.RecoveryRecord.account_removal:type_name -> syrinx.AccountRemovalCert
+	25, // 20: syrinx.RecoveryRecord.thread:type_name -> syrinx.ThreadRecord
+	26, // 21: syrinx.RecoveryRecord.thread_removal:type_name -> syrinx.ThreadRemoval
+	27, // 22: syrinx.RecoveryRecord.ledger_entry:type_name -> syrinx.LedgerEntry
+	28, // 23: syrinx.RecoveryRecord.admin_request:type_name -> syrinx.AdminRequest
+	29, // 24: syrinx.RecoveryRecord.flag:type_name -> syrinx.ReedFlag
+	10, // 25: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
+	12, // 26: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_recovery_proto_init() }
@@ -947,15 +1444,29 @@ func file_recovery_proto_init() {
 	}
 	file_common_proto_init()
 	file_identity_proto_init()
+	file_reed_proto_init()
+	file_admin_proto_init()
 	file_recovery_proto_msgTypes[2].OneofWrappers = []any{}
 	file_recovery_proto_msgTypes[5].OneofWrappers = []any{}
+	file_recovery_proto_msgTypes[10].OneofWrappers = []any{
+		(*RecoveryRecord_Like)(nil),
+		(*RecoveryRecord_Block)(nil),
+		(*RecoveryRecord_Vouch)(nil),
+		(*RecoveryRecord_ReedRemoval)(nil),
+		(*RecoveryRecord_AccountRemoval)(nil),
+		(*RecoveryRecord_Thread)(nil),
+		(*RecoveryRecord_ThreadRemoval)(nil),
+		(*RecoveryRecord_LedgerEntry)(nil),
+		(*RecoveryRecord_AdminRequest)(nil),
+		(*RecoveryRecord_Flag)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recovery_proto_rawDesc), len(file_recovery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

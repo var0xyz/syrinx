@@ -531,9 +531,16 @@ func readRecoveryReed(r *http.Request) (recoveryReedRequest, error) {
 	}
 	return recoveryReedRequest{
 		ReedID:          msg.GetReedId(),
-		AuthorID:        msg.GetAuthorId(),
 		UserSignature:   recoveryUserSignature{KeyID: msg.GetUserSignature().GetId(), Armor: msg.GetUserSignature().GetArmor()},
 		ServerSignature: sig,
+		Links: recoveryReedLinks{
+			ReplyingTo:   msg.GetReplyingTo(),
+			ReplyingRoot: msg.GetReplyingRoot(),
+			Echoing:      msg.GetEchoing(),
+			ThreadHead:   msg.GetThreadHead(),
+			ThreadIndex:  int(msg.GetThreadIndex()),
+			Mentions:     msg.GetMentions(),
+		},
 	}, nil
 }
 

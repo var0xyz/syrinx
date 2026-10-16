@@ -102,7 +102,10 @@ import {
   ClaimIdentityRequestSchema,
   PeerIdentityRequestSchema,
   RecoveryFollowingRequestSchema,
+  RecoveryPinsRequestSchema,
   RecoveryProfileSchema,
+  RecoveryRecordsRequestSchema,
+  RecoveryRecordsResponseSchema,
   RecoveryReedRequestSchema,
   UserStatusResponseSchema,
 } from '$lib/proto/recovery_pb';
@@ -1105,6 +1108,19 @@ export const apiService = {
   /** Authenticated: report a page of following user IDs (≤100). */
   async reportRecoveryFollowing(userIds: string[]): Promise<void> {
     await send('/recovery/following', protoBody('POST', RecoveryFollowingRequestSchema, { userIds }));
+  },
+
+  /** Authenticated: report a batch of signed records (≤100); one outcome each. */
+  async reportRecoveryRecords(
+    records: MessageInitShape<typeof RecoveryRecordsRequestSchema>['records']
+  ): Promise<api.RecoveryRecordResult[]> {
+    const body = protoBody('POST', RecoveryRecordsRequestSchema, { records });
+    return (await request('/recovery/records', body, RecoveryRecordsResponseSchema)).results;
+  },
+
+  /** Authenticated: report the caller's pinned reeds, most recent first. */
+  async reportRecoveryPins(reedIds: string[]): Promise<void> {
+    await send('/recovery/pins', protoBody('POST', RecoveryPinsRequestSchema, { reedIds }));
   },
 
   /** Authenticated: clear ongoing_recoveries for the caller. */

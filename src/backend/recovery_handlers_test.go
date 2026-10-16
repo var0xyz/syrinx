@@ -13,10 +13,9 @@ import (
 	pb "syrinx/proto"
 )
 
-// TestVerifyRecoveryReedCountersig_RealSignature: AuthorID arrives canonical,
-// only ReedID is bare — fakeRecoveryVerifier-based tests never run real
-// crypto so can't catch a wrong reconstructed payload; this signs/verifies
-// for real.
+// TestVerifyRecoveryReedCountersig_RealSignature: fakeRecoveryVerifier-based
+// tests never run real crypto so can't catch a wrong reconstructed payload;
+// this signs and verifies for real.
 func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 	cryptoSvc := newCryptoService()
 	serverID := "srv1"
@@ -38,8 +37,7 @@ func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 	}
 
 	req := recoveryReedRequest{
-		ReedID:        "reed1",
-		AuthorID:      authorID,
+		ReedID:        canonicalReedID,
 		UserSignature: recoveryUserSignature{KeyID: authorKeyID, Armor: userSigArmor},
 		ServerSignature: recoveryServerSignature{
 			ServerID: serverID, Fingerprint: serverKP.Fingerprint,
@@ -78,8 +76,7 @@ func TestVerifyRecoveryReedCountersig_OK(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	serverID := "srv1"
 	req := recoveryReedRequest{
-		ReedID:          "reed1",
-		AuthorID:        "author1@srv1",
+		ReedID:          "author1@srv1/reed1",
 		UserSignature:   testReedUserSig(),
 		ServerSignature: testRecoveryServerSig(serverID, ts),
 	}
@@ -101,8 +98,7 @@ func TestVerifyRecoveryReedCountersig_BadSig(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	serverID := "srv1"
 	req := recoveryReedRequest{
-		ReedID:          "reed1",
-		AuthorID:        "author1@srv1",
+		ReedID:          "author1@srv1/reed1",
 		UserSignature:   testReedUserSig(),
 		ServerSignature: testRecoveryServerSig(serverID, ts),
 	}
@@ -119,7 +115,7 @@ func TestVerifyRecoveryReedCountersig_BadSig(t *testing.T) {
 func TestVerifyRecoveryReedCountersig_ServerIDMismatch(t *testing.T) {
 	ts := time.Date(2026, 7, 19, 12, 0, 0, 0, time.UTC)
 	req := recoveryReedRequest{
-		ReedID: "reed1", AuthorID: "author1@srv1", UserSignature: testReedUserSig(),
+		ReedID: "author1@srv1/reed1", UserSignature: testReedUserSig(),
 		ServerSignature: testRecoveryServerSig("other", ts),
 	}
 	err := verifyRecoveryReedCountersig(context.Background(), req, "srv1", func(ctx context.Context, _ string, _ time.Time) (string, error) { return "pub", nil }, &fakeRecoveryVerifier{})
@@ -144,12 +140,11 @@ func TestReportReed_BadCountersig(t *testing.T) {
 	serverID := h.services.db.GetServerID()
 	ts := time.Now().UTC().Truncate(time.Second)
 	req := recoveryReedRequest{
-		ReedID: "reed1", AuthorID: "author1@" + serverID, UserSignature: testReedUserSig(),
+		ReedID: "author1@" + serverID + "/reed1", UserSignature: testReedUserSig(),
 		ServerSignature: testRecoveryServerSig(serverID, ts),
 	}
 	httpReq := protoRequest(http.MethodPost, "/api/recovery/reeds", &pb.RecoveryReedRequest{
 		ReedId:          req.ReedID,
-		AuthorId:        req.AuthorID,
 		UserSignature:   &pb.UserSignature{Id: req.UserSignature.KeyID, Armor: req.UserSignature.Armor},
 		ServerSignature: pbRecoveryServerSignature(req.ServerSignature),
 	})

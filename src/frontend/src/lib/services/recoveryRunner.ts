@@ -1,6 +1,6 @@
 /**
  * Drive unfinished recovery progress units through complete.
- * Order: own identity → peers → reeds → follows → complete.
+ * Order: own identity → peers → reeds → follows → records → pins → complete.
  */
 
 import {
@@ -9,21 +9,29 @@ import {
   getRecoveryProgress,
   isEntityEntry,
   isFollowsEntry,
+  isRecordsEntry,
   markEntityFinished,
   markEntitySkipped,
   markEntityStarted,
   markFollowPageFinished,
   markFollowPageStarted,
+  markRecordPageFinished,
+  markRecordPageStarted,
   OWN_IDENTITY_KEY,
+  PINS_KEY,
   peerEntityKey,
+  RECORDS_KEY,
   reedEntityKey,
   type RecoveryFollowPage,
+  type RecoveryRecordPage,
 } from './recoveryProgress';
 import { claimOwnIdentity } from './ownIdentityClaim';
 import { reportPeerIdentity } from './peerIdentityReport';
 import {
   completeRecoveryImport,
   reportRecoveryFollowing,
+  reportRecoveryPins,
+  reportRecoveryRecords,
   reportRecoveryReed,
 } from './recoveryHoldings';
 import { completeRecoveryRun } from './recoveryRun';
@@ -60,6 +68,12 @@ function completeDone(): boolean {
   return isEntityEntry(entry) && entry.endTime != null;
 }
 
+/** True when pins are to be reported and haven't been yet. */
+function pinsPending(): boolean {
+  const entry = getRecoveryProgress()?.entities[PINS_KEY];
+  return isEntityEntry(entry) && entry.endTime == null;
+}
+
 /** Pending peer user IDs (not finished and not already skipped). */
 function pendingPeerUserIds(): string[] {
   const ledger = getRecoveryProgress();
@@ -94,6 +108,13 @@ function pendingFollowPages(): RecoveryFollowPage[] {
   const follows = ledger?.entities[FOLLOWS_KEY];
   if (!isFollowsEntry(follows)) return [];
   return follows.pages.filter((page) => page.endTime == null);
+}
+
+/** Records pages that still need a POST. */
+function pendingRecordPages(): RecoveryRecordPage[] {
+  const records = getRecoveryProgress()?.entities[RECORDS_KEY];
+  if (!isRecordsEntry(records)) return [];
+  return records.pages.filter((page) => page.endTime == null);
 }
 
 /**
@@ -187,6 +208,29 @@ export async function runRecoveryWork(
         ok: false,
         error: errorMessage(err, 'Follow report failed.'),
       };
+    }
+  }
+
+  // A refused record is one the server can't take, not a failure.
+  for (const page of pendingRecordPages()) {
+    markRecordPageStarted(page.index);
+    try {
+      await reportRecoveryRecords(page.refs);
+      markRecordPageFinished(page.index);
+      notify();
+    } catch (err) {
+      return { ok: false, error: errorMessage(err, 'Record report failed.') };
+    }
+  }
+
+  if (pinsPending()) {
+    markEntityStarted(PINS_KEY);
+    try {
+      await reportRecoveryPins(localStorage.getItem('userId') ?? '');
+      markEntityFinished(PINS_KEY);
+      notify();
+    } catch (err) {
+      return { ok: false, error: errorMessage(err, 'Pin report failed.') };
     }
   }
 

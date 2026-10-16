@@ -167,6 +167,17 @@ records dated before `revoked_at` and they will verify.
 Accepted: the signed records live on clients, and nothing can re-deliver
 re-signed copies they would have reason to trust over the ones they hold.
 
+### L6 — Recovered reed links rest on a holder's word
+**Where:** `restoreReedLinksTx` (`services.go`). On a rebuilt server, a
+reed's reply, echo, thread and mention links come from whoever reports the
+reed. The author signed them, but the server can't check that without the
+content, so the first holder to report a reed decides its links until the
+author reports it. A member could misplace someone else's reed in a
+conversation, or add mentions, on the server; clients still verify links
+against the author's signature when they load the reed.
+**Fix:** have the author sign the links apart from the content, so the
+server can check them.
+
 ---
 
 ## Architectural / operational risks (non-security)

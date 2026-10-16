@@ -1,4 +1,6 @@
 import { writable } from 'svelte/store';
+import type { MessageInitShape } from '@bufbuild/protobuf';
+import type { ReedFlagSchema } from '$lib/proto/admin_pb';
 import { apiService } from './api';
 import { authService } from './auth';
 import { requestSigner } from './request-signer';
@@ -10,12 +12,21 @@ import { allowUnsigned } from '$lib/verifiers';
 /** Bumped whenever the viewer flags a reed. */
 export const flagsChanged = writable(0);
 
-export async function isFlagged(reedID: string): Promise<boolean> {
-  return !!(await dbService.get<{ reedID: string }>('flaggedReeds', reedID));
+/** A reed the viewer flagged, with the signed flag a rebuilt server
+ * gets back. */
+export interface FlaggedReedRecord {
+  reedID: string;
+  flaggedAt: number;
+  flag?: MessageInitShape<typeof ReedFlagSchema>;
 }
 
-async function recordFlagged(reedID: string): Promise<void> {
-  await dbService.put('flaggedReeds', { reedID, flaggedAt: Date.now() }, allowUnsigned);
+export async function isFlagged(reedID: string): Promise<boolean> {
+  return !!(await dbService.get<FlaggedReedRecord>('flaggedReeds', reedID));
+}
+
+async function recordFlagged(flag: MessageInitShape<typeof ReedFlagSchema>): Promise<void> {
+  const record: FlaggedReedRecord = { reedID: flag.reedId!, flaggedAt: Date.now(), flag };
+  await dbService.put('flaggedReeds', record, allowUnsigned);
   flagsChanged.update((n) => n + 1);
 }
 
@@ -29,13 +40,14 @@ export async function flagReed(reedID: string, note: string): Promise<boolean> {
   const armor = await requestSigner.sign(
     buildReedFlagPayload(reedID, reporterID, keyID, note, signedAtHeader(createdAt))
   );
+  const flag = { reedId: reedID, reporterId: reporterID, note, createdAt, signature: { id: keyID, armor } };
   try {
-    await apiService.flagReed({ reedId: reedID, reporterId: reporterID, note, createdAt, signature: { id: keyID, armor } });
+    await apiService.flagReed(flag);
   } catch (err) {
     if ((err as { status?: number })?.status !== 409) throw err;
-    await recordFlagged(reedID);
+    await recordFlagged(flag);
     return false;
   }
-  await recordFlagged(reedID);
+  await recordFlagged(flag);
   return true;
 }

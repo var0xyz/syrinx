@@ -741,9 +741,19 @@ type recoveryPeerIdentityRequest struct {
 // recoveryReedRequest is the POST /api/recovery/reeds body.
 type recoveryReedRequest struct {
 	ReedID          string                  `json:"reedID"`
-	AuthorID        string                  `json:"authorID"`
 	UserSignature   recoveryUserSignature   `json:"userSignature"`
 	ServerSignature recoveryServerSignature `json:"serverSignature"`
+	Links           recoveryReedLinks       `json:"links"`
+}
+
+// recoveryReedLinks are the links a reed's author signed into it.
+type recoveryReedLinks struct {
+	ReplyingTo   string
+	ReplyingRoot string
+	Echoing      string
+	ThreadHead   string
+	ThreadIndex  int
+	Mentions     []string
 }
 
 // recoveryFollowingRequest is the POST /api/recovery/following body.

@@ -4,17 +4,21 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { ServerSignature, UserSignature } from "./common_pb";
+import type { AccountRemovalCert, AdminRequest, BlockCert, LedgerEntry, ReedRemovalCert, ServerSignature, ThreadRecord, ThreadRemoval, UserSignature } from "./common_pb";
 import { file_common } from "./common_pb";
-import type { User, UserInvite } from "./identity_pb";
+import type { User, UserInvite, Vouch } from "./identity_pb";
 import { file_identity } from "./identity_pb";
+import type { LikeCert } from "./reed_pb";
+import { file_reed } from "./reed_pb";
+import type { ReedFlag } from "./admin_pb";
+import { file_admin } from "./admin_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file recovery.proto.
  */
 export const file_recovery: GenFile = /*@__PURE__*/
-  fileDesc("Cg5yZWNvdmVyeS5wcm90bxIGc3lyaW54IiYKEUNoYWxsZW5nZVJlc3BvbnNlEhEKCWNoYWxsZW5nZRgBIAEoCSJ3Ch9BY2NvdW50UmVjb3ZlcnlCb290c3RyYXBSZXF1ZXN0EhEKCWNoYWxsZW5nZRgBIAEoCRIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSFQoGa2V5X2lkGAMgASgJUgVrZXlJRBIRCglzaWduYXR1cmUYBCABKAkipAEKIEFjY291bnRSZWNvdmVyeUJvb3RzdHJhcFJlc3BvbnNlEh0KB3Byb2ZpbGUYASABKAsyDC5zeXJpbnguVXNlchIRCglmb2xsb3dpbmcYAiADKAkSIwoLdGlwX3JlZWRfaWQYAyABKAlIAFIJdGlwUmVlZElEiAEBEhkKCHJlZWRfaWRzGAQgAygJUgdyZWVkSURzQg4KDF90aXBfcmVlZF9pZCKuAgoPUmVjb3ZlcnlQcm9maWxlEgoKAmlkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEgwKBHJvbGUYAyABKAkSFAoMbWVtYmVyX3NpbmNlGAQgASgNEgsKA2JpbxgFIAEoCRIeChZhY3RpdmVfa2V5X2ZpbmdlcnByaW50GAYgASgJEi0KDnVzZXJfc2lnbmF0dXJlGAcgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgIIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSEQoJaGFzX3JlZWRzGAkgASgIEiIKBmludml0ZRgKIAEoCzISLnN5cmlueC5Vc2VySW52aXRlEhMKC3Blcm1pc3Npb25zGAsgAygJIiQKElVzZXJTdGF0dXNSZXNwb25zZRIOCgZzdGF0dXMYASABKAki2gEKElJlY292ZXJ5UmV2b2NhdGlvbhITCgtmaW5nZXJwcmludBgBIAEoCRIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSDgoGcmVhc29uGAMgASgJEhYKCXN1Y2Nlc3NvchgEIAEoCUgAiAEBEi0KDnVzZXJfc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgGIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmVCDAoKX3N1Y2Nlc3NvciKrAgoPUmVjb3ZlcnlLZXlOb2RlEhMKC2ZpbmdlcnByaW50GAEgASgJEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBINCgVhcm1vchgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgNEhIKCmV4cGlyZXNfYXQYBSABKA0SDwoHcmV2b2tlZBgGIAEoCBIxChBzZXJ2ZXJfc2lnbmF0dXJlGAcgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZRIRCglzaWduYXR1cmUYCCABKAkSLgoKcmV2b2NhdGlvbhgJIAEoCzIaLnN5cmlueC5SZWNvdmVyeVJldm9jYXRpb24SLAoLcHJlZGVjZXNzb3IYCiABKAsyFy5zeXJpbnguUmVjb3ZlcnlLZXlOb2RlIowBChRDbGFpbUlkZW50aXR5UmVxdWVzdBIRCgljaGFsbGVuZ2UYASABKAkSEQoJc2lnbmF0dXJlGAIgASgJEigKB3Byb2ZpbGUYAyABKAsyFy5zeXJpbnguUmVjb3ZlcnlQcm9maWxlEiQKA2tleRgEIAEoCzIXLnN5cmlueC5SZWNvdmVyeUtleU5vZGUiZQoTUGVlcklkZW50aXR5UmVxdWVzdBIoCgdwcm9maWxlGAEgASgLMhcuc3lyaW54LlJlY292ZXJ5UHJvZmlsZRIkCgNrZXkYAiABKAsyFy5zeXJpbnguUmVjb3ZlcnlLZXlOb2RlIq0BChNSZWNvdmVyeVJlZWRSZXF1ZXN0EhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBIbCglhdXRob3JfaWQYAiABKAlSCGF1dGhvcklEEi0KDnVzZXJfc2lnbmF0dXJlGAMgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgEIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiNQoYUmVjb3ZlcnlGb2xsb3dpbmdSZXF1ZXN0EhkKCHVzZXJfaWRzGAEgAygJUgd1c2VySURzQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common, file_identity]);
+  fileDesc("Cg5yZWNvdmVyeS5wcm90bxIGc3lyaW54IiYKEUNoYWxsZW5nZVJlc3BvbnNlEhEKCWNoYWxsZW5nZRgBIAEoCSJ3Ch9BY2NvdW50UmVjb3ZlcnlCb290c3RyYXBSZXF1ZXN0EhEKCWNoYWxsZW5nZRgBIAEoCRIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSFQoGa2V5X2lkGAMgASgJUgVrZXlJRBIRCglzaWduYXR1cmUYBCABKAkipAEKIEFjY291bnRSZWNvdmVyeUJvb3RzdHJhcFJlc3BvbnNlEh0KB3Byb2ZpbGUYASABKAsyDC5zeXJpbnguVXNlchIRCglmb2xsb3dpbmcYAiADKAkSIwoLdGlwX3JlZWRfaWQYAyABKAlIAFIJdGlwUmVlZElEiAEBEhkKCHJlZWRfaWRzGAQgAygJUgdyZWVkSURzQg4KDF90aXBfcmVlZF9pZCKuAgoPUmVjb3ZlcnlQcm9maWxlEgoKAmlkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEgwKBHJvbGUYAyABKAkSFAoMbWVtYmVyX3NpbmNlGAQgASgNEgsKA2JpbxgFIAEoCRIeChZhY3RpdmVfa2V5X2ZpbmdlcnByaW50GAYgASgJEi0KDnVzZXJfc2lnbmF0dXJlGAcgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgIIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSEQoJaGFzX3JlZWRzGAkgASgIEiIKBmludml0ZRgKIAEoCzISLnN5cmlueC5Vc2VySW52aXRlEhMKC3Blcm1pc3Npb25zGAsgAygJIiQKElVzZXJTdGF0dXNSZXNwb25zZRIOCgZzdGF0dXMYASABKAki2gEKElJlY292ZXJ5UmV2b2NhdGlvbhITCgtmaW5nZXJwcmludBgBIAEoCRIXCgd1c2VyX2lkGAIgASgJUgZ1c2VySUQSDgoGcmVhc29uGAMgASgJEhYKCXN1Y2Nlc3NvchgEIAEoCUgAiAEBEi0KDnVzZXJfc2lnbmF0dXJlGAUgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgGIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmVCDAoKX3N1Y2Nlc3NvciKrAgoPUmVjb3ZlcnlLZXlOb2RlEhMKC2ZpbmdlcnByaW50GAEgASgJEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBINCgVhcm1vchgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgNEhIKCmV4cGlyZXNfYXQYBSABKA0SDwoHcmV2b2tlZBgGIAEoCBIxChBzZXJ2ZXJfc2lnbmF0dXJlGAcgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZRIRCglzaWduYXR1cmUYCCABKAkSLgoKcmV2b2NhdGlvbhgJIAEoCzIaLnN5cmlueC5SZWNvdmVyeVJldm9jYXRpb24SLAoLcHJlZGVjZXNzb3IYCiABKAsyFy5zeXJpbnguUmVjb3ZlcnlLZXlOb2RlIowBChRDbGFpbUlkZW50aXR5UmVxdWVzdBIRCgljaGFsbGVuZ2UYASABKAkSEQoJc2lnbmF0dXJlGAIgASgJEigKB3Byb2ZpbGUYAyABKAsyFy5zeXJpbnguUmVjb3ZlcnlQcm9maWxlEiQKA2tleRgEIAEoCzIXLnN5cmlueC5SZWNvdmVyeUtleU5vZGUiZQoTUGVlcklkZW50aXR5UmVxdWVzdBIoCgdwcm9maWxlGAEgASgLMhcuc3lyaW54LlJlY292ZXJ5UHJvZmlsZRIkCgNrZXkYAiABKAsyFy5zeXJpbnguUmVjb3ZlcnlLZXlOb2RlIooCChNSZWNvdmVyeVJlZWRSZXF1ZXN0EhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBItCg51c2VyX3NpZ25hdHVyZRgCIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYAyABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlEhMKC3JlcGx5aW5nX3RvGAQgASgJEhUKDXJlcGx5aW5nX3Jvb3QYBSABKAkSDwoHZWNob2luZxgGIAEoCRITCgt0aHJlYWRfaGVhZBgHIAEoCRIUCgx0aHJlYWRfaW5kZXgYCCABKA0SEAoIbWVudGlvbnMYCSADKAkivwMKDlJlY292ZXJ5UmVjb3JkEiAKBGxpa2UYASABKAsyEC5zeXJpbnguTGlrZUNlcnRIABIiCgVibG9jaxgCIAEoCzIRLnN5cmlueC5CbG9ja0NlcnRIABIeCgV2b3VjaBgDIAEoCzINLnN5cmlueC5Wb3VjaEgAEi8KDHJlZWRfcmVtb3ZhbBgEIAEoCzIXLnN5cmlueC5SZWVkUmVtb3ZhbENlcnRIABI1Cg9hY2NvdW50X3JlbW92YWwYBSABKAsyGi5zeXJpbnguQWNjb3VudFJlbW92YWxDZXJ0SAASJgoGdGhyZWFkGAYgASgLMhQuc3lyaW54LlRocmVhZFJlY29yZEgAEi8KDnRocmVhZF9yZW1vdmFsGAcgASgLMhUuc3lyaW54LlRocmVhZFJlbW92YWxIABIrCgxsZWRnZXJfZW50cnkYCCABKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlIABItCg1hZG1pbl9yZXF1ZXN0GAkgASgLMhQuc3lyaW54LkFkbWluUmVxdWVzdEgAEiAKBGZsYWcYCiABKAsyEC5zeXJpbnguUmVlZEZsYWdIAEIICgZyZWNvcmQiQQoWUmVjb3ZlcnlSZWNvcmRzUmVxdWVzdBInCgdyZWNvcmRzGAEgAygLMhYuc3lyaW54LlJlY292ZXJ5UmVjb3JkIjYKFFJlY292ZXJ5UmVjb3JkUmVzdWx0Eg4KBnN0YXR1cxgBIAEoCRIOCgZyZWFzb24YAiABKAkiSAoXUmVjb3ZlcnlSZWNvcmRzUmVzcG9uc2USLQoHcmVzdWx0cxgBIAMoCzIcLnN5cmlueC5SZWNvdmVyeVJlY29yZFJlc3VsdCIwChNSZWNvdmVyeVBpbnNSZXF1ZXN0EhkKCHJlZWRfaWRzGAEgAygJUgdyZWVkSURzIjUKGFJlY292ZXJ5Rm9sbG93aW5nUmVxdWVzdBIZCgh1c2VyX2lkcxgBIAMoCVIHdXNlcklEc0IhWh9naXRodWIuY29tL3ZhcjB4eXovc3lyaW54L3Byb3RvYgZwcm90bzM", [file_common, file_identity, file_reed, file_admin]);
 
 /**
  * A single-use challenge nonce, for account recovery and identity claims.
@@ -357,7 +361,8 @@ export const PeerIdentityRequestSchema: GenMessage<PeerIdentityRequest> = /*@__P
   messageDesc(file_recovery, 8);
 
 /**
- * POST /recovery/reeds.
+ * POST /recovery/reeds. The links are the ones the author signed, which
+ * the server can't check without the content, as when the reed was posted.
  *
  * @generated from message syrinx.RecoveryReedRequest
  */
@@ -368,19 +373,44 @@ export type RecoveryReedRequest = Message<"syrinx.RecoveryReedRequest"> & {
   reedId: string;
 
   /**
-   * @generated from field: string author_id = 2 [json_name = "authorID"];
-   */
-  authorId: string;
-
-  /**
-   * @generated from field: syrinx.UserSignature user_signature = 3;
+   * @generated from field: syrinx.UserSignature user_signature = 2;
    */
   userSignature?: UserSignature | undefined;
 
   /**
-   * @generated from field: syrinx.ServerSignature server_signature = 4;
+   * @generated from field: syrinx.ServerSignature server_signature = 3;
    */
   serverSignature?: ServerSignature | undefined;
+
+  /**
+   * @generated from field: string replying_to = 4;
+   */
+  replyingTo: string;
+
+  /**
+   * @generated from field: string replying_root = 5;
+   */
+  replyingRoot: string;
+
+  /**
+   * @generated from field: string echoing = 6;
+   */
+  echoing: string;
+
+  /**
+   * @generated from field: string thread_head = 7;
+   */
+  threadHead: string;
+
+  /**
+   * @generated from field: uint32 thread_index = 8;
+   */
+  threadIndex: number;
+
+  /**
+   * @generated from field: repeated string mentions = 9;
+   */
+  mentions: string[];
 };
 
 /**
@@ -389,6 +419,165 @@ export type RecoveryReedRequest = Message<"syrinx.RecoveryReedRequest"> & {
  */
 export const RecoveryReedRequestSchema: GenMessage<RecoveryReedRequest> = /*@__PURE__*/
   messageDesc(file_recovery, 9);
+
+/**
+ * One signed record a device holds, reported back to a rebuilt server.
+ *
+ * @generated from message syrinx.RecoveryRecord
+ */
+export type RecoveryRecord = Message<"syrinx.RecoveryRecord"> & {
+  /**
+   * @generated from oneof syrinx.RecoveryRecord.record
+   */
+  record: {
+    /**
+     * @generated from field: syrinx.LikeCert like = 1;
+     */
+    value: LikeCert;
+    case: "like";
+  } | {
+    /**
+     * @generated from field: syrinx.BlockCert block = 2;
+     */
+    value: BlockCert;
+    case: "block";
+  } | {
+    /**
+     * @generated from field: syrinx.Vouch vouch = 3;
+     */
+    value: Vouch;
+    case: "vouch";
+  } | {
+    /**
+     * @generated from field: syrinx.ReedRemovalCert reed_removal = 4;
+     */
+    value: ReedRemovalCert;
+    case: "reedRemoval";
+  } | {
+    /**
+     * @generated from field: syrinx.AccountRemovalCert account_removal = 5;
+     */
+    value: AccountRemovalCert;
+    case: "accountRemoval";
+  } | {
+    /**
+     * @generated from field: syrinx.ThreadRecord thread = 6;
+     */
+    value: ThreadRecord;
+    case: "thread";
+  } | {
+    /**
+     * @generated from field: syrinx.ThreadRemoval thread_removal = 7;
+     */
+    value: ThreadRemoval;
+    case: "threadRemoval";
+  } | {
+    /**
+     * @generated from field: syrinx.LedgerEntry ledger_entry = 8;
+     */
+    value: LedgerEntry;
+    case: "ledgerEntry";
+  } | {
+    /**
+     * @generated from field: syrinx.AdminRequest admin_request = 9;
+     */
+    value: AdminRequest;
+    case: "adminRequest";
+  } | {
+    /**
+     * @generated from field: syrinx.ReedFlag flag = 10;
+     */
+    value: ReedFlag;
+    case: "flag";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message syrinx.RecoveryRecord.
+ * Use `create(RecoveryRecordSchema)` to create a new message.
+ */
+export const RecoveryRecordSchema: GenMessage<RecoveryRecord> = /*@__PURE__*/
+  messageDesc(file_recovery, 10);
+
+/**
+ * POST /recovery/records.
+ *
+ * @generated from message syrinx.RecoveryRecordsRequest
+ */
+export type RecoveryRecordsRequest = Message<"syrinx.RecoveryRecordsRequest"> & {
+  /**
+   * @generated from field: repeated syrinx.RecoveryRecord records = 1;
+   */
+  records: RecoveryRecord[];
+};
+
+/**
+ * Describes the message syrinx.RecoveryRecordsRequest.
+ * Use `create(RecoveryRecordsRequestSchema)` to create a new message.
+ */
+export const RecoveryRecordsRequestSchema: GenMessage<RecoveryRecordsRequest> = /*@__PURE__*/
+  messageDesc(file_recovery, 11);
+
+/**
+ * One outcome per record, in request order: stored (or already held),
+ * pending until what it refers to is restored, or refused with a reason.
+ *
+ * @generated from message syrinx.RecoveryRecordResult
+ */
+export type RecoveryRecordResult = Message<"syrinx.RecoveryRecordResult"> & {
+  /**
+   * @generated from field: string status = 1;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string reason = 2;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message syrinx.RecoveryRecordResult.
+ * Use `create(RecoveryRecordResultSchema)` to create a new message.
+ */
+export const RecoveryRecordResultSchema: GenMessage<RecoveryRecordResult> = /*@__PURE__*/
+  messageDesc(file_recovery, 12);
+
+/**
+ * @generated from message syrinx.RecoveryRecordsResponse
+ */
+export type RecoveryRecordsResponse = Message<"syrinx.RecoveryRecordsResponse"> & {
+  /**
+   * @generated from field: repeated syrinx.RecoveryRecordResult results = 1;
+   */
+  results: RecoveryRecordResult[];
+};
+
+/**
+ * Describes the message syrinx.RecoveryRecordsResponse.
+ * Use `create(RecoveryRecordsResponseSchema)` to create a new message.
+ */
+export const RecoveryRecordsResponseSchema: GenMessage<RecoveryRecordsResponse> = /*@__PURE__*/
+  messageDesc(file_recovery, 13);
+
+/**
+ * POST /recovery/pins: the caller's pinned reeds, most recent first.
+ *
+ * @generated from message syrinx.RecoveryPinsRequest
+ */
+export type RecoveryPinsRequest = Message<"syrinx.RecoveryPinsRequest"> & {
+  /**
+   * @generated from field: repeated string reed_ids = 1 [json_name = "reedIDs"];
+   */
+  reedIds: string[];
+};
+
+/**
+ * Describes the message syrinx.RecoveryPinsRequest.
+ * Use `create(RecoveryPinsRequestSchema)` to create a new message.
+ */
+export const RecoveryPinsRequestSchema: GenMessage<RecoveryPinsRequest> = /*@__PURE__*/
+  messageDesc(file_recovery, 14);
 
 /**
  * POST /recovery/following.
@@ -407,5 +596,5 @@ export type RecoveryFollowingRequest = Message<"syrinx.RecoveryFollowingRequest"
  * Use `create(RecoveryFollowingRequestSchema)` to create a new message.
  */
 export const RecoveryFollowingRequestSchema: GenMessage<RecoveryFollowingRequest> = /*@__PURE__*/
-  messageDesc(file_recovery, 10);
+  messageDesc(file_recovery, 15);
 

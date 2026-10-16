@@ -824,6 +824,7 @@ func pbAdminRequest(req *adminRequest) *pb.AdminRequest {
 		RequesterSignature: pbUserSignature(req.RequesterSignature),
 		State:              req.State,
 		DroppedTargets:     req.Dropped,
+		OpenedSignature:    pbServerSignature(req.RequesterServerSignature),
 	}
 	if req.Decision != nil {
 		out.Decision = &pb.AdminDecision{
@@ -1232,7 +1233,8 @@ func adminRequestFromPB(msg *pb.AdminRequest) *adminRequest {
 			ID:    msg.GetRequesterSignature().GetId(),
 			Armor: msg.GetRequesterSignature().GetArmor(),
 		},
-		State: msg.GetState(),
+		State:                    msg.GetState(),
+		RequesterServerSignature: serverSignatureFromPB(msg.GetOpenedSignature()),
 	}
 	if d := msg.GetDecision(); d != nil {
 		req.Decision = &adminDecision{
