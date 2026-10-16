@@ -20,29 +20,20 @@ const verificationWindowTTL = time.Minute
 // no open window: locally, or as reported by the subject's server.
 const vouchWindowClosedMessage = "They need to have their verification code open while you scan it"
 
-// OpenVerificationWindow closes every window userID has open and opens id,
+// OpenVerificationWindow replaces whatever window userID has open with id,
 // reporting false when userID isn't online.
 func (s *DataService) OpenVerificationWindow(ctx context.Context, userID, id string, now time.Time) (bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `DELETE FROM verification_windows WHERE user_id = $1`, userID); err != nil {
-		return false, err
-	}
-	res, err := tx.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO verification_windows (id, user_id, last_ping_at)
 		SELECT $1::uuid, $2::varchar, $3::timestamp
 		WHERE EXISTS (SELECT 1 FROM online_users WHERE user_id = $2::varchar)
+		ON CONFLICT (user_id) DO UPDATE SET id = EXCLUDED.id, last_ping_at = EXCLUDED.last_ping_at
 	`, id, userID, now)
 	if err != nil {
 		return false, err
 	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
-		return false, err
-	}
-	return true, tx.Commit()
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // PingVerificationWindow keeps id open, reporting false when it isn't

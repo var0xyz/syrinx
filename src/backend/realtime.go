@@ -2743,7 +2743,7 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 			Str("eventID", pe.EventID).
 			Str("reedID", pe.ReedID).
 			Msg("Failed to send relay request to holder")
-		if resetErr := rs.db.ResetDispatchedAt(context.Background(), pe.EventID); resetErr != nil {
+		if _, resetErr := rs.db.ResetDispatchedAt(context.Background(), pe.EventID, holderUserID); resetErr != nil {
 			log.Error().Err(resetErr).Str("eventID", pe.EventID).Msg("Failed to reset dispatched_at after relay send failure")
 		}
 		return false
@@ -4185,9 +4185,13 @@ func (rs *realtimeService) redispatchPendingRequests(requesterUserID string) {
 		return
 	}
 	for _, req := range requests {
-		if err := rs.db.ResetDispatchedAt(context.Background(), req.EventID); err != nil {
+		reset, err := rs.db.ResetDispatchedAt(context.Background(), req.EventID, req.DispatchedTo)
+		if err != nil {
 			log.Error().Err(err).Str("eventID", req.EventID).Msg("Failed to reset dispatched_at for pending request")
 			continue
+		}
+		if !reset {
+			continue // redispatched since we read it
 		}
 		holder, err := rs.db.GetOnlineReedHolder(context.Background(), req.ReedID)
 		if err != nil {
@@ -4657,8 +4661,14 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 		}
 	}
 
-	if err := rs.db.ResetDispatchedAt(context.Background(), eventID); err != nil {
+	reset, err := rs.db.ResetDispatchedAt(context.Background(), eventID, holderUserID)
+	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset dispatched_at on relay miss/error")
+	}
+	if err == nil && !reset {
+		// Already redispatched elsewhere; that attempt owns it now.
+		rs.dispatchN(holderUserID, fanoutRefillBurst)
+		return
 	}
 
 	hasHolders, holder, err := rs.db.GetOnlineHolders(context.Background(), pe.ReedID)
@@ -4944,9 +4954,13 @@ func (rs *realtimeService) handleDataInvalid(client *realtimeClient, eventID str
 		return
 	}
 
-	if err := rs.db.ResetEventDelivery(ctx, eventID); err != nil {
+	reset, err := rs.db.ResetEventDelivery(ctx, eventID, pe.DispatchedTo)
+	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset event on data invalid")
 		return
+	}
+	if !reset {
+		return // redispatched since we read it
 	}
 	holder, err := rs.db.GetOnlineReedHolder(ctx, pe.ReedID)
 	if err != nil {

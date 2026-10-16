@@ -7109,6 +7109,12 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 	// rows, which want the same canonical form as every other table.
 	activeFP := string(appendEntity(selfIdentity, flat[len(flat)-1].Key.Fingerprint))
 
+	// Taken before the identities lock, in the order saveRecoveryFollowing
+	// takes it, so the two never deadlock.
+	if err := lockRecoveryFollowTargets(ctx, tx, []string{string(selfIdentity)}); err != nil {
+		return nil, err
+	}
+
 	// Lock/check the identities row, not users — identities is the actual FK
 	// target. users.id IS identities.id directly, so the join is on u.id.
 	var existingSignedAt time.Time
@@ -7437,6 +7443,19 @@ func nullIfEmptyString(s string) interface{} {
 	return s
 }
 
+// lockRecoveryFollowTargets serializes, per target, a follower recording a
+// pending follow against the target's own recovery draining them.
+func lockRecoveryFollowTargets(ctx context.Context, tx *sql.Tx, targets []string) error {
+	keys := slices.Clone(targets)
+	slices.Sort(keys)
+	for _, t := range slices.Compact(keys) {
+		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "recovery-follow:"+t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // drainRecoveryPendingFollows moves pending edges targeting targetUserID
 // into the real follow tables, then deletes those pending rows.
 // targetUserID is bare (pending_follows has no FK); targetIdentity is the
@@ -7625,6 +7644,11 @@ func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, fol
 		targetIdentity := identityID(targetID)
 		targetIdentities[targetID] = targetIdentity
 		canonicalTargets = append(canonicalTargets, string(targetIdentity))
+	}
+	// Without it, a target recovering concurrently could drain before our
+	// pending row commits, and the follow would never be applied.
+	if err := lockRecoveryFollowTargets(ctx, tx, canonicalTargets); err != nil {
+		return err
 	}
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id FROM identities WHERE id = ANY($1)
@@ -8476,13 +8500,13 @@ func (s *DataService) CreateProfileSubscriptionEvent(ctx context.Context, eventI
 // that form (cast to string, no .UserID() decode).
 func (s *DataService) GetPendingSubject(ctx context.Context, eventID string) (*pendingSubject, error) {
 	var pe pendingSubject
-	var requester sql.NullString
+	var requester, dispatchedTo sql.NullString
 	err := s.db.QueryRowContext(ctx, `
 		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name,
-		       pe.dispatched_at IS NOT NULL, pe.relayed_at IS NOT NULL
+		       pe.dispatched_at IS NOT NULL, pe.dispatched_to, pe.relayed_at IS NOT NULL
 		FROM pending_events pe
 		WHERE pe.event_id = $1
-	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.Dispatched, &pe.Relayed)
+	`, eventID).Scan(&pe.EventID, &pe.RequestID, &requester, &pe.EventName, &pe.Dispatched, &dispatchedTo, &pe.Relayed)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -8490,6 +8514,7 @@ func (s *DataService) GetPendingSubject(ctx context.Context, eventID string) (*p
 		return nil, err
 	}
 	pe.RequesterUserID = requester.String
+	pe.DispatchedTo = dispatchedTo.String
 
 	var subjectID identityID
 	if realtimeEventName(pe.EventName) == keyRevokedEvent {
@@ -8875,20 +8900,28 @@ func (s *DataService) MarkEventRelayed(ctx context.Context, eventID string) erro
 }
 
 // ResetEventDelivery clears dispatched_at and relayed_at so the event is
-// dispatched again from scratch.
-func (s *DataService) ResetEventDelivery(ctx context.Context, eventID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE pending_events SET dispatched_at = NULL, dispatched_to = NULL, relayed_at = NULL WHERE event_id = $1
-	`, eventID)
-	return err
+// dispatched again from scratch. It only resets the claim dispatchedTo
+// holds ("" for none), reporting false when a newer one replaced it.
+func (s *DataService) ResetEventDelivery(ctx context.Context, eventID, dispatchedTo string) (bool, error) {
+	return s.resetEvent(ctx, `dispatched_at = NULL, dispatched_to = NULL, relayed_at = NULL`, eventID, dispatchedTo)
 }
 
-// ResetDispatchedAt clears dispatched_at for an event, making it eligible for dispatch again.
-func (s *DataService) ResetDispatchedAt(ctx context.Context, eventID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE pending_events SET dispatched_at = NULL, dispatched_to = NULL WHERE event_id = $1
-	`, eventID)
-	return err
+// ResetDispatchedAt makes an event eligible for dispatch again, on the
+// same terms as ResetEventDelivery.
+func (s *DataService) ResetDispatchedAt(ctx context.Context, eventID, dispatchedTo string) (bool, error) {
+	return s.resetEvent(ctx, `dispatched_at = NULL, dispatched_to = NULL`, eventID, dispatchedTo)
+}
+
+func (s *DataService) resetEvent(ctx context.Context, set, eventID, dispatchedTo string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE pending_events SET `+set+`
+		WHERE event_id = $1 AND dispatched_to IS NOT DISTINCT FROM NULLIF($2, '')
+	`, eventID, dispatchedTo)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // GetOnlineHolders reports whether a reed has any holders and returns one online holder
@@ -9059,7 +9092,7 @@ func (s *DataService) ClaimPendingFanout(ctx context.Context, reedID string) (cl
 func (s *DataService) GetPendingEventsForUser(ctx context.Context, userID string) ([]pendingReedEvent, error) {
 	selfIdentity := identityID(userID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id, pe.dispatched_to
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
 		JOIN reed_allocations ra ON ra.reed_id = pre.reed_id
@@ -9073,17 +9106,19 @@ func (s *DataService) GetPendingEventsForUser(ctx context.Context, userID string
 	var results []pendingReedEvent
 	for rows.Next() {
 		var prr pendingReedEvent
-		var requester sql.NullString
+		var requester, dispatchedTo sql.NullString
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
 			&requester,
 			&prr.EventName,
 			&prr.ReedID,
+			&dispatchedTo,
 		); err != nil {
 			return nil, err
 		}
 		prr.RequesterUserID = requester.String
+		prr.DispatchedTo = dispatchedTo.String
 		prr.UserID = reedAuthorIdentity(prr.ReedID)
 		results = append(results, prr)
 	}
@@ -9095,7 +9130,7 @@ func (s *DataService) GetPendingEventsForUser(ctx context.Context, userID string
 func (s *DataService) GetPendingRequestsForRequester(ctx context.Context, requesterUserID string) ([]pendingReedEvent, error) {
 	requesterIdentity := identityID(requesterUserID)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id
+		SELECT pe.event_id, pe.request_id, pe.requester_user_id, pe.event_name, pre.reed_id, pe.dispatched_to
 		FROM pending_reed_events pre
 		JOIN pending_events pe ON pe.event_id = pre.event_id
 		WHERE pe.requester_user_id = $1
@@ -9108,17 +9143,19 @@ func (s *DataService) GetPendingRequestsForRequester(ctx context.Context, reques
 	var results []pendingReedEvent
 	for rows.Next() {
 		var prr pendingReedEvent
-		var requester sql.NullString
+		var requester, dispatchedTo sql.NullString
 		if err := rows.Scan(
 			&prr.EventID,
 			&prr.RequestID,
 			&requester,
 			&prr.EventName,
 			&prr.ReedID,
+			&dispatchedTo,
 		); err != nil {
 			return nil, err
 		}
 		prr.RequesterUserID = requester.String
+		prr.DispatchedTo = dispatchedTo.String
 		prr.UserID = reedAuthorIdentity(prr.ReedID)
 		results = append(results, prr)
 	}
