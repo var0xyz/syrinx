@@ -3757,6 +3757,7 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 
 	res, err := saveOwnIdentity(r.Context(), h.services.db.db, serverID, req.Profile, keys, deviceID)
 	if err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", userID).Msg("Recovery claim failed")
 		internalServerError(w)
 		return
 	}
@@ -3803,6 +3804,7 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 
 	res, err := savePeerIdentity(r.Context(), h.services.db.db, serverID, req.Profile, keys)
 	if err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", req.Profile.ID).Msg("Recovery peer identity failed")
 		internalServerError(w)
 		return
 	}
@@ -3869,6 +3871,7 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, errRecoveryReedConflict):
 		writeError(w, http.StatusConflict, "reed metadata conflict")
 	case err != nil:
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("reedID", canonicalReedID).Msg("Recovery reed failed")
 		internalServerError(w)
 	default:
 		recorded = true
@@ -3902,6 +3905,7 @@ func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveRecoveryFollowing(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, req.UserIDs); err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery following failed")
 		h.metrics.ServerRecovery(r.Context(), "following", caller, false)
 		internalServerError(w)
 		return
@@ -3918,7 +3922,8 @@ func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.db.DeleteOngoing(r.Context(), h.services.db.GetServerID(), caller); err != nil {
+	if err := h.services.db.DeleteOngoing(r.Context(), caller); err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery complete failed")
 		h.metrics.ServerRecovery(r.Context(), "complete", caller, false)
 		internalServerError(w)
 		return

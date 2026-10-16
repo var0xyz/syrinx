@@ -67,14 +67,19 @@ func openRecoveryCollisionTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
+// testRecoveryKeyID is userID's one key in these fixtures, as a full key id.
+func testRecoveryKeyID(userID string) string {
+	return string(appendEntity(canonicalID("test", userID), userID+"-key"))
+}
+
 func testRecoveryProfile(userID, username string, signedAt time.Time) recoveryProfile {
 	return recoveryProfile{
-		ID:          userID,
+		ID:          string(canonicalID("test", userID)),
 		Username:    username,
 		Role:        "user",
 		MemberSince: signedAt,
 		UserSignature: recoveryUserSignature{
-			KeyID: userID + "-key",
+			KeyID: testRecoveryKeyID(userID),
 			Armor: "user-sig-" + userID,
 		},
 		ServerSignature: recoveryServerSignature{
@@ -89,8 +94,8 @@ func testRecoveryProfile(userID, username string, signedAt time.Time) recoveryPr
 func testRecoveryFlatKey(userID string, createdAt time.Time) []recoveryFlatKey {
 	return []recoveryFlatKey{{
 		Key: recoveryKeyWire{
-			Fingerprint: userID + "-key",
-			UserID:      userID,
+			Fingerprint: testRecoveryKeyID(userID),
+			UserID:      string(canonicalID("test", userID)),
 			Armor:       "pubkey-" + userID,
 			CreatedAt:   createdAt,
 			ServerSignature: recoveryServerSignature{

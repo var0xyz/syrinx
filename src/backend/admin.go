@@ -316,8 +316,8 @@ func invitedByQ(ctx context.Context, q adminQuerier, inviterID, userID string) (
 	var found bool
 	err := q.QueryRowContext(ctx, `
 		SELECT EXISTS(
-			SELECT 1 FROM users u JOIN invites i ON i.id = u.invite_id
-			WHERE u.id = $2 AND i.created_by = $1
+			SELECT 1 FROM users u
+			WHERE u.id = $2 AND invite_creator(u.invite_id) = $1
 		)
 	`, inviterID, userID).Scan(&found)
 	return found, err

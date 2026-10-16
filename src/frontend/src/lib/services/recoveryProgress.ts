@@ -8,6 +8,7 @@ import type * as api from '$lib/types/api';
 import type { ReedType } from '$lib/types/reed';
 import { dbService } from './db';
 import { canAssembleKeyNest } from './recoveryKeyNest';
+import { parseCanonicalId } from '$lib/utils/identityRef';
 
 export const RECOVERY_PROGRESS_KEY = 'recoveryProgress';
 export const FOLLOW_PAGE_SIZE = 100;
@@ -128,10 +129,13 @@ function chunkFollowIds(userIds: string[]): string[][] {
 
 /**
  * Build the desired work set from restored stores (pure).
- * Skipped peers are included as completed-for-progress entries.
+ * Skipped peers are included as completed-for-progress entries. Users and
+ * reeds of other servers are left out: this server can't restore them.
  */
 export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLedger {
   const entities: Record<string, RecoveryProgressEntity> = {};
+  const localServerId = parseCanonicalId(input.selfUserId)?.[1];
+  const isLocal = (id: string) => parseCanonicalId(id)?.[1] === localServerId;
 
   entities[OWN_IDENTITY_KEY] = {};
 
@@ -163,7 +167,7 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   };
 
   for (const user of input.users) {
-    if (user.id === input.selfUserId) continue;
+    if (user.id === input.selfUserId || !isLocal(user.id)) continue;
     const nest = canAssembleKeyNest(user.id, lookups);
     if (nest.ok === true) {
       entities[peerEntityKey(user.id)] = {};
@@ -177,7 +181,7 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   }
 
   for (const reed of input.reeds) {
-    if (!reed.serverSignature || !reed.id) continue;
+    if (!reed.serverSignature || !reed.id || !isLocal(reed.userID)) continue;
     entities[reedEntityKey(reed.id)] = {};
   }
 

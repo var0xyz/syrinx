@@ -410,8 +410,14 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// users is a satellite of identities — profile fields only. id IS
-	// identities.id directly. invite_id points at the claimed invite
-	// (NULL if none); the inviter is reached via invites.created_by.
+	// identities.id directly. invite_id is the claimed invite's id, not FK'd
+	// so it survives a rebuild without invites; invite_creator reads the inviter.
+	createInviteCreatorFunction := `
+	CREATE OR REPLACE FUNCTION invite_creator(invite_id TEXT) RETURNS TEXT AS $$
+		SELECT left(invite_id, length(invite_id) - strpos(reverse(invite_id), '/'))
+	$$ LANGUAGE sql IMMUTABLE;
+	`
+
 	createUsersTable := `
 	CREATE TABLE IF NOT EXISTS users (
 		id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -423,7 +429,7 @@ func InitDB(db *sql.DB) error {
 		active_key_id VARCHAR(255) REFERENCES public_keys(id),
 		user_signature_id INT REFERENCES user_signatures(id),
 		server_signature_id INT REFERENCES server_signatures(id),
-		invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL,
+		invite_id VARCHAR(255),
 		-- The request that suspended the user; NULL when not suspended.
 		suspended_by VARCHAR(255) REFERENCES admin_requests(id)
 	);`
@@ -1669,6 +1675,7 @@ func InitDB(db *sql.DB) error {
 		createInvitesTable,
 		createInvitesIndexes,
 
+		createInviteCreatorFunction,
 		createUsersTable,
 		createUserIndexes,
 		createUserPermissionsTable,

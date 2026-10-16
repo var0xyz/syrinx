@@ -4,7 +4,7 @@
 
 User ids are **random and server-scoped**—not guessable counters. Profiles, keys, and related records are **user-signed** and **server-countersigned** so peers can verify both authorship and “this instance witnessed it.”
 
-Username collisions during recovery are resolved by newest server-signed timestamp; losers may be renamed in place. Comfort notifications for that case are a deferred nicety, not a blocker for recovery itself.
+Username collisions during recovery are resolved by newest server-signed timestamp; the older record is dropped, since the server can't sign a new name for someone else.
 
 ## Signup modes
 
@@ -141,6 +141,12 @@ While recovery mode is on:
 4. **Import gate** — until complete, the user is barred from normal API use (server middleware + client mirror) so half-restored accounts don’t act like finished logins.
 
 The server never learns private keys. It reconstructs **public, signed** state from the community.
+
+### What comes back
+
+Once everyone has reported in, these match the old database: accounts (username, role, bio, join date, who invited them), every key and rotation with its revocations, reed records and who holds each one, follows, and each returning user's device binding. A user who never returns is still rebuilt from what peers cached, as an unclaimed account they can claim later.
+
+These don't come back: invites themselves (pending ones are lost; an account still shows who invited it), replies, echoes, mentions and threads as server-side links, likes, blocks, vouches, pins, reed and account removals, admin permissions, suspensions, admin requests and the ledger, reserved names, flags, ripples, mailbox messages and federation peers.
 
 Operators end the window by turning `RECOVERY_MODE` off when the community has reported in sufficiently. If the domain changed, federation with peer servers has to be re-established.
 

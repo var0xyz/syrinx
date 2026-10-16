@@ -72,8 +72,11 @@ func ensureInviteStoreSchema(db *sql.DB) error {
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			suspended_by VARCHAR(255),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			invite_id VARCHAR(255) REFERENCES invites(id)
+			invite_id VARCHAR(255)
 		)`,
+		`CREATE OR REPLACE FUNCTION invite_creator(invite_id TEXT) RETURNS TEXT AS $$
+			SELECT left(invite_id, length(invite_id) - strpos(reverse(invite_id), '/'))
+		$$ LANGUAGE sql IMMUTABLE`,
 		fmt.Sprintf(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('%s', 'test', TRUE, 'https://test.example')`, inviteStoreTestServerID),
 	}
 	for _, s := range stmts {

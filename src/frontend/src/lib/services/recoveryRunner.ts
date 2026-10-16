@@ -27,6 +27,7 @@ import {
   reportRecoveryReed,
 } from './recoveryHoldings';
 import { completeRecoveryRun } from './recoveryRun';
+import type { ApiError } from './api';
 
 export type RecoveryRunnerResult =
   | { ok: true }
@@ -39,6 +40,12 @@ export type RecoveryRunnerOptions = {
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
+}
+
+/** The server refused this one unit; retrying it can't succeed. */
+function isRefusal(err: unknown): boolean {
+  const status = (err as ApiError | undefined)?.status;
+  return status != null && status >= 400 && status < 500 && status !== 401 && status !== 403;
 }
 
 function ownIdentityDone(): boolean {
@@ -92,8 +99,9 @@ function pendingFollowPages(): RecoveryFollowPage[] {
 /**
  * Run all pending recovery units through complete.
  * Idempotent when units are already finished. Peer network failures do not
- * abort the rest of the peer list; unfinished peers stay retryable.
- * Reed / follow failures stop the run so Retry resumes from the ledger.
+ * abort the rest of the peer list; unfinished peers stay retryable. A peer
+ * or reed the server refuses is skipped; other reed / follow failures stop
+ * the run so Retry resumes from the ledger.
  */
 export async function runRecoveryWork(
   options?: RecoveryRunnerOptions
@@ -126,6 +134,11 @@ export async function runRecoveryWork(
     } catch (err) {
       const message = errorMessage(err, 'Peer identity report failed.');
       console.error(`recovery peer ${peerUserId}:`, message);
+      if (isRefusal(err)) {
+        markEntitySkipped(key, message);
+        notify();
+        continue;
+      }
       peerErrors.push(peerUserId);
       // Leave unfinished so Retry can re-run this peer.
     }
@@ -150,6 +163,12 @@ export async function runRecoveryWork(
       markEntityFinished(key);
       notify();
     } catch (err) {
+      if (isRefusal(err)) {
+        console.error(`recovery reed ${reedId}:`, errorMessage(err, 'refused'));
+        markEntitySkipped(key, errorMessage(err, 'Reed report refused.'));
+        notify();
+        continue;
+      }
       return {
         ok: false,
         error: errorMessage(err, 'Reed report failed.'),

@@ -71,8 +71,11 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_signature_id INT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS server_signature_id INT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_id VARCHAR(255)`,
-		// GetUserProfile joins invites to resolve the inviter for display;
-		// this suite never exercises signup invites, so an empty table suffices.
+		`CREATE OR REPLACE FUNCTION invite_creator(invite_id TEXT) RETURNS TEXT AS $$
+			SELECT left(invite_id, length(invite_id) - strpos(reverse(invite_id), '/'))
+		$$ LANGUAGE sql IMMUTABLE`,
+		// Some queries still join invites; this suite never exercises
+		// signup invites, so an empty table suffices.
 		`CREATE TABLE IF NOT EXISTS invites (
 			id VARCHAR(255) PRIMARY KEY,
 			created_by VARCHAR(255) NOT NULL,

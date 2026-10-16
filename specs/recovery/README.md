@@ -422,12 +422,30 @@ User-recoverable:
 
 | Table                  | Source on device                          | Trust anchor |
 |------------------------|-------------------------------------------|--------------|
-| `users`                | latest signed identity record             | server countersig (server ts) |
-| `user_keys`            | identity record active key + bindings     | server countersig over `(userID, fingerprint, createdAt)` |
-| `user_key_revocations` | signed revocations (fanout: [09](../09_revocation_fanout.md)) | signed + monotonic |
-| `reeds`                | reed `server` block (`reedID`, `author`, server `fingerprint`, `ts`) | server countersig bound to `reedID`+`author`, verified against the matching restored server key |
+| `identities`, `users`  | latest signed identity record (incl. `invite_id`) | server countersig (server ts) |
+| `public_keys`          | identity record active key + bindings     | server countersig over `(userID, keyID, armor, ts)` |
+| `public_key_revocations` | signed revocations + successor handoff  | signed + monotonic |
+| `reed_identities`, `reeds` | reed `server` block (`reedID`, `author`, server `fingerprint`, `ts`) | server countersig bound to `reedID`+`author`, verified against the matching restored server key |
 | `reed_allocations`     | holder's own report                       | normal signature-auth (holder signs the request) |
-| `user_following`       | user's own follow list                    | normal signature-auth (no per-edge signature); missing targets held in `pending_follows` until the target is restored |
+| `user_following`, `user_followers` | user's own follow list        | normal signature-auth (no per-edge signature); missing targets held in `pending_follows` until the target is restored |
+| `user_devices`         | the claiming device                       | own claim |
+
+Every id on the recovery wire is canonical (`userID@serverID`, key ids
+`userID@serverID/fingerprint`), except `reedID`, which travels as its bare
+suffix next to `authorID`. `users.invite_id` has no FK to `invites`: the
+inviter is the id's owner (`invite_creator`), so who invited whom survives
+without the invite rows. `recovery_e2e_test.go` rebuilds a live database
+through the real handlers and diffs every table above.
+
+**Not reconstructed** (no recovery path yet): `invites`, `reed_replies`,
+`reed_echoes`, `reed_mentions`, `reed_threads` (and `reeds.thread_head`),
+`reeds.published_at`, `reeds_liked`, `user_blocks`, `user_vouches`,
+`pinned_reeds`, `reed_removals`, `thread_removals`, `account_removals`,
+`user_permissions`, `users.suspended_by`, `admin_requests`,
+`ledger_entries`, `reserved_usernames`, `reed_flags`, `ripples`,
+`user_mailbox`, and federation (`servers` peer rows and everything keyed
+on them). Derived counters follow: `reed_stats` reply/echo/like counts
+are zero after recovery.
 
 Operator-restored (not from users): `servers` (preserved ID + name),
 `private_keys` (**full history**), `public_keys` (derived).

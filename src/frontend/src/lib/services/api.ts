@@ -344,7 +344,9 @@ async function requestRaw(
         }
       }
 
-      throw new Error(message);
+      const err: ApiError = new Error(message);
+      err.status = res.status;
+      throw err;
     }
     const err: ApiError = new Error(error?.message || `HTTP ${res.status}`);
     err.status = res.status;

@@ -74,11 +74,10 @@ type inviteTreeNode struct {
 }
 
 const inviteTreeSelect = `
-	SELECT u.id, COALESCE(u.username, ''), u.role, COALESCE(i.created_by, ''),
+	SELECT u.id, COALESCE(u.username, ''), u.role, COALESCE(invite_creator(u.invite_id), ''),
 		u.suspended_by IS NOT NULL,
 		EXISTS(SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id)
-	FROM users u
-	LEFT JOIN invites i ON i.id = u.invite_id`
+	FROM users u`
 
 func scanInviteTreeNodes(rows *sql.Rows, err error) ([]inviteTreeNode, error) {
 	if err != nil {
@@ -106,9 +105,9 @@ func (s *DataService) GetInviteTree(ctx context.Context, userID string) ([]invit
 	}
 	below, err := scanInviteTreeNodes(s.db.QueryContext(ctx, `
 		WITH RECURSIVE subtree(id) AS (
-			SELECT u.id FROM users u JOIN invites i ON i.id = u.invite_id WHERE i.created_by = $1
+			SELECT u.id FROM users u WHERE invite_creator(u.invite_id) = $1
 			UNION
-			SELECT u.id FROM users u JOIN invites i ON i.id = u.invite_id JOIN subtree t ON i.created_by = t.id
+			SELECT u.id FROM users u JOIN subtree t ON invite_creator(u.invite_id) = t.id
 		)
 	`+inviteTreeSelect+` WHERE u.id IN (SELECT id FROM subtree) ORDER BY u.created_at, u.id`, userID))
 	if err != nil {
