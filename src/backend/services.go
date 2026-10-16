@@ -7116,12 +7116,13 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 
 	// Lock/check the identities row, not users — identities is the actual FK
 	// target. users.id IS identities.id directly, so the join is on u.id.
-	var existingSignedAt time.Time
+	// A removed account's row has no profile signature, and keeps none.
+	var existingSignedAt sql.NullTime
 	err := tx.QueryRowContext(ctx, `
 		SELECT ss.signed_at
 		FROM identities i
 		JOIN users u ON u.id = i.id
-		JOIN server_signatures ss ON ss.id = u.server_signature_id
+		LEFT JOIN server_signatures ss ON ss.id = u.server_signature_id
 		WHERE i.id = $1
 		FOR UPDATE OF i
 	`, selfIdentity).Scan(&existingSignedAt)
@@ -7130,6 +7131,10 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 	updated := false
 
 	switch {
+	case err == nil && !existingSignedAt.Valid:
+		if err := insertRecoveryKeys(ctx, tx, selfIdentity, flat); err != nil {
+			return nil, err
+		}
 	case err == sql.ErrNoRows:
 		// Mint the identities row before public_keys/users — both
 		// FK to it, and neither exists yet on this branch. ON CONFLICT DO
@@ -7159,7 +7164,7 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 		if err := insertRecoveryKeys(ctx, tx, selfIdentity, flat); err != nil {
 			return nil, err
 		}
-		wrote, err := updateRecoveryUserIfNewer(ctx, tx, selfIdentity, profile, activeFP, existingSignedAt, incomingSignedAt)
+		wrote, err := updateRecoveryUserIfNewer(ctx, tx, selfIdentity, profile, activeFP, existingSignedAt.Time, incomingSignedAt)
 		if err != nil {
 			if errors.Is(err, errRecoveryUsernameCollisionLoss) {
 				return &recoverySaveIdentityResult{Rejected: true}, nil
@@ -7167,6 +7172,9 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 			return nil, err
 		}
 		updated = wrote
+	}
+	if err := applyRestoredUserStateTx(ctx, tx, string(selfIdentity)); err != nil {
+		return nil, err
 	}
 
 	return &recoverySaveIdentityResult{Created: created, Updated: updated}, nil
@@ -7490,10 +7498,16 @@ func bindRecoveryClaimDeviceTx(ctx context.Context, tx *sql.Tx, ownerIdentity id
 		return err
 	}
 
+	// A claim retried from the device already bound keeps that binding.
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE user_devices SET revoked_at = $2
-		WHERE user_id = $1 AND revoked_at IS NULL
-	`, ownerIdentity, now); err != nil {
+		WHERE user_id = $1 AND revoked_at IS NULL AND device_id <> $3
+	`, ownerIdentity, now, deviceID); err != nil {
+		return err
+	}
+	if bound, err := existsTx(ctx, tx, `
+		SELECT 1 FROM user_devices WHERE user_id = $1 AND device_id = $2 AND revoked_at IS NULL
+	`, ownerIdentity, deviceID); err != nil || bound {
 		return err
 	}
 
@@ -7509,46 +7523,24 @@ func bindRecoveryClaimDeviceTx(ctx context.Context, tx *sql.Tx, ownerIdentity id
 // the bind).
 var errRecoveryReedConflict = errors.New("reed metadata conflict")
 
-// errRecoveryAuthorNotFound is returned when the reed author has no
-// identities row.
-var errRecoveryAuthorNotFound = errors.New("reed author not found")
-
 // saveRecoveryReed inserts reed metadata if missing; rejects conflicting
-// metadata; always upserts an allocation for reporterUserID. Caller must
-// have verified the countersignature. Checks identities, not users, so a
-// provisional row still works for a remote author. reedID is canonical
-// (authorID@serverID/uuid); the author identity is recovered from it.
-func saveRecoveryReed(ctx context.Context,
-	db *sql.DB,
-	serverID string,
-	reedID, fingerprint string,
-	signedAt time.Time,
-	reporterUserID string,
-	userFingerprint, userSignature string,
-	serverSignature string,
-) error {
-	signedAt = signedAt.UTC().Truncate(time.Second)
-	authorBare, authorServerID, _, ok := parseKeyFingerprint(identityID(reedID))
+// metadata; upserts an allocation for reporterUserID unless the author
+// blocks them. Caller must have verified the countersignature.
+func saveRecoveryReed(ctx context.Context, db *sql.DB, serverID string, req recoveryReedRequest, reporterUserID string) error {
+	reedID := req.ReedID
+	signedAt := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
+	authorIdentity, ok := authorOf(identityID(reedID))
 	if !ok {
 		return fmt.Errorf("malformed reed id: %s", reedID)
 	}
-	authorIdentity := canonicalID(authorServerID, authorBare)
 	reporterIdentity := identityID(reporterUserID)
-	keyID := string(canonicalID(serverID, fingerprint))
+	keyID := string(canonicalID(serverID, req.ServerSignature.Fingerprint))
 
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
-	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)`, authorIdentity).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return errRecoveryAuthorNotFound
-	}
 
 	var existingAuthor, existingKeyID string
 	var existingAt time.Time
@@ -7562,25 +7554,29 @@ func saveRecoveryReed(ctx context.Context,
 
 	switch {
 	case err == sql.ErrNoRows:
-		userSigID, err := insertUserSignature(ctx, tx, userFingerprint, userSignature)
+		if err := mintIdentityTx(ctx, tx, string(authorIdentity)); err != nil {
+			return err
+		}
+		userSigID, err := insertUserSignature(ctx, tx, req.UserSignature.KeyID, req.UserSignature.Armor)
 		if err != nil {
 			return err
 		}
-		serverSigID, err := insertServerSignature(ctx, tx, keyID, serverSignature, signedAt)
+		serverSigID, err := insertServerSignature(ctx, tx, keyID, req.ServerSignature.Armor, signedAt)
 		if err != nil {
 			return err
 		}
 		if err := insertReedIdentityOf(ctx, tx, reedID, serverID, string(authorIdentity)); err != nil {
 			return fmt.Errorf("insert reed identity: %w", err)
 		}
+		// Whoever reports it held it, so it was published; when exactly is lost.
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO reeds (
-				id, user_id, signed_at,
-				user_signature_id, server_signature_id
-			)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO reeds (id, user_id, signed_at, user_signature_id, server_signature_id, published_at)
+			VALUES ($1, $2, $3, $4, $5, $3)
 		`, reedID, authorIdentity, signedAt, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed: %w", err)
+		}
+		if err := restoreReedLinksTx(ctx, tx, serverID, reedID, authorIdentity, signedAt, req.Links, false); err != nil {
+			return err
 		}
 	case err != nil:
 		return err
@@ -7598,19 +7594,168 @@ func saveRecoveryReed(ctx context.Context,
 				Msg("[ERR] recovery reed conflict")
 			return errRecoveryReedConflict
 		}
+		// The author's word on the links wins over a holder's.
+		if reporterIdentity == authorIdentity {
+			if err := restoreReedLinksTx(ctx, tx, serverID, reedID, authorIdentity, signedAt, req.Links, true); err != nil {
+				return err
+			}
+		}
 	}
 
-	// reed_allocations.holder_user_id is a direct FK to identities(id);
-	// reed_id FKs to reeds(id).
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_allocations (reed_id, holder_user_id)
-		VALUES ($1, $2)
+		SELECT $1, $2::VARCHAR
+		WHERE NOT EXISTS (SELECT 1 FROM user_blocks WHERE user_id = $3 AND blocked_user_id = $2::VARCHAR)
 		ON CONFLICT DO NOTHING
-	`, reedID, reporterIdentity); err != nil {
+	`, reedID, reporterIdentity, authorIdentity); err != nil {
 		return fmt.Errorf("insert reed allocation: %w", err)
 	}
 
 	return tx.Commit()
+}
+
+// restoreReedLinksTx stores the reply, echo, thread and mention links
+// reedID's author signed into it, as far as they stay on this server.
+// replace first drops the ones a holder reported.
+func restoreReedLinksTx(ctx context.Context, tx *sql.Tx, serverID, reedID string, author identityID, signedAt time.Time, links recoveryReedLinks, replace bool) error {
+	local := func(id string) bool {
+		owner, ok := authorOf(identityID(id))
+		return ok && owner.ServerID() == serverID && id != reedID
+	}
+	var oldParent sql.NullString
+	if replace {
+		if err := tx.QueryRowContext(ctx, `SELECT parent_reed_id FROM reed_replies WHERE reed_id = $1`, reedID).Scan(&oldParent); err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		for _, q := range []string{
+			`DELETE FROM reed_replies WHERE reed_id = $1`,
+			`DELETE FROM reed_echoes WHERE echoing_reed_id = $1`,
+			`DELETE FROM reed_mentions WHERE mentioning_reed_id = $1`,
+			`DELETE FROM reed_admin_mentions WHERE mentioning_reed_id = $1`,
+			`UPDATE reeds SET thread_head = NULL, thread_index = NULL WHERE id = $1`,
+		} {
+			if _, err := tx.ExecContext(ctx, q, reedID); err != nil {
+				return err
+			}
+		}
+	}
+
+	if head := links.ThreadHead; head != "" && (head == reedID || local(head)) {
+		if owner, _ := authorOf(identityID(head)); owner == author && links.ThreadIndex >= 0 && links.ThreadIndex < MaxThreadReeds {
+			if err := insertReedIdentityOf(ctx, tx, head, serverID, string(author)); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE reeds SET thread_head = $2, thread_index = $3
+				WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM reeds WHERE thread_head = $2 AND thread_index = $3)
+			`, reedID, head, links.ThreadIndex); err != nil {
+				return err
+			}
+		}
+	}
+
+	root := links.ReplyingRoot
+	if root == "" {
+		root = links.ReplyingTo
+	}
+	if links.ReplyingTo != "" && local(links.ReplyingTo) && local(root) {
+		if err := insertReedIdentity(ctx, tx, links.ReplyingTo); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_replies (root_id, reed_id, parent_reed_id, timestamp)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (reed_id) DO NOTHING
+		`, root, reedID, links.ReplyingTo, signedAt); err != nil {
+			return err
+		}
+	}
+	if err := recountReplyAncestorsTx(ctx, tx, reedID); err != nil {
+		return err
+	}
+	if oldParent.Valid && oldParent.String != links.ReplyingTo {
+		if err := recountReplyAncestorsTx(ctx, tx, oldParent.String); err != nil {
+			return err
+		}
+	}
+
+	// A removed reed or account keeps no echo or mention.
+	removed, err := existsTx(ctx, tx, `
+		SELECT 1 FROM reed_removals WHERE reed_id = $1
+		UNION ALL SELECT 1 FROM account_removals WHERE user_id = $2
+	`, reedID, author)
+	if err != nil || removed {
+		return err
+	}
+	if echoed := links.Echoing; echoed != "" && local(echoed) {
+		echoedAuthor, _ := authorOf(identityID(echoed))
+		if err := insertReedIdentity(ctx, tx, echoed); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_echoes (echoing_reed_id, echoed_reed_id, echoing_author_id, echoed_author_id, is_blank, signed_at)
+			SELECT $1, $2::VARCHAR, $3, $4, FALSE, $5
+			WHERE NOT EXISTS (SELECT 1 FROM reed_removals WHERE reed_id = $2::VARCHAR)
+			ON CONFLICT (echoing_reed_id) DO NOTHING
+		`, reedID, echoed, author, echoedAuthor, signedAt); err != nil {
+			return err
+		}
+	}
+	for _, claim := range links.Mentions {
+		if mentionedServer, ok := adminsMentionServer(claim); ok {
+			if mentionedServer == serverID {
+				if _, err := tx.ExecContext(ctx, `
+					INSERT INTO reed_admin_mentions (mentioning_reed_id, server_id, created_at)
+					VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
+				`, reedID, serverID, signedAt); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if _, mentionedServer, ok := parseIdentityID(identityID(claim)); !ok || mentionedServer != serverID || claim == string(author) {
+			continue
+		}
+		if err := mintIdentityTx(ctx, tx, claim); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_mentions (mentioning_reed_id, mentioned_user_id, created_at)
+			VALUES ($1, $2, $3) ON CONFLICT DO NOTHING
+		`, reedID, claim, signedAt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recountReplyAncestorsTx sets the reply count of reedID and everything it
+// answers from the replies held now: one arriving before its parent's own
+// link would otherwise leave the counts above the parent short.
+func recountReplyAncestorsTx(ctx context.Context, tx *sql.Tx, reedID string) error {
+	_, err := tx.ExecContext(ctx, `
+		WITH RECURSIVE up(id) AS (
+			SELECT $1::VARCHAR
+			UNION SELECT rr.parent_reed_id FROM reed_replies rr JOIN up ON rr.reed_id = up.id
+		), counts AS (
+			SELECT up.id, (
+				WITH RECURSIVE down(id) AS (
+					SELECT reed_id FROM reed_replies WHERE parent_reed_id = up.id
+					UNION SELECT rr.reed_id FROM reed_replies rr JOIN down ON rr.parent_reed_id = down.id
+				)
+				SELECT COUNT(*) FROM down d
+				WHERE NOT EXISTS (SELECT 1 FROM reed_removals rm WHERE rm.reed_id = d.id)
+					AND NOT EXISTS (SELECT 1 FROM reeds r JOIN account_removals ar ON ar.user_id = r.user_id WHERE r.id = d.id)
+			) AS n
+			FROM up
+			WHERE EXISTS (SELECT 1 FROM reed_identities ri WHERE ri.id = up.id)
+		)
+		INSERT INTO reed_stats (reed_id, reply_count)
+		SELECT id, n FROM counts c
+		WHERE n > 0 OR EXISTS (SELECT 1 FROM reed_stats s WHERE s.reed_id = c.id)
+		ON CONFLICT (reed_id) DO UPDATE SET reply_count = EXCLUDED.reply_count
+	`, reedID)
+	return err
 }
 
 // saveRecoveryFollowing writes follow edges for followerUserID. Existing
@@ -7671,6 +7816,16 @@ func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, fol
 		}
 		targetIdentity := targetIdentities[targetID]
 		if existing[string(targetIdentity)] {
+			// A block of the follower ended the follow, and still bars it.
+			blocked, err := existsTx(ctx, tx, `
+				SELECT 1 FROM user_blocks WHERE user_id = $1 AND blocked_user_id = $2
+			`, targetIdentity, followerIdentity)
+			if err != nil {
+				return err
+			}
+			if blocked {
+				continue
+			}
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO user_following (user_id, following_user_id)
 				VALUES ($1, $2)
@@ -7696,6 +7851,34 @@ func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, fol
 		}
 	}
 
+	return tx.Commit()
+}
+
+// saveRecoveryPins restores ownerID's pinned reeds, most recent first, as
+// far as they're the owner's own and within the pin limit.
+func saveRecoveryPins(ctx context.Context, db *sql.DB, serverID, ownerID string, reedIDs []string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Truncate(time.Second)
+	pinned := 0
+	for _, reedID := range reedIDs {
+		if owner, ok := authorOf(identityID(reedID)); !ok || string(owner) != ownerID || pinned == maxPinnedReeds {
+			continue
+		}
+		if err := insertReedIdentityOf(ctx, tx, reedID, serverID, ownerID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO pinned_reeds (user_id, reed_id, pinned_at) VALUES ($1, $2, $3)
+			ON CONFLICT DO NOTHING
+		`, ownerID, reedID, now.Add(-time.Duration(pinned)*time.Second)); err != nil {
+			return err
+		}
+		pinned++
+	}
 	return tx.Commit()
 }
 

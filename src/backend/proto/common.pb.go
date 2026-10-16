@@ -955,8 +955,10 @@ type AdminRequest struct {
 	DroppedTargets     []string               `protobuf:"bytes,10,rep,name=dropped_targets,json=droppedTargets,proto3" json:"dropped_targets,omitempty"`
 	Decision           *AdminDecision         `protobuf:"bytes,11,opt,name=decision,proto3,oneof" json:"decision,omitempty"`
 	ServerSignature    *ServerSignature       `protobuf:"bytes,12,opt,name=server_signature,json=serverSignature,proto3,oneof" json:"server_signature,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The server's countersignature from when the request opened.
+	OpenedSignature *ServerSignature `protobuf:"bytes,13,opt,name=opened_signature,json=openedSignature,proto3" json:"opened_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AdminRequest) Reset() {
@@ -1069,6 +1071,13 @@ func (x *AdminRequest) GetDecision() *AdminDecision {
 func (x *AdminRequest) GetServerSignature() *ServerSignature {
 	if x != nil {
 		return x.ServerSignature
+	}
+	return nil
+}
+
+func (x *AdminRequest) GetOpenedSignature() *ServerSignature {
+	if x != nil {
+		return x.OpenedSignature
 	}
 	return nil
 }
@@ -1380,7 +1389,7 @@ const file_common_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12&\n" +
 	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserID\x12<\n" +
 	"\x0euser_signature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xe8\x03\n" +
+	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xac\x04\n" +
 	"\fAdminRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12!\n" +
@@ -1395,7 +1404,8 @@ const file_common_proto_rawDesc = "" +
 	"\x0fdropped_targets\x18\n" +
 	" \x03(\tR\x0edroppedTargets\x126\n" +
 	"\bdecision\x18\v \x01(\v2\x15.syrinx.AdminDecisionH\x00R\bdecision\x88\x01\x01\x12G\n" +
-	"\x10server_signature\x18\f \x01(\v2\x17.syrinx.ServerSignatureH\x01R\x0fserverSignature\x88\x01\x01B\v\n" +
+	"\x10server_signature\x18\f \x01(\v2\x17.syrinx.ServerSignatureH\x01R\x0fserverSignature\x88\x01\x01\x12B\n" +
+	"\x10opened_signature\x18\r \x01(\v2\x17.syrinx.ServerSignatureR\x0fopenedSignatureB\v\n" +
 	"\t_decisionB\x13\n" +
 	"\x11_server_signature\"\x7f\n" +
 	"\rAdminDecision\x12\x1a\n" +
@@ -1477,14 +1487,15 @@ var file_common_proto_depIdxs = []int32{
 	0,  // 23: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
 	12, // 24: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
 	1,  // 25: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 26: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
-	11, // 27: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
-	1,  // 28: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
-	29, // [29:29] is the sub-list for method output_type
-	29, // [29:29] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	1,  // 26: syrinx.AdminRequest.opened_signature:type_name -> syrinx.ServerSignature
+	0,  // 27: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
+	11, // 28: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
+	1,  // 29: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
+	30, // [30:30] is the sub-list for method output_type
+	30, // [30:30] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }

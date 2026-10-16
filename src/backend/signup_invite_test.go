@@ -154,6 +154,26 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS account_removals (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id)
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_blocks (
+			user_id VARCHAR(255) NOT NULL,
+			blocked_user_id VARCHAR(255) NOT NULL,
+			PRIMARY KEY (user_id, blocked_user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_requests (
+			id VARCHAR(255) PRIMARY KEY,
+			action VARCHAR(32) NOT NULL,
+			state VARCHAR(16) NOT NULL,
+			closed_at TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_request_targets (
+			request_id VARCHAR(255) NOT NULL REFERENCES admin_requests(id) ON DELETE CASCADE,
+			user_id VARCHAR(255) NOT NULL,
+			PRIMARY KEY (request_id, user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_request_content (
+			request_id VARCHAR(255) PRIMARY KEY REFERENCES admin_requests(id) ON DELETE CASCADE,
+			body TEXT NOT NULL
+		)`,
 		`CREATE TABLE recovery_challenges (
 			nonce VARCHAR(64) PRIMARY KEY,
 			issued_at TIMESTAMP NOT NULL DEFAULT NOW()

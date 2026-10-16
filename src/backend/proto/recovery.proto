@@ -4,6 +4,8 @@ package syrinx;
 
 import "common.proto";
 import "identity.proto";
+import "reed.proto";
+import "admin.proto";
 
 option go_package = "github.com/var0xyz/syrinx/proto";
 
@@ -87,12 +89,55 @@ message PeerIdentityRequest {
   RecoveryKeyNode key = 2;
 }
 
-// POST /recovery/reeds.
+// POST /recovery/reeds. The links are the ones the author signed, which
+// the server can't check without the content, as when the reed was posted.
 message RecoveryReedRequest {
   string reed_id = 1 [json_name = "reedID"];
-  string author_id = 2 [json_name = "authorID"];
-  UserSignature user_signature = 3;
-  ServerSignature server_signature = 4;
+  UserSignature user_signature = 2;
+  ServerSignature server_signature = 3;
+  string replying_to = 4;
+  string replying_root = 5;
+  string echoing = 6;
+  string thread_head = 7;
+  uint32 thread_index = 8;
+  repeated string mentions = 9;
+}
+
+// One signed record a device holds, reported back to a rebuilt server.
+message RecoveryRecord {
+  oneof record {
+    LikeCert like = 1;
+    BlockCert block = 2;
+    Vouch vouch = 3;
+    ReedRemovalCert reed_removal = 4;
+    AccountRemovalCert account_removal = 5;
+    ThreadRecord thread = 6;
+    ThreadRemoval thread_removal = 7;
+    LedgerEntry ledger_entry = 8;
+    AdminRequest admin_request = 9;
+    ReedFlag flag = 10;
+  }
+}
+
+// POST /recovery/records.
+message RecoveryRecordsRequest {
+  repeated RecoveryRecord records = 1;
+}
+
+// One outcome per record, in request order: stored (or already held),
+// pending until what it refers to is restored, or refused with a reason.
+message RecoveryRecordResult {
+  string status = 1;
+  string reason = 2;
+}
+
+message RecoveryRecordsResponse {
+  repeated RecoveryRecordResult results = 1;
+}
+
+// POST /recovery/pins: the caller's pinned reeds, most recent first.
+message RecoveryPinsRequest {
+  repeated string reed_ids = 1 [json_name = "reedIDs"];
 }
 
 // POST /recovery/following.

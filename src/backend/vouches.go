@@ -198,6 +198,10 @@ func insertVouchRow(ctx context.Context, tx *sql.Tx, cert VouchCert) error {
 	); err != nil {
 		return fmt.Errorf("insert user vouch: %w", err)
 	}
+	// A withdrawn vouch, as recovery restores one, never goes live.
+	if cert.Withdrawal != nil {
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO user_vouches_active (
 			vouch_id, voucher_user_id, subject_user_id, subject_key_id

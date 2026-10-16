@@ -429,23 +429,45 @@ User-recoverable:
 | `reed_allocations`     | holder's own report                       | normal signature-auth (holder signs the request) |
 | `user_following`, `user_followers` | user's own follow list        | normal signature-auth (no per-edge signature); missing targets held in `pending_follows` until the target is restored |
 | `user_devices`         | the claiming device                       | own claim |
+| `user_permissions`     | the identity record                       | server countersig (permissions are signed into the profile) |
+| `reed_replies`, `reed_echoes`, `reed_mentions`, `reed_admin_mentions`, `reeds.thread_head` | the reed's own links, sent with it | the reporter's word, as at posting: the author signs them, but checking needs the content. The author's report replaces a holder's |
+| `pinned_reeds`         | the owner's cached profile hints          | normal signature-auth, own reeds only |
+| everything below       | `POST /recovery/records`                  | the record's own signatures, checked as the live path does |
 
-Every id on the recovery wire is canonical (`userID@serverID`, key ids
-`userID@serverID/fingerprint`), except `reedID`, which travels as its bare
-suffix next to `authorID`. `users.invite_id` has no FK to `invites`: the
-inviter is the id's owner (`invite_creator`), so who invited whom survives
-without the invite rows. `recovery_e2e_test.go` rebuilds a live database
-through the real handlers and diffs every table above.
+`/recovery/records` takes any batch of the signed records a device keeps,
+one kind per IndexedDB store, and answers each as stored, pending or
+refused. A record naming a user whose keys aren't restored yet, or a
+ledger entry whose predecessor isn't, waits in `pending_recovery_records`
+and is retried when that arrives:
 
-**Not reconstructed** (no recovery path yet): `invites`, `reed_replies`,
-`reed_echoes`, `reed_mentions`, `reed_threads` (and `reeds.thread_head`),
-`reeds.published_at`, `reeds_liked`, `user_blocks`, `user_vouches`,
-`pinned_reeds`, `reed_removals`, `thread_removals`, `account_removals`,
-`user_permissions`, `users.suspended_by`, `admin_requests`,
-`ledger_entries`, `reserved_usernames`, `reed_flags`, `ripples`,
-`user_mailbox`, and federation (`servers` peer rows and everything keyed
-on them). Derived counters follow: `reed_stats` reply/echo/like counts
-are zero after recovery.
+| Record (client store)            | Restores |
+|----------------------------------|----------|
+| like (`likedReeds`)              | `reeds_liked` |
+| block (`blocks`)                 | `user_blocks`, and its effect on follows and holdings |
+| vouch (`vouches`)                | `user_vouches`, `user_vouches_active` |
+| thread record (`threads`)        | `reed_threads` |
+| thread removal (`removedThreads`) | `thread_removals`, the parts' `reed_removals` |
+| reed removal (`removedReeds`)    | `reed_removals` |
+| account removal (`removedAccounts`) | `account_removals`, clearing the profile; a kick restores its request |
+| ledger entry (`ledger`)          | `ledger_entries`, `ledger_entry_targets`, ids kept |
+| closed admin request (`adminRequests`) | `admin_requests` with targets and content; `users.suspended_by`; rebind-bound keys' `restricted` |
+| flag (`flaggedReeds`)            | `reed_flags` |
+
+Reply counts are recounted from the restored links, so the order reports
+arrive in doesn't matter; the other counters follow their triggers. Every
+id on the recovery wire is canonical. `users.invite_id` has no FK to
+`invites`: the inviter is the id's owner (`invite_creator`), so who
+invited whom survives without the invite rows. `recovery_e2e_test.go`
+rebuilds a live database through the real handlers and diffs every table
+above, including with records reported before what they name.
+
+**Not reconstructed, by design:** `invites` and pending admin requests,
+`flag_dismissals` (their flags come back open), `ripples`, `user_mailbox`
+(devices keep what they received), federation (`servers` peer rows and
+everything keyed on them), and delivery queues still owed (`pending_*`,
+`block_peer_notices`, `user_block_events`). A removed reed keeps only its
+removal: no device holds its `reeds` row. `reeds.published_at` comes back
+as the signing time.
 
 Operator-restored (not from users): `servers` (preserved ID + name),
 `private_keys` (**full history**), `public_keys` (derived).
@@ -476,6 +498,8 @@ not registered (no attack surface).
 | `POST /api/recovery/identity`       | signature-auth            | **one** peer     |
 | `POST /api/recovery/reeds`          | signature-auth            | **one** reed     |
 | `POST /api/recovery/following`      | signature-auth            | **≤100** userIDs |
+| `POST /api/recovery/records`        | signature-auth            | **≤100** records |
+| `POST /api/recovery/pins`           | signature-auth            | own pins         |
 | `POST /api/recovery/complete`       | signature-auth            | —                |
 
 **Normal use stays enabled during recovery** for anyone who has finished
@@ -673,27 +697,21 @@ is off, the gate does not apply even if rows remain.
 **`POST /api/recovery/reeds`** — **one reed per request** (no batches; keeps
 verification bounded):
 
-```json
-{
-  "reedID": "...",
-  "authorID": "...",
-  "userSignature": "<base64 armored>",
-  "server": {
-    "id": "<serverID>",
-    "fingerprint": "<server signing key>",
-    "timestamp": "...",
-    "signature": "<base64 armored countersig>"
-  }
-}
-```
+`RecoveryReedRequest`: the canonical `reedID`, the author's `userSignature`,
+the `serverSignature`, and the links the author signed into the reed
+(`replyingTo`, `replyingRoot`, `echoing`, `threadHead`, `threadIndex`,
+`mentions`).
 
-1. Author must already exist.
-2. Verify the server countersignature (binds `reedID` + `authorID` + server ts +
-   `serverID`) against the restored key of `server.fingerprint`.
-3. Upsert `reeds` metadata idempotently; insert
-   `reed_allocations(reedID, reportingUserID)`. No reed content is stored.
-   Quiet — no realtime broadcast. Re-POST of the same metadata succeeds;
-   conflicting metadata for an existing `reedID` → **409** + error log.
+1. The reed must be this server's; its author gets a placeholder identity
+   row until their own identity is reported.
+2. Verify the server countersignature (binds `reedID` + author key + server
+   ts + `serverID`) against the restored key of its fingerprint.
+3. Upsert `reeds` metadata idempotently, with its links, and insert
+   `reed_allocations(reedID, reportingUserID)` unless the author blocks the
+   reporter. No reed content is stored. Quiet — no realtime broadcast.
+   Re-POST of the same metadata succeeds; conflicting metadata for an
+   existing `reedID` → **409** + error log. The author's own report
+   replaces links a holder reported first.
 
 ### Phase 3 — Follows (authenticated)
 
@@ -707,6 +725,18 @@ user later appears via own claim or peer identity report, pending edges are
 drained into the real follow tables in the same transaction. Live signup does
 not drain (new random IDs never match). Rows left behind after
 `RECOVERY_MODE` turns off are left for the operator.
+
+### Phase 4 — Signed records and pins (authenticated)
+
+**`POST /api/recovery/records`** — up to 100 `RecoveryRecord`s, each one of
+the signed records in the table above. Each is verified with the same
+signatures the live path checked and answered `stored`, `pending` (it
+names a user or ledger entry not restored yet, and is retried once that
+arrives) or `refused` with a reason. Storing is idempotent, so every
+holder can send its copy.
+
+**`POST /api/recovery/pins`** — the caller's pinned reed ids, most recent
+first; only their own reeds, up to the pin limit.
 
 ### Ending recovery
 

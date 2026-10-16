@@ -144,9 +144,18 @@ The server never learns private keys. It reconstructs **public, signed** state f
 
 ### What comes back
 
-Once everyone has reported in, these match the old database: accounts (username, role, bio, join date, who invited them), every key and rotation with its revocations, reed records and who holds each one, follows, and each returning user's device binding. A user who never returns is still rebuilt from what peers cached, as an unclaimed account they can claim later.
+Once everyone has reported in, the rebuilt database matches the old one. Each device sends back what it holds:
 
-These don't come back: invites themselves (pending ones are lost; an account still shows who invited it), replies, echoes, mentions and threads as server-side links, likes, blocks, vouches, pins, reed and account removals, admin permissions, suspensions, admin requests and the ledger, reserved names, flags, ripples, mailbox messages and federation peers.
+- accounts (username, role, admin permissions, bio, join date, who invited them) and every key, rotation and revocation;
+- reeds, who holds each one, and what each one replies to, echoes, continues or mentions;
+- threads, likes, blocks, vouches and their withdrawals, pins and flags;
+- reed, thread and account removals, including kicks;
+- closed admin requests, and with them suspensions, and the whole ledger;
+- follows, and each returning user's device binding.
+
+Every signed record is checked as it was when first accepted, and one that names a user not restored yet waits until that user is. A user who never returns is still rebuilt from what peers cached, as an unclaimed account they can claim later.
+
+A few things don't come back, by design: invites (an account still shows who invited it, but pending invites are lost), pending admin requests, flag dismissals (their flags come back open), ripples, and federation peers, which only the server held. Mailbox messages stay on the devices that received them. A removed reed comes back as its removal certificate alone, since no device keeps its content.
 
 Operators end the window by turning `RECOVERY_MODE` off when the community has reported in sufficiently. If the domain changed, federation with peer servers has to be re-established.
 

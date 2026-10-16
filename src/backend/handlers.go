@@ -3791,6 +3791,7 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID, "")
 	}
 
+	h.wakeRecoveryRecords(r, req.Profile.ID)
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
 	ok = true
 	writeResponse(w, http.StatusOK, pbRecoveryProfile(req.Profile))
@@ -3838,6 +3839,7 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID, "")
 	}
 
+	h.wakeRecoveryRecords(r, req.Profile.ID)
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
 	recorded = true
 	writeResponse(w, http.StatusOK, pbRecoveryProfile(req.Profile))
@@ -3858,8 +3860,8 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	if req.ReedID == "" || req.AuthorID == "" || req.UserSignature.Armor == "" {
-		writeError(w, http.StatusBadRequest, "reedID, authorID, and userSignature are required")
+	if req.ReedID == "" || req.UserSignature.Armor == "" {
+		writeError(w, http.StatusBadRequest, "reedID and userSignature are required")
 		return
 	}
 	if req.ServerSignature.Fingerprint == "" || req.ServerSignature.Armor == "" || req.ServerSignature.Timestamp.IsZero() {
@@ -3868,32 +3870,21 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
+	if author, ok := authorOf(identityID(req.ReedID)); !ok || author.ServerID() != serverID {
+		writeError(w, http.StatusBadRequest, "not a reed of this server")
+		return
+	}
 	if err := verifyRecoveryReedCountersig(r.Context(), req, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// req.AuthorID (reed.userID client-side) and req.UserSignature.KeyID
-	// both arrive already canonical — only req.ReedID is bare on this wire.
-	authorKeyID := req.UserSignature.KeyID
-	canonicalReedID := string(appendEntity(identityID(req.AuthorID), req.ReedID))
-	err = saveRecoveryReed(r.Context(), h.services.db.db,
-		serverID,
-		canonicalReedID,
-		req.ServerSignature.Fingerprint,
-		req.ServerSignature.Timestamp,
-		caller,
-		authorKeyID,
-		req.UserSignature.Armor,
-		req.ServerSignature.Armor,
-	)
+	err = saveRecoveryReed(r.Context(), h.services.db.db, serverID, req, caller)
 	switch {
-	case errors.Is(err, errRecoveryAuthorNotFound):
-		writeError(w, http.StatusBadRequest, "author not found")
 	case errors.Is(err, errRecoveryReedConflict):
 		writeError(w, http.StatusConflict, "reed metadata conflict")
 	case err != nil:
-		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("reedID", canonicalReedID).Msg("Recovery reed failed")
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("reedID", req.ReedID).Msg("Recovery reed failed")
 		internalServerError(w)
 	default:
 		recorded = true
@@ -3936,6 +3927,78 @@ func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// recoveryRecords is what restoring reported records runs against.
+func (h *Handlers) recoveryRecords() *recoveryRecordEnv {
+	return &recoveryRecordEnv{
+		db:        h.services.db.db,
+		serverID:  h.services.db.GetServerID(),
+		serverKey: h.services.db.GetServerKeyArmorAt,
+		verifier:  h.services.crypto,
+	}
+}
+
+// wakeRecoveryRecords retries the records parked on userID's identity.
+func (h *Handlers) wakeRecoveryRecords(r *http.Request, userID string) {
+	if err := h.recoveryRecords().wake(r.Context(), userID); err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", userID).Msg("Retrying parked recovery records failed")
+	}
+}
+
+// ReportRecords handles POST /api/recovery/records: signed records a
+// device holds, each stored, parked or refused on its own.
+func (h *Handlers) ReportRecords(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	if !ok || caller == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var msg pb.RecoveryRecordsRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if len(msg.GetRecords()) > maxRecoveryRecordsBatch {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("records exceeds maximum of %d", maxRecoveryRecordsBatch))
+		return
+	}
+	env := h.recoveryRecords()
+	out := &pb.RecoveryRecordsResponse{}
+	for _, record := range msg.GetRecords() {
+		status, reason, err := env.restoreRecord(r.Context(), record)
+		if err != nil {
+			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery record failed")
+			h.metrics.ServerRecovery(r.Context(), "record", caller, false)
+			internalServerError(w)
+			return
+		}
+		h.metrics.ServerRecovery(r.Context(), "record", caller, status != recoveryRecordRefused)
+		out.Results = append(out.Results, &pb.RecoveryRecordResult{Status: status, Reason: reason})
+	}
+	writeResponse(w, http.StatusOK, out)
+}
+
+// ReportPins handles POST /api/recovery/pins.
+func (h *Handlers) ReportPins(w http.ResponseWriter, r *http.Request) {
+	caller, ok := r.Context().Value(userIDKey).(string)
+	if !ok || caller == "" {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	var msg pb.RecoveryPinsRequest
+	if err := readRequest(r, &msg); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	if err := saveRecoveryPins(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, msg.GetReedIds()); err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery pins failed")
+		h.metrics.ServerRecovery(r.Context(), "pins", caller, false)
+		internalServerError(w)
+		return
+	}
+	h.metrics.ServerRecovery(r.Context(), "pins", caller, true)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // CompleteImport handles POST /api/recovery/complete.
 func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
 	caller, ok := r.Context().Value(userIDKey).(string)
@@ -3966,14 +4029,10 @@ func verifyRecoveryReedCountersig(ctx context.Context, req recoveryReedRequest, 
 		return fmt.Errorf("unknown server key %s", req.ServerSignature.Fingerprint)
 	}
 
-	// req.AuthorID arrives already canonical (reed.userID client-side);
-	// only req.ReedID is bare on this wire — append it to rebuild the id
-	// the original countersignature was computed over.
-	canonicalReedID := string(appendEntity(identityID(req.AuthorID), req.ReedID))
 	ts := req.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	payload := buildReedPayload(
 		serverID,
-		canonicalReedID,
+		req.ReedID,
 		req.ServerSignature.Fingerprint,
 		req.UserSignature.KeyID,
 		req.UserSignature.Armor,

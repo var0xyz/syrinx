@@ -62,6 +62,7 @@ export type {
   ChallengeResponse,
   RecoveryKeyNode,
   RecoveryProfile,
+  RecoveryRecordResult,
   RecoveryRevocation as RecoveryKeyRevocation,
 } from '$lib/proto/recovery_pb';
 export type {

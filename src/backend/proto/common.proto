@@ -133,6 +133,8 @@ message AdminRequest {
   repeated string dropped_targets = 10;
   optional AdminDecision decision = 11;
   optional ServerSignature server_signature = 12;
+  // The server's countersignature from when the request opened.
+  ServerSignature opened_signature = 13;
 }
 
 // An approval, rejection or withdrawal, signed over the request's signature.

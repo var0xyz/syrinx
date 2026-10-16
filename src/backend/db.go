@@ -1438,6 +1438,16 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (follower_user_id, following_user_id)
 	);`
 
+	// Reported records that name something not restored yet: an identity
+	// whose keys verify them, or the ledger entry before one.
+	createPendingRecoveryRecordsTable := `
+	CREATE TABLE IF NOT EXISTS pending_recovery_records (
+		waiting_on VARCHAR(255) NOT NULL,
+		digest BYTEA NOT NULL,
+		record BYTEA NOT NULL,
+		PRIMARY KEY (waiting_on, digest)
+	);`
+
 	createPendingFollowsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_pending_follows_following_user_id
 		ON pending_follows(following_user_id);
@@ -1821,6 +1831,7 @@ func InitDB(db *sql.DB) error {
 
 		createPendingFollowsTable,
 		createPendingFollowsIndexes,
+		createPendingRecoveryRecordsTable,
 
 		// Federation
 		createFederationLogTable,

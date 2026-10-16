@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -63,11 +64,17 @@ func (s *e2eServer) signup(t *testing.T, username string) *e2eUser {
 
 func (s *e2eServer) signupInvited(t *testing.T, username, inviteID, inviteSecret string) *e2eUser {
 	t.Helper()
-	h := s.h
 	bare, err := newCryptoID()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return s.signupAs(t, bare, username, inviteID, inviteSecret)
+}
+
+// signupAs signs up with a chosen bare id, such as root's.
+func (s *e2eServer) signupAs(t *testing.T, bare, username, inviteID, inviteSecret string) *e2eUser {
+	t.Helper()
+	h := s.h
 	userIDSig, err := h.services.crypto.sign(bare, h.signingKey.Armor)
 	if err != nil {
 		t.Fatal(err)
@@ -375,9 +382,10 @@ func (s *e2eServer) invite(t *testing.T, u *e2eUser) (string, string) {
 
 // spaReed is a reed as the SPA's reeds store holds it.
 type spaReed struct {
-	id, userID string
-	userSig    *pb.UserSignature
-	serverSig  *pb.ServerSignature
+	id        string
+	userSig   *pb.UserSignature
+	serverSig *pb.ServerSignature
+	links     *pb.RecoveryReedRequest
 }
 
 // device is one user's IndexedDB: their own data plus what they cached.
@@ -386,6 +394,10 @@ type device struct {
 	snapshots map[string]recoverySnapshot
 	reeds     []spaReed
 	following []string
+	records   []*pb.RecoveryRecord
+	pins      []string
+	// recordsFirst reports records, newest first, before anything else.
+	recordsFirst bool
 }
 
 // deviceOf builds what u's device holds: every user it has seen, the
@@ -397,7 +409,12 @@ func (s *e2eServer) deviceOf(t *testing.T, u *e2eUser, known []*e2eUser) device 
 	for _, k := range known {
 		d.snapshots[k.id] = s.snapshot(t, k.id)
 	}
-	rows, err := s.db.Query(`SELECT reed_id FROM reed_allocations WHERE holder_user_id = $1 ORDER BY reed_id`, u.id)
+	// A removed reed's content is dropped; only its removal is kept.
+	rows, err := s.db.Query(`
+		SELECT reed_id FROM reed_allocations ra WHERE holder_user_id = $1
+			AND NOT EXISTS (SELECT 1 FROM reed_removals rm WHERE rm.reed_id = ra.reed_id)
+		ORDER BY reed_id
+	`, u.id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,9 +434,9 @@ func (s *e2eServer) deviceOf(t *testing.T, u *e2eUser, known []*e2eUser) device 
 		}
 		d.reeds = append(d.reeds, spaReed{
 			id:        att.ID,
-			userID:    att.UserID,
 			userSig:   &pb.UserSignature{Id: att.UserKeyID, Armor: att.UserSignature},
 			serverSig: pbServerSignature(ServerSignature{ID: att.ServerFingerprint, Armor: att.ServerSignature, SignedAt: att.ServerSignedAt}),
+			links:     s.reedLinks(t, att.ID),
 		})
 	}
 	rows, err = s.db.Query(`SELECT following_user_id FROM user_following WHERE user_id = $1 ORDER BY 1`, u.id)
@@ -443,6 +460,9 @@ func (s *e2eServer) recover(t *testing.T, d device) {
 	t.Helper()
 	u := d.user
 	s.claim(t, u, d.snapshots[u.id])
+	if d.recordsFirst {
+		s.reportRecords(t, u, slices.Backward(d.records))
+	}
 	for id, snap := range d.snapshots {
 		if id == u.id {
 			continue
@@ -451,15 +471,42 @@ func (s *e2eServer) recover(t *testing.T, d device) {
 		expectStatus(t, "peer "+id, s.authed(t, u, http.MethodPost, "/api/recovery/identity", msg, nil, s.h.ReportPeerIdentity), http.StatusOK)
 	}
 	for _, r := range d.reeds {
-		_, _, bare, _ := parseKeyFingerprint(identityID(r.id))
-		msg := &pb.RecoveryReedRequest{ReedId: bare, AuthorId: r.userID, UserSignature: r.userSig, ServerSignature: r.serverSig}
+		msg := proto.Clone(r.links).(*pb.RecoveryReedRequest)
+		msg.ReedId, msg.UserSignature, msg.ServerSignature = r.id, r.userSig, r.serverSig
 		expectStatus(t, "reed "+r.id, s.authed(t, u, http.MethodPost, "/api/recovery/reeds", msg, nil, s.h.ReportReed), http.StatusNoContent)
 	}
 	if len(d.following) > 0 {
 		msg := &pb.RecoveryFollowingRequest{UserIds: d.following}
 		expectStatus(t, "following", s.authed(t, u, http.MethodPost, "/api/recovery/following", msg, nil, s.h.ReportFollowing), http.StatusNoContent)
 	}
+	if !d.recordsFirst {
+		s.reportRecords(t, u, slices.All(d.records))
+	}
+	if len(d.pins) > 0 {
+		msg := &pb.RecoveryPinsRequest{ReedIds: d.pins}
+		expectStatus(t, "pins", s.authed(t, u, http.MethodPost, "/api/recovery/pins", msg, nil, s.h.ReportPins), http.StatusNoContent)
+	}
 	expectStatus(t, "complete", s.authed(t, u, http.MethodPost, "/api/recovery/complete", nil, nil, s.h.CompleteImport), http.StatusNoContent)
+}
+
+// reportRecords posts records in batches; none may be refused.
+func (s *e2eServer) reportRecords(t *testing.T, u *e2eUser, records iter.Seq2[int, *pb.RecoveryRecord]) {
+	t.Helper()
+	var all []*pb.RecoveryRecord
+	for _, r := range records {
+		all = append(all, r)
+	}
+	for batch := range slices.Chunk(all, maxRecoveryRecordsBatch) {
+		rr := s.authed(t, u, http.MethodPost, "/api/recovery/records", &pb.RecoveryRecordsRequest{Records: batch}, nil, s.h.ReportRecords)
+		expectStatus(t, "records", rr, http.StatusOK)
+		var res pb.RecoveryRecordsResponse
+		decodeProto(t, rr.Body.Bytes(), &res)
+		for i, r := range res.GetResults() {
+			if r.GetStatus() == recoveryRecordRefused {
+				t.Errorf("%s's record %v refused: %s", u.id, batch[i].GetRecord(), r.GetReason())
+			}
+		}
+	}
 }
 
 func queryRows(t *testing.T, db *sql.DB, q string) []string {
@@ -497,13 +544,18 @@ func queryRows(t *testing.T, db *sql.DB, q string) []string {
 	return out
 }
 
-// Restored tables, keyed by what a row means rather than serial ids.
+// Restored tables, keyed by what a row means rather than serial ids. A
+// removed reed's own rows go with its content, which no device keeps.
 var recoveryRestoredTables = map[string]string{
 	"users": `SELECT u.id, u.username, u.role, COALESCE(u.bio, ''), u.created_at, u.active_key_id,
-		COALESCE(u.invite_id, ''), us.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at
+		COALESCE(u.invite_id, ''), us.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at,
+		COALESCE(u.suspended_by, '')
 		FROM users u JOIN user_signatures us ON us.id = u.user_signature_id
 		JOIN server_signatures ss ON ss.id = u.server_signature_id`,
-	"identities": `SELECT id, server_id FROM identities`,
+	"removed_users": `SELECT id, COALESCE(username, ''), role, created_at, active_key_id, COALESCE(invite_id, '')
+		FROM users WHERE server_signature_id IS NULL`,
+	"user_permissions": `SELECT user_id, permission FROM user_permissions`,
+	"identities":       `SELECT id, server_id FROM identities`,
 	"public_keys": `SELECT pk.id, pk.owner, pk.armor, pk.created_at, COALESCE(pk.predecessor_id, ''), pk.restricted,
 		ss.private_key_id, ss.signature, ss.signed_at
 		FROM public_keys pk JOIN server_signatures ss ON ss.id = pk.server_signature_id WHERE pk.owner IS NOT NULL`,
@@ -514,53 +566,170 @@ var recoveryRestoredTables = map[string]string{
 		JOIN server_signatures ss ON ss.id = r.server_signature_id
 		LEFT JOIN user_signatures sus ON sus.id = r.successor_signature_id`,
 	"reeds": `SELECT r.id, r.user_id, r.signed_at, us.public_key_id, us.signature,
-		ss.private_key_id, ss.signature, ss.signed_at
+		ss.private_key_id, ss.signature, ss.signed_at, COALESCE(r.thread_head, ''), COALESCE(r.thread_index, -1)
 		FROM reeds r JOIN user_signatures us ON us.id = r.user_signature_id
+		JOIN server_signatures ss ON ss.id = r.server_signature_id
+		WHERE r.id NOT IN (SELECT reed_id FROM reed_removals)`,
+	"reed_identities": `SELECT id, server_id, author_id FROM reed_identities
+		WHERE id NOT IN (SELECT reed_id FROM reed_removals)`,
+	"reed_allocations": `SELECT reed_id, holder_user_id FROM reed_allocations
+		WHERE reed_id NOT IN (SELECT reed_id FROM reed_removals)`,
+	"reed_replies":        `SELECT root_id, reed_id, parent_reed_id, timestamp FROM reed_replies`,
+	"reed_echoes":         `SELECT echoing_reed_id, echoed_reed_id, echoing_author_id, echoed_author_id, is_blank, signed_at FROM reed_echoes`,
+	"reed_mentions":       `SELECT mentioning_reed_id, mentioned_user_id FROM reed_mentions`,
+	"reed_admin_mentions": `SELECT mentioning_reed_id, server_id FROM reed_admin_mentions`,
+	"reed_threads": `SELECT t.id, us.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at
+		FROM reed_threads t JOIN user_signatures us ON us.id = t.user_signature_id
+		JOIN server_signatures ss ON ss.id = t.server_signature_id`,
+	"reed_removals": `SELECT rm.reed_id, COALESCE(rm.public_key_id, ''), COALESCE(us.signature, ''),
+		COALESCE(ss.private_key_id, ''), COALESCE(ss.signature, ''), COALESCE(rm.thread_id, '')
+		FROM reed_removals rm LEFT JOIN user_signatures us ON us.id = rm.user_signature_id
+		LEFT JOIN server_signatures ss ON ss.id = rm.server_signature_id`,
+	"thread_removals": `SELECT tr.thread_id, tr.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at, tr.thread_record
+		FROM thread_removals tr JOIN user_signatures us ON us.id = tr.user_signature_id
+		JOIN server_signatures ss ON ss.id = tr.server_signature_id`,
+	"account_removals": `SELECT ar.user_id, ar.note, COALESCE(ar.public_key_id, ''), COALESCE(us.signature, ''),
+		COALESCE(ar.admin_request_id, ''), ss.private_key_id, ss.signature, ss.signed_at
+		FROM account_removals ar LEFT JOIN user_signatures us ON us.id = ar.user_signature_id
+		JOIN server_signatures ss ON ss.id = ar.server_signature_id`,
+	"reeds_liked": `SELECT l.liker_user_id, l.reed_id, l.liker_public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at
+		FROM reeds_liked l JOIN user_signatures us ON us.id = l.user_signature_id
+		JOIN server_signatures ss ON ss.id = l.server_signature_id`,
+	"user_blocks": `SELECT b.user_id, b.blocked_user_id, b.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at
+		FROM user_blocks b JOIN user_signatures us ON us.id = b.user_signature_id
+		JOIN server_signatures ss ON ss.id = b.server_signature_id`,
+	"user_vouches": `SELECT v.id, v.voucher_user_id, v.voucher_key_id, v.subject_user_id, v.subject_key_id, v.note, v.created_at,
+		us.signature, ss.signature, COALESCE(wus.signature, ''), COALESCE(wss.signature, '')
+		FROM user_vouches v JOIN user_signatures us ON us.id = v.user_signature_id
+		JOIN server_signatures ss ON ss.id = v.server_signature_id
+		LEFT JOIN user_signatures wus ON wus.id = v.withdrawal_signature_id
+		LEFT JOIN server_signatures wss ON wss.id = v.withdrawal_server_signature_id`,
+	"user_vouches_active": `SELECT vouch_id, voucher_user_id, subject_user_id, subject_key_id FROM user_vouches_active`,
+	"ledger_entries": `SELECT e.id, COALESCE(e.prev_id, 0), e.kind, COALESCE(e.user_id, ''), COALESCE(e.requester_id, ''),
+		COALESCE(e.requested_at::TEXT, ''), e.message, COALESCE(e.content, ''), e.signed_at, ss.private_key_id, ss.signature
+		FROM ledger_entries e JOIN server_signatures ss ON ss.id = e.server_signature_id`,
+	"ledger_entry_targets": `SELECT entry_id, user_id FROM ledger_entry_targets`,
+	"admin_requests": `SELECT r.id, r.action, r.requester_id, r.requester_key_id, us.signature, oss.signature, oss.signed_at,
+		COALESCE(r.reason, ''), r.created_at, r.state, COALESCE(r.closed_by, ''), COALESCE(r.closer_key_id, ''),
+		COALESCE(cus.signature, ''), ss.signature, r.closed_at
+		FROM admin_requests r JOIN user_signatures us ON us.id = r.requester_signature_id
+		JOIN server_signatures oss ON oss.id = r.requester_server_signature_id
+		LEFT JOIN user_signatures cus ON cus.id = r.closer_signature_id
 		JOIN server_signatures ss ON ss.id = r.server_signature_id`,
-	"reed_identities":  `SELECT id, server_id, author_id FROM reed_identities`,
-	"reed_allocations": `SELECT reed_id, holder_user_id FROM reed_allocations`,
-	"user_following":   `SELECT user_id, following_user_id FROM user_following`,
-	"user_followers":   `SELECT user_id, follower_user_id FROM user_followers`,
-	"network_stats":    `SELECT active_users FROM network_stats`,
-	"reed_stats":       `SELECT reed_id, holder_count FROM reed_stats`,
-	"user_devices":     `SELECT user_id, device_id FROM user_devices WHERE revoked_at IS NULL`,
+	"admin_request_targets": `SELECT request_id, user_id, dropped FROM admin_request_targets`,
+	"admin_request_content": `SELECT request_id, body FROM admin_request_content`,
+	"reed_flags": `SELECT f.reed_id, f.author_id, f.reporter_id, f.note, f.public_key_id, us.signature, f.created_at
+		FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id`,
+	"pinned_reeds":   `SELECT user_id, reed_id FROM pinned_reeds`,
+	"user_following": `SELECT user_id, following_user_id FROM user_following`,
+	"user_followers": `SELECT user_id, follower_user_id FROM user_followers`,
+	"network_stats":  `SELECT active_users FROM network_stats`,
+	"reed_stats": `SELECT reed_id, reply_count, echo_count, like_count, holder_count FROM reed_stats
+		WHERE reed_id NOT IN (SELECT reed_id FROM reed_removals)`,
+	// A removed account's device never comes back to claim it.
+	"user_devices": `SELECT user_id, device_id FROM user_devices WHERE revoked_at IS NULL
+		AND user_id NOT IN (SELECT user_id FROM account_removals)`,
 }
 
-// recoveryScenario is a live server with history worth rebuilding:
-// an invite, a key rotation, replies, an echo, a mention and follows.
+// recoveryScenario is a live server with history worth rebuilding: admins
+// and their requests, an invite, a key rotation, replies, an echo,
+// mentions, threads, removals, likes, a block, vouches, a flag and pins.
 type recoveryScenario struct {
-	a                 *e2eServer
-	alice, bob, carol *e2eUser
-	everyone          []*e2eUser
+	a        *e2eServer
+	root     *e2eUser
+	alice    *e2eUser
+	bob      *e2eUser
+	carol    *e2eUser
+	dave     *e2eUser
+	erin     *e2eUser
+	everyone []*e2eUser // those who come back
+	known    map[string]recoverySnapshot
+	flags    []*pb.ReedFlag
 }
 
 func newRecoveryScenario(t *testing.T) recoveryScenario {
 	t.Helper()
 	a := newE2EServer(t, newTestDatabase(t, InitDB), false)
+	root := a.mintRoot(t)
 	alice := a.signup(t, "alice")
 	inviteID, secret := a.invite(t, alice)
 	bob := a.signupInvited(t, "bob", inviteID, secret)
 	carol := a.signup(t, "carol")
+	dave := a.signup(t, "dave")
+	erin := a.signup(t, "erin")
+	frank := a.signup(t, "frank")
+	gina := a.signup(t, "gina")
 	a.rotate(t, alice)
+	everyone := []*e2eUser{root, alice, bob, carol, dave, erin}
 
 	first := a.post(t, alice, "", "")
-	reply := a.post(t, bob, first, "", alice.id)
+	reply := a.post(t, bob, first, "", alice.id, adminsHandle+"@"+a.h.services.db.GetServerID())
 	a.post(t, carol, reply, "")
-	a.post(t, carol, "", first)
+	echo := a.post(t, carol, "", first)
 	a.post(t, alice, "", "")
+	gone := a.post(t, bob, "", "")
+	a.thread(t, alice, 2)
+	removedThread := a.thread(t, alice, 2)
 	a.follow(t, bob, alice.id)
 	a.follow(t, carol, alice.id)
 	a.follow(t, alice, bob.id)
 	a.follow(t, alice, carol.id)
-	// Delivered: every member holds every reed, as DATA_ACK records it.
+	a.follow(t, erin, bob.id)
+	// Delivered: every member who comes back holds every reed, as DATA_ACK records it.
+	ids := make([]string, len(everyone))
+	for i, u := range everyone {
+		ids[i] = "'" + u.id + "'"
+	}
 	if _, err := a.db.Exec(`
 		INSERT INTO reed_allocations (reed_id, holder_user_id)
-		SELECT r.id, u.id FROM reeds r CROSS JOIN users u
+		SELECT r.id, u.id FROM reeds r CROSS JOIN users u WHERE u.id IN (` + strings.Join(ids, ",") + `)
 		ON CONFLICT DO NOTHING
 	`); err != nil {
 		t.Fatal(err)
 	}
-	return recoveryScenario{a: a, alice: alice, bob: bob, carol: carol, everyone: []*e2eUser{alice, bob, carol}}
+
+	// Peers keep the profiles of accounts removed later.
+	known := map[string]recoverySnapshot{}
+	for _, u := range []*e2eUser{frank, gina} {
+		known[u.id] = a.snapshot(t, u.id)
+	}
+
+	promote := a.adminRequest(t, root, adminActionPromote, "Helps everyone", permUserKick+","+permUserSuspend, dave)
+	a.decide(t, root, promote, adminDecisionApprove)
+	suspend := a.adminRequest(t, root, adminActionSuspend, "Spam", "", erin)
+	a.decide(t, dave, suspend, adminDecisionApprove)
+	kick := a.adminRequest(t, root, adminActionKick, "Abuse", "", frank)
+	a.decide(t, dave, kick, adminDecisionApprove)
+	rejected := a.adminRequest(t, dave, adminActionSuspend, "Not sure", "", carol)
+	a.decide(t, root, rejected, adminDecisionReject)
+
+	a.removeReed(t, bob, gone)
+	a.removeThread(t, alice, removedThread)
+	a.deleteAccount(t, gina)
+	a.like(t, carol, first)
+	a.like(t, bob, echo)
+	a.block(t, bob, erin)
+	a.vouch(t, bob, alice)
+	a.vouch(t, carol, alice)
+	a.withdrawVouch(t, carol, alice)
+	flags := []*pb.ReedFlag{a.flag(t, bob, echo)}
+	a.pin(t, alice, first)
+
+	for _, u := range everyone {
+		known[u.id] = a.snapshot(t, u.id)
+	}
+	return recoveryScenario{a: a, root: root, alice: alice, bob: bob, carol: carol, dave: dave, erin: erin,
+		everyone: everyone, known: known, flags: flags}
+}
+
+// deviceOf builds what u's device holds after the scenario.
+func (sc recoveryScenario) deviceOf(t *testing.T, u *e2eUser) device {
+	t.Helper()
+	d := sc.a.deviceOf(t, u, nil)
+	d.snapshots = sc.known
+	d.records = sc.a.heldRecords(t, u, sc.flags)
+	d.pins = queryRows(t, sc.a.db, `SELECT reed_id FROM pinned_reeds WHERE user_id = '`+u.id+`' ORDER BY pinned_at DESC`)
+	return d
 }
 
 // diffRestored fails for every restored table that b doesn't rebuild as a had it.
@@ -600,7 +769,7 @@ func TestRecoveryE2E_RebuildsDatabase(t *testing.T) {
 	sc := newRecoveryScenario(t)
 	var devices []device
 	for _, u := range sc.everyone {
-		devices = append(devices, sc.a.deviceOf(t, u, sc.everyone))
+		devices = append(devices, sc.deviceOf(t, u))
 	}
 
 	b := restoreIdentity(t, sc.a)
@@ -608,10 +777,18 @@ func TestRecoveryE2E_RebuildsDatabase(t *testing.T) {
 		b.recover(t, d)
 	}
 
+	for name, q := range recoveryRestoredTables {
+		if len(queryRows(t, sc.a.db, q)) == 0 {
+			t.Errorf("the scenario leaves %s empty, so it proves nothing", name)
+		}
+	}
 	diffRestored(t, sc.a, b)
 	expectSameProfiles(t, sc.a, b, sc.everyone)
 	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM unclaimed_accounts`); n[0] != "0" {
 		t.Errorf("unclaimed_accounts = %s, want 0 once everyone claimed", n[0])
+	}
+	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM pending_recovery_records`); n[0] != "0" {
+		t.Errorf("pending_recovery_records = %s, want 0", n[0])
 	}
 	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM pending_follows`); n[0] != "0" {
 		t.Errorf("pending_follows = %s, want 0", n[0])
@@ -631,8 +808,10 @@ func TestRecoveryE2E_RebuildsDatabase(t *testing.T) {
 func TestRecoveryE2E_AbsentUserRestoredByPeers(t *testing.T) {
 	sc := newRecoveryScenario(t)
 	var devices []device
-	for _, u := range []*e2eUser{sc.bob, sc.alice} {
-		devices = append(devices, sc.a.deviceOf(t, u, sc.everyone))
+	for _, u := range sc.everyone {
+		if u != sc.carol {
+			devices = append(devices, sc.deviceOf(t, u))
+		}
 	}
 
 	b := restoreIdentity(t, sc.a)
@@ -640,8 +819,8 @@ func TestRecoveryE2E_AbsentUserRestoredByPeers(t *testing.T) {
 		b.recover(t, d)
 	}
 
-	// carol's own device, follows and device binding are gone with her.
-	diffRestored(t, sc.a, b, "reed_allocations", "reed_stats", "user_following", "user_followers", "user_devices")
+	// carol's own device, follows, likes and device binding are gone with her.
+	diffRestored(t, sc.a, b, "reed_allocations", "reed_stats", "user_following", "user_followers", "user_devices", "reeds_liked")
 	expectSameProfiles(t, sc.a, b, sc.everyone)
 	if got := queryRows(t, b.db, `SELECT user_id FROM unclaimed_accounts`); !slices.Equal(got, []string{sc.carol.id}) {
 		t.Errorf("unclaimed_accounts = %v, want only carol", got)
@@ -652,9 +831,36 @@ func TestRecoveryE2E_AbsentUserRestoredByPeers(t *testing.T) {
 	}
 
 	// carol comes back later and claims her peer-seeded account.
-	b.recover(t, sc.a.deviceOf(t, sc.carol, sc.everyone))
+	b.recover(t, sc.deviceOf(t, sc.carol))
 	diffRestored(t, sc.a, b)
 	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM unclaimed_accounts`); n[0] != "0" {
 		t.Errorf("unclaimed_accounts = %s after carol claimed, want 0", n[0])
+	}
+}
+
+// Records reported before their signers or the ledger entries they follow
+// wait, and land once those are restored.
+func TestRecoveryE2E_RecordsWaitForWhatTheyName(t *testing.T) {
+	sc := newRecoveryScenario(t)
+	var devices []device
+	for _, u := range sc.everyone {
+		d := sc.deviceOf(t, u)
+		d.recordsFirst = true
+		devices = append(devices, d)
+	}
+
+	b := restoreIdentity(t, sc.a)
+	b.claim(t, sc.alice, devices[1].snapshots[sc.alice.id])
+	b.reportRecords(t, sc.alice, slices.Backward(devices[1].records))
+	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM pending_recovery_records`); n[0] == "0" {
+		t.Fatal("nothing waited, so the scenario doesn't exercise parking")
+	}
+	for _, d := range devices {
+		b.recover(t, d)
+	}
+
+	diffRestored(t, sc.a, b)
+	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM pending_recovery_records`); n[0] != "0" {
+		t.Errorf("pending_recovery_records = %s, want 0 once everything they name is back", n[0])
 	}
 }
