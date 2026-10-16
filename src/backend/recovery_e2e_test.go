@@ -206,6 +206,7 @@ func spaRecoveryProfile(u *pb.User) *pb.RecoveryProfile {
 		UserSignature:   u.GetUserSignature(),
 		ServerSignature: u.GetServerSignature(),
 		Invite:          u.GetInvite(),
+		Permissions:     u.GetPermissions(),
 	}
 }
 

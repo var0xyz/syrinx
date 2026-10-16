@@ -687,6 +687,7 @@ type recoveryProfile struct {
 	ServerSignature      recoveryServerSignature `json:"serverSignature"`
 	HasReeds             bool                    `json:"hasReeds"`
 	Invite               *Invite                 `json:"invite"`
+	Permissions          []string                `json:"permissions"`
 }
 
 // recoveryKeyWire is the public-key fields shared by live Key responses and
@@ -909,6 +910,7 @@ func verifyProfileServerCountersig(ctx context.Context, profile recoveryProfile,
 		profile.UserSignature.Armor,
 		recoveryProfileInviteID(profile),
 		profile.Role,
+		profile.Permissions,
 		profile.Bio,
 		profile.MemberSince.UTC().Truncate(time.Second),
 		profile.ServerSignature.Timestamp.UTC().Truncate(time.Second),

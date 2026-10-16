@@ -14,6 +14,7 @@ export function recoveryProfileOf(user: api.User): MessageInitShape<typeof Recov
     userSignature: user.userSignature,
     serverSignature: user.serverSignature,
     invite: user.invite,
+    permissions: user.permissions,
   };
 }
 
@@ -28,5 +29,6 @@ export function userOfRecoveryProfile(profile: api.RecoveryProfile): api.User {
     userSignature: profile.userSignature,
     serverSignature: profile.serverSignature,
     invite: profile.invite,
+    permissions: profile.permissions,
   });
 }

@@ -112,6 +112,7 @@ func pbUser(u *User) *pb.User {
 		MemberSince:     unixOrZero(u.CreatedAt),
 		UserSignature:   pbUserSignature(u.UserSignature),
 		ServerSignature: pbServerSignature(u.ServerSignature),
+		Permissions:     u.Permissions,
 	}
 	if u.Invite != nil {
 		out.Invite = &pb.UserInvite{Id: u.Invite.ID, UserId: u.Invite.UserID, Username: u.Invite.Username}
@@ -406,6 +407,7 @@ func recoveryProfileFromPB(p *pb.RecoveryProfile) (recoveryProfile, error) {
 		UserSignature:        recoveryUserSignature{KeyID: p.GetUserSignature().GetId(), Armor: p.GetUserSignature().GetArmor()},
 		ServerSignature:      sig,
 		HasReeds:             p.GetHasReeds(),
+		Permissions:          p.GetPermissions(),
 	}
 	if inv := p.GetInvite(); inv != nil {
 		out.Invite = &Invite{ID: inv.GetId(), UserID: inv.GetUserId(), Username: inv.GetUsername()}
@@ -424,6 +426,7 @@ func pbRecoveryProfile(p recoveryProfile) *pb.RecoveryProfile {
 		UserSignature:        &pb.UserSignature{Id: p.UserSignature.KeyID, Armor: p.UserSignature.Armor},
 		ServerSignature:      pbRecoveryServerSignature(p.ServerSignature),
 		HasReeds:             p.HasReeds,
+		Permissions:          p.Permissions,
 	}
 	if p.Invite != nil {
 		out.Invite = &pb.UserInvite{Id: p.Invite.ID, UserId: p.Invite.UserID, Username: p.Invite.Username}

@@ -68,8 +68,11 @@ func TestPromote_GrantsRolePermissionsAndFreshProfile(t *testing.T) {
 	if profile.Invite != nil {
 		inviteID = profile.Invite.ID
 	}
+	if !slices.Equal(profile.Permissions, []string{permUserKick}) {
+		t.Fatalf("profile permissions = %v, want user.kick", profile.Permissions)
+	}
 	payload := buildProfilePayload(f.ids["u1"], profile.Username, profile.UserSignature.ID, f.srv, f.h.signingKey.Fingerprint,
-		profile.UserSignature.Armor, inviteID, roleAdmin, profile.Bio, profile.CreatedAt, profile.ServerSignature.SignedAt)
+		profile.UserSignature.Armor, inviteID, roleAdmin, []string{permUserKick}, profile.Bio, profile.CreatedAt, profile.ServerSignature.SignedAt)
 	if err := f.h.services.crypto.verifySignature(string(payload), profile.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
 		t.Fatalf("re-countersigned profile doesn't verify with role admin: %v", err)
 	}
@@ -104,6 +107,10 @@ func TestPermissions_AddRemoveAndRootApproval(t *testing.T) {
 	}
 	if got := f.permissions(t, "a3"); !slices.Equal(got, []string{permUserSuspend}) {
 		t.Fatalf("permissions = %v, want user.suspend", got)
+	}
+	if profile, err := f.ds.GetUserProfile(context.Background(), f.ids["a3"]); err != nil || profile == nil ||
+		!slices.Equal(profile.Permissions, []string{permUserSuspend}) {
+		t.Fatalf("profile = %+v (%v), want it re-countersigned with user.suspend", profile, err)
 	}
 }
 

@@ -460,6 +460,16 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		inviteGrantedRole = invite.GrantedRole
 	}
 	signupRole := signupRole(userID, inviteGrantedRole, hasInvite, h.services.db.GetServerID())
+	var signupPermissions []string
+	if hasInvite && signupRole == roleAdmin {
+		signupPermissions, err = h.services.db.queryStrings(r.Context(),
+			`SELECT permission FROM invite_permissions WHERE invite_id = $1 ORDER BY permission`, invite.ID)
+		if err != nil {
+			log.Error().Err(err).Msg("Error reading the invite's permissions")
+			internalServerError(w)
+			return
+		}
+	}
 
 	profilePayload := buildNewProfilePayload(
 		string(selfIdentity),
@@ -470,6 +480,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		userSignature,
 		resolved.InviteID,
 		signupRole,
+		signupPermissions,
 		now,
 	)
 	// Server signature over the user's brand new profile
@@ -1600,6 +1611,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		userSignature,
 		inviteID,
 		currentUser.Role,
+		currentUser.Permissions,
 		bio,
 		currentUser.CreatedAt,
 		signedAt,

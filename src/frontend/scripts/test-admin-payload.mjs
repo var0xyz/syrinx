@@ -54,7 +54,7 @@ assert.equal(
 
 console.log('admin payload parity: ok');
 
-const { buildLedgerEntryPayload } = await import('../src/lib/services/signing.ts');
+const { buildLedgerEntryPayload, buildProfilePayload } = await import('../src/lib/services/signing.ts');
 
 assert.equal(
   buildLedgerEntryPayload(1, undefined, '', 'mesh', 'a1@home1234', '', '', 'Server peer1234 connected',
@@ -115,3 +115,12 @@ assert.equal(
 );
 
 console.log('flag payload parity: ok');
+
+assert.equal(
+  buildProfilePayload('a1@home1234', 'a1', 'a1@home1234/K1', 'home1234', 'SERVERKEY01', 'SIG', '',
+    'admin', ['user.kick', 'user.suspend'], '', '2026-10-12T11:00:00Z', '2026-10-12T11:00:00Z'),
+  '{"keyID":"a1@home1234/K1","memberSince":"2026-10-12T11:00:00Z","permissions":["user.kick","user.suspend"],' +
+    '"role":"admin","serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T11:00:00Z",' +
+    '"type":"identity-server","userID":"a1@home1234","userSignature":"SIG","username":"a1"}',
+  'admin profile payload'
+);

@@ -43,6 +43,7 @@ export function buildProfilePayload(
   userSignature: string,
   inviteID: string,
   role: string,
+  permissions: string[],
   bio: string,
   memberSince: string,
   signedAt: string
@@ -54,6 +55,7 @@ export function buildProfilePayload(
     keyID,
     memberSince,
     role,
+    permissions,
     serverID,
     serverKeyFingerprint,
     signedAt,

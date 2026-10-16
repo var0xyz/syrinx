@@ -155,6 +155,7 @@ func exportRootIdentity(
 		userSigArmor,
 		"",
 		roleRoot,
+		nil,
 		now,
 	)
 	profileSig, err := rootCountersign(cryptoSvc, db, signingKey, profilePayload, now)

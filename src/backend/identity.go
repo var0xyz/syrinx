@@ -27,7 +27,7 @@ func buildUserIdentityPayload(username, keyID, bio string) []byte {
 
 // buildProfilePayload returns the bytes the server countersigns for a
 // profile. userSignature welds the user's attestation to the server-authored
-// fields; inviteID is omitted for open signups.
+// fields; inviteID is omitted for open signups. permissions must be sorted.
 func buildProfilePayload(
 	userID,
 	username,
@@ -36,7 +36,8 @@ func buildProfilePayload(
 	serverKeyFingerprint,
 	userSignature,
 	inviteID,
-	role,
+	role string,
+	permissions []string,
 	bio string,
 	memberSince,
 	signedAt time.Time,
@@ -48,6 +49,7 @@ func buildProfilePayload(
 		"keyID":                keyID,
 		"memberSince":          signedTime(memberSince),
 		"role":                 role,
+		"permissions":          permissions,
 		"serverID":             serverID,
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"signedAt":             signedTime(signedAt),
@@ -469,6 +471,7 @@ func buildNewProfilePayload(
 	userSignature,
 	inviteID,
 	role string,
+	permissions []string,
 	timestamp time.Time,
 ) []byte {
 	return buildProfilePayload(
@@ -480,6 +483,7 @@ func buildNewProfilePayload(
 		userSignature,
 		inviteID,
 		role,
+		permissions,
 		"",        // bio
 		timestamp, // memberSince
 		timestamp, // signedAt

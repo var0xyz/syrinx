@@ -47,7 +47,7 @@ func TestVerifyProfileServerCountersig_BadSignature(t *testing.T) {
 	payload := string(buildProfilePayload(
 		profile.ID, profile.Username, profile.UserSignature.KeyID,
 		"srv1", profile.ServerSignature.Fingerprint, profile.UserSignature.Armor, "",
-		profile.Role, profile.Bio,
+		profile.Role, profile.Permissions, profile.Bio,
 		profile.MemberSince, profile.ServerSignature.Timestamp,
 	))
 	err := verifyProfileServerCountersig(context.Background(), profile, "srv1",
