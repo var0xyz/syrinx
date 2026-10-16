@@ -49,7 +49,7 @@ func TestSaveRecoveryFollowing_WaitsForConcurrentTargetRecovery(t *testing.T) {
 	if _, err := upsertRecoveryIdentity(ctx, tx, "test", profile, testRecoveryFlatKey("target", signedAt)); err != nil {
 		t.Fatalf("upsertRecoveryIdentity: %v", err)
 	}
-	if err := drainRecoveryPendingFollows(ctx, tx, "target", identityID(target)); err != nil {
+	if err := drainRecoveryPendingFollows(ctx, tx, identityID(target)); err != nil {
 		t.Fatalf("drain: %v", err)
 	}
 

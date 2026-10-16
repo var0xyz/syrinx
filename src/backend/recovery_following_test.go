@@ -69,26 +69,16 @@ func TestSaveFollowing_CanonicalIDs(t *testing.T) {
 		t.Errorf("user_followers rows = %d, want 1", followersCount)
 	}
 
-	// pendingTarget has no identities row, so it must land in
-	// pending_follows keyed by its BARE userID (matching
-	// drainPendingFollows' lookup), not the canonical form.
-	var pendingBare, pendingCanonical int
-	if err := db.QueryRow(
-		`SELECT COUNT(*) FROM pending_follows WHERE follower_user_id = $1 AND following_user_id = 'target2'`,
-		follower,
-	).Scan(&pendingBare); err != nil {
-		t.Fatalf("query pending_follows (bare): %v", err)
-	}
-	if pendingBare != 1 {
-		t.Errorf("pending_follows rows keyed by bare target = %d, want 1", pendingBare)
-	}
+	// pendingTarget has no identities row, so it waits in pending_follows
+	// under its full id, the one its own claim drains by.
+	var pending int
 	if err := db.QueryRow(
 		`SELECT COUNT(*) FROM pending_follows WHERE follower_user_id = $1 AND following_user_id = $2`,
 		follower, pendingTarget,
-	).Scan(&pendingCanonical); err != nil {
-		t.Fatalf("query pending_follows (canonical): %v", err)
+	).Scan(&pending); err != nil {
+		t.Fatalf("query pending_follows: %v", err)
 	}
-	if pendingCanonical != 0 {
-		t.Errorf("pending_follows rows keyed by canonical target = %d, want 0", pendingCanonical)
+	if pending != 1 {
+		t.Errorf("pending_follows rows for %q = %d, want 1", pendingTarget, pending)
 	}
 }

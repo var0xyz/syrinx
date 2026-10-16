@@ -590,10 +590,6 @@ func passwordStrengthWarning(pw string) string {
 // Wire types + nest verification
 // === //
 
-// DELIBERATE EXCEPTION — recoveryKeyWire.Fingerprint / recoveryRevocation.Fingerprint
-// stay bare (recoveryKeyNest.ts signs those raw); nested recoveryUserSignature /
-// recoveryServerSignature are NOT part of that and decode canonical `id` below.
-
 // recoveryUserSignature is the nested user attestation wire block for
 // recovery's own claim/peer/reed flows. KeyID is the full canonical key id
 // ("userID@serverID/fingerprint"), not a bare fingerprint — signed profile
@@ -694,7 +690,7 @@ type recoveryProfile struct {
 }
 
 // recoveryKeyWire is the public-key fields shared by live Key responses and
-// each level of a recovery nest (fingerprint, armor, server countersig, …).
+// each level of a recovery nest. Fingerprint is the full key id, as signed.
 type recoveryKeyWire struct {
 	Fingerprint     string                  `json:"fingerprint"`
 	UserID          string                  `json:"userID"`
@@ -790,6 +786,9 @@ func flattenKeysNest(
 	if profile.ID == "" || profile.Username == "" {
 		return recoveryFlatKey{}, nil, fmt.Errorf("profile id and username are required")
 	}
+	if _, sid, ok := parseIdentityID(identityID(profile.ID)); !ok || sid != serverID {
+		return recoveryFlatKey{}, nil, fmt.Errorf("profile id is not a user of this server")
+	}
 	if err := validateProfileRole(profile.ID, profile.Role, serverID); err != nil {
 		return recoveryFlatKey{}, nil, err
 	}
@@ -807,6 +806,9 @@ func flattenKeysNest(
 	for n := &root; n != nil; n = n.Predecessor {
 		if n.Fingerprint == "" || n.Armor == "" {
 			return recoveryFlatKey{}, nil, fmt.Errorf("incomplete nest: key missing fingerprint or armor")
+		}
+		if owner, ok := authorOf(identityID(n.Fingerprint)); !ok || string(owner) != profile.ID {
+			return recoveryFlatKey{}, nil, fmt.Errorf("key %s is not the profile's", n.Fingerprint)
 		}
 		if n.UserID != "" && n.UserID != profile.ID {
 			return recoveryFlatKey{}, nil, fmt.Errorf("key %s userID does not match profile", n.Fingerprint)
@@ -847,14 +849,7 @@ func flattenKeysNest(
 	}
 	active = newestFirst[0]
 
-	// byFP is keyed by bare fingerprint (recoveryKeyWire.Fingerprint);
-	// profile's is the full canonical key id — extract the bare part to
-	// look it up.
-	_, _, signerFP, ok := parseKeyFingerprint(identityID(profile.UserSignature.KeyID))
-	if !ok {
-		return recoveryFlatKey{}, nil, fmt.Errorf("profile userSignature.id is not a canonical key id")
-	}
-	signer, ok := byFP[signerFP]
+	signer, ok := byFP[profile.UserSignature.KeyID]
 	if !ok {
 		return recoveryFlatKey{}, nil, fmt.Errorf("profile signatureFingerprint not in nest")
 	}

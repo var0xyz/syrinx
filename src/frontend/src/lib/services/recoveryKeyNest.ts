@@ -1,16 +1,6 @@
 /**
  * Local key-nest assemble-ability check and wire KeyNode construction for
- * claim / peer identity POST bodies.
- *
- * Fingerprints on this wire (KeyNode.fingerprint, KeyRevocation.fingerprint)
- * travel BARE — recovery/wire.go's server-side "DELIBERATE EXCEPTION"
- * comment covers this too, not just userIDs: verifyKeyCountersig/
- * verifyRevocation pair a bare fingerprint with a bare userID inside the
- * exact bytes the server reconstructs to verify, so a canonical fingerprint
- * here would produce bytes that don't match what was actually signed.
- * Local lookups (publicKeys/revocations IndexedDB) are keyed canonically
- * though, so every fingerprint pulled from a lookup is extracted back to
- * bare before landing on the wire node.
+ * claim / peer identity POST bodies. Key ids travel whole, as signed.
  *
  * The predecessor handoff signature (KeyNode.signature) doesn't live on
  * PublicKey.predecessor (just an id) — it's one hop away, on the
@@ -23,11 +13,6 @@ import type { RecoveryKeyNodeSchema, RecoveryRevocationSchema } from '$lib/proto
 
 /** One level of the nested key chain, as a recovery request carries it. */
 export type NestNode = MessageInitShape<typeof RecoveryKeyNodeSchema>;
-import { parseKeyId } from '$lib/utils/identityRef';
-
-function bareFingerprint(fingerprint: string): string {
-  return parseKeyId(fingerprint)?.fingerprint ?? fingerprint;
-}
 
 export type NestAssembleResult = { ok: true } | { ok: false; reason: string };
 
@@ -118,12 +103,11 @@ export function buildKeyNest(
     }
 
     const revocation = lookups.getRevocation(fingerprint) ?? null;
-    // Built explicitly, not spread: RecoveryKeyRevocation is a narrower,
-    // deliberately bare-fingerprint shape (recovery/wire.go) and has no
-    // successorSignature field — that's /keys-API-only bookkeeping.
+    // Built explicitly, not spread: the wire revocation has no
+    // successorSignature, which travels on the successor's node instead.
     const wireRevocation: MessageInitShape<typeof RecoveryRevocationSchema> | undefined = revocation
       ? {
-          fingerprint: bareFingerprint(revocation.id),
+          fingerprint: revocation.id,
           userId: revocation.userId,
           reason: revocation.reason,
           successor: revocation.successor,
@@ -151,7 +135,7 @@ export function buildKeyNest(
     }
 
     const node: NestNode = {
-      fingerprint: bareFingerprint(key.id),
+      fingerprint: key.id,
       userId: key.userId,
       armor: key.armor,
       revoked: key.revoked,

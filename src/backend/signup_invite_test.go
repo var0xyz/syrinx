@@ -81,9 +81,12 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-			invite_id VARCHAR(255) REFERENCES invites(id) ON DELETE SET NULL,
+			invite_id VARCHAR(255),
 			suspended_by VARCHAR(255)
 		)`,
+		`CREATE OR REPLACE FUNCTION invite_creator(invite_id TEXT) RETURNS TEXT AS $$
+			SELECT left(invite_id, length(invite_id) - strpos(reverse(invite_id), '/'))
+		$$ LANGUAGE sql IMMUTABLE`,
 		`CREATE TABLE public_keys (
 			id VARCHAR(255) PRIMARY KEY,
 			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,

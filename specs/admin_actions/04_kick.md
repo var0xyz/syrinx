@@ -18,8 +18,8 @@ user's signature is replaced by two admins' signatures.
 
 `GET /api/admin/users/{userID}/invite-tree` (admin or root): the target's
 inviter, the target, and every user below the target in the invite tree,
-nested. Built with a recursive CTE over `users.invite_id →
-invites.created_by`. Each node has user ID, username, role, suspended
+nested. Built with a recursive CTE over `invite_creator(users.invite_id)`.
+Each node has user ID, username, role, suspended
 flag and removed flag. Root appears but can't be selected. Admins appear but
 can be selected only by root ([10](10_admin_spa.md) shows the lock).
 
