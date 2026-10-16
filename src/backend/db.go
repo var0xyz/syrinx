@@ -926,7 +926,7 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
 		last_ping_at TIMESTAMP NOT NULL
 	);
-	CREATE INDEX IF NOT EXISTS idx_verification_windows_user ON verification_windows(user_id);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_verification_windows_user ON verification_windows(user_id);
 	`
 
 	// Pipe (hashtag) subscriptions. Cascading off online_users means a
