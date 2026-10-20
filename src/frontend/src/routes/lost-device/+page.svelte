@@ -82,9 +82,12 @@
           <span>User ID</span>
           <input type="text" bind:value={typedID} autocomplete="off" spellcheck="false" placeholder="k3x9" />
         </label>
-        <button class="btn primary" type="submit" disabled={minting || !typedID.trim() || !serverID}>
-          {minting ? 'Creating a key…' : 'Create a new key'}
-        </button>
+        <div class="actions">
+          <button class="btn secondary" type="button" on:click={() => goto('/welcome')}>Cancel</button>
+          <button class="btn primary" type="submit" disabled={minting || !typedID.trim() || !serverID}>
+            {minting ? 'Creating a key…' : 'Create a new key'}
+          </button>
+        </div>
       </form>
     {:else}
       <p class="lead">
@@ -97,6 +100,7 @@
         <code>{grouped}</code>
       </div>
       <div class="actions">
+        <button class="btn secondary" type="button" on:click={() => goto('/welcome')}>Cancel</button>
         <button class="btn secondary" type="button" on:click={download}>Download {pending.userID}.pub.txt.gz</button>
         <button class="btn primary" type="button" on:click={finish} disabled={checking}>
           {checking ? 'Checking…' : 'Finish recovery'}
@@ -112,9 +116,7 @@
 
 <style>
   .container {
-    min-height: 100vh;
     display: flex;
-    align-items: center;
     justify-content: center;
     padding: 1rem;
   }
