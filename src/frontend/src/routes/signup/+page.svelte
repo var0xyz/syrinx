@@ -309,7 +309,11 @@
 
 <style>
   .card {
-    padding-bottom: 1rem;
+    padding: 1.5rem;
+  }
+
+  h2 {
+    margin-top: 0;
   }
 
   .help-text {

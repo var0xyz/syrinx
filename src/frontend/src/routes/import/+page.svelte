@@ -393,8 +393,8 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    padding: 2rem;
-    width: min(440px, 100%);
+    padding: 1.5rem;
+    width: 100%;
     display: flex;
     flex-direction: column;
     gap: 1rem;
