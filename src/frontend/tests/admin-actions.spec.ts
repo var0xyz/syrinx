@@ -198,9 +198,9 @@ test('a lost device gets a new key from two admins and finishes recovery', async
   await device.getByRole('button', { name: 'Create a new key' }).click();
   const [download] = await Promise.all([
     device.waitForEvent('download'),
-    device.getByRole('button', { name: /^Download / }).click(),
+    device.getByRole('button', { name: 'Download' }).click(),
   ]);
-  expect(download.suggestedFilename()).toBe(`${memberID}.pub.txt.gz`);
+  expect(download.suggestedFilename()).toBe(`${memberID}.pub.txt`);
   const keyFile = testInfo.outputPath(download.suggestedFilename());
   await download.saveAs(keyFile);
 

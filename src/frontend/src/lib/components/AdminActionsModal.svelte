@@ -254,7 +254,7 @@
       {#if action === 'rebind'}
         <label class="field">
           <span>Public key file</span>
-          <input type="file" accept=".gz" on:change={onFile} />
+          <input type="file" accept=".txt" on:change={onFile} />
         </label>
         {#if keyError}<p class="warning">{keyError}</p>{/if}
         {#if keyFingerprint}

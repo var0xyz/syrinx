@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { notificationStore } from '$lib/stores/notifications';
   import { serverInfo } from '$lib/services/serverInfo';
   import { canonicalRebindUserID, finishRebind, mintPendingRebind, rebindFile } from '$lib/services/rebind';
   import { pendingRebindRepository, type PendingRebindRecord } from '$lib/repositories/pendingRebind';
@@ -9,6 +10,8 @@
   let pending: PendingRebindRecord | null = null;
   let minting = false;
   let checking = false;
+  let copied = false;
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
   let status = '';
   let error = '';
 
@@ -32,15 +35,27 @@
     }
   }
 
-  async function download(): Promise<void> {
+  function download(): void {
     if (!pending) return;
-    const file = await rebindFile(pending);
+    const file = rebindFile(pending);
     const url = URL.createObjectURL(file);
     const a = document.createElement('a');
     a.href = url;
     a.download = file.name;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function copyKey(): Promise<void> {
+    if (!pending) return;
+    try {
+      await navigator.clipboard.writeText(pending.publicKey);
+      copied = true;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => (copied = false), 2000);
+    } catch (err) {
+      notificationStore.error(err instanceof Error ? err.message : 'Could not copy the key');
+    }
   }
 
   async function finish(): Promise<void> {
@@ -74,13 +89,12 @@
 
     {#if !pending}
       <p class="lead">
-        If you have no backup of your key, an admin can give your account a new one. Enter your user ID; if
-        you don’t know it, ask an admin.
+        If you have no backup of your key, an admin can give your account a temporary one.
       </p>
       <form on:submit|preventDefault={mint}>
         <label class="field">
           <span>User ID</span>
-          <input type="text" bind:value={typedID} autocomplete="off" spellcheck="false" placeholder="k3x9" />
+          <input type="text" bind:value={typedID} autocomplete="off" spellcheck="false" />
         </label>
         <div class="actions">
           <button class="btn secondary" type="button" on:click={() => goto('/welcome')}>Cancel</button>
@@ -91,17 +105,31 @@
       </form>
     {:else}
       <p class="lead">
-        Give this file to an admin, then read them the fingerprint below so they can check it’s yours. Keep
-        this device: the key only works here.
+        Download this key or copy it below, give it to an admin, then read them the fingerprint so they can
+        check it’s yours.
       </p>
       <p class="user">{pending.userID}</p>
       <div class="fingerprint">
         <span>Fingerprint</span>
         <code>{grouped}</code>
       </div>
+      <div class="field">
+        <label for="public-key">Public key</label>
+        <textarea
+          id="public-key"
+          class="key"
+          readonly
+          rows={pending.publicKey.trim().split('\n').length}
+          spellcheck="false"
+          value={pending.publicKey}
+          on:focus={(e) => e.currentTarget.select()}
+        ></textarea>
+        <button class="link copy" type="button" on:click={copyKey}>{copied ? 'Copied!' : 'Copy'}</button>
+      </div>
       <div class="actions">
-        <button class="btn secondary" type="button" on:click={() => goto('/welcome')}>Cancel</button>
-        <button class="btn secondary" type="button" on:click={download}>Download {pending.userID}.pub.txt.gz</button>
+        <button class="btn secondary" type="button" on:click={download}>
+          Download
+        </button>
         <button class="btn primary" type="button" on:click={finish} disabled={checking}>
           {checking ? 'Checking…' : 'Finish recovery'}
         </button>
@@ -181,6 +209,21 @@
     overflow-wrap: anywhere;
   }
 
+  .key {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    white-space: pre;
+    overflow-x: auto;
+    resize: none;
+  }
+
   .actions {
     display: flex;
     flex-wrap: wrap;
@@ -223,6 +266,10 @@
     font-size: 0.85rem;
     text-decoration: underline;
     cursor: pointer;
+  }
+
+  .copy {
+    align-self: flex-end;
   }
 
   .error {
