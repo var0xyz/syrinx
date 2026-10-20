@@ -61,7 +61,7 @@ when schema changes.
 | Suspend            | **Reversible, local only.** The server refuses the user's signed operations, ledger reads and WebSocket with the suspension certificate; peers see no change                                |
 | Reinstate          | Manual only, needs approval                                                                                                                                                                 |
 | Promote / demote   | user ↔ admin; needs approval. A promotion carries the permission set; a separate request changes it. Demoting or changing an admin's permissions is acting on an admin → root approves  |
-| Lost device        | User enters their **user ID** (no username lookup) on a **lost-device page**, mints a key, downloads `<userID>.pub.txt.gz`, hands it to an admin out of band                                |
+| Lost device        | User enters their **user ID** (no username lookup) on a **lost-device page**, mints a key, downloads `<userID>.pub.txt`, hands it to an admin out of band                                |
 | Rebound key        | **Restricted**: can sign only a rotation to a freshly minted key; anything else (reeds included) is refused                                                                                 |
 | Rebind trust       | Old key revoked as **lost** (old reeds stay valid), marked **admin-rebound**; vouches for the old key don't carry over                                                                      |
 | Reserved usernames | A fixed list in code plus the server's name, case-insensitive. `root` belongs to the root identity forever, even after root renames                                                       |

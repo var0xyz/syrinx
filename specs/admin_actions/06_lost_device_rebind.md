@@ -27,8 +27,8 @@ Anyone with a `.sxi.gpg` uses account recovery, not this.
    call: the page never reveals whether an ID exists.
 2. The client mints a key pair and stores the private key in IndexedDB as a
    **pending rebind** for that user ID (`pendingRebind` store).
-3. The user downloads `<userID>.pub.txt.gz`: the armored public key, gzip-
-   compressed, user ID in the filename.
+3. The user downloads `<userID>.pub.txt`: the armored public key as plain
+   text, user ID in the filename.
 4. The page shows the key's fingerprint and tells the user to give the file
    to an admin and read them the fingerprint.
 

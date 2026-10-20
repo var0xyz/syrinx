@@ -213,8 +213,8 @@ still have a `.sxi.gpg` use account recovery as today.
    remember their ID asks an admin, whom they have to contact anyway.
 2. The client mints a key pair and keeps the private key locally as a
    **pending rebind**.
-3. The user downloads `<userID>.pub.txt.gz`: the armored public key as plain
-   text, gzip-compressed, with the user ID in the filename.
+3. The user downloads `<userID>.pub.txt`: the armored public key as plain
+   text, with the user ID in the filename.
 
 The file is not signed. Nothing proves who made it, and that's on purpose:
 the admin's out-of-band check (in person, a call, a known channel) is the

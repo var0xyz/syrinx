@@ -27,21 +27,18 @@ export async function mintPendingRebind(userID: string): Promise<PendingRebindRe
   return record;
 }
 
-/** `<userID>.pub.txt.gz`: the armored public key, gzip-compressed. */
-export async function rebindFile(record: PendingRebindRecord): Promise<File> {
-  const stream = new Blob([record.publicKey]).stream().pipeThrough(new CompressionStream('gzip'));
-  const bytes = await new Response(stream).blob();
-  return new File([bytes], `${record.userID}.pub.txt.gz`, { type: 'application/gzip' });
+/** `<userID>.pub.txt`: the armored public key as plain text. */
+export function rebindFile(record: PendingRebindRecord): File {
+  return new File([record.publicKey], `${record.userID}.pub.txt`, { type: 'text/plain' });
 }
 
-/** The armored key inside a `<userID>.pub.txt.gz` an admin uploads, after
+/** The armored key in a `<userID>.pub.txt` an admin uploads, after
  * checking the filename names userID. */
 export async function readRebindFile(file: File, userID: string): Promise<string> {
-  if (file.name !== `${userID}.pub.txt.gz`) {
-    throw new Error(`This file isn’t for this user: expected ${userID}.pub.txt.gz`);
+  if (file.name !== `${userID}.pub.txt`) {
+    throw new Error(`This file isn’t for this user: expected ${userID}.pub.txt`);
   }
-  const stream = file.stream().pipeThrough(new DecompressionStream('gzip'));
-  return (await new Response(stream).text()).trim();
+  return (await file.text()).trim();
 }
 
 /** Rotates away from the rebound key once admins approved it, then signs
