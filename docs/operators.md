@@ -103,7 +103,40 @@ Details of claim, peer report, reed/follow upload, and the import gate are docum
 
 ## Observability
 
-The server can export OpenTelemetry traces and metrics to a collector (`OTEL_COLLECTOR_HOST`); the deploy scripts can ship them to a separate OpenObserve host. It's off unless configured, and not required to run a small instance. Metrics carry raw user ids, so treat the telemetry host as holding member data.
+Telemetry is optional and off by default. A small instance runs fine without it: the server still logs JSON to stdout at `LOG_LEVEL` (`warn` by default).
+
+### What the server emits
+
+With `OTEL_COLLECTOR_HOST` set, the server exports OpenTelemetry data to a collector at that host:
+
+- **Traces** over OTLP gRPC on `OTEL_COLLECTOR_PORT` (default `4317`): one span per HTTP request and one per database query. Every request is sampled.
+- **Metrics** over OTLP HTTP on port `4318` of the same host (this port is fixed): HTTP and database-pool stats, plus `syrinx.*` counters for users, reeds, follows, invites, keys, WebSocket traffic, federation relay, admin actions and refused requests.
+
+| Variable | Purpose |
+|----------|---------|
+| `OTEL_COLLECTOR_HOST` | Collector address; unset disables telemetry entirely |
+| `OTEL_COLLECTOR_PORT` | Trace (gRPC) port, default `4317` |
+| `OTEL_RESOURCE_ATTRIBUTES` | Standard OTEL variable, e.g. `host.name=syrinx-01`, to tell hosts apart when they report the same hostname |
+
+Once a collector is configured, it's treated as required. At boot the server sends a test metric, and it **refuses to start** if the collector is unreachable rather than silently dropping data. An outage later on doesn't stop the server.
+
+### The deploy-script setup
+
+`deploy/syrinx.sh setup` asks for an OTEL collector host. Give it one and the app host gets a local collector agent (`otelcol-agent.service`), and the server points at it on `127.0.0.1`. The agent forwards to your telemetry host:
+
+- the server's traces and metrics
+- the server's journald logs, parsed into fields
+- host CPU, memory, disk and network metrics
+
+To turn it off later, re-run `setup` and answer `off`. A blank answer keeps the current setting. The telemetry host itself is a separate machine running OpenObserve with a bundled "Syrinx" dashboard, installed with `./deploy/telemetry.sh setup` and refreshed with `./deploy/telemetry.sh update`. Full details, including building OpenObserve for a Raspberry Pi and reaching a LAN-only UI over SSH: [`deploy/scripts/telemetry/README.md`](https://github.com/var0xyz/syrinx/blob/main/deploy/scripts/telemetry/README.md).
+
+### Privacy
+
+Treat the telemetry host as holding member data. Metrics and logs carry raw user, reed and key IDs. They also record who follows, blocks, invites and vouches for whom, so together they map the community's social graph. Reed content is never included.
+
+- Keep the collector on your LAN. Its OTLP ports have no authentication, so the telemetry host's firewall opens them only to the LAN ranges you configure.
+- If you expose the OpenObserve UI through a Cloudflare Tunnel, put a Cloudflare Access policy in front of the login page.
+- Back up, retain and delete telemetry with the same care as the database.
 
 ## Security hygiene
 
