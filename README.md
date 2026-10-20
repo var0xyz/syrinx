@@ -5,19 +5,19 @@
 A P2P-ish, federated social platform for closed communities, where the server
 never holds your posts.
 
-We say P2P-_ish_ because NAT makes direct connections between peers very hard
-to establish, so the server relays the traffic between them. That traffic
-travels encrypted: a post is encrypted to its reader before it leaves the
-holder's device, and the server relays ciphertext it can't read.
+We say P2P-_ish_ because NAT makes direct connections between peers very hard to
+establish, so the server relays the traffic between them. That traffic travels
+encrypted: a post is encrypted to its reader before it leaves the holder's
+device, and the server relays ciphertext it can't read.
 
 A Syrinx server works like a BitTorrent tracker: it knows _who has_ a post, not
 _what it says_. Posts ("reeds") live on members' devices. Every record is
-OpenPGP-signed and checked by the client, so trust comes from the
-cryptography, not the operator. Servers connect to each other to form a mesh of
-small, independent communities.
+OpenPGP-signed and checked by the client, so trust comes from the cryptography,
+not the operator. Servers connect to each other to form a mesh of small,
+independent communities.
 
-> **Status:** proof of concept, pre-launch. Nothing is stable yet: schemas,
-> wire formats and APIs change without migrations. See
+> **Status:** proof of concept, pre-launch. Nothing is stable yet: schemas, wire
+> formats and APIs change without migrations. See
 > [`specs/README.md`](specs/README.md) for what's built and what's planned.
 
 ## Why censorship-resistant?
@@ -32,8 +32,8 @@ small, independent communities.
 - **Losing the domain doesn't mean losing the community.** A server's identity
   is its key pair, not its domain name.
 - **Admins answer to the public.** Every admin action needs a second admin's
-  approval and lands in a public ledger: who asked for it, who approved it,
-  and the reason they gave. Members reach every admin at once by mentioning
+  approval and lands in a public ledger: who asked for it, who approved it, and
+  the reason they gave. Members reach every admin at once by mentioning
   `@admins` in a reed.
 
 Together, this means anyone can run their own community, and members will be
@@ -46,22 +46,22 @@ visible to every admin.
 under. The community spins up a new server under a new domain, imports the
 server's key from a backup, and starts operating right away.
 
-Shutting a community down becomes a game of whack-a-mole: take down one
-small piece and it reappears somewhere else. The network isn't impossible to
-attack; the security comes from making the cost and scale of shutting it down
+Shutting a community down becomes a game of whack-a-mole: take down one small
+piece and it reappears somewhere else. The network isn't impossible to attack;
+the security comes from making the cost and scale of shutting it down
 unrealistic.
 
-**What a seized server does reveal.** No content, but the pointers are
-metadata. The server holds user ids, usernames, emails and bios, and knows
-who follows whom and who holds which reeds. Everything but the user id is
-member-provided, emails and bios are optional, and none of it is validated.
-Ripples (comments on reeds) are stored in plain text but only live 30 days
-after the last ripple on a reed is posted.
+**What a seized server does reveal.** No content, but the pointers are metadata.
+The server holds user ids, usernames, emails and bios, and knows who follows
+whom and who holds which reeds. Everything but the user id is member-provided,
+emails and bios are optional, and none of it is validated. Ripples (comments on
+reeds) are stored in plain text but only live 30 days after the last ripple on a
+reed is posted.
 
 ## Admins
 
-Admins run a community but don't control its content: no admin action removes
-or hides a reed. Administrative actions are opened by one admin and approved by
+Admins run a community but don't control its content: no admin action removes or
+hides a reed. Administrative actions are opened by one admin and approved by
 another, with its reason. They all land in a server-signed, chained public
 ledger that every member can read and keeps a copy of. See
 [Admins](https://var0xyz.github.io/syrinx/admins).
@@ -92,33 +92,21 @@ make run                                  # API on :8080, Ctrl-C to stop
 cd src/frontend && npm install && npm run dev   # app on :5173
 ```
 
-Open <http://localhost:5173/import> and import the root identity file to sign
-in as the operator. `make up` runs the same stack in Docker; it needs
-`SERVER_KEY_PASSPHRASE` set, since a container has no keychain or prompt. To deploy on a real host, see
+Open <http://localhost:5173/import> and import the root identity file to sign in
+as the operator. `make up` runs the same stack in Docker; it needs
+`SERVER_KEY_PASSPHRASE` set, since a container has no keychain or prompt. To
+deploy on a real host, see
 [`deploy/scripts/syrinx/README.md`](deploy/scripts/syrinx/README.md) and the
 [operator guide](https://var0xyz.github.io/syrinx/operators).
-
-## Repository layout
-
-| Path            | What's there                            |
-| --------------- | --------------------------------------- |
-| `src/backend/`  | Go server (tracker, relay, federation)  |
-| `src/frontend/` | SvelteKit app (PWA, holds the content)  |
-| `docs/`         | Documentation site                      |
-| `specs/`        | Design proposals and per-feature status |
-| `deploy/`       | Home-host and telemetry deploy scripts  |
-| `cli/`          | Standalone `syrinx-cli` tool            |
 
 ## Documentation
 
 The **[documentation site](https://var0xyz.github.io/syrinx/)** covers the
-architecture, trust model, cryptography, recovery, operators and
-contributors.
+architecture, trust model, cryptography, recovery, operators and contributors.
 
 ## Contributing and security
 
-Start with [`AGENTS.md`](AGENTS.md), the orientation guide for humans and AI
-agents alike, and the
+Start with [`AGENTS.md`](AGENTS.md) and the
 [contributor docs](https://var0xyz.github.io/syrinx/contributors). Known
 security findings live in [`RISKS.md`](RISKS.md); read it before touching
 crypto, auth, signing or recovery.
