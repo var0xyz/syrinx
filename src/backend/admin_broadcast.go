@@ -39,7 +39,7 @@ func (h *Handlers) deliverAdminMail(req *adminRequest, recipients []string, kind
 			failed++
 			continue
 		}
-		h.metrics.Mailbox(ctx, metrics.OpAdd, kind, userID)
+		h.metrics.Mailbox(ctx, metrics.OpAdd, kind)
 		if h.realtimeRelay != nil {
 			h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
 		}

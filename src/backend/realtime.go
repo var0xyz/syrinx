@@ -1624,7 +1624,7 @@ func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID stri
 		log.Error().Err(err).Str("recipientID", recipientID).Str("keyID", keyID).Msg("Failed to create key_revoked pending event")
 		return
 	}
-	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent), eventID, recipientID)
+	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent))
 
 	if rev == nil {
 		loaded, err := rs.loadKeyRevocation(keyID)
@@ -2243,14 +2243,14 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 
 	rs.handleUserCameOnline(client)
-	rs.metrics.WSSession(context.Background(), userID, true)
+	rs.metrics.WSSession(context.Background(), true)
 
 	log.Info().
 		Str("userID", userID).
 		Msg("WebSocket client connected")
 
 	rs.handleClientMessages(client)
-	rs.metrics.WSSession(context.Background(), userID, false)
+	rs.metrics.WSSession(context.Background(), false)
 
 	// Cleanup when connection closes. Only tear down DB presence when this
 	// was the user's last socket — a superseded connection must not wipe
@@ -2386,7 +2386,7 @@ func (rs *realtimeService) teardownUser(userID string) {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete pending events on disconnect")
 	} else {
 		for _, d := range deleted {
-			rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName, d.EventID, "")
+			rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName)
 		}
 	}
 	if err := rs.db.DeleteProfileSubscriptionsByViewer(ctx, userID); err != nil {
@@ -2877,7 +2877,7 @@ func (rs *realtimeService) createPendingReedEvent(ctx context.Context, eventID, 
 	if err := rs.db.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
 		return err
 	}
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID, requesterUserID)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName))
 	return nil
 }
 
@@ -2886,7 +2886,7 @@ func (rs *realtimeService) createPendingAccountEvent(ctx context.Context, eventI
 	if err := rs.db.CreatePendingAccountEvent(ctx, eventID, requestID, requesterUserID, removedUserID); err != nil {
 		return err
 	}
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(accountRemovedEvent), eventID, requesterUserID)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(accountRemovedEvent))
 	return nil
 }
 
@@ -2898,7 +2898,7 @@ func (rs *realtimeService) createProfileSubscriptionEvent(ctx context.Context, e
 	if err := rs.db.CreateProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID, subscriptionID); err != nil {
 		return err
 	}
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName), eventID, requesterUserID)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(eventName))
 	return nil
 }
 
@@ -2913,7 +2913,7 @@ func (rs *realtimeService) deletePendingEvent(ctx context.Context, eventID strin
 		return err
 	}
 	if eventName != "" {
-		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, eventName, eventID, "")
+		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, eventName)
 	}
 	return nil
 }
@@ -3910,7 +3910,7 @@ func (rs *realtimeService) notifyReedCoverage(reedID string) {
 		return
 	}
 
-	rs.metrics.ReedCoverage(context.Background(), authorUserID, reedID, holders, percent)
+	rs.metrics.ReedCoverage(context.Background(), holders, percent)
 
 	msg := newReedCoverageMsg(reedID, percent)
 	if err := rs.BroadcastReedCoverage(reedID, msg); err != nil {
@@ -4483,7 +4483,7 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 		return
 	}
 
-	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName, eventID, "")
+	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName)
 
 	if pe.EventName == string(broadcastReedEvent) {
 		username, err := rs.db.GetRealtimeUsername(context.Background(), pe.UserID)
@@ -5004,7 +5004,7 @@ func (rs *realtimeService) handleMailboxAck(client *realtimeClient, mailboxID st
 		log.Error().Err(err).Str("id", id).Str("userID", client.userID).Msg("Failed to delete mailbox message on ack")
 		return
 	}
-	rs.metrics.Mailbox(context.Background(), metrics.OpRemove, "", client.userID)
+	rs.metrics.Mailbox(context.Background(), metrics.OpRemove, "")
 }
 
 // handleKeyFetchError is called when a client received signed content over

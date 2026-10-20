@@ -132,17 +132,30 @@ def promql_panel(
     }
 
 
+# Bounded counters are charted as events per window. Summing first folds
+# every label combination into one line per query.
+WINDOW = "5m"
+
+
+def promql_increase(selector: str, legend: str, stream: str) -> tuple[str, str, str]:
+    return (f"sum(increase({selector}[{WINDOW}]))", legend, stream)
+
+
+def promql_total(metric: str, legend: str) -> tuple[str, str, str]:
+    return promql_increase(metric, legend, metric)
+
+
 def promql_labeled(
     metric: str, attr: str, value: str, legend: str
 ) -> tuple[str, str, str]:
-    return (f'{metric}{{{attr}="{value}"}}', legend, metric)
+    return promql_increase(f'{metric}{{{attr}="{value}"}}', legend, metric)
 
 
 def promql_filter(
     metric: str, labels: dict[str, str], legend: str
 ) -> tuple[str, str, str]:
     parts = ",".join(f'{k}="{v}"' for k, v in labels.items())
-    return (f"{metric}{{{parts}}}", legend, metric)
+    return promql_increase(f"{metric}{{{parts}}}", legend, metric)
 
 
 def histogram_avg(metric: str, legend: str) -> tuple[str, str, str]:
@@ -158,16 +171,10 @@ def histogram_samples(metric: str, legend: str) -> tuple[str, str, str]:
 def histogram_quantile_query(
     metric: str, quantile: float, legend: str
 ) -> tuple[str, str, str]:
-    """Percentile band from OTLP histogram bucket series (real distribution, not mean).
-
-    No rate(): each reed/observation gets its own series (reed_id label), recorded
-    once ever, so rate() over a single sample is undefined and returns NaN. These
-    are cumulative-per-observation buckets, so sum by (le) directly is correct —
-    verified against the live syrinx OpenObserve instance (p50/p90/p99 all returned
-    sane increasing values without rate(); with rate() every quantile was NaN).
-    """
+    """Percentile band from OTLP histogram buckets over the last WINDOW.
+    Empty windows have no observations and render as gaps."""
     return (
-        f"histogram_quantile({quantile}, sum({metric}_bucket) by (le))",
+        f"histogram_quantile({quantile}, sum by (le) (increase({metric}_bucket[{WINDOW}])))",
         legend,
         f"{metric}_bucket",
     )
@@ -187,7 +194,9 @@ def histogram_percentile_bands(
 def promql_sum_by_values(
     metric: str, attr: str, values: list[str]
 ) -> list[tuple[str, str, str]]:
-    """One summed line per label value; series are split per user id."""
+    """One summed line per label value, for counters that carry entity ids.
+    increase() would miss each id's first event, so this is the running total
+    since the last restart."""
     return [(f'sum({metric}{{{attr}="{v}"}})', v, metric) for v in values]
 
 
@@ -693,10 +702,10 @@ users = [
         pid="syrinx_users_created",
         title="Signups",
         queries=[
-            (USERS_CREATED, "total", USERS_CREATED),
-            (f'{USERS_CREATED}{{signup_mode="open"}}', "open", USERS_CREATED),
-            (f'{USERS_CREATED}{{signup_mode="invite"}}', "invite", USERS_CREATED),
-            (f'{USERS_CREATED}{{signup_mode="closed"}}', "closed", USERS_CREATED),
+            promql_total(USERS_CREATED, "total"),
+            promql_labeled(USERS_CREATED, "signup_mode", "open", "open"),
+            promql_labeled(USERS_CREATED, "signup_mode", "invite", "invite"),
+            promql_labeled(USERS_CREATED, "signup_mode", "closed", "closed"),
         ],
         layout=layout(0, 0, 96, 14, 30),
         description="Successful signups by signup.mode (open / invite / closed)",
@@ -705,9 +714,9 @@ users = [
         pid="syrinx_users_deleted",
         title="Account deletions",
         queries=[
-            (USERS_DELETED, "total", USERS_DELETED),
-            (f'{USERS_DELETED}{{note_has="true"}}', "with note", USERS_DELETED),
-            (f'{USERS_DELETED}{{note_has="false"}}', "silent", USERS_DELETED),
+            promql_total(USERS_DELETED, "total"),
+            promql_labeled(USERS_DELETED, "note_has", "true", "with note"),
+            promql_labeled(USERS_DELETED, "note_has", "false", "silent"),
         ],
         layout=layout(96, 0, 96, 14, 31),
         description=(
@@ -718,16 +727,16 @@ users = [
     promql_panel(
         pid="syrinx_keys_revoked",
         title="Key revocations",
-        queries=[(KEYS_REVOKED, "revoked", KEYS_REVOKED)],
+        queries=[promql_total(KEYS_REVOKED, "revoked")],
         layout=layout(0, 14, 96, 14, 32),
-        description="Successful key revocations; per-user series carry user.id in Explore",
+        description="Successful key revocations, rotations and rebinds together",
     ),
     promql_panel(
         pid="syrinx_user_churn",
         title="Signups vs deletions",
         queries=[
-            (USERS_CREATED, "created", USERS_CREATED),
-            (USERS_DELETED, "deleted", USERS_DELETED),
+            promql_total(USERS_CREATED, "created"),
+            promql_total(USERS_DELETED, "deleted"),
         ],
         layout=layout(96, 14, 96, 14, 33),
         description="Compare signup and account-deletion counters over the selected window",
@@ -764,7 +773,7 @@ users = [
         pid="syrinx_users_backup_events",
         title="Backup events by kind",
         queries=[
-            (USERS_BACKUP, "total", USERS_BACKUP),
+            promql_total(USERS_BACKUP, "total"),
             promql_labeled(USERS_BACKUP, "backup_kind", "identity", "identity (.sxi)"),
             promql_labeled(USERS_BACKUP, "backup_kind", "full", "full (.sxb)"),
         ],
@@ -787,43 +796,6 @@ users = [
             "of the same kind (identity or full)"
         ),
     ),
-    sql_panel(
-        pid="syrinx_user_retention",
-        title="Signup cohort retention (% still active by day N)",
-        ptype="line",
-        sql=(
-            "WITH signups AS ( "
-            "SELECT user_id, min(_timestamp) AS signed_up_at "
-            f"FROM {USERS_CREATED} WHERE user_id IS NOT NULL "
-            "GROUP BY user_id ), "
-            "deletions AS ( "
-            "SELECT user_id, min(_timestamp) AS deleted_at "
-            f"FROM {USERS_DELETED} WHERE user_id IS NOT NULL "
-            "GROUP BY user_id ) "
-            "SELECT floor((extract(epoch FROM now()) * 1000000.0 - s.signed_up_at) "
-            "/ 86400000000.0) AS days_active, "
-            "count(*) AS cohort_still_active "
-            "FROM signups s LEFT JOIN deletions d ON s.user_id = d.user_id "
-            "WHERE d.deleted_at IS NULL "
-            "GROUP BY days_active ORDER BY days_active"
-        ),
-        layout=layout(0, 56, 192, 14, 38),
-        x=[axis("Days since signup", "days_active", sort_by="ASC")],
-        y=[axis("Signups still active", "cohort_still_active")],
-        stream=USERS_CREATED,
-        stream_type="metrics",
-        description=(
-            "Per-user (user_id) signup timestamp, excluded once a matching "
-            "deletion timestamp exists (both from raw histogram exemplars). "
-            "user_id IS NOT NULL filters out datapoints from before this label "
-            "was added. Not cohort-bucketed by signup week — just "
-            "'signups from N days ago still active today', across all "
-            "signups to date. Deletions include admin kicks. Reads as ~100% flat until syrinx_users_deleted has "
-            "data (no deletions recorded as of authoring). extract(epoch FROM now()) "
-            "and floor() verified directly against this OpenObserve instance's "
-            "DataFusion SQL engine; datediff/to_unix_timestamp are NOT supported here."
-        ),
-    ),
 ]
 
 reeds = [
@@ -831,7 +803,7 @@ reeds = [
         pid="syrinx_reeds_published",
         title="Publishes by kind",
         queries=[
-            (REEDS_PUBLISHED, "total", REEDS_PUBLISHED),
+            promql_total(REEDS_PUBLISHED, "total"),
             *promql_labeled_queries(
                 REEDS_PUBLISHED,
                 "reed_kind",
@@ -851,7 +823,7 @@ reeds = [
         title="Echoes sent vs received",
         queries=[
             promql_labeled(REEDS_PUBLISHED, "reed_kind", "echo", "echo sent"),
-            (ECHOES_TARGETED, "echo indexed on target", ECHOES_TARGETED),
+            promql_total(ECHOES_TARGETED, "echo indexed on target"),
         ],
         layout=layout(96, 0, 96, 14, 41),
         description=(
@@ -862,7 +834,7 @@ reeds = [
     promql_panel(
         pid="syrinx_reeds_deleted",
         title="Reed deletions",
-        queries=[(REEDS_DELETED, "deleted", REEDS_DELETED)],
+        queries=[promql_total(REEDS_DELETED, "deleted")],
         layout=layout(0, 14, 48, 14, 42),
         description=(
             "Successful reed removal certs (not replays). "
@@ -873,7 +845,7 @@ reeds = [
         pid="syrinx_reeds_rejected_length",
         title="Length rejections",
         queries=[
-            (REEDS_REJECTED_LENGTH, "total", REEDS_REJECTED_LENGTH),
+            promql_total(REEDS_REJECTED_LENGTH, "total"),
             promql_labeled(
                 REEDS_REJECTED_LENGTH, "raw_exceeds_max", "true", "raw over max"
             ),
@@ -939,15 +911,14 @@ reeds = [
         description=(
             "holders and coverage % are the same event (ReedCoverage records both "
             "together — coverage % = holders / active users) so they're merged here. "
-            "Shape from OTLP histogram buckets instead of a flattened mean. "
-            "Per-reed series (author.id + reed.id) aggregate; filter in Explore."
+            "Shape from OTLP histogram buckets instead of a flattened mean."
         ),
     ),
     promql_panel(
         pid="syrinx_threads_published",
         title="Threads published",
         queries=[
-            (THREADS_PUBLISHED, "threads", THREADS_PUBLISHED),
+            promql_total(THREADS_PUBLISHED, "threads"),
             promql_labeled(REEDS_PUBLISHED, "reed_kind", "thread", "thread parts"),
         ],
         layout=layout(0, 56, 96, 14, 48),
@@ -974,7 +945,7 @@ websocket = [
         pid="syrinx_ws_volume",
         title="WebSocket messages",
         queries=[
-            (WS_MESSAGES, "total", WS_MESSAGES),
+            promql_total(WS_MESSAGES, "total"),
             promql_labeled(WS_MESSAGES, "ws_direction", "in", "in"),
             promql_labeled(WS_MESSAGES, "ws_direction", "out", "out"),
         ],
@@ -1041,10 +1012,9 @@ relay = [
         ],
         layout=layout(0, 0, 96, 14, 60),
         description=(
-            "created/fulfilled/deleted samples for pending_events rows "
-            "(syrinx.relay.event). created without a matching fulfilled or "
-            "deleted for the same event.id means the request leaked — "
-            "no holder ever answered and nothing ever cleaned it up."
+            "pending_events rows created, fulfilled and deleted per 5m "
+            "(syrinx.relay.event). Created persistently above fulfilled plus "
+            "deleted means requests are leaking."
         ),
     ),
     promql_panel(
@@ -1069,69 +1039,15 @@ relay = [
         layout=layout(96, 0, 96, 14, 61),
         description="All lifecycle stages summed together, split by event.kind",
     ),
-    sql_panel(
-        pid="syrinx_relay_leaked",
-        title="Leaked requests (created, never fulfilled or deleted)",
-        ptype="table",
-        sql=(
-            "SELECT event_kind, count(*) AS leaked FROM ( "
-            "SELECT event_id, max(event_kind) AS event_kind, "
-            "sum(CASE WHEN relay_lifecycle = 'created' THEN 1 ELSE 0 END) AS created, "
-            "sum(CASE WHEN relay_lifecycle IN ('fulfilled', 'deleted') THEN 1 ELSE 0 END) AS resolved "
-            f"FROM {RELAY_EVENTS} WHERE event_id IS NOT NULL "
-            "GROUP BY event_id ) "
-            "WHERE created > 0 AND resolved = 0 "
-            "GROUP BY event_kind ORDER BY leaked DESC"
-        ),
-        layout=layout(0, 14, 96, 14, 62),
-        x=[axis("Event kind", "event_kind"), axis("Leaked", "leaked")],
-        y=[],
-        stream=RELAY_EVENTS,
-        stream_type="metrics",
-        description=(
-            "Per event.id: created but never followed by a fulfilled or "
-            "deleted sample in the selected window. A wide window is needed "
-            "for this to be meaningful — a request created seconds ago just "
-            "hasn't had time to resolve yet, that isn't necessarily a leak."
-        ),
-    ),
-    sql_panel(
-        pid="syrinx_relay_duplicate_fulfilled",
-        title="Duplicate/wasted responses (fulfilled more than once)",
-        ptype="table",
-        sql=(
-            "SELECT event_kind, count(*) AS duplicate_events, "
-            "sum(fulfilled_count) - count(*) AS wasted_responses FROM ( "
-            "SELECT event_id, max(event_kind) AS event_kind, count(*) AS fulfilled_count "
-            f"FROM {RELAY_EVENTS} WHERE relay_lifecycle = 'fulfilled' AND event_id IS NOT NULL "
-            "GROUP BY event_id HAVING count(*) > 1 ) "
-            "GROUP BY event_kind ORDER BY wasted_responses DESC"
-        ),
-        layout=layout(96, 14, 96, 14, 63),
-        x=[
-            axis("Event kind", "event_kind"),
-            axis("Duplicate events", "duplicate_events"),
-            axis("Wasted responses", "wasted_responses"),
-        ],
-        y=[],
-        stream=RELAY_EVENTS,
-        stream_type="metrics",
-        description=(
-            "Same event.id fulfilled more than once — a holder "
-            "retransmitted a RELAY_RESPONSE after the first one already "
-            "satisfied the request. wasted_responses = extra deliveries "
-            "beyond the one actually needed."
-        ),
-    ),
     promql_panel(
         pid="syrinx_federation_relay_volume",
         title="Federation relay traffic",
         queries=[
-            (FEDERATION_RELAY, "total", FEDERATION_RELAY),
+            promql_total(FEDERATION_RELAY, "total"),
             promql_labeled(FEDERATION_RELAY, "federation_direction", "in", "in (from peers)"),
             promql_labeled(FEDERATION_RELAY, "federation_direction", "out", "out (to peers)"),
         ],
-        layout=layout(0, 28, 96, 14, 64),
+        layout=layout(0, 14, 96, 14, 64),
         description="Every federation relay leg handled or called, either direction",
     ),
     promql_panel(
@@ -1140,29 +1056,17 @@ relay = [
         queries=[
             promql_labeled(FEDERATION_RELAY, "ok", "false", "errors"),
         ],
-        layout=layout(96, 28, 96, 14, 65),
+        layout=layout(96, 14, 96, 14, 65),
         description="ok=false: non-2xx response either handling or calling a peer leg",
     ),
-    sql_panel(
+    top_table(
         pid="syrinx_federation_relay_by_peer",
         title="Relay traffic by peer server",
-        ptype="table",
-        sql=(
-            "SELECT peer_server_id, federation_direction, federation_leg, count(*) AS calls "
-            f"FROM {FEDERATION_RELAY} WHERE peer_server_id IS NOT NULL "
-            "GROUP BY peer_server_id, federation_direction, federation_leg "
-            "ORDER BY calls DESC LIMIT 50"
-        ),
-        layout=layout(0, 42, 192, 16, 66),
-        x=[
-            axis("Peer server", "peer_server_id"),
-            axis("Direction", "federation_direction"),
-            axis("Leg", "federation_leg"),
-            axis("Calls", "calls"),
-        ],
-        y=[],
         stream=FEDERATION_RELAY,
-        stream_type="metrics",
+        labels=["peer_server_id", "federation_direction", "federation_leg", "ok"],
+        keys=[("peer_server_id", "Peer server"), ("federation_direction", "Direction"),
+              ("federation_leg", "Leg")],
+        layout=layout(0, 28, 192, 16, 66),
         description=(
             "How much relay traffic each foreign server is generating (in) or "
             "receiving from us (out), broken down by leg. peer.server_id is "
@@ -1272,7 +1176,7 @@ admin = [
     promql_panel(
         pid="syrinx_ledger_appended",
         title="Ledger entries",
-        queries=[(f"sum({LEDGER_APPENDED})", "entries", LEDGER_APPENDED)],
+        queries=[promql_total(LEDGER_APPENDED, "entries")],
         layout=layout(96, 72, 96, 14, 78),
         description="Committed ledger entries; split by entry.kind in Explore",
     ),
@@ -1325,8 +1229,8 @@ abuse = [
         pid="syrinx_username_checks",
         title="Username availability checks",
         queries=[
-            (f'sum({USERNAME_CHECKS}{{available="true"}})', "available", USERNAME_CHECKS),
-            (f'sum({USERNAME_CHECKS}{{available="false"}})', "taken", USERNAME_CHECKS),
+            promql_labeled(USERNAME_CHECKS, "available", "true", "available"),
+            promql_labeled(USERNAME_CHECKS, "available", "false", "taken"),
             (f"sum({RESERVED_HITS})", "reserved name hits", RESERVED_HITS),
         ],
         layout=layout(96, 30, 96, 14, 84),

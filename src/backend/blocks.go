@@ -579,7 +579,7 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if created {
-		h.metrics.Block(r.Context(), metrics.OpAdd, userID, blockedUserID, metrics.OriginLocal)
+		h.metrics.Block(r.Context(), metrics.OpAdd, metrics.OriginLocal)
 		h.afterBlock(cert, dropped)
 		h.sendBlockNoticesFor(blockedUserID)
 	}
@@ -635,7 +635,7 @@ func (h *Handlers) UnblockUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if deleted {
 		log.Info().Str("userID", userID).Str("blockedUserID", blockedUserID).Msg("Block lifted")
-		h.metrics.Block(r.Context(), metrics.OpRemove, userID, blockedUserID, metrics.OriginLocal)
+		h.metrics.Block(r.Context(), metrics.OpRemove, metrics.OriginLocal)
 		h.afterUnblock(userID, blockedUserID)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -829,7 +829,7 @@ func (h *Handlers) acceptForeignBlock(ctx context.Context, peerServerID string, 
 		return err
 	}
 	if created {
-		h.metrics.Block(ctx, metrics.OpAdd, cert.UserID, cert.BlockedUserID, metrics.OriginPeer)
+		h.metrics.Block(ctx, metrics.OpAdd, metrics.OriginPeer)
 		h.afterBlock(cert, dropped)
 	}
 	return nil
@@ -900,7 +900,7 @@ func (h *Handlers) UnblockNotifyFromPeer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if deleted {
-		h.metrics.Block(r.Context(), metrics.OpRemove, req.UserId, req.BlockedUserId, metrics.OriginPeer)
+		h.metrics.Block(r.Context(), metrics.OpRemove, metrics.OriginPeer)
 	}
 	if deleted && h.realtimeRelay != nil {
 		h.realtimeRelay.pushUnblock(req.UserId, req.BlockedUserId)

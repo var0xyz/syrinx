@@ -561,12 +561,10 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", string(canonicalFingerprint)).
 		Msg("Identity record created")
 
-	inviterID := ""
 	if hasInvite {
-		inviterID = invite.CreatedBy
-		h.metrics.InviteClaimed(r.Context(), inviterID, user.ID, inviteGrantedRole == roleAdmin)
+		h.metrics.InviteClaimed(r.Context(), inviteGrantedRole == roleAdmin)
 	}
-	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode, user.ID, inviterID)
+	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode)
 
 	writeResponse(w, http.StatusCreated, pbUser(user))
 }
@@ -717,7 +715,7 @@ func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	h.metrics.UsernameCheck(r.Context(), exceptUserID, !exists)
+	h.metrics.UsernameCheck(r.Context(), !exists)
 	if exists {
 		surface := "signup"
 		if exceptUserID != "" {
@@ -946,7 +944,7 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 		after = c
 	}
 
-	h.metrics.UserSearch(r.Context(), h.getUserID(r), false)
+	h.metrics.UserSearch(r.Context(), false)
 
 	exclude := []string{h.getUserID(r)}
 	if r.URL.Query().Get("excludeRoot") == "true" {
@@ -1087,7 +1085,7 @@ func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, 
 	if method == http.MethodDelete {
 		op = metrics.OpRemove
 	}
-	h.metrics.Follow(r.Context(), op, followerID, userID, true)
+	h.metrics.Follow(r.Context(), op, true)
 	w.WriteHeader(http.StatusNoContent)
 	return true, http.StatusNoContent
 }
@@ -1175,7 +1173,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
-		h.metrics.Follow(r.Context(), metrics.OpAdd, followerID, userID, true)
+		h.metrics.Follow(r.Context(), metrics.OpAdd, true)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1190,7 +1188,7 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.metrics.Follow(r.Context(), metrics.OpAdd, followerID, userID, false)
+	h.metrics.Follow(r.Context(), metrics.OpAdd, false)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1214,7 +1212,7 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 			internalServerError(w)
 			return
 		}
-		h.metrics.Follow(r.Context(), metrics.OpRemove, followerID, userID, true)
+		h.metrics.Follow(r.Context(), metrics.OpRemove, true)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -1225,7 +1223,7 @@ func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.metrics.Follow(r.Context(), metrics.OpRemove, followerID, userID, false)
+	h.metrics.Follow(r.Context(), metrics.OpRemove, false)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1357,7 +1355,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	noteHas := strings.TrimSpace(note) != ""
-	h.metrics.UserDeleted(r.Context(), userID, metrics.RemovalSelf, noteHas)
+	h.metrics.UserDeleted(r.Context(), metrics.RemovalSelf, noteHas)
 
 	h.afterAccountRemoval(r.Context(), userID, cert)
 
@@ -1675,7 +1673,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Str("username", username).
 		Msg("Signed identity record updated")
 
-	h.metrics.UserUpdated(r.Context(), userID, currentUser.Username != username)
+	h.metrics.UserUpdated(r.Context(), currentUser.Username != username)
 	writeResponse(w, http.StatusOK, pbUser(updated))
 }
 
@@ -1900,7 +1898,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 		Str("fingerprint", newKeyFingerprint).
 		Msg("Public key created")
 
-	h.metrics.KeyRevoked(r.Context(), userID, metrics.RevocationRotation)
+	h.metrics.KeyRevoked(r.Context(), metrics.RevocationRotation)
 	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyFingerprint}
 	go h.notifyPeersOfKeyRevocation(revokedKeyFingerprint)
 
@@ -2249,7 +2247,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if echoIndexed && echoRef != nil {
-		h.metrics.EchoTargeted(r.Context(), userID, echoRef.AuthorID, echoRef.ReedID)
+		h.metrics.EchoTargeted(r.Context())
 		// A foreign echo target's server learns of it from new-reed.
 		if echoRef.ServerID == localServerID {
 			h.broadcastChan <- realtimeBroadcastMessage{
@@ -2289,12 +2287,10 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
 		Kind:     reedKind,
-		AuthorID: userID,
-		ReedID:   reed.ID,
 		TagCount: len(tags),
 	})
 	if activeUsers, err := getActiveUsers(r.Context(), h.services.db.db); err == nil {
-		h.metrics.ReedCoverage(r.Context(), userID, reed.ID, 1, coveragePercent(1, activeUsers))
+		h.metrics.ReedCoverage(r.Context(), 1, coveragePercent(1, activeUsers))
 	}
 
 	log.Debug().
@@ -2497,15 +2493,13 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for i, part := range parts {
+	for _, part := range parts {
 		h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
 			Kind:     metrics.ReedKindThread,
-			AuthorID: userID,
-			ReedID:   part.ReedID,
-			TagCount: len(parts[i].Tags),
+			TagCount: len(part.Tags),
 		})
 	}
-	h.metrics.ThreadPublished(r.Context(), userID, threadID, len(parts))
+	h.metrics.ThreadPublished(r.Context(), len(parts))
 	log.Debug().Str("userID", userID).Str("threadID", threadID).Int("reeds", len(parts)).Msg("Thread created")
 	writeResponse(w, http.StatusCreated, pbServerSignatures(sigs))
 }
@@ -2641,7 +2635,7 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, reedID := range rec.ReedIDs {
-		h.metrics.ReedDeleted(r.Context(), userID, reedID)
+		h.metrics.ReedDeleted(r.Context())
 		if err := h.services.db.DeleteMentionsForReed(r.Context(), reedID); err != nil {
 			log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing mention index for removed thread part")
 		}
@@ -2814,7 +2808,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.metrics.ReedDeleted(r.Context(), userID, reedID)
+	h.metrics.ReedDeleted(r.Context())
 
 	if err := h.services.db.DeleteMentionsForReed(r.Context(), reedID); err != nil {
 		log.Error().Str("reedID", reedID).Err(err).Msg("Error clearing mention index for removed reed")
@@ -3016,7 +3010,7 @@ func (h *Handlers) LikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Info().Str("likerID", likerID).Str("authorID", authorID).Str("reedID", reedID).Msg("Reed like accepted")
-	h.metrics.Like(r.Context(), metrics.OpAdd, likerID, authorID, reedID)
+	h.metrics.Like(r.Context(), metrics.OpAdd)
 	writeResponse(w, http.StatusOK, pbLikeCert(&cert))
 }
 
@@ -3060,7 +3054,7 @@ func (h *Handlers) UnlikeReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if deleted {
-		h.metrics.Like(r.Context(), metrics.OpRemove, likerID, authorID, reedID)
+		h.metrics.Like(r.Context(), metrics.OpRemove)
 		h.broadcastChan <- realtimeBroadcastMessage{
 			Type:   realtimeLikeCountChanged,
 			UserID: authorID,
@@ -3105,7 +3099,7 @@ func (h *Handlers) PinReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	h.metrics.Pin(r.Context(), metrics.OpAdd, pinnerID)
+	h.metrics.Pin(r.Context(), metrics.OpAdd)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3135,7 +3129,7 @@ func (h *Handlers) UnpinReed(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w)
 		return
 	}
-	h.metrics.Pin(r.Context(), metrics.OpRemove, pinnerID)
+	h.metrics.Pin(r.Context(), metrics.OpRemove)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3547,7 +3541,7 @@ func (h *Handlers) RecordBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.metrics.UserBackup(r.Context(), userID, kind)
+	h.metrics.UserBackup(r.Context(), kind)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3572,7 +3566,7 @@ func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.kickUserDevices(userID)
-	h.metrics.DeviceBound(r.Context(), userID)
+	h.metrics.DeviceBound(r.Context())
 
 	writeResponse(w, http.StatusOK, &pb.BindDeviceResponse{DeviceId: deviceID})
 }
@@ -3600,7 +3594,7 @@ func (h *Handlers) AccountRecoveryChallenge(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
-	h.metrics.AccountRecovery(r.Context(), "challenge", "", true, "")
+	h.metrics.AccountRecovery(r.Context(), "challenge", true, "")
 	writeResponse(w, http.StatusOK, &pb.ChallengeResponse{Challenge: nonce})
 }
 
@@ -3633,7 +3627,7 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		internalServerError(w)
 		return
 	}
-	fail := func(reason string) { h.metrics.AccountRecovery(r.Context(), "bootstrap", req.UserID, false, reason) }
+	fail := func(reason string) { h.metrics.AccountRecovery(r.Context(), "bootstrap", false, reason) }
 	if !live {
 		fail("bad_challenge")
 		writeError(w, http.StatusBadRequest, "Unknown or expired challenge")
@@ -3715,8 +3709,8 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		reedIDs = []string{}
 	}
 
-	h.metrics.AccountRecovery(r.Context(), "bootstrap", req.UserID, true, "")
-	h.metrics.DeviceBound(r.Context(), req.UserID)
+	h.metrics.AccountRecovery(r.Context(), "bootstrap", true, "")
+	h.metrics.DeviceBound(r.Context())
 	writeResponse(w, http.StatusOK, &pb.AccountRecoveryBootstrapResponse{
 		Profile:   pbUser(profile),
 		Following: following,
@@ -3742,7 +3736,7 @@ func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
 // ClaimIdentity handles POST /api/recovery/identity/claim.
 func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	userID, ok := "", false
-	defer func() { h.metrics.ServerRecovery(r.Context(), "claim", userID, ok) }()
+	defer func() { h.metrics.ServerRecovery(r.Context(), "claim", ok) }()
 	req, err := readRecoveryClaim(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -3795,7 +3789,7 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Created {
-		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID, "")
+		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport)
 	}
 
 	h.wakeRecoveryRecords(r, req.Profile.ID)
@@ -3813,7 +3807,7 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recorded := false
-	defer func() { h.metrics.ServerRecovery(r.Context(), "peer_identity", caller, recorded) }()
+	defer func() { h.metrics.ServerRecovery(r.Context(), "peer_identity", recorded) }()
 	req, err := readRecoveryPeerIdentity(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -3843,7 +3837,7 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Created {
-		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport, req.Profile.ID, "")
+		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport)
 	}
 
 	h.wakeRecoveryRecords(r, req.Profile.ID)
@@ -3861,7 +3855,7 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recorded := false
-	defer func() { h.metrics.ServerRecovery(r.Context(), "reed", caller, recorded) }()
+	defer func() { h.metrics.ServerRecovery(r.Context(), "reed", recorded) }()
 	req, err := readRecoveryReed(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -3926,11 +3920,11 @@ func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 
 	if err := saveRecoveryFollowing(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, req.UserIDs); err != nil {
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery following failed")
-		h.metrics.ServerRecovery(r.Context(), "following", caller, false)
+		h.metrics.ServerRecovery(r.Context(), "following", false)
 		internalServerError(w)
 		return
 	}
-	h.metrics.ServerRecovery(r.Context(), "following", caller, true)
+	h.metrics.ServerRecovery(r.Context(), "following", true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -3974,11 +3968,11 @@ func (h *Handlers) ReportRecords(w http.ResponseWriter, r *http.Request) {
 		status, reason, err := env.restoreRecord(r.Context(), record)
 		if err != nil {
 			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery record failed")
-			h.metrics.ServerRecovery(r.Context(), "record", caller, false)
+			h.metrics.ServerRecovery(r.Context(), "record", false)
 			internalServerError(w)
 			return
 		}
-		h.metrics.ServerRecovery(r.Context(), "record", caller, status != recoveryRecordRefused)
+		h.metrics.ServerRecovery(r.Context(), "record", status != recoveryRecordRefused)
 		out.Results = append(out.Results, &pb.RecoveryRecordResult{Status: status, Reason: reason})
 	}
 	writeResponse(w, http.StatusOK, out)
@@ -3998,11 +3992,11 @@ func (h *Handlers) ReportPins(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := saveRecoveryPins(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, msg.GetReedIds()); err != nil {
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery pins failed")
-		h.metrics.ServerRecovery(r.Context(), "pins", caller, false)
+		h.metrics.ServerRecovery(r.Context(), "pins", false)
 		internalServerError(w)
 		return
 	}
-	h.metrics.ServerRecovery(r.Context(), "pins", caller, true)
+	h.metrics.ServerRecovery(r.Context(), "pins", true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -4016,11 +4010,11 @@ func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.services.db.DeleteOngoing(r.Context(), caller); err != nil {
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery complete failed")
-		h.metrics.ServerRecovery(r.Context(), "complete", caller, false)
+		h.metrics.ServerRecovery(r.Context(), "complete", false)
 		internalServerError(w)
 		return
 	}
-	h.metrics.ServerRecovery(r.Context(), "complete", caller, true)
+	h.metrics.ServerRecovery(r.Context(), "complete", true)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -6079,7 +6073,7 @@ func (h *Handlers) PostRipple(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wire := rippleWire(resp)
-	h.metrics.Ripple(r.Context(), metrics.OpAdd, callerID, reedUserID, canonicalReedID)
+	h.metrics.Ripple(r.Context(), metrics.OpAdd)
 	writeResponse(w, http.StatusCreated, pbRipple(wire))
 
 	h.broadcastChan <- realtimeBroadcastMessage{
@@ -6252,11 +6246,7 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rippleAuthorID := ""
-	if a, ok := authorOf(identityID(reedID)); ok {
-		rippleAuthorID = string(a)
-	}
-	h.metrics.Ripple(r.Context(), metrics.OpRemove, callerID, rippleAuthorID, reedID)
+	h.metrics.Ripple(r.Context(), metrics.OpRemove)
 	w.WriteHeader(http.StatusNoContent)
 
 	tombstoned, err := h.services.db.GetRipple(r.Context(), rippleID)
@@ -6344,7 +6334,7 @@ func (h *Handlers) SendMailboxMessage(ctx context.Context, userID, kind, message
 	if err != nil {
 		return err
 	}
-	h.metrics.Mailbox(ctx, metrics.OpAdd, kind, userID)
+	h.metrics.Mailbox(ctx, metrics.OpAdd, kind)
 	h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
 	return nil
 }
@@ -6512,7 +6502,7 @@ func (h *Handlers) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.metrics.InviteCreated(r.Context(), caller, grantedRole == roleAdmin)
+	h.metrics.InviteCreated(r.Context(), grantedRole == roleAdmin)
 	writeResponse(w, http.StatusCreated, &pb.Invite{
 		Id:              req.ID,
 		TokenHash:       tokenHashHex,
@@ -6583,7 +6573,7 @@ func (h *Handlers) DeleteInvite(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
-		h.metrics.InviteDeleted(r.Context(), caller)
+		h.metrics.InviteDeleted(r.Context())
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

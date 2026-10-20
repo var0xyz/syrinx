@@ -15,8 +15,8 @@ dedicated Pi, `otelcol-agent` shipping journald logs + hostmetrics from the
 app host) already ships structured logs and host-level metrics
 (CPU/memory/disk/network via the `hostmetrics` receiver) — aggregate machine
 stats, no per-user data. Session replay and per-user behavior profiling are
-not wanted in this stack; business metrics carry user ids only so an
-operator can tell who is abusing the server (see [05](05_custom_metrics.md)).
+not wanted in this stack; only the abuse and admin metrics carry user ids,
+so an operator can tell who is abusing the server (see [05](05_custom_metrics.md)).
 
 What's still missing is **request-level and query-level timing**: "how long
 did this request take, which DB queries did it run, how long did each one
@@ -134,5 +134,6 @@ always-on user tagging.
 
 Metrics follow a different, operator-facing rule set — see
 [05 — Privacy rules](05_custom_metrics.md#55-privacy-rules-extends-00). In
-short: **no usernames, tag text, or content**; **raw user ids** on
-user-scoped series; reed IDs allowed for per-reed reach and publish shape.
+short: **no usernames, tag text, or content**; **raw user and reed ids**
+only on the abuse and admin counters; everything else carries bounded
+attributes so it charts as a rate.

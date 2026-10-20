@@ -114,7 +114,7 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 			h.kickUserDevices(req.Targets[0])
 			h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyID}
 			go h.notifyPeersOfKeyRevocation(revokedKeyID)
-			h.metrics.KeyRevoked(context.Background(), req.Targets[0], metrics.RevocationRebind)
+			h.metrics.KeyRevoked(context.Background(), metrics.RevocationRebind)
 			h.recordInvitesRevoked(req.Action, req.Targets[0], revokedInvites)
 		},
 	}
