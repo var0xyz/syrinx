@@ -471,7 +471,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	}
 	subjectUserID := string(subjectIdentity)
 	vouched, reason := false, "invalid"
-	defer func() { h.metrics.Vouch(r.Context(), metrics.OpAdd, voucherID, subjectUserID, vouched, reason) }()
+	defer func() { h.metrics.Vouch(r.Context(), metrics.OpAdd, vouched, reason) }()
 
 	// Self-vouching asserts nothing: the caller would be attesting to a key
 	// they already control.
@@ -735,7 +735,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			Str("voucherID", voucherID).
 			Str("voucherKeyID", voucherKeyID).
 			Msg("withdrawal refused: voucher key is revoked")
-		h.metrics.Vouch(r.Context(), metrics.OpRemove, voucherID, existing.SubjectUserID, false, "voucher_key_revoked")
+		h.metrics.Vouch(r.Context(), metrics.OpRemove, false, "voucher_key_revoked")
 		writeError(w, http.StatusUnauthorized, "`voucherKeyID` is revoked")
 		return
 	}
@@ -748,7 +748,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 			Str("subjectKeyID", subjectKeyID).
 			Err(err).
 			Msg("withdrawal signature verification failed")
-		h.metrics.Vouch(r.Context(), metrics.OpRemove, voucherID, existing.SubjectUserID, false, "bad_signature")
+		h.metrics.Vouch(r.Context(), metrics.OpRemove, false, "bad_signature")
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
@@ -803,7 +803,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 		Str("voucherID", voucherID).
 		Str("subjectKeyID", subjectKeyID).
 		Msg("Vouch withdrawal accepted")
-	h.metrics.Vouch(r.Context(), metrics.OpRemove, voucherID, existing.SubjectUserID, true, "")
+	h.metrics.Vouch(r.Context(), metrics.OpRemove, true, "")
 	writeResponse(w, http.StatusOK, pbVouch(cert))
 }
 

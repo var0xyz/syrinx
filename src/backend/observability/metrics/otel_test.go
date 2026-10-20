@@ -86,30 +86,30 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader, name string) []attrib
 	return sets
 }
 
-// User ids go on attributes as-is, so an abuser can be named.
-func TestOTELRecordsRawUserIDs(t *testing.T) {
+// Rate counters stay bounded: no entity ids, so every publish lands on the
+// same series. Abuse counters keep raw ids so an abuser can be named.
+func TestOTELIDsOnlyOnAbuseCounters(t *testing.T) {
 	t.Parallel()
 	reader := sdkmetric.NewManualReader()
 	r := New(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(scope))
 
-	r.UserCreated(context.Background(), "invite", "alice@srv", "bob@srv")
+	r.UserCreated(context.Background(), "invite")
+	r.UserCreated(context.Background(), "invite")
 	r.AuthRejected(context.Background(), "alice@srv/FP1", "alice@srv", "bad_signature", "/reeds")
 
 	created := collect(t, reader, "syrinx.users.created")
 	if len(created) != 1 {
-		t.Fatalf("users.created points = %d", len(created))
+		t.Fatalf("users.created points = %d, want 1", len(created))
 	}
-	for key, want := range map[attribute.Key]string{"user.id": "alice@srv", "inviter.id": "bob@srv"} {
-		if got, _ := created[0].Value(key); got.AsString() != want {
-			t.Errorf("%s = %q, want %q", key, got.AsString(), want)
-		}
+	if created[0].Len() != 1 {
+		t.Errorf("users.created attributes = %v, want only signup.mode", created[0].ToSlice())
 	}
 	rejected := collect(t, reader, "syrinx.auth.rejected")
 	if len(rejected) != 1 {
 		t.Fatalf("auth.rejected points = %d", len(rejected))
 	}
-	if got, _ := rejected[0].Value("reason"); got.AsString() != "bad_signature" {
-		t.Errorf("reason = %q", got.AsString())
+	if got, _ := rejected[0].Value("user.id"); got.AsString() != "alice@srv" {
+		t.Errorf("user.id = %q", got.AsString())
 	}
 }
 
@@ -119,14 +119,11 @@ func TestOTELThreadPublished(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	r := New(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(scope))
 
-	r.ThreadPublished(context.Background(), "alice@srv", "alice@srv/t1", 5)
+	r.ThreadPublished(context.Background(), 5)
 
 	published := collect(t, reader, "syrinx.threads.published")
 	if len(published) != 1 {
 		t.Fatalf("threads.published points = %d", len(published))
-	}
-	if got, _ := published[0].Value("thread.id"); got.AsString() != "alice@srv/t1" {
-		t.Errorf("thread.id = %q", got.AsString())
 	}
 
 	var rm metricdata.ResourceMetrics

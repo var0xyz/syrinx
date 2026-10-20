@@ -56,7 +56,7 @@ func (h *Handlers) kickExecutor() adminExecutor {
 				cert.Admin = req
 				h.kickUserDevices(cert.UserID)
 				h.afterAccountRemoval(context.Background(), cert.UserID, cert)
-				h.metrics.UserDeleted(context.Background(), cert.UserID, metrics.RemovalKick, false)
+				h.metrics.UserDeleted(context.Background(), metrics.RemovalKick, false)
 				h.recordInvitesRevoked(req.Action, cert.UserID, revokedInvites[cert.UserID])
 			}
 		},

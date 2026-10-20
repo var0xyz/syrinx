@@ -52,8 +52,8 @@ func (r *adminRecorder) AdminActionExecuted(_ context.Context, action, targetID,
 	r.add("executed %s %s %s %s %t", action, targetID, requesterID, approverID, ok)
 }
 
-func (r *adminRecorder) UserDeleted(_ context.Context, userID string, kind metrics.RemovalKind, _ bool) {
-	r.add("deleted %s %s", userID, kind)
+func (r *adminRecorder) UserDeleted(_ context.Context, kind metrics.RemovalKind, _ bool) {
+	r.add("deleted %s", kind)
 }
 
 func TestAdminMetrics_CarryRawIDsAndReasons(t *testing.T) {
@@ -72,5 +72,5 @@ func TestAdminMetrics_CarryRawIDsAndReasons(t *testing.T) {
 	rec.has(t, fmt.Sprintf("opened kick %s admin 1", f.ids["a1"]))
 	rec.has(t, fmt.Sprintf("decided kick approve %s %s", f.ids["a1"], f.ids["a2"]))
 	rec.has(t, fmt.Sprintf("executed kick %s %s %s true", f.ids["u1"], f.ids["a1"], f.ids["a2"]))
-	rec.has(t, fmt.Sprintf("deleted %s kick", f.ids["u1"]))
+	rec.has(t, "deleted kick")
 }

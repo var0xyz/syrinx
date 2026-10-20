@@ -206,24 +206,16 @@ func set(ctx context.Context, g metric.Int64Gauge, v int64, attrs ...attribute.K
 
 func str(k, v string) attribute.KeyValue { return attribute.String(k, v) }
 
-func (r *OTEL) UserCreated(ctx context.Context, signupMode, userID, inviterID string) {
-	add(ctx, r.usersCreated,
-		str("signup.mode", signupMode),
-		str("user.id", userID),
-		str("inviter.id", inviterID),
-	)
+func (r *OTEL) UserCreated(ctx context.Context, signupMode string) {
+	add(ctx, r.usersCreated, str("signup.mode", signupMode))
 }
 
-func (r *OTEL) UserDeleted(ctx context.Context, userID string, kind RemovalKind, noteHas bool) {
-	add(ctx, r.usersDeleted,
-		str("user.id", userID),
-		str("removal.kind", string(kind)),
-		attribute.Bool("note.has", noteHas),
-	)
+func (r *OTEL) UserDeleted(ctx context.Context, kind RemovalKind, noteHas bool) {
+	add(ctx, r.usersDeleted, str("removal.kind", string(kind)), attribute.Bool("note.has", noteHas))
 }
 
-func (r *OTEL) UserUpdated(ctx context.Context, userID string, renamed bool) {
-	add(ctx, r.usersUpdated, str("user.id", userID), attribute.Bool("renamed", renamed))
+func (r *OTEL) UserUpdated(ctx context.Context, renamed bool) {
+	add(ctx, r.usersUpdated, attribute.Bool("renamed", renamed))
 }
 
 func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
@@ -232,30 +224,24 @@ func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 		str("reed.kind", string(p.Kind)),
 		attribute.Bool("tags.has", tagCount > 0),
 		attribute.Int("tags.count", tagCount),
-		str("author.id", p.AuthorID),
-		str("reed.id", p.ReedID),
 	)
 }
 
-func (r *OTEL) ReedDeleted(ctx context.Context, authorID, reedID string) {
-	add(ctx, r.reedsDeleted, str("author.id", authorID), str("reed.id", reedID))
+func (r *OTEL) ReedDeleted(ctx context.Context) {
+	add(ctx, r.reedsDeleted)
 }
 
-func (r *OTEL) ThreadPublished(ctx context.Context, authorID, threadID string, parts int) {
-	add(ctx, r.threadsPublished, str("author.id", authorID), str("thread.id", threadID))
-	record(ctx, r.threadSize, int64(parts), str("author.id", authorID), str("thread.id", threadID))
+func (r *OTEL) ThreadPublished(ctx context.Context, parts int) {
+	add(ctx, r.threadsPublished)
+	record(ctx, r.threadSize, int64(parts))
 }
 
-func (r *OTEL) EchoTargeted(ctx context.Context, authorID, targetAuthorID, targetReedID string) {
-	add(ctx, r.echoesTargeted,
-		str("author.id", authorID),
-		str("target.author.id", targetAuthorID),
-		str("target.reed.id", targetReedID),
-	)
+func (r *OTEL) EchoTargeted(ctx context.Context) {
+	add(ctx, r.echoesTargeted)
 }
 
-func (r *OTEL) KeyRevoked(ctx context.Context, userID string, kind RevocationKind) {
-	add(ctx, r.keysRevoked, str("user.id", userID), str("revocation.kind", string(kind)))
+func (r *OTEL) KeyRevoked(ctx context.Context, kind RevocationKind) {
+	add(ctx, r.keysRevoked, str("revocation.kind", string(kind)))
 }
 
 // KeyFetchError records a client-reported failure to fetch a key it needed
@@ -299,31 +285,22 @@ func (r *OTEL) MentionClaimRejected(ctx context.Context, authorID, reporterUserI
 	)
 }
 
-func (r *OTEL) UserBackup(ctx context.Context, userID string, kind BackupKind) {
-	add(ctx, r.usersBackup, str("user.id", userID), str("backup.kind", string(kind)))
+func (r *OTEL) UserBackup(ctx context.Context, kind BackupKind) {
+	add(ctx, r.usersBackup, str("backup.kind", string(kind)))
 }
 
-func (r *OTEL) ReedCoverage(ctx context.Context, authorID, reedID string, holders, coveragePercent int) {
-	attrs := []attribute.KeyValue{str("author.id", authorID), str("reed.id", reedID)}
-	record(ctx, r.holders, int64(holders), attrs...)
-	record(ctx, r.coveragePercent, int64(coveragePercent), attrs...)
+func (r *OTEL) ReedCoverage(ctx context.Context, holders, coveragePercent int) {
+	record(ctx, r.holders, int64(holders))
+	record(ctx, r.coveragePercent, int64(coveragePercent))
 }
 
 func (r *OTEL) WSMessage(ctx context.Context, direction Direction, msgType string) {
 	add(ctx, r.wsMessages, str("ws.direction", string(direction)), str("ws.message.type", msgType))
 }
 
-// RelayEvent records one stage of a pending relay event's life. Comparing
-// created vs. fulfilled+deleted counts per event.id surfaces leaked
-// requests (no matching fulfilled/deleted) and duplicate responses (more
-// than one fulfilled). requesterID is set on created samples only.
-func (r *OTEL) RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind, eventID, requesterID string) {
-	add(ctx, r.relayEvents,
-		str("relay.lifecycle", string(lifecycle)),
-		str("event.kind", eventKind),
-		str("event.id", eventID),
-		str("requester.id", requesterID),
-	)
+// RelayEvent records one stage of a pending relay event's life.
+func (r *OTEL) RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind string) {
+	add(ctx, r.relayEvents, str("relay.lifecycle", string(lifecycle)), str("event.kind", eventKind))
 }
 
 // FederationRelay records one federation HTTP call, either side: this
@@ -453,12 +430,12 @@ func (r *OTEL) WSHandshakeRejected(ctx context.Context, keyID, userID, reason st
 	add(ctx, r.wsHandshakeRejected, str("key.id", keyID), str("user.id", userID), str("reason", reason))
 }
 
-func (r *OTEL) WSSession(ctx context.Context, userID string, connected bool) {
+func (r *OTEL) WSSession(ctx context.Context, connected bool) {
 	event, delta := "disconnect", int64(-1)
 	if connected {
 		event, delta = "connect", 1
 	}
-	add(ctx, r.wsSessions, str("user.id", userID), str("event", event))
+	add(ctx, r.wsSessions, str("event", event))
 	if r.wsConnections != nil {
 		r.wsConnections.Add(ctx, delta)
 	}
@@ -468,10 +445,8 @@ func (r *OTEL) SignupRejected(ctx context.Context, signupMode, reason string) {
 	add(ctx, r.signupRejected, str("signup.mode", signupMode), str("reason", reason))
 }
 
-// UsernameCheck records an availability check; userID is set only on the
-// authenticated rename variant.
-func (r *OTEL) UsernameCheck(ctx context.Context, userID string, available bool) {
-	add(ctx, r.usernameChecks, str("user.id", userID), attribute.Bool("available", available))
+func (r *OTEL) UsernameCheck(ctx context.Context, available bool) {
+	add(ctx, r.usernameChecks, attribute.Bool("available", available))
 }
 
 func (r *OTEL) CooldownHit(ctx context.Context, kind, userID string) {
@@ -486,89 +461,64 @@ func (r *OTEL) BlockRefusal(ctx context.Context, viewerID, authorID string, surf
 	)
 }
 
-func (r *OTEL) InviteCreated(ctx context.Context, inviterID string, adminInvite bool) {
-	add(ctx, r.invitesCreated, str("inviter.id", inviterID), attribute.Bool("admin_invite", adminInvite))
+func (r *OTEL) InviteCreated(ctx context.Context, adminInvite bool) {
+	add(ctx, r.invitesCreated, attribute.Bool("admin_invite", adminInvite))
 }
 
-func (r *OTEL) InviteClaimed(ctx context.Context, inviterID, inviteeID string, adminInvite bool) {
-	add(ctx, r.invitesClaimed,
-		str("inviter.id", inviterID),
-		str("invitee.id", inviteeID),
-		attribute.Bool("admin_invite", adminInvite),
-	)
+func (r *OTEL) InviteClaimed(ctx context.Context, adminInvite bool) {
+	add(ctx, r.invitesClaimed, attribute.Bool("admin_invite", adminInvite))
 }
 
-func (r *OTEL) InviteDeleted(ctx context.Context, inviterID string) {
-	add(ctx, r.invitesDeleted, str("inviter.id", inviterID))
+func (r *OTEL) InviteDeleted(ctx context.Context) {
+	add(ctx, r.invitesDeleted)
 }
 
-func (r *OTEL) Follow(ctx context.Context, op Op, followerID, followeeID string, remote bool) {
-	add(ctx, r.follows,
-		str("op", string(op)),
-		str("follower.id", followerID),
-		str("followee.id", followeeID),
-		attribute.Bool("remote", remote),
-	)
+func (r *OTEL) Follow(ctx context.Context, op Op, remote bool) {
+	add(ctx, r.follows, str("op", string(op)), attribute.Bool("remote", remote))
 }
 
-func (r *OTEL) Like(ctx context.Context, op Op, userID, authorID, reedID string) {
-	add(ctx, r.likes, str("op", string(op)), str("user.id", userID), str("author.id", authorID), str("reed.id", reedID))
+func (r *OTEL) Like(ctx context.Context, op Op) {
+	add(ctx, r.likes, str("op", string(op)))
 }
 
-func (r *OTEL) Ripple(ctx context.Context, op Op, userID, authorID, reedID string) {
-	add(ctx, r.ripples, str("op", string(op)), str("user.id", userID), str("author.id", authorID), str("reed.id", reedID))
+func (r *OTEL) Ripple(ctx context.Context, op Op) {
+	add(ctx, r.ripples, str("op", string(op)))
 }
 
-func (r *OTEL) Pin(ctx context.Context, op Op, userID string) {
-	add(ctx, r.pins, str("op", string(op)), str("user.id", userID))
+func (r *OTEL) Pin(ctx context.Context, op Op) {
+	add(ctx, r.pins, str("op", string(op)))
 }
 
-func (r *OTEL) Block(ctx context.Context, op Op, userID, blockedID string, origin Origin) {
-	add(ctx, r.blocks,
-		str("op", string(op)),
-		str("user.id", userID),
-		str("blocked.id", blockedID),
-		str("origin", string(origin)),
-	)
+func (r *OTEL) Block(ctx context.Context, op Op, origin Origin) {
+	add(ctx, r.blocks, str("op", string(op)), str("origin", string(origin)))
 }
 
-func (r *OTEL) Vouch(ctx context.Context, op Op, voucherID, subjectID string, ok bool, reason string) {
-	add(ctx, r.vouches,
-		str("op", string(op)),
-		str("voucher.id", voucherID),
-		str("subject.id", subjectID),
-		attribute.Bool("ok", ok),
-		str("reason", reason),
-	)
+func (r *OTEL) Vouch(ctx context.Context, op Op, ok bool, reason string) {
+	add(ctx, r.vouches, str("op", string(op)), attribute.Bool("ok", ok), str("reason", reason))
 }
 
-func (r *OTEL) VerificationWindow(ctx context.Context, op, userID string) {
-	add(ctx, r.verificationWindows, str("op", op), str("user.id", userID))
+func (r *OTEL) VerificationWindow(ctx context.Context, op string) {
+	add(ctx, r.verificationWindows, str("op", op))
 }
 
-func (r *OTEL) DeviceBound(ctx context.Context, userID string) {
-	add(ctx, r.devicesBound, str("user.id", userID))
+func (r *OTEL) DeviceBound(ctx context.Context) {
+	add(ctx, r.devicesBound)
 }
 
-func (r *OTEL) AccountRecovery(ctx context.Context, stage, userID string, ok bool, reason string) {
-	add(ctx, r.accountRecovery,
-		str("stage", stage),
-		str("user.id", userID),
-		attribute.Bool("ok", ok),
-		str("reason", reason),
-	)
+func (r *OTEL) AccountRecovery(ctx context.Context, stage string, ok bool, reason string) {
+	add(ctx, r.accountRecovery, str("stage", stage), attribute.Bool("ok", ok), str("reason", reason))
 }
 
-func (r *OTEL) ServerRecovery(ctx context.Context, stage, userID string, ok bool) {
-	add(ctx, r.serverRecovery, str("stage", stage), str("user.id", userID), attribute.Bool("ok", ok))
+func (r *OTEL) ServerRecovery(ctx context.Context, stage string, ok bool) {
+	add(ctx, r.serverRecovery, str("stage", stage), attribute.Bool("ok", ok))
 }
 
-func (r *OTEL) Mailbox(ctx context.Context, op Op, kind, userID string) {
-	add(ctx, r.mailbox, str("op", string(op)), str("kind", kind), str("user.id", userID))
+func (r *OTEL) Mailbox(ctx context.Context, op Op, kind string) {
+	add(ctx, r.mailbox, str("op", string(op)), str("kind", kind))
 }
 
-func (r *OTEL) UserSearch(ctx context.Context, userID string, remote bool) {
-	add(ctx, r.userSearches, str("user.id", userID), attribute.Bool("remote", remote))
+func (r *OTEL) UserSearch(ctx context.Context, remote bool) {
+	add(ctx, r.userSearches, attribute.Bool("remote", remote))
 }
 
 func (r *OTEL) FederationLifecycle(ctx context.Context, event, peerServerID, adminID string) {

@@ -1238,7 +1238,7 @@ func (h *Handlers) SearchUsersFromPeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "search-users", true)
-	h.metrics.UserSearch(r.Context(), "", true)
+	h.metrics.UserSearch(r.Context(), true)
 	writeResponse(w, http.StatusOK, &pb.RelaySearchUsersResponse{Users: pbUserSearch(results).Users})
 }
 

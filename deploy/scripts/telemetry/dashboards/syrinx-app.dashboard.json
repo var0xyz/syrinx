@@ -1856,7 +1856,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_users_created",
+              "query": "sum(increase(syrinx_users_created[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -1879,7 +1879,7 @@
               }
             },
             {
-              "query": "syrinx_users_created{signup_mode=\"open\"}",
+              "query": "sum(increase(syrinx_users_created{signup_mode=\"open\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -1902,7 +1902,7 @@
               }
             },
             {
-              "query": "syrinx_users_created{signup_mode=\"invite\"}",
+              "query": "sum(increase(syrinx_users_created{signup_mode=\"invite\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -1925,7 +1925,7 @@
               }
             },
             {
-              "query": "syrinx_users_created{signup_mode=\"closed\"}",
+              "query": "sum(increase(syrinx_users_created{signup_mode=\"closed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -1977,7 +1977,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_users_deleted",
+              "query": "sum(increase(syrinx_users_deleted[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2000,7 +2000,7 @@
               }
             },
             {
-              "query": "syrinx_users_deleted{note_has=\"true\"}",
+              "query": "sum(increase(syrinx_users_deleted{note_has=\"true\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2023,7 +2023,7 @@
               }
             },
             {
-              "query": "syrinx_users_deleted{note_has=\"false\"}",
+              "query": "sum(increase(syrinx_users_deleted{note_has=\"false\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2058,7 +2058,7 @@
           "id": "syrinx_keys_revoked",
           "type": "line",
           "title": "Key revocations",
-          "description": "Successful key revocations; per-user series carry user.id in Explore",
+          "description": "Successful key revocations, rotations and rebinds together",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -2075,7 +2075,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_keys_revoked",
+              "query": "sum(increase(syrinx_keys_revoked[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2127,7 +2127,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_users_created",
+              "query": "sum(increase(syrinx_users_created[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2150,7 +2150,7 @@
               }
             },
             {
-              "query": "syrinx_users_deleted",
+              "query": "sum(increase(syrinx_users_deleted[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2352,7 +2352,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_users_backup",
+              "query": "sum(increase(syrinx_users_backup[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2375,7 +2375,7 @@
               }
             },
             {
-              "query": "syrinx_users_backup{backup_kind=\"identity\"}",
+              "query": "sum(increase(syrinx_users_backup{backup_kind=\"identity\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2398,7 +2398,7 @@
               }
             },
             {
-              "query": "syrinx_users_backup{backup_kind=\"full\"}",
+              "query": "sum(increase(syrinx_users_backup{backup_kind=\"full\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2450,7 +2450,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_users_backup{backup_repeat=\"false\"}",
+              "query": "sum(increase(syrinx_users_backup{backup_repeat=\"false\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2473,7 +2473,7 @@
               }
             },
             {
-              "query": "syrinx_users_backup{backup_repeat=\"true\"}",
+              "query": "sum(increase(syrinx_users_backup{backup_repeat=\"true\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2503,90 +2503,6 @@
             "h": 14,
             "i": 37
           }
-        },
-        {
-          "id": "syrinx_user_retention",
-          "type": "line",
-          "title": "Signup cohort retention (% still active by day N)",
-          "description": "Per-user (user_id) signup timestamp, excluded once a matching deletion timestamp exists (both from raw histogram exemplars). user_id IS NOT NULL filters out datapoints from before this label was added. Not cohort-bucketed by signup week \u2014 just 'signups from N days ago still active today', across all signups to date. Deletions include admin kicks. Reads as ~100% flat until syrinx_users_deleted has data (no deletions recorded as of authoring). extract(epoch FROM now()) and floor() verified directly against this OpenObserve instance's DataFusion SQL engine; datediff/to_unix_timestamp are NOT supported here.",
-          "config": {
-            "show_legends": true,
-            "legends_position": null,
-            "unit": null,
-            "base_map": {
-              "type": "osm"
-            },
-            "map_view": {
-              "zoom": 1.0,
-              "lat": 0.0,
-              "lng": 0.0
-            }
-          },
-          "queryType": "sql",
-          "queries": [
-            {
-              "query": "WITH signups AS ( SELECT user_id, min(_timestamp) AS signed_up_at FROM syrinx_users_created WHERE user_id IS NOT NULL GROUP BY user_id ), deletions AS ( SELECT user_id, min(_timestamp) AS deleted_at FROM syrinx_users_deleted WHERE user_id IS NOT NULL GROUP BY user_id ) SELECT floor((extract(epoch FROM now()) * 1000000.0 - s.signed_up_at) / 86400000000.0) AS days_active, count(*) AS cohort_still_active FROM signups s LEFT JOIN deletions d ON s.user_id = d.user_id WHERE d.deleted_at IS NULL GROUP BY days_active ORDER BY days_active",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_users_created",
-                "stream_type": "metrics",
-                "x": [
-                  {
-                    "label": "Days since signup",
-                    "alias": "days_active",
-                    "column": "days_active",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": "ASC",
-                    "args": [
-                      {
-                        "field": "days_active",
-                        "function": null,
-                        "alias": "days_active"
-                      }
-                    ]
-                  }
-                ],
-                "y": [
-                  {
-                    "label": "Signups still active",
-                    "alias": "cohort_still_active",
-                    "column": "cohort_still_active",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": null,
-                    "args": [
-                      {
-                        "field": "cohort_still_active",
-                        "function": null,
-                        "alias": "cohort_still_active"
-                      }
-                    ]
-                  }
-                ],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            }
-          ],
-          "layout": {
-            "x": 0,
-            "y": 56,
-            "w": 192,
-            "h": 14,
-            "i": 38
-          }
         }
       ]
     },
@@ -2615,7 +2531,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_reeds_published",
+              "query": "sum(increase(syrinx_reeds_published[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2638,7 +2554,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{reed_kind=\"plain\"}",
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"plain\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2661,7 +2577,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{reed_kind=\"echo\"}",
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"echo\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2684,7 +2600,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{reed_kind=\"reply\"}",
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"reply\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2707,7 +2623,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{reed_kind=\"thread\"}",
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"thread\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2759,7 +2675,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_reeds_published{reed_kind=\"echo\"}",
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"echo\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2782,7 +2698,7 @@
               }
             },
             {
-              "query": "syrinx_echoes_targeted",
+              "query": "sum(increase(syrinx_echoes_targeted[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2834,7 +2750,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_reeds_deleted",
+              "query": "sum(increase(syrinx_reeds_deleted[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2886,7 +2802,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_reeds_rejected_length",
+              "query": "sum(increase(syrinx_reeds_rejected_length[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2909,7 +2825,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_rejected_length{raw_exceeds_max=\"true\"}",
+              "query": "sum(increase(syrinx_reeds_rejected_length{raw_exceeds_max=\"true\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2932,7 +2848,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_rejected_length{visible_exceeds_max=\"true\"}",
+              "query": "sum(increase(syrinx_reeds_rejected_length{visible_exceeds_max=\"true\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -2984,7 +2900,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_reeds_published{tags_has=\"true\"}",
+              "query": "sum(increase(syrinx_reeds_published{tags_has=\"true\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3007,7 +2923,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{tags_has=\"false\"}",
+              "query": "sum(increase(syrinx_reeds_published{tags_has=\"false\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3030,7 +2946,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{tags_count=\"4\"}",
+              "query": "sum(increase(syrinx_reeds_published{tags_count=\"4\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3082,7 +2998,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "histogram_quantile(0.5, sum(syrinx_reed_content_raw_chars_bucket) by (le))",
+              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_reed_content_raw_chars_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3105,7 +3021,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.9, sum(syrinx_reed_content_raw_chars_bucket) by (le))",
+              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_reed_content_raw_chars_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3128,7 +3044,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.99, sum(syrinx_reed_content_raw_chars_bucket) by (le))",
+              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_reed_content_raw_chars_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3180,7 +3096,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "histogram_quantile(0.5, sum(syrinx_reed_content_visible_chars_bucket) by (le))",
+              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_reed_content_visible_chars_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3203,7 +3119,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.9, sum(syrinx_reed_content_visible_chars_bucket) by (le))",
+              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_reed_content_visible_chars_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3226,7 +3142,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.99, sum(syrinx_reed_content_visible_chars_bucket) by (le))",
+              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_reed_content_visible_chars_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3261,7 +3177,7 @@
           "id": "syrinx_reed_holders_coverage",
           "type": "area",
           "title": "Reed holders & coverage % \u2014 p50/p90/p99",
-          "description": "holders and coverage % are the same event (ReedCoverage records both together \u2014 coverage % = holders / active users) so they're merged here. Shape from OTLP histogram buckets instead of a flattened mean. Per-reed series (author.id + reed.id) aggregate; filter in Explore.",
+          "description": "holders and coverage % are the same event (ReedCoverage records both together \u2014 coverage % = holders / active users) so they're merged here. Shape from OTLP histogram buckets instead of a flattened mean.",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -3278,7 +3194,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "histogram_quantile(0.5, sum(syrinx_reed_holders_bucket) by (le))",
+              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_reed_holders_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3301,7 +3217,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.9, sum(syrinx_reed_holders_bucket) by (le))",
+              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_reed_holders_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3324,7 +3240,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.99, sum(syrinx_reed_holders_bucket) by (le))",
+              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_reed_holders_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3347,7 +3263,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.5, sum(syrinx_reed_coverage_percent_bucket) by (le))",
+              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_reed_coverage_percent_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3399,7 +3315,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_threads_published",
+              "query": "sum(increase(syrinx_threads_published[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3422,7 +3338,7 @@
               }
             },
             {
-              "query": "syrinx_reeds_published{reed_kind=\"thread\"}",
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"thread\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3474,7 +3390,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "histogram_quantile(0.5, sum(syrinx_thread_size_bucket) by (le))",
+              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_thread_size_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3497,7 +3413,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.9, sum(syrinx_thread_size_bucket) by (le))",
+              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_thread_size_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3520,7 +3436,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.99, sum(syrinx_thread_size_bucket) by (le))",
+              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_thread_size_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3578,7 +3494,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_ws_messages",
+              "query": "sum(increase(syrinx_ws_messages[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3601,7 +3517,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3624,7 +3540,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3676,7 +3592,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"PING\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"PING\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3699,7 +3615,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"REQUEST_REED\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"REQUEST_REED\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3722,7 +3638,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"DATA_ACK\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"DATA_ACK\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3745,7 +3661,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"SYNC_REQUEST\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"SYNC_REQUEST\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3768,7 +3684,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_RESPONSE\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_RESPONSE\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3791,7 +3707,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_MISS\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_MISS\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3814,7 +3730,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"SUBSCRIBE_REED\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"SUBSCRIBE_REED\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3866,7 +3782,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"RELAY_REQUEST\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"RELAY_REQUEST\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3889,7 +3805,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"DATA_RESPONSE\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"DATA_RESPONSE\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3912,7 +3828,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"BROADCAST_REED\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"BROADCAST_REED\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3935,7 +3851,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_COVERAGE\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_COVERAGE\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3958,7 +3874,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REQUEST_ACK\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REQUEST_ACK\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -3981,7 +3897,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"pong\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"pong\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4004,7 +3920,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_ECHOES\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_ECHOES\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4027,7 +3943,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_REPLIES\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"REED_REPLIES\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4079,7 +3995,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"REQUEST_REED\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"REQUEST_REED\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4102,7 +4018,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_RESPONSE\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_RESPONSE\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4125,7 +4041,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_MISS\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"in\",ws_message_type=\"RELAY_MISS\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4148,7 +4064,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"RELAY_REQUEST\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"RELAY_REQUEST\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4171,7 +4087,7 @@
               }
             },
             {
-              "query": "syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"DATA_RESPONSE\"}",
+              "query": "sum(increase(syrinx_ws_messages{ws_direction=\"out\",ws_message_type=\"DATA_RESPONSE\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4212,7 +4128,7 @@
           "id": "syrinx_relay_lifecycle",
           "type": "line",
           "title": "Pending relay events by lifecycle stage",
-          "description": "created/fulfilled/deleted samples for pending_events rows (syrinx.relay.event). created without a matching fulfilled or deleted for the same event.id means the request leaked \u2014 no holder ever answered and nothing ever cleaned it up.",
+          "description": "pending_events rows created, fulfilled and deleted per 5m (syrinx.relay.event). Created persistently above fulfilled plus deleted means requests are leaking.",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -4229,7 +4145,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_relay_event{relay_lifecycle=\"created\"}",
+              "query": "sum(increase(syrinx_relay_event{relay_lifecycle=\"created\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4252,7 +4168,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{relay_lifecycle=\"fulfilled\"}",
+              "query": "sum(increase(syrinx_relay_event{relay_lifecycle=\"fulfilled\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4275,7 +4191,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{relay_lifecycle=\"deleted\"}",
+              "query": "sum(increase(syrinx_relay_event{relay_lifecycle=\"deleted\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4327,7 +4243,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_relay_event{event_kind=\"request_reed\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"request_reed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4350,7 +4266,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"profile_subscription\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"profile_subscription\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4373,7 +4289,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"follow_reed\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"follow_reed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4396,7 +4312,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"broadcast_reed\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"broadcast_reed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4419,7 +4335,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"pipe_reed\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"pipe_reed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4442,7 +4358,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"reed_removed\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"reed_removed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4465,7 +4381,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"account_removed\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"account_removed\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4488,7 +4404,7 @@
               }
             },
             {
-              "query": "syrinx_relay_event{event_kind=\"reed_reply\"}",
+              "query": "sum(increase(syrinx_relay_event{event_kind=\"reed_reply\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4520,187 +4436,6 @@
           }
         },
         {
-          "id": "syrinx_relay_leaked",
-          "type": "table",
-          "title": "Leaked requests (created, never fulfilled or deleted)",
-          "description": "Per event.id: created but never followed by a fulfilled or deleted sample in the selected window. A wide window is needed for this to be meaningful \u2014 a request created seconds ago just hasn't had time to resolve yet, that isn't necessarily a leak.",
-          "config": {
-            "show_legends": true,
-            "legends_position": null,
-            "unit": null,
-            "base_map": {
-              "type": "osm"
-            },
-            "map_view": {
-              "zoom": 1.0,
-              "lat": 0.0,
-              "lng": 0.0
-            }
-          },
-          "queryType": "sql",
-          "queries": [
-            {
-              "query": "SELECT event_kind, count(*) AS leaked FROM ( SELECT event_id, max(event_kind) AS event_kind, sum(CASE WHEN relay_lifecycle = 'created' THEN 1 ELSE 0 END) AS created, sum(CASE WHEN relay_lifecycle IN ('fulfilled', 'deleted') THEN 1 ELSE 0 END) AS resolved FROM syrinx_relay_event WHERE event_id IS NOT NULL GROUP BY event_id ) WHERE created > 0 AND resolved = 0 GROUP BY event_kind ORDER BY leaked DESC",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_relay_event",
-                "stream_type": "metrics",
-                "x": [
-                  {
-                    "label": "Event kind",
-                    "alias": "event_kind",
-                    "column": "event_kind",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": null,
-                    "args": [
-                      {
-                        "field": "event_kind",
-                        "function": null,
-                        "alias": "event_kind"
-                      }
-                    ]
-                  },
-                  {
-                    "label": "Leaked",
-                    "alias": "leaked",
-                    "column": "leaked",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": null,
-                    "args": [
-                      {
-                        "field": "leaked",
-                        "function": null,
-                        "alias": "leaked"
-                      }
-                    ]
-                  }
-                ],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            }
-          ],
-          "layout": {
-            "x": 0,
-            "y": 14,
-            "w": 96,
-            "h": 14,
-            "i": 62
-          }
-        },
-        {
-          "id": "syrinx_relay_duplicate_fulfilled",
-          "type": "table",
-          "title": "Duplicate/wasted responses (fulfilled more than once)",
-          "description": "Same event.id fulfilled more than once \u2014 a holder retransmitted a RELAY_RESPONSE after the first one already satisfied the request. wasted_responses = extra deliveries beyond the one actually needed.",
-          "config": {
-            "show_legends": true,
-            "legends_position": null,
-            "unit": null,
-            "base_map": {
-              "type": "osm"
-            },
-            "map_view": {
-              "zoom": 1.0,
-              "lat": 0.0,
-              "lng": 0.0
-            }
-          },
-          "queryType": "sql",
-          "queries": [
-            {
-              "query": "SELECT event_kind, count(*) AS duplicate_events, sum(fulfilled_count) - count(*) AS wasted_responses FROM ( SELECT event_id, max(event_kind) AS event_kind, count(*) AS fulfilled_count FROM syrinx_relay_event WHERE relay_lifecycle = 'fulfilled' AND event_id IS NOT NULL GROUP BY event_id HAVING count(*) > 1 ) GROUP BY event_kind ORDER BY wasted_responses DESC",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_relay_event",
-                "stream_type": "metrics",
-                "x": [
-                  {
-                    "label": "Event kind",
-                    "alias": "event_kind",
-                    "column": "event_kind",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": null,
-                    "args": [
-                      {
-                        "field": "event_kind",
-                        "function": null,
-                        "alias": "event_kind"
-                      }
-                    ]
-                  },
-                  {
-                    "label": "Duplicate events",
-                    "alias": "duplicate_events",
-                    "column": "duplicate_events",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": null,
-                    "args": [
-                      {
-                        "field": "duplicate_events",
-                        "function": null,
-                        "alias": "duplicate_events"
-                      }
-                    ]
-                  },
-                  {
-                    "label": "Wasted responses",
-                    "alias": "wasted_responses",
-                    "column": "wasted_responses",
-                    "color": null,
-                    "aggregationFunction": null,
-                    "sortBy": null,
-                    "args": [
-                      {
-                        "field": "wasted_responses",
-                        "function": null,
-                        "alias": "wasted_responses"
-                      }
-                    ]
-                  }
-                ],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            }
-          ],
-          "layout": {
-            "x": 96,
-            "y": 14,
-            "w": 96,
-            "h": 14,
-            "i": 63
-          }
-        },
-        {
           "id": "syrinx_federation_relay_volume",
           "type": "line",
           "title": "Federation relay traffic",
@@ -4721,7 +4456,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_federation_relay",
+              "query": "sum(increase(syrinx_federation_relay[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4744,7 +4479,7 @@
               }
             },
             {
-              "query": "syrinx_federation_relay{federation_direction=\"in\"}",
+              "query": "sum(increase(syrinx_federation_relay{federation_direction=\"in\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4767,7 +4502,7 @@
               }
             },
             {
-              "query": "syrinx_federation_relay{federation_direction=\"out\"}",
+              "query": "sum(increase(syrinx_federation_relay{federation_direction=\"out\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4792,7 +4527,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 28,
+            "y": 14,
             "w": 96,
             "h": 14,
             "i": 64
@@ -4819,7 +4554,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "syrinx_federation_relay{ok=\"false\"}",
+              "query": "sum(increase(syrinx_federation_relay{ok=\"false\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4844,7 +4579,7 @@
           ],
           "layout": {
             "x": 96,
-            "y": 28,
+            "y": 14,
             "w": 96,
             "h": 14,
             "i": 65
@@ -4871,7 +4606,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT peer_server_id, federation_direction, federation_leg, count(*) AS calls FROM syrinx_federation_relay WHERE peer_server_id IS NOT NULL GROUP BY peer_server_id, federation_direction, federation_leg ORDER BY calls DESC LIMIT 50",
+              "query": "SELECT peer_server_id, federation_direction, federation_leg, sum(total) AS total FROM ( SELECT peer_server_id, federation_direction, federation_leg, ok, max(value) AS total FROM syrinx_federation_relay GROUP BY peer_server_id, federation_direction, federation_leg, ok ) WHERE peer_server_id IS NOT NULL AND peer_server_id != '' GROUP BY peer_server_id, federation_direction, federation_leg ORDER BY total DESC LIMIT 25",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4924,17 +4659,17 @@
                     ]
                   },
                   {
-                    "label": "Calls",
-                    "alias": "calls",
-                    "column": "calls",
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
                     "color": null,
                     "aggregationFunction": null,
                     "sortBy": null,
                     "args": [
                       {
-                        "field": "calls",
+                        "field": "total",
                         "function": null,
-                        "alias": "calls"
+                        "alias": "total"
                       }
                     ]
                   }
@@ -4957,7 +4692,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 42,
+            "y": 28,
             "w": 192,
             "h": 16,
             "i": 66
@@ -5899,7 +5634,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "histogram_quantile(0.5, sum(syrinx_admin_request_decision_seconds_bucket) by (le))",
+              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_admin_request_decision_seconds_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -5922,7 +5657,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.9, sum(syrinx_admin_request_decision_seconds_bucket) by (le))",
+              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_admin_request_decision_seconds_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -5945,7 +5680,7 @@
               }
             },
             {
-              "query": "histogram_quantile(0.99, sum(syrinx_admin_request_decision_seconds_bucket) by (le))",
+              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_admin_request_decision_seconds_bucket[5m])))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -6328,7 +6063,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum(syrinx_ledger_appended)",
+              "query": "sum(increase(syrinx_ledger_appended[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -7443,7 +7178,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum(syrinx_username_checks{available=\"true\"})",
+              "query": "sum(increase(syrinx_username_checks{available=\"true\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -7466,7 +7201,7 @@
               }
             },
             {
-              "query": "sum(syrinx_username_checks{available=\"false\"})",
+              "query": "sum(increase(syrinx_username_checks{available=\"false\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
