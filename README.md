@@ -2,6 +2,8 @@
 
 **A censorship-resistant communications platform.**
 
+> 📣 **[Introducing Syrinx: read the announcement →](https://var0.xyz/posts/introducing-syrinx.html)**
+
 A P2P-ish, federated social platform for closed communities, where the server
 never holds your posts.
 
