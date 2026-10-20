@@ -915,9 +915,9 @@ func clampUserSearchLimit(n int) int {
 	return min(n, maxUserSearchLimit)
 }
 
-// SearchUsers handles GET /users/search?q=&limit=&after= — paginated
-// username search over this server and every connected peer, merged into
-// one order (see mergeUserSearchResults). Minimal fields only, no keys.
+// SearchUsers handles GET /users/search?q=&limit=&after=&local=&excludeRoot=
+// — paginated username search over this server and, unless local=true, every
+// connected peer, in one order (see mergeUserSearchResults). No keys.
 func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
@@ -948,15 +948,22 @@ func (h *Handlers) SearchUsers(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.UserSearch(r.Context(), h.getUserID(r), false)
 
+	exclude := []string{h.getUserID(r)}
+	if r.URL.Query().Get("excludeRoot") == "true" {
+		exclude = append(exclude, string(canonicalID(h.services.db.GetServerID(), rootUserID)))
+	}
 	// limit+1 from every source tells whether the merged list goes on.
-	localResults, err := h.services.db.SearchUsers(r.Context(), query, h.getUserID(r), after, limit+1)
+	localResults, err := h.services.db.SearchUsers(r.Context(), query, exclude, after, limit+1)
 	if err != nil {
 		log.Error().Str("query", query).Err(err).Msg("Error searching users")
 		internalServerError(w)
 		return
 	}
 
-	foreignResults := h.fanoutUserSearchToPeers(r.Context(), query, after, limit, searchUsersFanoutTimeout)
+	var foreignResults []UserSearchResult
+	if r.URL.Query().Get("local") != "true" {
+		foreignResults = h.fanoutUserSearchToPeers(r.Context(), query, after, limit, searchUsersFanoutTimeout)
+	}
 
 	blocking, err := h.services.db.UsersBlocking(r.Context(), h.getUserID(r))
 	if err != nil {

@@ -477,7 +477,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	results, err := svc.SearchUsers(ctx, "alice", "", nil, 20)
+	results, err := svc.SearchUsers(ctx, "alice", nil, nil, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatalf("results = %+v", results)
 	}
 
-	results, err = svc.SearchUsers(ctx, "bobname", "", nil, 20)
+	results, err = svc.SearchUsers(ctx, "bobname", nil, nil, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -494,7 +494,7 @@ func TestSearchUsers(t *testing.T) {
 		t.Fatalf("expected account-removed user excluded, got %+v", results)
 	}
 
-	results, err = svc.SearchUsers(ctx, "alice", "alice@testserver", nil, 20)
+	results, err = svc.SearchUsers(ctx, "alice", []string{"alice@testserver"}, nil, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +512,7 @@ func TestSearchUsers_KeysetPages(t *testing.T) {
 		seedMentionUser(t, db, u)
 	}
 
-	first, err := svc.SearchUsers(ctx, "NAME", "", nil, 2)
+	first, err := svc.SearchUsers(ctx, "NAME", nil, nil, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +521,7 @@ func TestSearchUsers_KeysetPages(t *testing.T) {
 	}
 
 	last := first[len(first)-1]
-	rest, err := svc.SearchUsers(ctx, "name", "", &userSearchCursor{Username: last.Username, ID: last.ID}, 2)
+	rest, err := svc.SearchUsers(ctx, "name", nil, &userSearchCursor{Username: last.Username, ID: last.ID}, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func TestSearchUsers_WildcardsMatchLiterally(t *testing.T) {
 		"a_c": {"a_c@testserver"},
 		`a\`:  nil,
 	} {
-		results, err := svc.SearchUsers(ctx, query, "", nil, 20)
+		results, err := svc.SearchUsers(ctx, query, nil, nil, 20)
 		if err != nil {
 			t.Fatalf("query %q: %v", query, err)
 		}

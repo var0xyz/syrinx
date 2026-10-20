@@ -640,10 +640,18 @@ export const apiService = {
 
   /** Username search across this server and its peers; after is the
    * previous page's opaque nextCursor. */
-  async searchUsers(query: string, limit?: number, after?: string): Promise<UserSearchResponse> {
+  /** local skips peer servers; excludeRoot leaves out this server's root. */
+  async searchUsers(
+    query: string,
+    limit?: number,
+    after?: string,
+    opts: { local?: boolean; excludeRoot?: boolean } = {}
+  ): Promise<UserSearchResponse> {
     const params = new URLSearchParams({ q: query });
     if (limit != null) params.set('limit', String(limit));
     if (after) params.set('after', after);
+    if (opts.local) params.set('local', 'true');
+    if (opts.excludeRoot) params.set('excludeRoot', 'true');
     return request(`/users/search?${params}`, { method: 'GET' }, UserSearchResponseSchema);
   },
 

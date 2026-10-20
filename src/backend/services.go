@@ -2756,21 +2756,22 @@ func asciiLower(s string) string {
 
 // SearchUsers returns up to limit users whose username contains query
 // (case-insensitive) in userSearchKey order, after cursor `after` (nil on
-// the first page), minus removed accounts and excludeUserID ("" for none).
-func (s *DataService) SearchUsers(ctx context.Context, query, excludeUserID string, after *userSearchCursor, limit int) ([]UserSearchResult, error) {
+// the first page), minus removed accounts and the excludeIDs.
+func (s *DataService) SearchUsers(ctx context.Context, query string, excludeIDs []string, after *userSearchCursor, limit int) ([]UserSearchResult, error) {
 	var afterUsername, afterID string
 	if after != nil {
 		afterUsername, afterID = after.Username, after.ID
 	}
 	// identities.server_id FKs to servers.id; join through it to
 	// servers.name for display.
+	// Never bind a nil slice: it becomes NULL, and <> ALL(NULL) matches nothing.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT u.id, u.username, s.name
 		FROM users u
 		JOIN identities i ON i.id = u.id
 		JOIN servers s ON s.id = i.server_id
 		WHERE u.username ILIKE '%' || $1 || '%' ESCAPE '\'
-		  AND u.id != $2
+		  AND u.id <> ALL($2)
 		  AND NOT EXISTS (
 		      SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id
 		  )
@@ -2780,7 +2781,7 @@ func (s *DataService) SearchUsers(ctx context.Context, query, excludeUserID stri
 		           AND u.id COLLATE "C" > $4 COLLATE "C"))
 		ORDER BY lower(u.username COLLATE "C"), u.id COLLATE "C"
 		LIMIT $5
-	`, escapeLike(query), excludeUserID, afterUsername, afterID, limit)
+	`, escapeLike(query), pq.Array(append([]string{}, excludeIDs...)), afterUsername, afterID, limit)
 	if err != nil {
 		return nil, err
 	}
