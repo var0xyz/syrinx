@@ -412,8 +412,8 @@ export function buildRippleServerPayload(
 }
 
 /** Mirror of buildRealtimeAuthPayload in identity.go. */
-export function buildRealtimeAuthPayload(serverID: string, userID: string, timestamp: string): string {
-  return canonicalJSON({ type: 'realtime-auth', serverID, userID, timestamp });
+export function buildRealtimeAuthPayload(serverID: string, userID: string, timestamp: string, nonce: string): string {
+  return canonicalJSON({ type: 'realtime-auth', serverID, userID, timestamp, nonce });
 }
 
 /** Mirror of buildAdminRequestPayload in identity.go. targets must already

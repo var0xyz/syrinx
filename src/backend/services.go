@@ -7017,6 +7017,23 @@ func (s *DataService) consumeChallenge(ctx context.Context, table, nonce string)
 	return n == 1, err
 }
 
+// ClaimRealtimeAuthNonce records a handshake nonce until its timestamp
+// leaves the window, and reports false if it was already used.
+func (s *DataService) ClaimRealtimeAuthNonce(ctx context.Context, nonce string, timestamp int64) (bool, error) {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM realtime_auth_nonces WHERE expires_at <= NOW()`); err != nil {
+		return false, err
+	}
+	res, err := s.db.ExecContext(ctx, `
+		INSERT INTO realtime_auth_nonces (nonce, expires_at)
+		VALUES ($1, to_timestamp($2))
+		ON CONFLICT (nonce) DO NOTHING`, nonce, timestamp+timestampWindow)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // saveOwnIdentity upserts a verified own-claim identity + nest. Clears
 // unclaimed_accounts and records the user in ongoing_recoveries.
 func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile recoveryProfile, flat []recoveryFlatKey, deviceID string) (*recoverySaveIdentityResult, error) {

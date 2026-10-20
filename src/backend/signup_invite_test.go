@@ -182,6 +182,10 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			nonce VARCHAR(64) PRIMARY KEY,
 			issued_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
+		`CREATE TABLE realtime_auth_nonces (
+			nonce VARCHAR(64) PRIMARY KEY,
+			expires_at TIMESTAMPTZ NOT NULL
+		)`,
 		`CREATE TABLE user_devices (
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 			device_id TEXT NOT NULL,

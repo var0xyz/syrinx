@@ -15,6 +15,7 @@
     "test:signing": "node --experimental-strip-types scripts/test-signing.mjs",
     "test:vouch-payload": "node --experimental-strip-types scripts/test-vouch-payload.mjs",
     "test:server-key-payload": "node --experimental-strip-types scripts/test-server-key-payload.mjs",
+    "test:realtime-auth-payload": "node --experimental-strip-types scripts/test-realtime-auth-payload.mjs",
     "test:thread-payload": "node --experimental-strip-types scripts/test-thread-payload.mjs",
     "test:thread-bundle": "node --experimental-strip-types scripts/test-thread-bundle.mjs",
     "test:removal-payload": "node --experimental-strip-types scripts/test-removal-payload.mjs",

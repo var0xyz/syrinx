@@ -3,6 +3,7 @@ import { requestSigner } from './request-signer';
 import { authService } from './auth';
 import { serverInfo } from './serverInfo';
 import { buildRealtimeAuthPayload } from './signing';
+import { generateId } from '$lib/utils/id';
 import { ensureDeviceId } from './deviceId';
 import {
   computeReedRequestId,
@@ -305,9 +306,11 @@ class ServerConnection {
       this.detachSocket();
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
+      // Single-use: the server refuses a handshake whose nonce it has seen.
+      const nonce = generateId(32);
       // Base64 so the armored signature fits in a query parameter.
       const signature = btoa(
-        await requestSigner.sign(buildRealtimeAuthPayload(serverID, user.id, timestamp))
+        await requestSigner.sign(buildRealtimeAuthPayload(serverID, user.id, timestamp, nonce))
       );
       const activeKeyId = authService.getActiveKeyId()!;
 
@@ -315,6 +318,7 @@ class ServerConnection {
       const url = new URL(`${protocol}//${window.location.host}/ws/`);
       url.searchParams.set('publicKeyId', activeKeyId);
       url.searchParams.set('timestamp', timestamp);
+      url.searchParams.set('nonce', nonce);
       url.searchParams.set('signature', signature);
       url.searchParams.set('deviceId', ensureDeviceId());
 

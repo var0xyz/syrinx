@@ -1420,6 +1420,13 @@ func InitDB(db *sql.DB) error {
 		issued_at TIMESTAMP NOT NULL DEFAULT NOW()
 	);`
 
+	// WebSocket handshake nonces, kept until their timestamp leaves the window.
+	createRealtimeAuthNoncesTable := `
+	CREATE UNLOGGED TABLE IF NOT EXISTS realtime_auth_nonces (
+		nonce VARCHAR(64) PRIMARY KEY,
+		expires_at TIMESTAMPTZ NOT NULL
+	);`
+
 	createOngoingRecoveriesTable := `
 	CREATE TABLE IF NOT EXISTS ongoing_recoveries (
 		user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
@@ -1828,6 +1835,7 @@ func InitDB(db *sql.DB) error {
 
 		createRecoveryChallengesTable,
 		createAccountRecoveryChallengesTable,
+		createRealtimeAuthNoncesTable,
 
 		createPendingFollowsTable,
 		createPendingFollowsIndexes,
