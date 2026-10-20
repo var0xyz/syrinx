@@ -11,7 +11,6 @@
   import { apiService } from '$lib/services/api';
   import { isMailRequest, openAdminRequest } from '$lib/services/admin';
   import { keepInHash } from '$lib/utils/hashMode';
-  import { parseCanonicalId } from '$lib/utils/identityRef';
   import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
 
   const MAX_LENGTH = 140;
@@ -19,7 +18,6 @@
   $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
   $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
-  $: serverID = parseCanonicalId($page.data?.user?.id ?? '')?.[1] ?? '';
 
   let recipientMode: 'broadcast' | 'unicast' = 'broadcast';
   let username = '';
@@ -49,13 +47,11 @@
     countCharacters(message) <= MAX_LENGTH &&
     (recipientMode === 'broadcast' || username.trim().length > 0);
 
-  /** The local member named name, case-insensitively. */
+  /** The local member named name, case-insensitively; never root. */
   async function recipient(name: string): Promise<string | null> {
     const wanted = name.trim().replace(/^@/, '').toLowerCase();
-    const { users } = await apiService.searchUsers(wanted, 20);
-    const match = users.find(
-      (u) => u.username.toLowerCase() === wanted && parseCanonicalId(u.id)?.[1] === serverID
-    );
+    const { users } = await apiService.searchUsers(wanted, 20, undefined, { local: true, excludeRoot: true });
+    const match = users.find((u) => u.username.toLowerCase() === wanted);
     return match?.id ?? null;
   }
 
@@ -103,7 +99,7 @@
           {#if recipientMode === 'unicast'}
             <label class="field">
               <span>To</span>
-              <UserPicker bind:value={username} bind:userID={recipientID} {serverID} />
+              <UserPicker bind:value={username} bind:userID={recipientID} local excludeRoot />
             </label>
           {/if}
 

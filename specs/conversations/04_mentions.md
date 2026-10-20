@@ -232,6 +232,8 @@ sketch further up this doc which predates that shape.
 - `GET /users/search?q=&limit=` (auth required).
 - Returns `{ users: [{ id, username, … }] }` — minimal fields; no keys.
 - Prefix / substring match on username; cap `limit` (e.g. 20).
+- `local=true` skips peer servers; `excludeRoot=true` leaves out this
+  server's root (the admin unicast picker sends both).
 
 **Mentions inbox (optional in this step):**
 

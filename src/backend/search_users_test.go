@@ -9,7 +9,10 @@ import (
 	"reflect"
 	"strings"
 	"syrinx/observability/metrics"
+	pb "syrinx/proto"
 	"testing"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func TestMergeUserSearchResults_LocalExactMatchLeads(t *testing.T) {
@@ -222,5 +225,34 @@ func TestEscapeLike(t *testing.T) {
 		if got := escapeLike(in); got != want {
 			t.Errorf("escapeLike(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestSearchUsers_ExcludeRoot(t *testing.T) {
+	f := newAdminFixture(t)
+	search := func(path string) []string {
+		rr := f.serve(t, f.h.SearchUsers, http.MethodGet, path, "u1", nil, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d body=%s", path, rr.Code, rr.Body.String())
+		}
+		var res pb.UserSearchResponse
+		if err := proto.Unmarshal(rr.Body.Bytes(), &res); err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, u := range res.Users {
+			ids = append(ids, u.Id)
+		}
+		return ids
+	}
+
+	if got := search("/api/users/search?q=root&local=true"); !reflect.DeepEqual(got, []string{f.ids["root"]}) {
+		t.Fatalf("plain search = %v, want root", got)
+	}
+	if got := search("/api/users/search?q=root&local=true&excludeRoot=true"); len(got) != 0 {
+		t.Fatalf("excludeRoot search = %v, want none", got)
+	}
+	if got := search("/api/users/search?q=u&local=true&excludeRoot=true"); !reflect.DeepEqual(got, []string{f.ids["u2"]}) {
+		t.Fatalf("excludeRoot search for others = %v, want u2 only", got)
 	}
 }

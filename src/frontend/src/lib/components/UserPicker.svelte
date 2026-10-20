@@ -1,15 +1,16 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { apiService } from '$lib/services/api';
-  import { parseCanonicalId } from '$lib/utils/identityRef';
   import type * as api from '$lib/types/api';
 
   /** Bound two-way: what's typed in the field. */
   export let value = '';
   /** Bound two-way: the picked member's ID, cleared once the text changes. */
   export let userID = '';
-  /** Only offer members of this server, when set. */
-  export let serverID = '';
+  /** Only offer members of this server. */
+  export let local = false;
+  /** Leave the root operator out of the results. */
+  export let excludeRoot = false;
   export let placeholder = 'Username';
 
   const MAX_USERNAME_LENGTH = 32;
@@ -53,9 +54,9 @@
     const controller = new AbortController();
     currentSearch = controller;
     try {
-      const res = await apiService.searchUsers(query, 20);
+      const res = await apiService.searchUsers(query, 20, undefined, { local, excludeRoot });
       if (controller.signal.aborted) return;
-      results = (res.users || []).filter((u) => !serverID || parseCanonicalId(u.id)?.[1] === serverID);
+      results = res.users || [];
       highlighted = 0;
     } catch {
       if (controller.signal.aborted) return;
