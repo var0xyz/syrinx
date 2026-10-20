@@ -123,6 +123,13 @@ agents alike, and the
 security findings live in [`RISKS.md`](RISKS.md); read it before touching
 crypto, auth, signing or recovery.
 
+## Disclaimer
+
+This software is in early stages of development and has never received a
+security audit. All the claims that we make about its security are completely
+theoretical at this point and have never been proven. If you have a real need
+for a secure communications platform do not use Syrinx.
+
 ## License
 
 [AGPL-3.0](LICENSE)
