@@ -66,7 +66,7 @@ The SPA is not a thin view over a database. It:
 
 ## Realtime path
 
-WebSocket sessions authenticate with PGP (detached signatures over a timestamp). Clients subscribe to user-specific and broadcast channels. Events cover new reeds, relay requests/responses, removals, account gone notices, sync catch-up, and related bookkeeping. Missed deliveries are reconciled on reconnect via sync—not by trusting the server’s word alone when certificates are involved.
+WebSocket sessions authenticate with PGP: a detached signature over the server, user, a timestamp and a single-use nonce, so a captured handshake can't be replayed. Clients subscribe to user-specific and broadcast channels. Events cover new reeds, relay requests/responses, removals, account gone notices, sync catch-up, and related bookkeeping. Missed deliveries are reconciled on reconnect via sync—not by trusting the server’s word alone when certificates are involved.
 
 ## Federation
 

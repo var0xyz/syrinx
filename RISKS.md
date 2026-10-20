@@ -34,7 +34,6 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | M11    | Medium   | design     | Admin key rebind is an account takeover by two admins                  |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
-| L4     | Low      | server     | WebSocket handshake replays within its timestamp window                |
 | L5     | Low      | design     | A compromised server key can backdate signatures (proposed)            |
 | A2     | Arch     | server     | `profile_subscriptions` needs explicit teardown on disconnect          |
 
@@ -150,14 +149,6 @@ cannot be cryptographically re-attributed after a wipe.
 `localStorage.getItem('userId')`, so verification proves "matches my local
 userId," not the real issuer. Fine for own-invite display; not a trustworthy
 issuer binding.
-
-### L4 — WebSocket handshake replays within its timestamp window
-**Where:** `authenticateWebSocket` (`realtime.go`); window is ±5 min
-(`validateTimestamp`, `crypto.go`).
-The handshake signature binds server, user and timestamp, but carries no
-nonce. Anyone who captures one handshake query string can replay it against
-the same server, as the same user, until the timestamp leaves the window.
-Accepted: a server-issued nonce would cost a round trip per connection.
 
 ### L5 — A compromised server key can backdate signatures (proposed)
 **Where:** server key revocation (`ops rotate-key --compromised`); verification side not built yet.

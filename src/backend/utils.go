@@ -96,3 +96,16 @@ func isEmptySignedValue(v any) bool {
 func frontendURLFromOrigin(origin string) string {
 	return strings.TrimRight(strings.TrimSpace(origin), "/")
 }
+
+// validRealtimeAuthNonce accepts 16 to 64 base64url characters.
+func validRealtimeAuthNonce(nonce string) bool {
+	if len(nonce) < 16 || len(nonce) > 64 {
+		return false
+	}
+	for _, c := range nonce {
+		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}

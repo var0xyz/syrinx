@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1105,14 +1106,20 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 	publicKeyID := r.URL.Query().Get("publicKeyId")
 	signature := r.URL.Query().Get("signature")
 	timestamp := r.URL.Query().Get("timestamp")
+	nonce := r.URL.Query().Get("nonce")
 
-	if publicKeyID == "" || signature == "" || timestamp == "" {
+	if publicKeyID == "" || signature == "" || timestamp == "" || nonce == "" {
 		log.Error().
 			Str("publicKeyId", publicKeyID).
 			Bool("hasSignature", signature != "").
 			Str("timestamp", timestamp).
+			Bool("hasNonce", nonce != "").
 			Msg("Missing authentication parameters")
 		return "", &wsAuthRefusal{"missing_params", "missing authentication parameters"}
+	}
+	if !validRealtimeAuthNonce(nonce) {
+		log.Error().Str("publicKeyId", publicKeyID).Msg("Malformed handshake nonce")
+		return "", &wsAuthRefusal{"bad_nonce", "malformed nonce"}
 	}
 
 	// Validate timestamp for replay protection
@@ -1183,7 +1190,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 		return "", &wsAuthRefusal{"bad_signature", fmt.Sprintf("failed to decode base64 signature: %v", err)}
 	}
 
-	payload := buildRealtimeAuthPayload(db.GetServerID(), string(selfIdentity), timestamp)
+	payload := buildRealtimeAuthPayload(db.GetServerID(), string(selfIdentity), timestamp, nonce)
 	if err := cryptoSvc.verifySignature(string(payload), decodedSignature, publicKey); err != nil {
 		log.Error().
 			Str("publicKeyId", publicKeyID).
@@ -1191,6 +1198,17 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 			Err(err).
 			Msg("Signature verification failed")
 		return "", &wsAuthRefusal{"bad_signature", fmt.Sprintf("signature verification failed: %v", err)}
+	}
+
+	// Claimed only after the signature checks, so strangers can't fill the table.
+	ts, _ := strconv.ParseInt(timestamp, 10, 64)
+	fresh, err := db.ClaimRealtimeAuthNonce(r.Context(), nonce, ts)
+	if err != nil {
+		return "", fmt.Errorf("error claiming handshake nonce: %w", err)
+	}
+	if !fresh {
+		log.Error().Str("publicKeyId", publicKeyID).Msg("WebSocket auth rejected: nonce already used")
+		return "", &wsAuthRefusal{"replayed_nonce", "nonce already used"}
 	}
 
 	log.Info().

@@ -547,13 +547,14 @@ func buildRippleServerPayload(serverID, reedID, rippleAuthorID, keyID, threadID,
 const identityTypeRealtimeAuth = "realtime-auth"
 
 // buildRealtimeAuthPayload returns the bytes a client signs to open a
-// WebSocket, bound to this server and user.
-func buildRealtimeAuthPayload(serverID, userID, timestamp string) []byte {
+// WebSocket, bound to this server and user; nonce makes it single-use.
+func buildRealtimeAuthPayload(serverID, userID, timestamp, nonce string) []byte {
 	return canonicalJSON(signedFields{
 		"type":      identityTypeRealtimeAuth,
 		"serverID":  serverID,
 		"userID":    userID,
 		"timestamp": timestamp,
+		"nonce":     nonce,
 	})
 }
 

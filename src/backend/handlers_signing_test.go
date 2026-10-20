@@ -20,8 +20,8 @@ func TestPublicKeyCountersignCanonicalShape(t *testing.T) {
 }
 
 func TestRealtimeAuthPayloadShape(t *testing.T) {
-	got := buildRealtimeAuthPayload("Server01", "alice@Server01", "1767225600")
-	want := `{"serverID":"Server01","timestamp":"1767225600","type":"realtime-auth","userID":"alice@Server01"}`
+	got := buildRealtimeAuthPayload("Server01", "alice@Server01", "1767225600", "NONCE0123456789ab")
+	want := `{"nonce":"NONCE0123456789ab","serverID":"Server01","timestamp":"1767225600","type":"realtime-auth","userID":"alice@Server01"}`
 	if string(got) != want {
 		t.Errorf("realtime auth payload mismatch:\n got=%s\nwant=%s", got, want)
 	}

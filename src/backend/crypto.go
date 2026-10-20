@@ -467,6 +467,9 @@ func (s *cryptoService) verifySignedChallenge(signature, publicKey, challenge st
 	return nil
 }
 
+// timestampWindow is how far a signed request timestamp may be from now.
+const timestampWindow = 300
+
 // validateTimestamp validates the timestamp for replay protection
 // Accepts timestamps within ±5 minutes of current time
 func (s *cryptoService) validateTimestamp(timestampStr string) error {
@@ -479,12 +482,10 @@ func (s *cryptoService) validateTimestamp(timestampStr string) error {
 	// Get current time
 	now := time.Now().Unix()
 
-	// Check if timestamp is within acceptable window (±5 minutes = 300 seconds)
-	const timeWindow = 300
 	timeDiff := now - timestamp
 
-	if timeDiff > timeWindow || timeDiff < -timeWindow {
-		return fmt.Errorf("timestamp too old or too far in future: diff=%d seconds, window=%d", timeDiff, timeWindow)
+	if timeDiff > timestampWindow || timeDiff < -timestampWindow {
+		return fmt.Errorf("timestamp too old or too far in future: diff=%d seconds, window=%d", timeDiff, timestampWindow)
 	}
 
 	return nil

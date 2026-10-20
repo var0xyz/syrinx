@@ -104,12 +104,13 @@ func TestSuspend_WebSocketHandshakeRefused(t *testing.T) {
 
 	rs := newRealtimeService(f.ds, f.h.services.crypto, "*")
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
-	payload := string(buildRealtimeAuthPayload(f.srv, f.ids["u1"], ts))
+	nonce := "suspended-handshake-nonce"
+	payload := string(buildRealtimeAuthPayload(f.srv, f.ids["u1"], ts, nonce))
 	sig, err := f.h.services.crypto.sign(payload, f.keys["u1"].PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := url.Values{"publicKeyId": {f.keyID("u1")}, "timestamp": {ts}, "signature": {base64Encode(sig)}}
+	q := url.Values{"publicKeyId": {f.keyID("u1")}, "timestamp": {ts}, "nonce": {nonce}, "signature": {base64Encode(sig)}}
 	rr := httptest.NewRecorder()
 	rs.HandleWebSocket(rr, httptest.NewRequest(http.MethodGet, "/ws/?"+q.Encode(), nil))
 	if rr.Code != http.StatusForbidden {
