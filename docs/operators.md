@@ -136,7 +136,7 @@ Once a collector is configured, it's treated as required. At boot the server sen
 - the server's journald logs, parsed into fields
 - host CPU, memory, disk and network metrics
 
-To turn it off later, re-run `setup` and answer `off`. A blank answer keeps the current setting. The telemetry host itself is a separate machine running OpenObserve with a bundled "Syrinx" dashboard, installed with `./deploy/telemetry.sh setup` and refreshed with `./deploy/telemetry.sh update`. Full details, including building OpenObserve for a Raspberry Pi and reaching a LAN-only UI over SSH: [`deploy/scripts/telemetry/README.md`](https://github.com/var0xyz/syrinx/blob/main/deploy/scripts/telemetry/README.md).
+To turn it off later, re-run `setup` and answer `off`. A blank answer keeps the current setting. The telemetry host itself is a separate machine running OpenObserve with a bundled "Syrinx" dashboard, installed with `./deploy/telemetry.sh setup` and refreshed with `./deploy/telemetry.sh update`. On a Raspberry Pi, OpenObserve must be cross-compiled on another machine (macOS, Debian or Arch, with ~24 GB of RAM + swap; about an hour), and `telemetry.sh setup` offers to do it. Upstream's `arm64` binaries crash on the Pi's CPU, which lacks AES instructions, and building on the Pi itself isn't supported: on a Pi 4 it used up all 9.7 GB of RAM + swap after four hours, before the largest part was done. Full details, including reaching a LAN-only UI over SSH: [`deploy/scripts/telemetry/README.md`](https://github.com/var0xyz/syrinx/blob/main/deploy/scripts/telemetry/README.md).
 
 ### Privacy
 

@@ -2,14 +2,14 @@
 # Runs a build on this Linux host beside a memory monitor that stops when the
 # build exits, logging both to ./o2-logs/<timestamp>/ and syncing every sample.
 
-# Usage, in tmux: ./watch-build.sh sudo TELEMETRY_SKIP_TMUX=1 ./build-openobserve-pi.sh
+# Usage, in tmux: ./watch-build.sh ./cross-compile-openobserve-pi.sh
 
 set -uo pipefail
 
 usage() {
     echo "Usage: $0 <build command> [args...]" >&2
-    echo "Run it on the Linux host doing the build (e.g. the Pi), in tmux:" >&2
-    echo "  ./watch-build.sh sudo TELEMETRY_SKIP_TMUX=1 ./build-openobserve-pi.sh" >&2
+    echo "Run it on the Linux host doing the build, in tmux:" >&2
+    echo "  ./watch-build.sh ./cross-compile-openobserve-pi.sh" >&2
     echo "On macOS, use watch-cross-compile.sh instead." >&2
     exit 1
 }
