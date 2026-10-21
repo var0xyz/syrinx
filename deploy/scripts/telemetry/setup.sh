@@ -130,9 +130,9 @@ telemetry_write_otel_config "$AUTH_HEADER"
 
 echo -e "\n📦 Installing OpenObserve and OTEL Collector..."
 if telemetry_is_raspberry_pi; then
-    echo "ℹ️  Raspberry Pi: prefers a Mac cross-compiled binary in $O2_PI_BUILD_DIR."
-    echo "   Deploy with: ./telemetry/deploy-openobserve-pi.sh"
-    echo "   On-Pi source build only when O2_ALLOW_SOURCE_BUILD=1 (or O2_FORCE_REBUILD=1)."
+    echo "ℹ️  Raspberry Pi: uses the Pi binary cached in $O2_PI_BUILD_DIR."
+    echo "   Run ./deploy/telemetry.sh setup from your Mac to pick how it is built"
+    echo "   (existing binary, Mac cross-compile, or on-Pi build)."
 fi
 telemetry_install_stack
 telemetry_configure_firewall

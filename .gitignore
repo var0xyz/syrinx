@@ -1,10 +1,9 @@
+.cross-build
 .env
 __pycache__
 bin/
-deploy/**/*.env
-!deploy/**/*.env.example
-deploy/scripts/syrinx/root-creds/
 deploy/scripts/syrinx/client-certs/
+deploy/scripts/syrinx/root-creds/
 docs/.vitepress/cache
 docs/.vitepress/dist
 docs/node_modules
@@ -15,3 +14,6 @@ src/frontend/node_modules
 src/frontend/playwright-report
 src/frontend/test-results
 tmp/
+
+deploy/**/*.env
+!deploy/**/*.env.example
