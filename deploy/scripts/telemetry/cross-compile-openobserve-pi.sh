@@ -513,6 +513,8 @@ build_web() {
     info "Building web UI locally (embedded into the binary)..."
     (
         cd "$SRC_DIR/web"
+        # Upstream's bundle visualizer opens a browser tab on every build.
+        sed_inplace 's/open: true,/open: false,/' vite.config.ts
         export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=8192}"
         npm ci
         npx --yes update-browserslist-db@latest
