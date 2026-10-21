@@ -35,9 +35,13 @@ async function bundleVerifies(threadId: string, bundle: ThreadBundle): Promise<b
   const mismatch = threadBundleMismatch(threadId, bundle.record, bundle.reeds);
   if (mismatch) {
     console.warn('Thread bundle rejected:', threadId, mismatch);
+    serverConnection.sendContentRejected('threads', 'malformed', threadId);
     return false;
   }
-  if (!(await verifyThreadRecord(bundle.record))) return false;
+  if (!(await verifyThreadRecord(bundle.record))) {
+    serverConnection.sendContentRejected('threads', 'signature_invalid', threadId);
+    return false;
+  }
   for (const reed of bundle.reeds) {
     if (!(await verifyReed(reed))) return false;
   }
@@ -54,7 +58,7 @@ export async function receiveThreadResponse(data: DataResponseMessage & { id: st
     bundle = await decryptThreadBundle(data.ciphertext);
   } catch (error) {
     console.warn('Thread response failed to decrypt:', data.reedId, error);
-    serverConnection.sendContentRejected('threads', 'decrypt_failed');
+    serverConnection.sendContentRejected('threads', 'decrypt_failed', data.reedId);
     serverConnection.sendDataInvalid(data.id);
     serverConnection.rejectPendingThreadRequest(data.requestId, error);
     return;

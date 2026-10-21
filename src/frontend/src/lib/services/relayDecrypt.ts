@@ -6,7 +6,6 @@
 
 import { requestSigner } from './request-signer';
 import { cryptoService } from './crypto';
-import { serverConnection } from './serverConnection';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { resolvePublicKeyArmor } from '$lib/verifiers';
 import { contradictingVouch } from './vouches';
@@ -82,7 +81,3 @@ export async function decryptThreadBundle(ciphertext: string): Promise<ThreadBun
   return JSON.parse(plaintext) as ThreadBundle;
 }
 
-/** Reports a decrypt failure the same way as any other content rejection. */
-export function reportDecryptFailure(storeName: string): void {
-  serverConnection.sendContentRejected(storeName, 'decrypt_failed');
-}

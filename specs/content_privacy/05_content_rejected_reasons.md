@@ -38,7 +38,15 @@ all.
   [03](03_mention_inbox.md) — since it needs the author's id too, not
   just a reporter and store name)
 - `decrypt_failed`
-- `signature_invalid`
+- `signature_invalid` (also missing signatures and a failed key attestation)
+- `malformed` (headers, or thread parts that don't match their record)
+- `key_unknown` (signed with a key the client can't resolve)
+- `revoked_key` (signed after its key was revoked)
+
+The message also carries the rejected reed's `reed_id`; the server reads the
+author from that reference (never from the reporter) and records it as
+`author.id` next to `reporter.id`. Every rejection is final: anything off
+about a reed throws the whole reed out.
 
 Not an enum type — a small closed set of plain strings, to avoid
 over-engineering pre-launch. `handleContentRejected` (Go) logs the reason

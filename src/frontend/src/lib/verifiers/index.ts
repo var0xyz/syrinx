@@ -389,7 +389,16 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   return true;
 }
 
+/** Reasons a reed is refused, reported to the server with its author. */
+export type ReedRejection = 'signature_invalid' | 'malformed' | 'length_exceeded' | 'key_unknown' | 'revoked_key';
+
 export async function verifyReed(reed: ReedType): Promise<boolean> {
+  const reason = await reedRejection(reed);
+  if (reason) serverConnection.sendContentRejected('reeds', reason, reed?.id ?? '');
+  return reason === null;
+}
+
+async function reedRejection(reed: ReedType): Promise<ReedRejection | null> {
   if (
     !reed?.userSignature?.armor ||
     !reed.userSignature?.id ||
@@ -397,13 +406,13 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     !reed.serverSignature
   ) {
     console.error('[verifyReed] missing signatures', reed?.id);
-    return false;
+    return 'signature_invalid';
   }
 
   const shapeProblem = reedShapeProblem(reed);
   if (shapeProblem) {
     console.error('[verifyReed] invalid headers', reed.id, shapeProblem);
-    return false;
+    return 'malformed';
   }
 
   // Persist path only (broadcast is ephemeral and never hits IndexedDB put).
@@ -414,17 +423,17 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
       'raw=',
       reed.content?.length ?? 0
     );
-    return false;
+    return 'length_exceeded';
   }
 
   const publicKeyData = await resolvePublicKey(reed.userID, reed.userSignature.id);
   if (!publicKeyData) {
     console.error('[verifyReed] author public key unavailable', reed.id);
-    return false;
+    return 'key_unknown';
   }
   if (!(await verifyPublicKey(publicKeyData))) {
     console.error('[verifyReed] author public key attestation failed', reed.id);
-    return false;
+    return 'signature_invalid';
   }
 
   const authorValid = await cryptoService.verifySignature(
@@ -434,7 +443,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
   );
   if (!authorValid) {
     console.error('[verifyReed] author signature failed', reed.id);
-    return false;
+    return 'signature_invalid';
   }
 
   const { fingerprint: reedServerFingerprint, serverID: reedServerID } = splitServerSignatureId(
@@ -451,7 +460,7 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
   const serverResult = await verify(reed.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error('[verifyReed] server signature failed', serverResult);
-    return false;
+    return 'signature_invalid';
   }
 
   if (
@@ -463,10 +472,10 @@ export async function verifyReed(reed: ReedType): Promise<boolean> {
     ))
   ) {
     console.error('[verifyReed] author key was revoked before this reed was signed', reed.id);
-    return false;
+    return 'revoked_key';
   }
 
-  return true;
+  return null;
 }
 
 /** Confirms deliveryTag is really among the reed's real (decrypted) tags —

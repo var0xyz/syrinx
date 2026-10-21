@@ -2631,7 +2631,7 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 
 	case pb.MessageType_CONTENT_REJECTED:
 		cr := msg.GetContentRejected()
-		rs.handleContentRejected(ctx, client, cr.GetStoreName(), cr.GetReason())
+		rs.handleContentRejected(ctx, client, cr.GetStoreName(), cr.GetReason(), cr.GetReedId())
 
 	case pb.MessageType_SUBSCRIBE_PROFILE:
 		rs.handleSubscribeProfile(ctx, client, msg.GetSubscribeProfile().GetUserId())
@@ -5106,16 +5106,23 @@ func (rs *realtimeService) handleRevokedKeyUsed(ctx context.Context, client *rea
 // handleContentRejected is called when a client received a signed resource,
 // failed to verify it, and refused to store it — the client rejecting
 // content, not a server-side signature check.
-func (rs *realtimeService) handleContentRejected(ctx context.Context, client *realtimeClient, storeName, reason string) {
+func (rs *realtimeService) handleContentRejected(ctx context.Context, client *realtimeClient, storeName, reason, reedID string) {
 	if storeName == "" {
 		return
 	}
+	// The author comes from the reed reference, not from the reporter's word.
+	authorID := ""
+	if ref, ok := ParseReedRef(reedID); ok {
+		authorID = ref.CanonicalAuthorID()
+	}
 	log.Warn().
 		Str("reporterUserID", client.userID).
+		Str("authorID", authorID).
+		Str("reedID", reedID).
 		Str("storeName", storeName).
 		Str("reason", reason).
 		Msg("Client rejected content that failed verification")
-	rs.metrics.ContentRejected(ctx, client.userID, storeName, reason)
+	rs.metrics.ContentRejected(ctx, client.userID, authorID, storeName, reason)
 }
 
 // errRealtimeForeignRelayOwnershipMismatch is returned by

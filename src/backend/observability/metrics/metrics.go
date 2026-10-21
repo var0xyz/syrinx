@@ -115,7 +115,7 @@ type Recorder interface {
 	KeyRevoked(ctx context.Context, kind RevocationKind)
 	KeyFetchError(ctx context.Context, reporterUserID, targetUserID, keyID string)
 	RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID, keyID string)
-	ContentRejected(ctx context.Context, reporterUserID, storeName, reason string)
+	ContentRejected(ctx context.Context, reporterUserID, authorID, storeName, reason string)
 	MentionClaimRejected(ctx context.Context, authorID, reporterUserID, reason string)
 	UserBackup(ctx context.Context, kind BackupKind)
 	ReedCoverage(ctx context.Context, holders, coveragePercent int)
@@ -181,7 +181,7 @@ func (Noop) EchoTargeted(context.Context)                                       
 func (Noop) KeyRevoked(context.Context, RevocationKind)                              {}
 func (Noop) KeyFetchError(context.Context, string, string, string)                   {}
 func (Noop) RevokedKeyUsed(context.Context, string, string, string)                  {}
-func (Noop) ContentRejected(context.Context, string, string, string)                 {}
+func (Noop) ContentRejected(context.Context, string, string, string, string)         {}
 func (Noop) MentionClaimRejected(context.Context, string, string, string)            {}
 func (Noop) UserBackup(context.Context, BackupKind)                                  {}
 func (Noop) ReedCoverage(context.Context, int, int)                                  {}

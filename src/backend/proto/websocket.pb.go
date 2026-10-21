@@ -2266,11 +2266,13 @@ func (x *RevokedKeyUsedMessage) GetKeyId() string {
 }
 
 // Client report of content it refused to store or trust. reason is one
-// of a small standardized set (docs/content_privacy.md), or empty.
+// of a small standardized set (docs/content_privacy.md), or empty. reed_id
+// lets the server attribute it to the reed's author.
 type ContentRejectedMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	StoreName     string                 `protobuf:"bytes,1,opt,name=store_name,json=storeName,proto3" json:"store_name,omitempty"`
 	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
+	ReedId        string                 `protobuf:"bytes,3,opt,name=reed_id,json=reedId,proto3" json:"reed_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2315,6 +2317,13 @@ func (x *ContentRejectedMessage) GetStoreName() string {
 func (x *ContentRejectedMessage) GetReason() string {
 	if x != nil {
 		return x.Reason
+	}
+	return ""
+}
+
+func (x *ContentRejectedMessage) GetReedId() string {
+	if x != nil {
+		return x.ReedId
 	}
 	return ""
 }
@@ -4292,11 +4301,12 @@ const file_websocket_proto_rawDesc = "" +
 	"\x06key_id\x18\x02 \x01(\tR\x05keyId\"G\n" +
 	"\x15RevokedKeyUsedMessage\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x15\n" +
-	"\x06key_id\x18\x02 \x01(\tR\x05keyId\"O\n" +
+	"\x06key_id\x18\x02 \x01(\tR\x05keyId\"h\n" +
 	"\x16ContentRejectedMessage\x12\x1d\n" +
 	"\n" +
 	"store_name\x18\x01 \x01(\tR\tstoreName\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\"2\n" +
+	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x17\n" +
+	"\areed_id\x18\x03 \x01(\tR\x06reedId\"2\n" +
 	"\x17SubscribeProfileMessage\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"4\n" +
 	"\x19UnsubscribeProfileMessage\x12\x17\n" +

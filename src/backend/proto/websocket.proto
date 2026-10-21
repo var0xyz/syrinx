@@ -280,10 +280,12 @@ message RevokedKeyUsedMessage {
 }
 
 // Client report of content it refused to store or trust. reason is one
-// of a small standardized set (docs/content_privacy.md), or empty.
+// of a small standardized set (docs/content_privacy.md), or empty. reed_id
+// lets the server attribute it to the reed's author.
 message ContentRejectedMessage {
   string store_name = 1;
   string reason = 2;
+  string reed_id = 3;
 }
 
 message SubscribeProfileMessage {
