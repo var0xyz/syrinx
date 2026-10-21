@@ -235,16 +235,15 @@ def promql_labeled_queries(
     return [promql_labeled(metric, attr, value, legend) for value, legend in pairs]
 
 
-def promql_ws_queries(
-    direction: str, pairs: list[tuple[str, str]]
-) -> list[tuple[str, str, str]]:
+def promql_ws_by_type(direction: str) -> list[tuple[str, str, str]]:
+    """One line per message type seen, so new types (and PING/PONG) appear
+    without listing them here."""
     return [
-        promql_filter(
+        (
+            f'sum by (ws_message_type) (increase({WS_MESSAGES}{{ws_direction="{direction}"}}[{WINDOW}]))',
+            "{ws_message_type}",
             WS_MESSAGES,
-            {"ws_direction": direction, "ws_message_type": msg_type},
-            legend,
         )
-        for msg_type, legend in pairs
     ]
 
 
@@ -322,28 +321,6 @@ SIGNUP_REASONS = [
     "inviter_lacks_grant", "bad_signature", "bad_key", "invalid_request",
     "closed", "recovery_mode",
 ]
-
-# High-signal WS message types (the full set lives in Explore).
-WS_IN_TYPES = [
-    ("PING", "PING"),
-    ("REQUEST_REED", "REQUEST_REED"),
-    ("DATA_ACK", "DATA_ACK"),
-    ("SYNC_REQUEST", "SYNC_REQUEST"),
-    ("RELAY_RESPONSE", "RELAY_RESPONSE"),
-    ("RELAY_MISS", "RELAY_MISS"),
-    ("SUBSCRIBE_REED", "SUBSCRIBE_REED"),
-]
-WS_OUT_TYPES = [
-    ("RELAY_REQUEST", "RELAY_REQUEST"),
-    ("DATA_RESPONSE", "DATA_RESPONSE"),
-    ("BROADCAST_REED", "BROADCAST_REED"),
-    ("REED_COVERAGE", "REED_COVERAGE"),
-    ("REQUEST_ACK", "REQUEST_ACK"),
-    ("pong", "pong"),
-    ("REED_ECHOES", "REED_ECHOES"),
-    ("REED_REPLIES", "REED_REPLIES"),
-]
-
 
 HTTP = "span_kind = '2'"
 DB = "db_system = 'postgresql'"
@@ -1028,14 +1005,14 @@ websocket = [
     promql_panel(
         pid="syrinx_ws_in_types",
         title="Inbound by message type",
-        queries=promql_ws_queries("in", WS_IN_TYPES),
+        queries=promql_ws_by_type("in"),
         layout=layout(96, 0, 96, 14, 51),
         description="Client → server frames (ws.direction=in)",
     ),
     promql_panel(
         pid="syrinx_ws_out_types",
         title="Outbound by message type",
-        queries=promql_ws_queries("out", WS_OUT_TYPES),
+        queries=promql_ws_by_type("out"),
         layout=layout(0, 14, 192, 14, 52),
         description="Server → client frames (ws.direction=out)",
     ),
