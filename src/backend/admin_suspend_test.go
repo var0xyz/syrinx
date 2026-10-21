@@ -106,7 +106,7 @@ func TestSuspend_WebSocketHandshakeRefused(t *testing.T) {
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
 	nonce := "suspended-handshake-nonce"
 	payload := string(buildRealtimeAuthPayload(f.srv, f.ids["u1"], ts, nonce))
-	sig, err := f.h.services.crypto.sign(payload, f.keys["u1"].PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), payload, f.keys["u1"].PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

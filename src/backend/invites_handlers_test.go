@@ -76,7 +76,7 @@ func inviteCreateBody(t *testing.T, h *Handlers, creatorID string, kp cryptoKeyP
 	// (see signedUpUser). GetPublicKey looks it up as-is, no composition.
 	canonicalFingerprint := string(appendEntity(identityID(creatorID), kp.Fingerprint))
 	payload := buildInviteUserPayload(h.services.db.GetServerID(), creatorID, id, tokenHashHex, normalizedRole, createdAt)
-	sigArmor, err := h.services.crypto.sign(string(payload), kp.PrivateKey)
+	sigArmor, err := h.services.crypto.sign(context.Background(), string(payload), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

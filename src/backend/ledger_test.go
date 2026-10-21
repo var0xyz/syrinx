@@ -48,7 +48,7 @@ func (f *adminFixture) verifyChain(t *testing.T, entries []*ledgerEntry) {
 		}
 		payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSig, e.Kind, e.UserID, e.RequesterID, e.RequestedAt,
 			e.Message, e.Content, e.Targets, f.srv, f.h.signingKey.Fingerprint, e.ServerSignature.SignedAt)
-		if err := f.h.services.crypto.verifySignature(string(payload), e.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
+		if err := f.h.services.crypto.verifySignature(context.Background(), string(payload), e.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
 			t.Fatalf("entry %d signature: %v", e.ID, err)
 		}
 		prevSig, prevID = e.ServerSignature.Armor, e.ID
@@ -93,7 +93,7 @@ func TestLedger_ApprovalWritesOneEntryWithBothAdmins(t *testing.T) {
 	}
 	payload := buildAdminRequestOpenedPayload(req.ID, req.RequesterSignature.Armor, f.srv, f.h.signingKey.Fingerprint,
 		req.RequesterServerSignature.SignedAt)
-	if err := f.h.services.crypto.verifySignature(string(payload), req.RequesterServerSignature.Armor, f.h.signingKey.Armor); err != nil {
+	if err := f.h.services.crypto.verifySignature(context.Background(), string(payload), req.RequesterServerSignature.Armor, f.h.signingKey.Armor); err != nil {
 		t.Errorf("open countersignature: %v", err)
 	}
 	for _, name := range []string{"u1", "u2", "a1", "a2"} {

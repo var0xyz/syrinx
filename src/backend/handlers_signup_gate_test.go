@@ -178,7 +178,7 @@ func signedRequest(t *testing.T, h *Handlers, method, path, userID, fingerprint,
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 
 	canonical := method + " " + path + "\n\n" + body + "\n\n" + timestamp
-	sigArmor, err := h.services.crypto.sign(canonical, privateKeyArmor)
+	sigArmor, err := h.services.crypto.sign(context.Background(), canonical, privateKeyArmor)
 	if err != nil {
 		t.Fatalf("sign request: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	userIDSig, err := h.services.crypto.sign(userID, h.signingKey.Armor)
+	userIDSig, err := h.services.crypto.sign(context.Background(), userID, h.signingKey.Armor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 	pubKeyArmor := kp.PublicKey
-	keySelfSig, err := h.services.crypto.sign(kp.PublicKey, kp.PrivateKey)
+	keySelfSig, err := h.services.crypto.sign(context.Background(), kp.PublicKey, kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +344,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		canonicalID(h.services.db.GetServerID(), userID), kp.Fingerprint,
 	))
 	identityPayload := buildUserIdentityPayload("bob", canonicalFingerprint, "")
-	userSigArmor, err := h.services.crypto.sign(string(identityPayload), kp.PrivateKey)
+	userSigArmor, err := h.services.crypto.sign(context.Background(), string(identityPayload), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		key.Armor,
 		key.ServerSignature.SignedAt,
 	)
-	if err := h.services.crypto.verifySignature(string(rebuiltKey), key.ServerSignature.Armor, serverKP.PublicKey); err != nil {
+	if err := h.services.crypto.verifySignature(context.Background(), string(rebuiltKey), key.ServerSignature.Armor, serverKP.PublicKey); err != nil {
 		t.Fatalf("public key server signature does not verify against the response's own userID: %v", err)
 	}
 
@@ -418,7 +418,7 @@ func TestSignup_HandlerSignsCanonicalUserID(t *testing.T) {
 		user.CreatedAt,
 		user.ServerSignature.SignedAt,
 	)
-	if err := h.services.crypto.verifySignature(string(rebuiltProfile), user.ServerSignature.Armor, serverKP.PublicKey); err != nil {
+	if err := h.services.crypto.verifySignature(context.Background(), string(rebuiltProfile), user.ServerSignature.Armor, serverKP.PublicKey); err != nil {
 		t.Fatalf("profile server signature does not verify against the response's own userID: %v", err)
 	}
 }

@@ -392,7 +392,7 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 		selfPayload := buildPublicKeyPayload(
 			b.ServerID, keyID, keyID, bareFP, k.PublicKeyArmor, k.CreatedAt.UTC(),
 		)
-		selfSigArmor, err := cryptoSvc.sign(string(selfPayload), plainPrivate)
+		selfSigArmor, err := cryptoSvc.sign(ctx, string(selfPayload), plainPrivate)
 		if err != nil {
 			return 0, fmt.Errorf("self-countersign restored key %s: %w", keyID, err)
 		}
@@ -773,8 +773,8 @@ type recoveryFlatKey struct {
 // recoveryVerifier checks detached PGP signatures (armored). Implemented by
 // *cryptoService.
 type recoveryVerifier interface {
-	verifySignature(message, signature, publicKey string) error
-	verifySignedChallenge(signature, publicKey, challenge string) error
+	verifySignature(ctx context.Context, message, signature, publicKey string) error
+	verifySignedChallenge(ctx context.Context, signature, publicKey, challenge string) error
 }
 
 // recoveryServerKeyLookup returns the armored public half of a historical
@@ -834,7 +834,7 @@ func flattenKeysNest(
 			if n.Signature == "" {
 				return recoveryFlatKey{}, nil, fmt.Errorf("broken predecessor link: missing signature for key %s", parent.Fingerprint)
 			}
-			if err := v.verifySignedChallenge(n.Signature, n.Armor, parent.Armor); err != nil {
+			if err := v.verifySignedChallenge(ctx, n.Signature, n.Armor, parent.Armor); err != nil {
 				return recoveryFlatKey{}, nil, fmt.Errorf("broken predecessor signature for %s: %w", parent.Fingerprint, err)
 			}
 			newestFirst[len(newestFirst)-1].PredecessorFingerprint = n.Fingerprint
@@ -871,7 +871,7 @@ func flattenKeysNest(
 		profile.Bio,
 	)
 	userSigArmor := profile.UserSignature.Armor
-	if err := v.verifySignature(string(userPayload), userSigArmor, signer.Armor); err != nil {
+	if err := v.verifySignature(ctx, string(userPayload), userSigArmor, signer.Armor); err != nil {
 		return recoveryFlatKey{}, nil, fmt.Errorf("profile user signature: %w", err)
 	}
 
@@ -926,7 +926,7 @@ func verifyProfileServerCountersig(ctx context.Context, profile recoveryProfile,
 		profile.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
 	serverSigArmor := profile.ServerSignature.Armor
-	if err := v.verifySignature(string(profilePayload), serverSigArmor, serverPub); err != nil {
+	if err := v.verifySignature(ctx, string(profilePayload), serverSigArmor, serverPub); err != nil {
 		return fmt.Errorf("profile server signature: %w", err)
 	}
 	return nil
@@ -955,7 +955,7 @@ func verifyRecoveryKeyCountersig(ctx context.Context, key recoveryKeyWire, userI
 		key.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
 	sigArmor := key.ServerSignature.Armor
-	return v.verifySignature(string(payload), sigArmor, serverPub)
+	return v.verifySignature(ctx, string(payload), sigArmor, serverPub)
 }
 
 func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key recoveryKeyWire, userID, serverID string, lookup recoveryServerKeyLookup, v recoveryVerifier) error {
@@ -970,7 +970,7 @@ func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key 
 	}
 	userPayload := buildUserRevocationPayload(userID, rev.Fingerprint, rev.Reason)
 	userSigArmor := rev.UserSignature.Armor
-	if err := v.verifySignature(string(userPayload), userSigArmor, key.Armor); err != nil {
+	if err := v.verifySignature(ctx, string(userPayload), userSigArmor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
 	serverPub, err := lookup(ctx, rev.ServerSignature.Fingerprint, rev.ServerSignature.Timestamp)
@@ -990,7 +990,7 @@ func verifyRecoveryRevocation(ctx context.Context, rev *recoveryRevocation, key 
 		rev.ServerSignature.Timestamp.UTC().Truncate(time.Second),
 	)
 	serverSigArmor := rev.ServerSignature.Armor
-	return v.verifySignature(string(serverPayload), serverSigArmor, serverPub)
+	return v.verifySignature(ctx, string(serverPayload), serverSigArmor, serverPub)
 }
 
 // requireUnrevokedTip refuses a claim whose newest key carries a
@@ -1004,8 +1004,8 @@ func requireUnrevokedTip(active recoveryFlatKey) error {
 
 // verifyChallengeSignature checks an armored detached sig over the
 // challenge nonce using the outermost public key.
-func verifyChallengeSignature(challenge, signature, publicKeyArmor string, v recoveryVerifier) error {
-	if err := v.verifySignature(challenge, signature, publicKeyArmor); err != nil {
+func verifyChallengeSignature(ctx context.Context, challenge, signature, publicKeyArmor string, v recoveryVerifier) error {
+	if err := v.verifySignature(ctx, challenge, signature, publicKeyArmor); err != nil {
 		return fmt.Errorf("challenge signature: %w", err)
 	}
 	return nil

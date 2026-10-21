@@ -18,7 +18,7 @@ func signedReedRemoval(t *testing.T, s signedKeyRevocation, serverPayload func(r
 	t.Helper()
 	cryptoSvc := newCryptoService()
 	sign := func(payload []byte, armor string) string {
-		sig, err := cryptoSvc.sign(string(payload), armor)
+		sig, err := cryptoSvc.sign(context.Background(), string(payload), armor)
 		if err != nil {
 			t.Fatal(err)
 		}

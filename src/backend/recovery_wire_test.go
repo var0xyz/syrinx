@@ -100,7 +100,7 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 	ts := time.Now().UTC().Truncate(time.Second)
 
 	userPayload := buildUserIdentityPayload("alice", string(keyID), "")
-	userSigArmor, err := cryptoSvc.sign(string(userPayload), userKP.PrivateKey)
+	userSigArmor, err := cryptoSvc.sign(context.Background(), string(userPayload), userKP.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign(user): %v", err)
 	}
@@ -110,7 +110,7 @@ func TestVerifyProfileServerCountersig_RealSignatureAfterJSONRoundTrip(t *testin
 		userID, "alice", string(keyID), serverID, serverKP.Fingerprint,
 		userSig, "", "user", nil, ts,
 	)
-	serverSigArmor, err := cryptoSvc.sign(string(profilePayload), serverKP.PrivateKey)
+	serverSigArmor, err := cryptoSvc.sign(context.Background(), string(profilePayload), serverKP.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign(server): %v", err)
 	}

@@ -15,14 +15,14 @@ type fakeRecoveryVerifier struct {
 	failChallenge map[string]bool
 }
 
-func (f *fakeRecoveryVerifier) verifySignature(message, signature, publicKey string) error {
+func (f *fakeRecoveryVerifier) verifySignature(_ context.Context, message, signature, publicKey string) error {
 	if f.failSig[message] || f.failSig[signature] {
 		return fmt.Errorf("bad signature")
 	}
 	return nil
 }
 
-func (f *fakeRecoveryVerifier) verifySignedChallenge(signature, publicKey, challenge string) error {
+func (f *fakeRecoveryVerifier) verifySignedChallenge(_ context.Context, signature, publicKey, challenge string) error {
 	if f.failChallenge[signature] || f.failChallenge[challenge] {
 		return fmt.Errorf("bad predecessor")
 	}

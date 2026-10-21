@@ -70,7 +70,7 @@ func TestKick_RemovesTargetsSignedByBothAdmins(t *testing.T) {
 		}
 		payload := buildAccountKickServerPayload(f.srv, f.ids[name], req.ID, req.RequesterSignature.Armor,
 			req.Decision.Signature.Armor, f.h.signingKey.Fingerprint, cert.ServerSignedAt)
-		if err := f.h.services.crypto.verifySignature(string(payload), cert.ServerSignature, f.h.signingKey.Armor); err != nil {
+		if err := f.h.services.crypto.verifySignature(ctx, string(payload), cert.ServerSignature, f.h.signingKey.Armor); err != nil {
 			t.Fatalf("%s kick countersignature: %v", name, err)
 		}
 		var username *string

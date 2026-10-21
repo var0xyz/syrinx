@@ -44,7 +44,7 @@ func newSignedKeyRevocation(t *testing.T) signedKeyRevocation {
 	signedAt := time.Now().UTC().Truncate(time.Second)
 
 	sign := func(payload []byte, armor string) string {
-		sig, err := cryptoSvc.sign(string(payload), armor)
+		sig, err := cryptoSvc.sign(context.Background(), string(payload), armor)
 		if err != nil {
 			t.Fatal(err)
 		}

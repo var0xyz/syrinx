@@ -1191,7 +1191,7 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 	}
 
 	payload := buildRealtimeAuthPayload(db.GetServerID(), string(selfIdentity), timestamp, nonce)
-	if err := cryptoSvc.verifySignature(string(payload), decodedSignature, publicKey); err != nil {
+	if err := cryptoSvc.verifySignature(r.Context(), string(payload), decodedSignature, publicKey); err != nil {
 		log.Error().
 			Str("publicKeyId", publicKeyID).
 			Str("timestamp", timestamp).

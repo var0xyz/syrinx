@@ -127,7 +127,7 @@ func (f *adminFixture) request(t *testing.T, requester, action, reason, body str
 	createdAt := time.Now().UTC().Truncate(time.Second)
 	id := uuid.NewString()
 	payload := buildAdminRequestPayload(id, action, f.ids[requester], f.keyID(requester), reason, ids, body, createdAt)
-	sig, err := f.h.services.crypto.sign(string(payload), f.keys[requester].PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.keys[requester].PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func (f *adminFixture) decide(t *testing.T, decider, id, decision string) *httpt
 		t.Fatalf("load request: %v %v", req, err)
 	}
 	payload := buildAdminDecisionPayload(id, decision, f.ids[decider], f.keyID(decider), req.RequesterSignature.Armor)
-	sig, err := f.h.services.crypto.sign(string(payload), f.keys[decider].PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.keys[decider].PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

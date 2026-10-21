@@ -61,7 +61,7 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 			}
 			now := time.Now().UTC().Truncate(time.Second)
 
-			revocationSig, err := h.countersign(buildAdminRevocationServerPayload(target, revokedKeyID, req.ID,
+			revocationSig, err := h.countersign(ctx, buildAdminRevocationServerPayload(target, revokedKeyID, req.ID,
 				req.RequesterSignature.Armor, req.Decision.Signature.Armor, serverID, h.signingKey.Fingerprint, now), now)
 			if err != nil {
 				return err
@@ -77,7 +77,7 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 				return fmt.Errorf("revoke lost key: %w", err)
 			}
 
-			keySig, err := h.countersign(buildPublicKeyPayload(serverID, target, newKeyID, h.signingKey.Fingerprint, req.Body, now), now)
+			keySig, err := h.countersign(ctx, buildPublicKeyPayload(serverID, target, newKeyID, h.signingKey.Fingerprint, req.Body, now), now)
 			if err != nil {
 				return err
 			}

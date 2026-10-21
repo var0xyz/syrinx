@@ -42,7 +42,7 @@ func (f *threadFixture) ids(t *testing.T, n int) []string {
 func (f *threadFixture) request(t *testing.T, ids, signed []string) createThreadRequest {
 	t.Helper()
 	payload := buildThreadUserPayload(f.h.services.db.GetServerID(), signed[0], signed)
-	sig, err := f.h.services.crypto.sign(string(payload), f.kp.PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -193,7 +193,7 @@ func (h *Handlers) checkForeignVouch(ctx context.Context, peerServerID string, c
 	}
 	userSig := cert.UserSignature.Armor
 	userPayload := buildVouchUserPayload(cert.VoucherKeyID, cert.SubjectKeyID, cert.Note)
-	if err := h.services.crypto.verifySignature(string(userPayload), userSig, voucherKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(userPayload), userSig, voucherKey.Armor); err != nil {
 		return http.StatusBadRequest, "voucher signature does not verify"
 	}
 
@@ -218,7 +218,7 @@ func (h *Handlers) checkPeerCountersignature(ctx context.Context, peerServerID s
 		return http.StatusBadRequest, "countersignature key is not the one pinned for the calling server"
 	}
 	sigArmor := sig.Armor
-	if err := h.services.crypto.verifySignature(string(payload(fingerprint)), sigArmor, armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(payload(fingerprint)), sigArmor, armor); err != nil {
 		return http.StatusBadRequest, "countersignature does not verify"
 	}
 	return 0, ""
@@ -264,7 +264,7 @@ func (h *Handlers) VouchWithdrawalFromPeer(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	userSig := req.Withdrawal.GetUserSignature().GetArmor()
-	if err := h.services.crypto.verifySignature(string(buildVouchWithdrawalUserPayload(req.VouchId)), userSig, voucherKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(buildVouchWithdrawalUserPayload(req.VouchId)), userSig, voucherKey.Armor); err != nil {
 		fail(http.StatusBadRequest, "withdrawal signature does not verify")
 		return
 	}

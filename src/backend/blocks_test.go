@@ -52,7 +52,7 @@ func (f blockFixture) keyID(userID string, kp cryptoKeyPair) string {
 func (f blockFixture) signedBlock(t *testing.T, user string, kp cryptoKeyPair, blocked string) (keyID, sig string) {
 	t.Helper()
 	keyID = f.keyID(user, kp)
-	sig, err := f.h.services.crypto.sign(string(buildBlockUserPayload(user, blocked, keyID)), kp.PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(buildBlockUserPayload(user, blocked, keyID)), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func (f blockFixture) storeBlock(t *testing.T, user string, kp cryptoKeyPair, bl
 	t.Helper()
 	keyID, sig := f.signedBlock(t, user, kp, blocked)
 	now := time.Now().UTC().Truncate(time.Second)
-	serverSig, err := f.h.countersign(buildBlockServerPayload(user, blocked, f.h.signingKey.Fingerprint, sig, now), now)
+	serverSig, err := f.h.countersign(context.Background(), buildBlockServerPayload(user, blocked, f.h.signingKey.Fingerprint, sig, now), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestBlockUserForcesUnfollowAndDropsAllocations(t *testing.T) {
 		t.Fatalf("cert = %+v", cert)
 	}
 	payload := buildBlockServerPayload(f.alice, f.bob, f.h.signingKey.Fingerprint, cert.UserSignature.Armor, cert.ServerSignature.SignedAt)
-	if err := f.h.services.crypto.verifySignature(string(payload), cert.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
+	if err := f.h.services.crypto.verifySignature(ctx, string(payload), cert.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
 		t.Fatalf("countersignature: %v", err)
 	}
 

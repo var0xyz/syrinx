@@ -390,7 +390,7 @@ func newRippleTestKey(t *testing.T, db *sql.DB, userID string) rippleTestKey {
 func signRippleUserPayload(t *testing.T, key rippleTestKey, reedID, rippleAuthorID, threadID, replyingTo, content string) string {
 	t.Helper()
 	payload := buildRippleUserPayload(reedID, rippleAuthorID, key.CanonicalFingerprint, threadID, replyingTo, content)
-	armor, err := key.cryptoSvc.sign(string(payload), key.PrivateKey)
+	armor, err := key.cryptoSvc.sign(context.Background(), string(payload), key.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign ripple user payload: %v", err)
 	}
@@ -408,7 +408,7 @@ func testCountersign(t *testing.T) (func(payload []byte, ts time.Time) (ServerSi
 		t.Fatalf("CreateKeyPair for server: %v", err)
 	}
 	return func(payload []byte, ts time.Time) (ServerSignature, error) {
-		armor, err := svc.sign(string(payload), kp.PrivateKey)
+		armor, err := svc.sign(context.Background(), string(payload), kp.PrivateKey)
 		if err != nil {
 			return ServerSignature{}, err
 		}

@@ -1755,7 +1755,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 	// notification is the calling peer.
 	userSigArmor := req.UserSignature
 	userPayload := buildAccountRemovalUserPayload(peerServerID, req.UserId, req.Note)
-	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Account-removal user signature verification failed")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
 		writeError(w, http.StatusBadRequest, "user_signature verification failed")
@@ -1874,7 +1874,7 @@ func (h *Handlers) acceptForeignReedRemoval(ctx context.Context, peerServerID st
 	// notification is the calling peer.
 	userSigArmor := req.UserSignature
 	userPayload := buildReedRemovalUserPayload(peerServerID, req.ReedId)
-	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(userPayload), userSigArmor, pubKey.Armor); err != nil {
 		log.Error().Err(err).Str("reedID", req.ReedId).Str("peerServerID", peerServerID).Msg("Reed-removal user signature verification failed")
 		return reedRemovalCert{}, http.StatusBadRequest, "user_signature verification failed"
 	}
@@ -1961,7 +1961,7 @@ func (h *Handlers) updatePeerKey(ctx context.Context, peerServerID, fingerprint 
 		return false
 	}
 
-	if err := h.services.db.RepinPeerKey(ctx, peerServerID, adopted, h.countersign); err != nil {
+	if err := h.services.db.RepinPeerKey(ctx, peerServerID, adopted, h.signerFor(ctx)); err != nil {
 		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to re-pin peer key")
 		return false
 	}
@@ -2183,7 +2183,7 @@ func (h *Handlers) verifyPeerKeyRevocation(ctx context.Context, peerServerID str
 		return fmt.Errorf("resolve revoked key: %v", err)
 	}
 	userPayload := buildUserRevocationPayload(rev.UserID, rev.ID, rev.Reason)
-	if err := h.services.crypto.verifySignature(string(userPayload), rev.UserSignature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(userPayload), rev.UserSignature.Armor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
 
@@ -2239,7 +2239,7 @@ func (h *Handlers) verifyPeerThreadRecord(ctx context.Context, peerServerID stri
 		return nil, fmt.Errorf("resolve author key: %v", err)
 	}
 	userPayload := buildThreadUserPayload(peerServerID, rec.ThreadID, rec.ReedIDs)
-	if err := h.services.crypto.verifySignature(string(userPayload), rec.UserSignature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(userPayload), rec.UserSignature.Armor, key.Armor); err != nil {
 		return nil, fmt.Errorf("user signature: %w", err)
 	}
 
@@ -2321,7 +2321,7 @@ func (h *Handlers) verifyPeerThreadRemoval(ctx context.Context, peerServerID str
 	}
 	// Built from the record's signature: a certificate for another record fails here.
 	userPayload := buildThreadRemovalUserPayload(peerServerID, cert.ThreadID, rm.Record.UserSignature.Armor)
-	if err := h.services.crypto.verifySignature(string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
 	return h.verifyPeerCountersignature(ctx, peerServerID, cert.ServerSignature, func(serverFP string) []byte {
@@ -2349,7 +2349,7 @@ func (h *Handlers) verifyPeerCountersignature(ctx context.Context, peerServerID 
 			return fmt.Errorf("fetch countersigning key: %w", err)
 		}
 	}
-	if err := h.services.crypto.verifySignature(string(payload(serverFP)), sig.Armor, serverArmor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(payload(serverFP)), sig.Armor, serverArmor); err != nil {
 		return fmt.Errorf("countersignature: %w", err)
 	}
 	return nil

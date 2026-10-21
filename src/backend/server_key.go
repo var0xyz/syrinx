@@ -58,7 +58,7 @@ func mintServerKey(cryptoSvc *cryptoService, serverID, passphrase string) (*mint
 	// The key has no owner, so its own ID stands in for the user ID header.
 	keyID := string(canonicalID(serverID, keyPair.Fingerprint))
 	payload := buildPublicKeyPayload(serverID, keyID, keyID, keyPair.Fingerprint, keyPair.PublicKey, now)
-	selfSig, err := cryptoSvc.sign(string(payload), keyPair.PrivateKey)
+	selfSig, err := cryptoSvc.sign(context.Background(), string(payload), keyPair.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("self-countersign server public key: %w", err)
 	}
@@ -150,10 +150,10 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 		SignedAt:    next.SignedAt,
 	}
 	payload := string(buildServerKeyRevocationPayload(serverID, rev.KeyID, rev.Successor, rev.Compromised, rev.Reason, rev.SignedAt))
-	if rev.Signature, err = cryptoSvc.sign(payload, oldPrivate); err != nil {
+	if rev.Signature, err = cryptoSvc.sign(ctx, payload, oldPrivate); err != nil {
 		return nil, fmt.Errorf("sign revocation with the revoked key: %w", err)
 	}
-	if rev.SuccessorSignature, err = cryptoSvc.sign(payload, next.PrivateArmor); err != nil {
+	if rev.SuccessorSignature, err = cryptoSvc.sign(ctx, payload, next.PrivateArmor); err != nil {
 		return nil, fmt.Errorf("sign revocation with the successor: %w", err)
 	}
 
@@ -174,7 +174,7 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 		return nil, fmt.Errorf("set signing key: %w", err)
 	}
 	signWithNext := func(payload []byte, ts time.Time) (ServerSignature, error) {
-		armor, err := cryptoSvc.sign(string(payload), next.PrivateArmor)
+		armor, err := cryptoSvc.sign(ctx, string(payload), next.PrivateArmor)
 		return ServerSignature{ID: next.KeyID, Armor: armor, SignedAt: ts}, err
 	}
 	if err := appendLedgerEntryTx(ctx, tx, signWithNext, serverID, next.Fingerprint, serverKeyLedgerEntry(rev)); err != nil {
@@ -316,8 +316,8 @@ func verifyServerKeyRevocation(cryptoSvc *cryptoService, serverID string, rev se
 		return errKeyHandoverBroken
 	}
 	payload := string(buildServerKeyRevocationPayload(serverID, rev.KeyID, rev.Successor, rev.Compromised, rev.Reason, rev.SignedAt.UTC()))
-	if cryptoSvc.verifySignature(payload, rev.Signature, revokedArmor) != nil ||
-		cryptoSvc.verifySignature(payload, rev.SuccessorSignature, successorArmor) != nil {
+	if cryptoSvc.verifySignature(context.Background(), payload, rev.Signature, revokedArmor) != nil ||
+		cryptoSvc.verifySignature(context.Background(), payload, rev.SuccessorSignature, successorArmor) != nil {
 		return errKeyHandoverBroken
 	}
 	return nil

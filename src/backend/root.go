@@ -120,12 +120,12 @@ func exportRootIdentity(
 		return "", fmt.Errorf("generate root key: %w", err)
 	}
 
-	pubKeySig, err := cryptoSvc.sign(kp.PublicKey, kp.PrivateKey)
+	pubKeySig, err := cryptoSvc.sign(context.Background(), kp.PublicKey, kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root public key: %w", err)
 	}
 
-	keyMeta, err := cryptoSvc.validateAndExtractPublicKey(kp.PublicKey, pubKeySig)
+	keyMeta, err := cryptoSvc.validateAndExtractPublicKey(context.Background(), kp.PublicKey, pubKeySig)
 	if err != nil {
 		return "", fmt.Errorf("validate root public key: %w", err)
 	}
@@ -139,7 +139,7 @@ func exportRootIdentity(
 	keyID := string(appendEntity(identityID(rootID), keyMeta.Fingerprint))
 
 	userPayload := buildUserIdentityPayload(rootUsername, keyID, "")
-	userSigArmor, err := cryptoSvc.sign(string(userPayload), kp.PrivateKey)
+	userSigArmor, err := cryptoSvc.sign(context.Background(), string(userPayload), kp.PrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("sign root identity: %w", err)
 	}
@@ -263,7 +263,7 @@ func exportRootIdentity(
 }
 
 func rootCountersign(cryptoSvc *cryptoService, db *DataService, signingKey *ServerSigningKey, payload []byte, ts time.Time) (ServerSignature, error) {
-	sigArmor, err := cryptoSvc.sign(string(payload), signingKey.Armor)
+	sigArmor, err := cryptoSvc.sign(context.Background(), string(payload), signingKey.Armor)
 	if err != nil {
 		return ServerSignature{}, err
 	}

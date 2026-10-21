@@ -171,7 +171,7 @@ func ledgerApprovedEntry(req *adminRequest, approverID, rebindKeyID string) *led
 
 // appendLedgerTx signs and stores e in tx.
 func (h *Handlers) appendLedgerTx(ctx context.Context, tx *sql.Tx, e *ledgerEntry) error {
-	return appendLedgerEntryTx(ctx, tx, h.countersign, h.services.db.GetServerID(), h.signingKey.Fingerprint, e)
+	return appendLedgerEntryTx(ctx, tx, h.signerFor(ctx), h.services.db.GetServerID(), h.signingKey.Fingerprint, e)
 }
 
 func pbLedgerEntry(e *ledgerEntry) *pb.LedgerEntry {

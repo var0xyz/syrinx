@@ -287,6 +287,7 @@ ADMIN_OPENED = metric_stream("syrinx.admin.requests.opened")
 ADMIN_REFUSED = metric_stream("syrinx.admin.requests.refused")
 ADMIN_DECIDED = metric_stream("syrinx.admin.requests.decided")
 ADMIN_DECISION_SECONDS = metric_stream("syrinx.admin.request.decision_seconds")
+CRYPTO_OPS = metric_stream("syrinx.crypto.duration_us") + "_count"
 ADMIN_EXECUTED = metric_stream("syrinx.admin.actions.executed")
 ADMIN_SUSPENDED_REFUSALS = metric_stream("syrinx.admin.suspended_refusals")
 ADMIN_MAIL = metric_stream("syrinx.admin.mail.sent")
@@ -346,6 +347,7 @@ WS_OUT_TYPES = [
 
 HTTP = "span_kind = '2'"
 DB = "db_system = 'postgresql'"
+CRYPTO = "operation_name LIKE 'crypto.%'"
 DB_NESTED = (
     f"{DB} AND reference_parent_span_id IS NOT NULL "
     f"AND reference_parent_span_id != ''"
@@ -456,6 +458,77 @@ overview = [
         ],
         layout=layout(96, 20, 96, 14, 8),
         description="Connection pool saturation. Host CPU/RAM live on the Host Metrics dashboard.",
+    ),
+]
+
+# OpenPGP signing and checking: crypto.sign / crypto.verify spans sit under
+# the request span, and syrinx.crypto.duration_us counts them.
+crypto = [
+    promql_panel(
+        pid="syrinx_crypto_ops",
+        title="Signatures and checks per 5m",
+        queries=[
+            promql_filter(CRYPTO_OPS, {"crypto_op": "sign"}, "sign"),
+            promql_filter(CRYPTO_OPS, {"crypto_op": "verify", "ok": "true"}, "verify ok"),
+            promql_filter(CRYPTO_OPS, {"crypto_op": "verify", "ok": "false"}, "verify failed"),
+        ],
+        layout=layout(0, 0, 96, 14, 89),
+        description="Every OpenPGP sign and verify the server performs, incl. response signing",
+    ),
+    sql_panel(
+        pid="syrinx_crypto_latency",
+        title="Sign / verify latency p95 (µs)",
+        ptype="line",
+        sql=(
+            f"SELECT histogram(_timestamp) AS ts, operation_name, "
+            f"approx_percentile_cont(duration, 0.95) AS p95_us "
+            f"FROM syrinx WHERE {CRYPTO} GROUP BY ts, operation_name ORDER BY ts"
+        ),
+        layout=layout(96, 0, 96, 14, 90),
+        x=[axis("Timestamp", "ts", sort_by="ASC")],
+        y=[axis("p95 µs", "p95_us")],
+        breakdown=[axis("Operation", "operation_name")],
+        description="From crypto spans; an Ed25519 signature is ~25 µs, RSA-2048 ~1 ms",
+    ),
+    sql_panel(
+        pid="syrinx_crypto_per_request",
+        title="Signatures and checks per request, by route",
+        ptype="table",
+        sql=(
+            f"SELECT r.http_route AS route, count(DISTINCT r.trace_id) AS reqs, "
+            f"sum(CASE WHEN c.operation_name = 'crypto.sign' THEN 1 ELSE 0 END) * 1.0 "
+            f"/ count(DISTINCT r.trace_id) AS signs_per_req, "
+            f"sum(CASE WHEN c.operation_name = 'crypto.verify' THEN 1 ELSE 0 END) * 1.0 "
+            f"/ count(DISTINCT r.trace_id) AS verifies_per_req, "
+            f"sum(c.duration) * 1.0 / count(DISTINCT r.trace_id) AS crypto_us_per_req "
+            f"FROM syrinx r JOIN syrinx c ON c.trace_id = r.trace_id "
+            f"WHERE r.{HTTP} AND r.http_route IS NOT NULL AND c.{CRYPTO} "
+            f"GROUP BY route ORDER BY crypto_us_per_req DESC LIMIT 30"
+        ),
+        layout=layout(0, 14, 192, 18, 91),
+        x=[axis("Route", "route")],
+        y=[
+            axis("Requests", "reqs"),
+            axis("Signs / req", "signs_per_req"),
+            axis("Verifies / req", "verifies_per_req"),
+            axis("Crypto µs / req", "crypto_us_per_req"),
+        ],
+        decimals=2,
+        description="Requests that did any crypto, joined to their crypto spans by trace",
+    ),
+    sql_panel(
+        pid="syrinx_crypto_algorithms",
+        title="Operations by key algorithm",
+        ptype="bar",
+        sql=(
+            f"SELECT crypto_algorithm, operation_name, count(*) AS cnt FROM syrinx "
+            f"WHERE {CRYPTO} GROUP BY crypto_algorithm, operation_name ORDER BY cnt DESC"
+        ),
+        layout=layout(0, 32, 192, 12, 92),
+        x=[axis("Algorithm", "crypto_algorithm")],
+        y=[axis("Count", "cnt")],
+        breakdown=[axis("Operation", "operation_name")],
+        description="eddsa for current server keys; rsa only from keys made before the switch",
     ),
 ]
 
@@ -1283,6 +1356,7 @@ dashboard = {
         {"tabId": "overview", "name": "Overview", "panels": overview},
         {"tabId": "requests", "name": "Requests", "panels": requests},
         {"tabId": "database", "name": "Database", "panels": database},
+        {"tabId": "crypto", "name": "Crypto", "panels": crypto},
         {"tabId": "users", "name": "Users", "panels": users},
         {"tabId": "reeds", "name": "Reeds", "panels": reeds},
         {"tabId": "websocket", "name": "WebSocket", "panels": websocket},
