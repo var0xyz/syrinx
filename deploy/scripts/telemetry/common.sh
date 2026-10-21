@@ -561,20 +561,19 @@ telemetry_ensure_build_swap() {
     swapon "$swapfile"
 }
 
+# The web UI's Vite build needs over 3 GB of heap; a 3 GB cap made it abort on
+# a 4 GB Pi with swap to spare. Use ~75% of RAM+swap (swap is set up first).
 telemetry_o2_node_heap_mb() {
     if [ -n "${O2_NODE_MAX_OLD_SPACE_SIZE:-}" ]; then
         echo "$O2_NODE_MAX_OLD_SPACE_SIZE"
         return 0
     fi
-    local mem_kb
-    mem_kb="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
-    if [ "$mem_kb" -lt 4500000 ]; then
-        echo 3072
-    elif [ "$mem_kb" -lt 8000000 ]; then
-        echo 4096
-    else
-        echo 8192
-    fi
+    local total_kb heap
+    total_kb="$(awk '/^(MemTotal|SwapTotal):/ {t += $2} END {print t}' /proc/meminfo)"
+    heap=$((total_kb * 3 / 4 / 1024))
+    [ "$heap" -le 8192 ] || heap=8192
+    [ "$heap" -ge 2048 ] || heap=2048
+    echo "$heap"
 }
 
 telemetry_patch_openobserve_for_pi() {
@@ -598,7 +597,8 @@ telemetry_fetch_openobserve_source() {
         echo "🔄 Updating OpenObserve source at $O2_SOURCE_DIR..."
         git -C "$O2_SOURCE_DIR" fetch --tags origin
         git -C "$O2_SOURCE_DIR" checkout -f "$version_tag"
-        git -C "$O2_SOURCE_DIR" clean -fdx
+        # Keep target/ so a rerun after a crash reuses compiled crates.
+        git -C "$O2_SOURCE_DIR" clean -fdx -e target
     else
         echo "⬇️  Cloning OpenObserve ${version_tag}..."
         rm -rf "$O2_SOURCE_DIR"
@@ -635,7 +635,9 @@ telemetry_build_openobserve_from_source() {
         export NODE_OPTIONS="--max-old-space-size=${node_heap}"
         npm ci
         npx --yes update-browserslist-db@latest
-        npm run build
+        # `build` also runs type-check in parallel: a second Node process
+        # competing for memory, and it doesn't change the bundle.
+        npm run build-only
     )
 
     echo "🔨 Compiling OpenObserve server (jobs=${jobs}) — expect 1–3+ hours on Pi 4..."
