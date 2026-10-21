@@ -154,11 +154,14 @@ export function initializePWA() {
         registration.waiting.postMessage({ type: 'SKIP_WAITING' });
       }
 
-      // Check for a new version at startup. Fails soft when offline —
-      // the existing precache keeps serving the app.
-      registration.update().catch((error) => {
-        console.log('PWA: Update check skipped:', error);
-      });
+      // At most one automatic check a day; the cached app keeps running
+      // whatever the check finds or fails with.
+      if (updateCheckDue()) {
+        markUpdateChecked();
+        registration.update().catch((error) => {
+          console.log('PWA: Update check skipped:', error);
+        });
+      }
     })
     .catch((error) => {
       console.error('PWA: Service Worker registration failed:', error);
@@ -179,6 +182,27 @@ function workerVersion(worker: ServiceWorker): Promise<string | undefined> {
   });
 }
 
+const UPDATE_CHECK_KEY = 'pwa.lastUpdateCheck';
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+// Storage can be unavailable (private mode); then every start checks.
+function updateCheckDue(): boolean {
+  try {
+    const last = Number(localStorage.getItem(UPDATE_CHECK_KEY));
+    return !last || Date.now() - last >= UPDATE_CHECK_INTERVAL_MS;
+  } catch {
+    return true;
+  }
+}
+
+function markUpdateChecked(): void {
+  try {
+    localStorage.setItem(UPDATE_CHECK_KEY, String(Date.now()));
+  } catch {
+    // Not remembered; the next start checks again.
+  }
+}
+
 export type UpdateCheckResult = 'updating' | 'up-to-date' | 'unsupported';
 
 /** Asks the server for a newer version now. One that's found installs and
@@ -189,6 +213,7 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
   if (!registration) return 'unsupported';
 
   await registration.update();
+  markUpdateChecked();
   if (registration.installing || registration.waiting) return 'updating';
 
   // A newer worker may already control the page without the banner showing.

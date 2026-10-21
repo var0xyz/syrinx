@@ -105,9 +105,14 @@ export default defineConfig({
         // revision must change every build — null makes Workbox treat the URL as
         // immutable, leaving a stale shell that points at deleted chunk hashes.
         additionalManifestEntries: [{ url: 'index.html', revision: `${Date.now()}` }],
+        // Replaces the plugin's own transform, so it must also strip client/:
+        // without that no precached URL matched a real request, and the app
+        // went blank whenever the server couldn't serve its scripts.
         manifestTransforms: [
           async (entries) => ({
-            manifest: entries.filter((e) => e.url !== 'prerendered/pwa-keep.html'),
+            manifest: entries
+              .filter((e) => e.url !== 'prerendered/pwa-keep.html')
+              .map((e) => ({ ...e, url: e.url.replace(/^client\//, '') })),
             warnings: [],
           }),
         ],
