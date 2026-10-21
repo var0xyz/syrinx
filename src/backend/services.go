@@ -7961,15 +7961,43 @@ func recoveryImportGateMiddleware(userIDKey any, isOngoing func(context.Context,
 //   realtime   //
 // ============ //
 
+// An insert into an unlogged table still WAL-logs the row locks its foreign
+// keys take on logged parents, so committing waits for a disk flush (~6 ms
+// on a Pi). Unlogged tables are emptied on a crash, so they can skip it.
+func skipCommitFlush(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `SET LOCAL synchronous_commit = off`)
+	return err
+}
+
+// inUnloggedTx runs fn, which must write only unlogged tables, in a
+// transaction that commits without waiting for the disk flush.
+func (s *DataService) inUnloggedTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := skipCommitFlush(ctx, tx); err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // MarkUserOnline marks a user as online in the database.
 func (s *DataService) MarkUserOnline(ctx context.Context, userID string) error {
 	selfIdentity := identityID(userID)
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO online_users (user_id)
-		VALUES ($1)
-		ON CONFLICT (user_id) DO UPDATE
-		SET created_at = CURRENT_TIMESTAMP, last_pong = CURRENT_TIMESTAMP
-	`, selfIdentity)
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO online_users (user_id)
+			VALUES ($1)
+			ON CONFLICT (user_id) DO UPDATE
+			SET created_at = CURRENT_TIMESTAMP, last_pong = CURRENT_TIMESTAMP
+		`, selfIdentity)
+		return err
+	})
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to mark user as online")
 		return err
@@ -8486,6 +8514,10 @@ func (s *DataService) CreatePendingReedEvent(ctx context.Context, eventID, reque
 		return err
 	}
 	defer tx.Rollback()
+	// Writes only unlogged tables (pending_events and its children).
+	if err := skipCommitFlush(ctx, tx); err != nil {
+		return err
+	}
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
@@ -8517,6 +8549,10 @@ func (s *DataService) CreatePendingAccountEvent(ctx context.Context, eventID, re
 		return err
 	}
 	defer tx.Rollback()
+	// Writes only unlogged tables (pending_events and its children).
+	if err := skipCommitFlush(ctx, tx); err != nil {
+		return err
+	}
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
@@ -8544,6 +8580,10 @@ func (s *DataService) CreatePendingKeyEvent(ctx context.Context, eventID, reques
 		return err
 	}
 	defer tx.Rollback()
+	// Writes only unlogged tables (pending_events and its children).
+	if err := skipCommitFlush(ctx, tx); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name)
 		VALUES ($1, $2, $3, $4)
@@ -8674,6 +8714,10 @@ func (s *DataService) CreateProfileSubscriptionEvent(ctx context.Context, eventI
 		return err
 	}
 	defer tx.Rollback()
+	// Writes only unlogged tables (pending_events and its children).
+	if err := skipCommitFlush(ctx, tx); err != nil {
+		return err
+	}
 
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pending_events (event_id, request_id, requester_user_id, event_name, subscription_id)
@@ -9535,13 +9579,15 @@ func (s *DataService) CreateProfileSubscription(ctx context.Context, subscriptio
 	viewerIdentity := identityID(viewerUserID)
 	authorIdentity := identityID(authorUserID)
 	var effectiveID string
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (viewer_user_id, author_user_id)
-			DO UPDATE SET viewer_user_id = EXCLUDED.viewer_user_id
-		RETURNING subscription_id
-	`, subscriptionID, viewerIdentity, authorIdentity).Scan(&effectiveID)
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `
+			INSERT INTO profile_subscriptions (subscription_id, viewer_user_id, author_user_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (viewer_user_id, author_user_id)
+				DO UPDATE SET viewer_user_id = EXCLUDED.viewer_user_id
+			RETURNING subscription_id
+		`, subscriptionID, viewerIdentity, authorIdentity).Scan(&effectiveID)
+	})
 	return effectiveID, err
 }
 
@@ -9574,11 +9620,14 @@ func (s *DataService) DeleteProfileSubscription(ctx context.Context, subscriptio
 // Re-subscribing is a no-op, so retries never double a viewer's deliveries.
 func (s *DataService) CreateReedSubscription(ctx context.Context, subscriptionID, viewerUserID, reedID string) error {
 	viewerIdentity := identityID(viewerUserID)
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO reed_subscriptions (subscription_id, viewer_user_id, reed_id)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (viewer_user_id, reed_id) DO NOTHING
-	`, subscriptionID, viewerIdentity, reedID)
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO reed_subscriptions (subscription_id, viewer_user_id, reed_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (viewer_user_id, reed_id) DO NOTHING
+		`, subscriptionID, viewerIdentity, reedID)
+		return err
+	})
 	return err
 }
 
@@ -9950,10 +9999,13 @@ type foreignPendingEvent struct {
 // eventID's local pending_events row corresponds to peerEventID on
 // homeServerID. eventID must already exist in pending_events (FK).
 func (s *DataService) CreateForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id)
-		VALUES ($1, $2, $3)
-	`, eventID, homeServerID, peerEventID)
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO foreign_pending_events (event_id, home_server_id, peer_event_id)
+			VALUES ($1, $2, $3)
+		`, eventID, homeServerID, peerEventID)
+		return err
+	})
 	return err
 }
 
@@ -10131,10 +10183,13 @@ func (s *DataService) GetPendingThreadParts(ctx context.Context, eventID string)
 // CreateForeignRelayRequest records, on the home server, which peer+user
 // eventID's sentinel-attributed pending_events row represents.
 func (s *DataService) CreateForeignRelayRequest(ctx context.Context, eventID, requestingServerID, requestingUserID, requestingKeyID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id, requesting_key_id)
-		VALUES ($1, $2, $3, $4)
-	`, eventID, requestingServerID, requestingUserID, requestingKeyID)
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO foreign_relay_requests (event_id, requesting_server_id, requesting_user_id, requesting_key_id)
+			VALUES ($1, $2, $3, $4)
+		`, eventID, requestingServerID, requestingUserID, requestingKeyID)
+		return err
+	})
 	return err
 }
 

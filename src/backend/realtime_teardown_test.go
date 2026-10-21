@@ -247,3 +247,25 @@ func TestSubscribeToBroadcast(t *testing.T) {
 		}
 	}
 }
+
+// Unlogged-only writes commit without waiting for the disk flush, and the
+// setting must not outlive their transaction on the pooled connection.
+func TestInUnloggedTxSkipsFlushOnlyInsideIt(t *testing.T) {
+	db, rs, _ := newTeardownTestService(t)
+	ctx := context.Background()
+	db.SetMaxOpenConns(1)
+
+	var inside string
+	if err := rs.db.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SHOW synchronous_commit`).Scan(&inside)
+	}); err != nil {
+		t.Fatalf("inUnloggedTx: %v", err)
+	}
+	var after string
+	if err := db.QueryRowContext(ctx, `SHOW synchronous_commit`).Scan(&after); err != nil {
+		t.Fatalf("SHOW after: %v", err)
+	}
+	if inside != "off" || after != "on" {
+		t.Fatalf("synchronous_commit inside=%q after=%q, want off then on", inside, after)
+	}
+}
