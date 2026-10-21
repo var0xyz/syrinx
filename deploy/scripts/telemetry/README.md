@@ -60,10 +60,6 @@ real values).
   every 5s), logging both to `./o2-logs/<timestamp>/` in the current
   directory and syncing to disk each sample, so the lead-up to a crash
   survives a reboot.
-- **`remote-sudo.sh`** — sourced by `telemetry.sh` and
-  `deploy-openobserve-pi.sh` to run `sudo` on the Pi over plain `ssh`. If the
-  Pi's `sudo` needs a password, it's asked for once locally and handed to a
-  `SUDO_ASKPASS` helper over stdin, never on a command line or the Pi's disk.
 - **`deploy-openobserve-pi.sh`** — copies a cross-compiled binary to a
   Pi over `scp`/`ssh`, installs it, and wires up (or repairs) the
   `openobserve` and `otelcol-contrib` systemd units. Prompts for the Pi's

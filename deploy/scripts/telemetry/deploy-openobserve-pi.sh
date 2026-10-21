@@ -57,8 +57,8 @@ die() { echo "Error: $*" >&2; exit 1; }
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
-# shellcheck source=remote-sudo.sh
-. "$SCRIPT_DIR/remote-sudo.sh"
+# shellcheck source=../remote-sudo.sh
+. "$SCRIPT_DIR/../remote-sudo.sh"
 
 load_saved_host() {
     if [ -f "$DEPLOY_ENV" ]; then

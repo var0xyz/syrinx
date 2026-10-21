@@ -17,8 +17,8 @@
 # Set FORCE_HOST_PROMPT=1 to be asked again (e.g. switching hosts).
 #
 # Reads APP_NAME from ~/syrinx/setup.env on the host (the directory
-# deploy.sh copies scripts to and setup.sh saves its answers in), so run
-# ./deploy.sh setup at least once on this host before this script. To issue
+# deploy/syrinx.sh copies scripts to and setup.sh saves its answers in), so run
+# ./deploy/syrinx.sh setup at least once on this host before this script. To issue
 # a new client cert first (before fetching it), run on the host:
 #   sudo bash -c 'source mtls.sh; mtls_issue_client_cert <name>'
 
@@ -30,6 +30,8 @@ SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
 REMOTE_DIR="${REMOTE_DIR:-syrinx}"
 
 die() { echo "Error: $*" >&2; exit 1; }
+# shellcheck source=../remote-sudo.sh
+. "$SCRIPT_DIR/../remote-sudo.sh"
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
@@ -110,14 +112,15 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
     die "Cannot SSH to $DEPLOY_HOST — check IP, user, and that the host is reachable on this network"
 fi
 ok "SSH OK"
+remote_sudo_init
 
 info "Reading APP_NAME from ~/${REMOTE_DIR}/setup.env on the host..."
-APP_NAME="$(ssh "$DEPLOY_HOST" "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
-[ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run setup first (./deploy.sh setup)"
+APP_NAME="$(remote_sudo "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
+[ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run setup first (./deploy/syrinx.sh setup)"
 ok "APP_NAME=$APP_NAME"
 
 REMOTE_CLIENT_DIR="/etc/${APP_NAME}/mtls/clients/${CLIENT_NAME}"
-if ! ssh "$DEPLOY_HOST" "sudo test -f $(printf '%q' "$REMOTE_CLIENT_DIR/client.crt")"; then
+if ! remote_sudo "sudo test -f $(printf '%q' "$REMOTE_CLIENT_DIR/client.crt")"; then
     die "No client cert named '$CLIENT_NAME' found at $REMOTE_CLIENT_DIR on $DEPLOY_HOST — issue one first with: sudo bash -c 'source mtls.sh; mtls_issue_client_cert $CLIENT_NAME'"
 fi
 
@@ -125,9 +128,9 @@ mkdir -p "$OUT_DIR"
 umask 077
 
 info "Copying client.key, client.crt, ca.crt..."
-ssh "$DEPLOY_HOST" "sudo cat $(printf '%q' "$REMOTE_CLIENT_DIR/client.key")" > "$OUT_DIR/client.key"
-ssh "$DEPLOY_HOST" "sudo cat $(printf '%q' "$REMOTE_CLIENT_DIR/client.crt")" > "$OUT_DIR/client.crt"
-ssh "$DEPLOY_HOST" "sudo cat $(printf '%q' "$REMOTE_CLIENT_DIR/ca.crt")" > "$OUT_DIR/ca.crt"
+remote_sudo "sudo cat $(printf '%q' "$REMOTE_CLIENT_DIR/client.key")" > "$OUT_DIR/client.key"
+remote_sudo "sudo cat $(printf '%q' "$REMOTE_CLIENT_DIR/client.crt")" > "$OUT_DIR/client.crt"
+remote_sudo "sudo cat $(printf '%q' "$REMOTE_CLIENT_DIR/ca.crt")" > "$OUT_DIR/ca.crt"
 chmod 600 "$OUT_DIR/client.key" "$OUT_DIR/client.crt" "$OUT_DIR/ca.crt"
 
 ok "Saved to $OUT_DIR/ (client.key, client.crt, ca.crt)"
@@ -144,7 +147,7 @@ echo ""
 read -r -p "Delete this client cert from ${DEPLOY_HOST} now? [y/N]: " DELETE_REMOTE
 case "${DELETE_REMOTE:-N}" in
     y|Y)
-        ssh "$DEPLOY_HOST" "sudo rm -rf $(printf '%q' "$REMOTE_CLIENT_DIR")"
+        remote_sudo "sudo rm -rf $(printf '%q' "$REMOTE_CLIENT_DIR")"
         ok "Deleted from $DEPLOY_HOST"
         ;;
     *)
