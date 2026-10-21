@@ -15,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	"syrinx/observability/metrics"
@@ -551,6 +553,8 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 				}
 				h.recordPeerApproval(r.Context(), callerServerID)
 				ctx = context.WithValue(ctx, peerServerIDKey, callerServerID)
+				// Lets traces group what each peer asks of this server.
+				trace.SpanFromContext(ctx).SetAttributes(attribute.String("peer.server_id", callerServerID))
 			}
 			r = r.WithContext(ctx)
 

@@ -16,6 +16,11 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
@@ -60,10 +65,34 @@ func relayLeg(path string) string {
 	return path
 }
 
+var federationTracer = otel.Tracer("syrinx/federation")
+
+// startPeerCallSpan opens a federation.out span for one call to a peer. No
+// trace header is sent: peers don't get this server's trace ids.
+func startPeerCallSpan(ctx context.Context, peerServerID, leg string) (context.Context, trace.Span) {
+	return federationTracer.Start(ctx, "federation.out", trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(attribute.String("peer.server_id", peerServerID), attribute.String("federation.leg", leg)))
+}
+
+func endPeerCallSpan(span trace.Span, resp *http.Response, err error) {
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "")
+	} else {
+		span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
+		if resp.StatusCode >= 400 {
+			span.SetStatus(codes.Error, "")
+		}
+	}
+	span.End()
+}
+
 // doPeerRequest sends a signed request to peerServerID, counting it as an
 // outbound call on leg; ok means the peer answered 2xx.
 func (h *Handlers) doPeerRequest(httpReq *http.Request, peerServerID, leg string) (*http.Response, error) {
+	_, span := startPeerCallSpan(httpReq.Context(), peerServerID, leg)
 	resp, err := h.federationHTTPClient().Do(httpReq)
+	endPeerCallSpan(span, resp, err)
 	ok := err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300
 	h.metrics.FederationRelay(httpReq.Context(), metrics.DirectionOut, peerServerID, leg, ok)
 	return resp, err
@@ -92,7 +121,9 @@ func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, peerServerID, base
 	if err := h.setPeerProxyAuthHeaders(httpReq, string(payload)); err != nil {
 		return 0, err
 	}
+	_, span := startPeerCallSpan(ctx, peerServerID, leg)
 	resp, err := h.federationHTTPClient().Do(httpReq)
+	endPeerCallSpan(span, resp, err)
 	if err != nil {
 		return 0, err
 	}

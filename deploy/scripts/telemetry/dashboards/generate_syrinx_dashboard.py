@@ -282,6 +282,8 @@ REED_COVERAGE = metric_stream("syrinx.reed.coverage_percent")
 WS_MESSAGES = metric_stream("syrinx.ws.messages")
 RELAY_EVENTS = metric_stream("syrinx.relay.event")
 FEDERATION_RELAY = metric_stream("syrinx.federation.relay")
+FEDERATION_BACKLOG = metric_stream("syrinx.federation.delivery.backlog")
+FEDERATION_LIFECYCLE = metric_stream("syrinx.federation.lifecycle")
 ADMIN_OPENED = metric_stream("syrinx.admin.requests.opened")
 ADMIN_REFUSED = metric_stream("syrinx.admin.requests.refused")
 ADMIN_DECIDED = metric_stream("syrinx.admin.requests.decided")
@@ -325,6 +327,8 @@ SIGNUP_REASONS = [
 HTTP = "span_kind = '2'"
 DB = "db_system = 'postgresql'"
 CRYPTO = "operation_name LIKE 'crypto.%'"
+PEER_IN = f"{HTTP} AND peer_server_id IS NOT NULL AND peer_server_id != ''"
+PEER_OUT = "operation_name = 'federation.out'"
 DB_NESTED = (
     f"{DB} AND reference_parent_span_id IS NOT NULL "
     f"AND reference_parent_span_id != ''"
@@ -506,6 +510,108 @@ crypto = [
         y=[axis("Count", "cnt")],
         breakdown=[axis("Operation", "operation_name")],
         description="eddsa for current server keys; rsa only from keys made before the switch",
+    ),
+]
+
+# Traffic exchanged with peer servers, foremost what peers cost this one:
+# request spans carry peer.server_id once a peer is authenticated, and
+# every call out is a federation.out span.
+federation = [
+    sql_panel(
+        pid="syrinx_fed_in_volume",
+        title="Requests from peers, by peer",
+        ptype="line",
+        sql=(
+            f"SELECT histogram(_timestamp) AS ts, peer_server_id, count(*) AS reqs "
+            f"FROM syrinx WHERE {PEER_IN} GROUP BY ts, peer_server_id ORDER BY ts"
+        ),
+        layout=layout(0, 0, 96, 14, 94),
+        x=[axis("Timestamp", "ts", sort_by="ASC")],
+        y=[axis("Requests", "reqs")],
+        breakdown=[axis("Peer", "peer_server_id")],
+        description="Authenticated peer requests handled here",
+    ),
+    sql_panel(
+        pid="syrinx_fed_out_volume",
+        title="Calls to peers, by peer",
+        ptype="line",
+        sql=(
+            f"SELECT histogram(_timestamp) AS ts, peer_server_id, count(*) AS calls "
+            f"FROM syrinx WHERE {PEER_OUT} GROUP BY ts, peer_server_id ORDER BY ts"
+        ),
+        layout=layout(96, 0, 96, 14, 95),
+        x=[axis("Timestamp", "ts", sort_by="ASC")],
+        y=[axis("Calls", "calls")],
+        breakdown=[axis("Peer", "peer_server_id")],
+        description="Every server-to-server call this server makes",
+    ),
+    sql_panel(
+        pid="syrinx_fed_in_cost",
+        title="What peers ask of us",
+        ptype="table",
+        sql=(
+            f"SELECT r.peer_server_id AS peer, r.http_route AS route, "
+            f"count(DISTINCT r.span_id) AS reqs, "
+            f"count(DISTINCT CASE WHEN r.http_response_status_code >= 400 "
+            f"THEN r.span_id END) AS errors, "
+            f"approx_percentile_cont(r.duration, 0.95) / 1000.0 AS p95_ms, "
+            f"sum(CASE WHEN q.operation_name IN ('sql.conn.query', 'sql.conn.exec') "
+            f"THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT r.span_id) AS stmts_per_req, "
+            f"sum(CASE WHEN q.{CRYPTO} THEN 1 ELSE 0 END) * 1.0 "
+            f"/ count(DISTINCT r.span_id) AS crypto_per_req "
+            f"FROM syrinx r LEFT JOIN syrinx q ON q.trace_id = r.trace_id "
+            f"AND q.span_id != r.span_id "
+            f"WHERE r.{HTTP} AND r.peer_server_id IS NOT NULL AND r.peer_server_id != '' "
+            f"GROUP BY peer, route ORDER BY reqs DESC LIMIT 40"
+        ),
+        layout=layout(0, 14, 192, 18, 96),
+        x=[axis("Peer", "peer"), axis("Route", "route")],
+        y=[
+            axis("Requests", "reqs"),
+            axis("Errors", "errors"),
+            axis("p95 ms", "p95_ms"),
+            axis("DB statements / req", "stmts_per_req"),
+            axis("Sign+verify / req", "crypto_per_req"),
+        ],
+        decimals=2,
+        description="Per peer and route: volume, failures, latency and the DB and crypto work each request costs here",
+    ),
+    sql_panel(
+        pid="syrinx_fed_out_cost",
+        title="Our calls to peers",
+        ptype="table",
+        sql=(
+            f"SELECT peer_server_id AS peer, federation_leg AS leg, count(*) AS calls, "
+            f"sum(CASE WHEN span_status = 'ERROR' THEN 1 ELSE 0 END) AS failures, "
+            f"approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms "
+            f"FROM syrinx WHERE {PEER_OUT} GROUP BY peer, leg ORDER BY calls DESC LIMIT 40"
+        ),
+        layout=layout(0, 32, 192, 16, 97),
+        x=[axis("Peer", "peer"), axis("Leg", "leg")],
+        y=[axis("Calls", "calls"), axis("Failures", "failures"), axis("p95 ms", "p95_ms")],
+        decimals=2,
+        description="Failures: transport errors and 4xx/5xx answers",
+    ),
+    promql_panel(
+        pid="syrinx_fed_backlog",
+        title="Delivery backlog by peer",
+        queries=[
+            (f"sum by (peer_server_id) ({FEDERATION_BACKLOG})", "{peer_server_id}", FEDERATION_BACKLOG),
+        ],
+        layout=layout(0, 48, 96, 14, 98),
+        description="Author streams still owed to each peer",
+    ),
+    promql_panel(
+        pid="syrinx_fed_lifecycle",
+        title="Peer connects and disconnects",
+        queries=[
+            (
+                f"sum by (event) (increase({FEDERATION_LIFECYCLE}[{WINDOW}]))",
+                "{event}",
+                FEDERATION_LIFECYCLE,
+            ),
+        ],
+        layout=layout(96, 48, 96, 14, 99),
     ),
 ]
 
@@ -870,15 +976,20 @@ reeds = [
     ),
     promql_panel(
         pid="syrinx_echoes_targeted",
-        title="Echoes sent vs received",
+        title="Echoes published",
         queries=[
-            promql_labeled(REEDS_PUBLISHED, "reed_kind", "echo", "echo sent"),
-            promql_total(ECHOES_TARGETED, "echo indexed on target"),
+            promql_total(ECHOES_TARGETED, "chorus echoes"),
+            (
+                f'sum(increase({REEDS_PUBLISHED}{{reed_kind="echo"}}[{WINDOW}])) '
+                f"- sum(increase({ECHOES_TARGETED}[{WINDOW}]))",
+                "self echoes",
+                REEDS_PUBLISHED,
+            ),
         ],
         layout=layout(96, 0, 96, 14, 41),
         description=(
-            "Echo sent = new echo reed published; targeted = original reed indexed "
-            "(syrinx.echoes.targeted)"
+            "Chorus echoes count towards the original reed; self echoes are users "
+            "echoing their own reed, which don't"
         ),
     ),
     promql_panel(
@@ -1362,6 +1473,7 @@ dashboard = {
         {"tabId": "requests", "name": "Requests", "panels": requests},
         {"tabId": "database", "name": "Database", "panels": database},
         {"tabId": "crypto", "name": "Crypto", "panels": crypto},
+        {"tabId": "federation", "name": "Federation", "panels": federation},
         {"tabId": "users", "name": "Users", "panels": users},
         {"tabId": "reeds", "name": "Reeds", "panels": reeds},
         {"tabId": "websocket", "name": "WebSocket", "panels": websocket},
