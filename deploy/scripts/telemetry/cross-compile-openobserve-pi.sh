@@ -8,7 +8,8 @@
 # Installs missing deps: on macOS via Homebrew (plus Xcode CLT); on Linux via
 # apt/pacman (sudo). Rust comes from rustup and cargo-zigbuild from cargo.
 # Debian gets Zig and, if its Node is older than 20, Node from upstream
-# tarballs under .cross-build/toolchain.
+# tarballs under .cross-build/toolchain. Everything it installs is listed in
+# .cross-build/installed-tools so uninstall-cross-compile-tools.sh can undo it.
 #
 # Usage:
 #   ./cross-compile-openobserve-pi.sh
@@ -24,7 +25,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 O2_VERSION="${O2_VERSION:-0.91.5}"
-O2_BUILD_JOBS="${O2_BUILD_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+# Linux has no compressed memory, so cap jobs at ~3 GB of RAM+swap each or
+# the OOM killer SIGKILLs rustc. macOS copes with the CPU count.
+default_build_jobs() {
+    local cpus mem_kb
+    cpus="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+    mem_kb="$(awk '/^(MemTotal|SwapTotal):/ {t += $2} END {print t + 0}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [ "${mem_kb:-0}" -gt 0 ]; then
+        local by_mem=$((mem_kb / 3145728))
+        [ "$by_mem" -ge 1 ] || by_mem=1
+        [ "$by_mem" -lt "$cpus" ] && cpus="$by_mem"
+    fi
+    printf '%s' "$cpus"
+}
+O2_BUILD_JOBS="${O2_BUILD_JOBS:-$(default_build_jobs)}"
 # Bookworm/Pi OS 64-bit is glibc 2.36; 2.31 covers Bullseye too.
 O2_GLIBC="${O2_GLIBC:-2.31}"
 # Set SKIP_WEB=1 to reuse an existing web/dist (skips npm ci/build).
@@ -37,6 +51,7 @@ SRC_DIR="$BUILD_ROOT/openobserve-src"
 DEPLOY_HOST="${DEPLOY_HOST:-}"
 DEPLOY_PATH="${DEPLOY_PATH:-/var/lib/openobserve/build}"
 TOOLCHAIN_DIR="$BUILD_ROOT/toolchain"
+INSTALLED_TOOLS="$BUILD_ROOT/installed-tools"
 # Upstream tarball versions, only used on Debian-based hosts.
 ZIG_VERSION="${ZIG_VERSION:-0.13.0}"
 NODE_VERSION="${NODE_VERSION:-20.18.1}"
@@ -77,6 +92,12 @@ detect_host() {
 sed_inplace() {
     sed -i.bak "$1" "$2"
     rm -f "$2.bak"
+}
+
+# Notes "<kind> <name>" for uninstall-cross-compile-tools.sh.
+record_installed() {
+    mkdir -p "$BUILD_ROOT"
+    grep -qxF "$1 $2" "$INSTALLED_TOOLS" 2>/dev/null || printf '%s %s\n' "$1" "$2" >> "$INSTALLED_TOOLS"
 }
 
 as_root() {
@@ -144,6 +165,7 @@ brew_ensure() {
     fi
     info "brew install $formula..."
     brew install "$formula"
+    record_installed brew "$formula"
 }
 
 # node@20 is keg-only — put it ahead of any older system node.
@@ -179,6 +201,7 @@ debian_ensure() {
     info "apt-get install ${missing[*]}..."
     as_root apt-get update
     as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+    for pkg in "${missing[@]}"; do record_installed apt "$pkg"; done
 }
 
 arch_ensure() {
@@ -191,6 +214,7 @@ arch_ensure() {
     # Arch doesn't support -Sy without -u, so this asks to upgrade the system.
     info "pacman -Syu ${missing[*]}..."
     as_root pacman -Syu --needed "${missing[@]}"
+    for pkg in "${missing[@]}"; do record_installed pacman "$pkg"; done
 }
 
 # Fetches an upstream tarball into $TOOLCHAIN_DIR/<name>.
@@ -284,6 +308,7 @@ ensure_rust() {
     if ! command -v rustup >/dev/null 2>&1; then
         info "Installing rustup via the official installer..."
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+        record_installed rustup self
         refresh_path
     fi
 
@@ -295,6 +320,7 @@ ensure_rust() {
     if ! cargo --version >/dev/null 2>&1; then
         info "Bootstrapping Rust toolchain via rustup..."
         rustup default stable
+        record_installed rustup-toolchain stable
         refresh_path
     fi
 
@@ -323,6 +349,7 @@ ensure_cargo_zigbuild() {
     if [ "$HOST_KIND" = "macos" ]; then
         info "Installing cargo-zigbuild via Homebrew..."
         if brew install cargo-zigbuild; then
+            record_installed brew cargo-zigbuild
             refresh_path
         else
             info "brew install cargo-zigbuild failed — falling back to cargo install..."
@@ -332,6 +359,7 @@ ensure_cargo_zigbuild() {
     if ! command -v cargo-zigbuild >/dev/null 2>&1; then
         info "Installing cargo-zigbuild via cargo..."
         cargo install --locked cargo-zigbuild
+        record_installed cargo cargo-zigbuild
         refresh_path
     fi
 
@@ -426,6 +454,9 @@ ensure_rust_target_for_source() {
     channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' "$toolchain_file" | head -1)"
     [ -n "$channel" ] || die "Could not parse channel from $toolchain_file"
 
+    if ! rustup toolchain list | awk '{print $1}' | grep -q "^${channel}-"; then
+        record_installed rustup-toolchain "$channel"
+    fi
     info "Installing Rust toolchain ${channel} (from rust-toolchain.toml)..."
     rustup toolchain install "$channel"
     info "Adding target ${TARGET} to ${channel}..."
@@ -512,7 +543,10 @@ build_server() {
         unset CC_aarch64_unknown_linux_gnu CXX_aarch64_unknown_linux_gnu \
             CFLAGS_aarch64_unknown_linux_gnu CXXFLAGS_aarch64_unknown_linux_gnu \
             AR_aarch64_unknown_linux_gnu
-        cargo zigbuild --release --target "$TARGET_WITH_GLIBC"
+        # Cargo keeps finished crates, so a rerun resumes where this stopped.
+        cargo zigbuild --release --target "$TARGET_WITH_GLIBC" || die "Build failed. \
+If rustc was killed (SIGKILL), it ran out of memory: re-run with a lower \
+O2_BUILD_JOBS (now ${O2_BUILD_JOBS}, e.g. O2_BUILD_JOBS=1) or add swap."
     )
 
     local bin="$SRC_DIR/target/${TARGET}/release/openobserve"

@@ -194,8 +194,9 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
 fi
 
 # Only what setup.sh/update.sh/build-openobserve-pi.sh actually need on the
-# Pi — cross-compile-openobserve-pi.sh, deploy-openobserve-pi.sh, tunnel.sh,
-# and this script itself all run from the workstation and are left out.
+# Pi — cross-compile-openobserve-pi.sh, uninstall-cross-compile-tools.sh,
+# deploy-openobserve-pi.sh, tunnel.sh and this script itself all run from
+# the workstation and are left out.
 info "Copying deploy/scripts/telemetry to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
 ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")/dashboards"
 scp -q "$TELEMETRY_SCRIPTS_DIR/common.sh" "$TELEMETRY_SCRIPTS_DIR/setup.sh" "$TELEMETRY_SCRIPTS_DIR/update.sh" \

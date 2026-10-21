@@ -49,6 +49,11 @@ real values).
   Homebrew, apt or pacman (with `sudo`); on Debian, Zig and (if the distro's
   is older than 20) Node come from upstream tarballs under
   `.cross-build/toolchain` (`ZIG_VERSION`, `NODE_VERSION` override them).
+- **`uninstall-cross-compile-tools.sh`** — removes the build tools
+  `cross-compile-openobserve-pi.sh` installed (it records them in
+  `.cross-build/installed-tools`; tools that were already there stay), then
+  deletes `.cross-build`. `--dist` also deletes `dist/`, `--yes` skips the
+  prompt. Packages something else now depends on are skipped.
 - **`deploy-openobserve-pi.sh`** — copies a cross-compiled binary to a
   Pi over `scp`/`ssh`, installs it, and wires up (or repairs) the
   `openobserve` and `otelcol-contrib` systemd units. Prompts for the Pi's
