@@ -57,7 +57,7 @@ func (f *foreignFoldFixture) allocated(t *testing.T, userID string) bool {
 func TestDataAckBeforeRelayIgnored(t *testing.T) {
 	f, reader, eventID := newAckFixture(t)
 
-	f.rs.handleDataAck(&realtimeClient{userID: reader}, eventID)
+	f.rs.handleDataAck(context.Background(), &realtimeClient{userID: reader}, eventID)
 
 	if f.allocated(t, reader) {
 		t.Fatal("reader allocated without anything relayed")
@@ -74,7 +74,7 @@ func TestDataAckFromOtherUserIgnored(t *testing.T) {
 		t.Fatalf("MarkEventRelayed: %v", err)
 	}
 
-	f.rs.handleDataAck(&realtimeClient{userID: other}, eventID)
+	f.rs.handleDataAck(context.Background(), &realtimeClient{userID: other}, eventID)
 
 	if f.allocated(t, other) {
 		t.Fatal("a user who didn't request the reed was allocated it")
@@ -90,7 +90,7 @@ func TestDataAckAfterRelayAllocates(t *testing.T) {
 		t.Fatalf("MarkEventRelayed: %v", err)
 	}
 
-	f.rs.handleDataAck(&realtimeClient{userID: reader}, eventID)
+	f.rs.handleDataAck(context.Background(), &realtimeClient{userID: reader}, eventID)
 
 	if !f.allocated(t, reader) {
 		t.Fatal("reader not allocated after a relayed delivery was acked")
@@ -104,7 +104,7 @@ func TestDataInvalidFromOtherUserIgnored(t *testing.T) {
 	f, reader, eventID := newAckFixture(t)
 	other := f.onlineUser(t, "other")
 
-	f.rs.handleDataInvalid(&realtimeClient{userID: other}, eventID)
+	f.rs.handleDataInvalid(context.Background(), &realtimeClient{userID: other}, eventID)
 
 	if f.pendingFor(t, reader) != 1 {
 		t.Fatal("another user's DATA_INVALID must not cancel the reader's delivery")
@@ -132,7 +132,7 @@ func TestDataInvalidResetsLocalRelay(t *testing.T) {
 		t.Fatalf("mark delivered: %v", err)
 	}
 
-	f.rs.handleDataInvalid(&realtimeClient{userID: reader}, eventID)
+	f.rs.handleDataInvalid(ctx, &realtimeClient{userID: reader}, eventID)
 
 	var dispatched, relayed bool
 	if err := f.db.QueryRow(`SELECT dispatched_at IS NOT NULL, relayed_at IS NOT NULL FROM pending_events WHERE event_id = $1`, eventID).Scan(&dispatched, &relayed); err != nil {
@@ -184,7 +184,7 @@ func TestRelayResponseFromOtherUserIgnored(t *testing.T) {
 	f, holder, eventID := newRelayDispatchFixture(t)
 	other := f.onlineUser(t, "other")
 
-	f.rs.handleRelayResponse(&realtimeClient{userID: other}, eventID, "ciphertext")
+	f.rs.handleRelayResponse(context.Background(), &realtimeClient{userID: other}, eventID, "ciphertext")
 
 	if to, relayed := f.dispatchState(t, eventID); relayed || to != holder {
 		t.Fatalf("dispatched_to=%q relayed=%v: a non-holder's response was accepted", to, relayed)
@@ -195,7 +195,7 @@ func TestRelayMissFromOtherUserIgnored(t *testing.T) {
 	f, holder, eventID := newRelayDispatchFixture(t)
 	other := f.onlineUser(t, "other")
 
-	f.rs.handleRelayMiss(other, eventID)
+	f.rs.handleRelayMiss(context.Background(), other, eventID)
 
 	if to, _ := f.dispatchState(t, eventID); to != holder {
 		t.Fatalf("dispatched_to=%q: a non-holder's miss reset the dispatch", to)
@@ -208,7 +208,7 @@ func TestRelayMissFromOtherUserIgnored(t *testing.T) {
 func TestRelayMissFromHolderResetsDispatch(t *testing.T) {
 	f, holder, eventID := newRelayDispatchFixture(t)
 
-	f.rs.handleRelayMiss(holder, eventID)
+	f.rs.handleRelayMiss(context.Background(), holder, eventID)
 
 	if f.allocated(t, holder) {
 		t.Fatal("holder's miss should drop their allocation")

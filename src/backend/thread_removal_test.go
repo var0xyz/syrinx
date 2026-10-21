@@ -135,7 +135,7 @@ func TestThreadRemoval_ReachesHolderOfOnePart(t *testing.T) {
 	if _, err := ds.MarkEventDispatched(ctx, eventID, bob); err != nil {
 		t.Fatal(err)
 	}
-	rs.handleDataAck(&realtimeClient{userID: bob}, eventID)
+	rs.handleDataAck(ctx, &realtimeClient{userID: bob}, eventID)
 	if got := allocatedTo(t, ds, bob); len(got) != 0 {
 		t.Fatalf("bob still holds %v after acking the removal", got)
 	}

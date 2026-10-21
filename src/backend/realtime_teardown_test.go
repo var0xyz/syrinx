@@ -87,7 +87,7 @@ func TestDisconnectCancelsForeignRelayRequests(t *testing.T) {
 		return nil
 	})
 
-	rs.teardownUser(viewer)
+	rs.teardownUser(ctx, viewer)
 	rs.peerCalls.Wait()
 	if err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
@@ -226,7 +226,7 @@ func TestReaperFlushesPongsBeforeEvicting(t *testing.T) {
 	rs.connManager.mutex.Unlock()
 
 	ageTeardownPresence(t, db, viewer)
-	rs.handlePong(client)
+	rs.handlePong(context.Background(), client)
 	rs.reapStalePresence()
 
 	if n := countTeardownRows(t, db, "online_users"); n != 1 {

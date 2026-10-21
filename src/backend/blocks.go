@@ -423,11 +423,11 @@ func newUserBlockedMsg(requestID string, cert *BlockCert) *pb.WSMessage {
 
 // blockedBy returns authorID's block of viewerID, nil when there is none or
 // the lookup failed.
-func (rs *realtimeService) blockedBy(authorID, viewerID string) *BlockCert {
+func (rs *realtimeService) blockedBy(ctx context.Context, authorID, viewerID string) *BlockCert {
 	if authorID == "" || authorID == viewerID {
 		return nil
 	}
-	cert, err := rs.db.GetBlock(context.Background(), authorID, viewerID)
+	cert, err := rs.db.GetBlock(ctx, authorID, viewerID)
 	if err != nil {
 		log.Error().Err(err).Str("authorID", authorID).Str("viewerID", viewerID).Msg("Failed to load block")
 		return nil
@@ -437,12 +437,12 @@ func (rs *realtimeService) blockedBy(authorID, viewerID string) *BlockCert {
 
 // refuseIfBlocked answers a client's request for authorID's content with
 // USER_BLOCKED when authorID blocked them.
-func (rs *realtimeService) refuseIfBlocked(client *realtimeClient, requestID, authorID string) bool {
-	cert := rs.blockedBy(authorID, client.userID)
+func (rs *realtimeService) refuseIfBlocked(ctx context.Context, client *realtimeClient, requestID, authorID string) bool {
+	cert := rs.blockedBy(ctx, authorID, client.userID)
 	if cert == nil {
 		return false
 	}
-	rs.metrics.BlockRefusal(context.Background(), client.userID, authorID, metrics.SurfaceWS)
+	rs.metrics.BlockRefusal(ctx, client.userID, authorID, metrics.SurfaceWS)
 	rs.connManager.SendToUser(client.userID, newUserBlockedMsg(requestID, cert))
 	return true
 }
@@ -594,7 +594,7 @@ func (h *Handlers) afterBlock(cert BlockCert, dropped []string) {
 		return
 	}
 	for _, reedID := range dropped {
-		h.realtimeRelay.notifyReedCoverage(reedID)
+		h.realtimeRelay.notifyReedCoverage(context.Background(), reedID)
 	}
 	h.realtimeRelay.pushBlock(&cert)
 }
@@ -685,8 +685,7 @@ func (rs *realtimeService) pushUnblock(userID, blockedUserID string) {
 }
 
 // catchUpBlocks sends userID every block and lift they haven't acked.
-func (rs *realtimeService) catchUpBlocks(blockedUserID string) {
-	ctx := context.Background()
+func (rs *realtimeService) catchUpBlocks(ctx context.Context, blockedUserID string) {
 	events, err := rs.db.BlockEventsFor(ctx, blockedUserID)
 	if err != nil {
 		log.Error().Err(err).Str("blockedUserID", blockedUserID).Msg("Failed to load owed block events")
@@ -697,7 +696,7 @@ func (rs *realtimeService) catchUpBlocks(blockedUserID string) {
 			rs.connManager.SendToUser(blockedUserID, newUserUnblockedMsg(e.UserID))
 			continue
 		}
-		cert := rs.blockedBy(e.UserID, blockedUserID)
+		cert := rs.blockedBy(ctx, e.UserID, blockedUserID)
 		if cert == nil {
 			continue
 		}
@@ -706,12 +705,12 @@ func (rs *realtimeService) catchUpBlocks(blockedUserID string) {
 }
 
 // ackBlockEvent drops the event a client acked.
-func (rs *realtimeService) ackBlockEvent(client *realtimeClient, userID, kind string) {
+func (rs *realtimeService) ackBlockEvent(ctx context.Context, client *realtimeClient, userID, kind string) {
 	if userID == "" {
 		return
 	}
 	e := blockEvent{UserID: userID, BlockedUserID: client.userID, Kind: kind}
-	if err := rs.db.DeleteBlockEvent(context.Background(), e); err != nil {
+	if err := rs.db.DeleteBlockEvent(ctx, e); err != nil {
 		log.Error().Err(err).Str("userID", userID).Str("userID", client.userID).Msg("Failed to drop acked block event")
 	}
 }
