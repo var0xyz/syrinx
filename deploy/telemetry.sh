@@ -137,7 +137,10 @@ ok "SSH OK"
 REMOTE_ENV=""
 if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     "tr -d '\\0' </proc/device-tree/model 2>/dev/null | grep -qi 'raspberry pi'"; then
-    O2_VERSION="$(ssh "$DEPLOY_HOST" "sudo grep -s '^O2_VERSION=' $(printf '%q' "$REMOTE_DIR")/telemetry.env" | cut -d= -f2- || true)"
+    # shellcheck source=scripts/telemetry/remote-sudo.sh
+    . "$TELEMETRY_SCRIPTS_DIR/remote-sudo.sh"
+    remote_sudo_init
+    O2_VERSION="$(remote_sudo "sudo grep -s '^O2_VERSION=' $(printf '%q' "$REMOTE_DIR")/telemetry.env" | cut -d= -f2- || true)"
     O2_VERSION="${O2_VERSION:-0.91.5}"
     O2_VERSION_TAG="v${O2_VERSION#v}"
     O2_ARTIFACT_NAME="openobserve-${O2_VERSION_TAG}-pi-arm64"
@@ -145,7 +148,7 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     REMOTE_ARTIFACT="/var/lib/openobserve/build/$O2_ARTIFACT_NAME"
 
     existing="" existing_src=""
-    if ssh "$DEPLOY_HOST" "sudo test -x $(printf '%q' "$REMOTE_ARTIFACT")"; then
+    if remote_sudo "sudo test -x $(printf '%q' "$REMOTE_ARTIFACT")"; then
         existing="on the Pi ($REMOTE_ARTIFACT)" existing_src="pi"
     elif [ -f "$LOCAL_ARTIFACT" ]; then
         existing="on this machine ($LOCAL_ARTIFACT)" existing_src="local"
@@ -165,7 +168,7 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     for opt in "${options[@]}"; do
         case "$opt" in
             existing) echo "  $i) Use the already compiled binary ${existing}" ;;
-            cross)    echo "  $i) Cross-compile on this machine (minutes)" ;;
+            cross)    echo "  $i) Cross-compile on this machine (~1 hour, needs ~24 GB RAM+swap)" ;;
             pi)       echo "  $i) Build on the Pi (1–3+ hours)" ;;
         esac
         i=$((i + 1))
@@ -186,6 +189,7 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
             # Uploads the local artifact into the Pi's cache.
             if [ "$O2_BUILD_CHOICE" = "cross" ] || [ "$existing_src" = "local" ]; then
                 DEPLOY_HOST="$DEPLOY_HOST" O2_VERSION="$O2_VERSION" RESTART=0 \
+                    REMOTE_SUDO_PASSWORD="$REMOTE_SUDO_PASSWORD" \
                     "$TELEMETRY_SCRIPTS_DIR/deploy-openobserve-pi.sh"
             fi
             ;;
@@ -194,9 +198,8 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
 fi
 
 # Only what setup.sh/update.sh/build-openobserve-pi.sh actually need on the
-# Pi — cross-compile-openobserve-pi.sh, uninstall-cross-compile-tools.sh,
-# deploy-openobserve-pi.sh, tunnel.sh and this script itself all run from
-# the workstation and are left out.
+# Pi — the cross-compile, uninstall, watch, deploy, remote-sudo and tunnel
+# scripts and this script itself all run from the workstation and are left out.
 info "Copying deploy/scripts/telemetry to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
 ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")/dashboards"
 scp -q "$TELEMETRY_SCRIPTS_DIR/common.sh" "$TELEMETRY_SCRIPTS_DIR/setup.sh" "$TELEMETRY_SCRIPTS_DIR/update.sh" \

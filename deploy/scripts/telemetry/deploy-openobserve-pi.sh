@@ -57,6 +57,9 @@ die() { echo "Error: $*" >&2; exit 1; }
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
+# shellcheck source=remote-sudo.sh
+. "$SCRIPT_DIR/remote-sudo.sh"
+
 load_saved_host() {
     if [ -f "$DEPLOY_ENV" ]; then
         # shellcheck disable=SC1090
@@ -109,9 +112,9 @@ prompt_host() {
 }
 
 remote_file_fingerprint() {
-    local host="$1" path="$2"
+    local path="$1"
     # Cache dir is root-owned (0700) — must use sudo to see/hash the file.
-    ssh "$host" "sudo test -f $(printf '%q' "$path") || exit 0
+    remote_sudo "sudo test -f $(printf '%q' "$path") || exit 0
       size=\$(sudo stat -c%s $(printf '%q' "$path"))
       sum=\$(sudo sha256sum $(printf '%q' "$path") | awk '{print \$1}')
       printf '%s %s' \"\$size\" \"\$sum\""
@@ -159,12 +162,13 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
     die "Cannot SSH to $DEPLOY_HOST — check IP, user, and that the Pi is reachable on this network"
 fi
 ok "SSH OK"
+remote_sudo_init
 
 info "Ensuring cache dir on Pi..."
-ssh "$DEPLOY_HOST" "sudo mkdir -p $(printf '%q' "$DEPLOY_PATH")"
+remote_sudo "sudo mkdir -p $(printf '%q' "$DEPLOY_PATH")"
 
 LOCAL_FP="$(local_file_fingerprint "$ARTIFACT")"
-REMOTE_FP="$(remote_file_fingerprint "$DEPLOY_HOST" "$REMOTE_CACHE" || true)"
+REMOTE_FP="$(remote_file_fingerprint "$REMOTE_CACHE" || true)"
 
 NEED_COPY=1
 if [ "$FORCE_COPY" = "1" ]; then
@@ -192,7 +196,7 @@ else
 fi
 
 info "Installing to ${REMOTE_CACHE} and /usr/local/bin/openobserve..."
-ssh "$DEPLOY_HOST" "sudo install -o root -g root -m 755 $(printf '%q' "$SOURCE_ON_PI") $(printf '%q' "$REMOTE_CACHE")
+remote_sudo "sudo install -o root -g root -m 755 $(printf '%q' "$SOURCE_ON_PI") $(printf '%q' "$REMOTE_CACHE")
   sudo install -o root -g root -m 755 $(printf '%q' "$REMOTE_CACHE") /usr/local/bin/openobserve
   if [ -f $(printf '%q' "${TMP_REMOTE}.version") ]; then
     sudo install -o root -g root -m 644 $(printf '%q' "${TMP_REMOTE}.version") $(printf '%q' "${REMOTE_CACHE}.version")
@@ -202,7 +206,7 @@ ssh "$DEPLOY_HOST" "sudo install -o root -g root -m 755 $(printf '%q' "$SOURCE_O
   true"
 
 # Remember install mode so on-Pi update.sh does not start a source build.
-ssh "$DEPLOY_HOST" "sudo bash -s" <<'REMOTE'
+remote_sudo_stdin "sudo bash -s" <<'REMOTE'
 set -euo pipefail
 for f in /home/*/scripts/telemetry.env /root/scripts/telemetry.env; do
   [ -f "$f" ] || continue
@@ -218,7 +222,7 @@ ok "Installed /usr/local/bin/openobserve (cached at $REMOTE_CACHE, origin=cross)
 
 # Ensure systemd unit + service user exist (config may already be on the Pi).
 info "Wiring openobserve.service..."
-ssh "$DEPLOY_HOST" "sudo bash -s" <<'REMOTE'
+remote_sudo_stdin "sudo bash -s" <<'REMOTE'
 set -euo pipefail
 O2_USER=openobserve
 O2_DATA_DIR=/var/lib/openobserve
@@ -263,7 +267,7 @@ REMOTE
 
 # OTEL collector bridges app hosts (:4317/:4318) → OpenObserve (:5081).
 info "Wiring otelcol-contrib (OTLP collector)..."
-ssh "$DEPLOY_HOST" "sudo bash -s" <<'REMOTE'
+remote_sudo_stdin "sudo bash -s" <<'REMOTE'
 set -euo pipefail
 O2_ENV_FILE=/etc/openobserve/openobserve.env
 OTEL_CONFIG=/etc/otelcol/config.yaml
@@ -427,7 +431,7 @@ systemctl daemon-reload
 echo "OTEL_OK org=${org} stream=${stream}"
 REMOTE
 
-if ! ssh "$DEPLOY_HOST" "sudo test -f /etc/openobserve/openobserve.env"; then
+if ! remote_sudo "sudo test -f /etc/openobserve/openobserve.env"; then
     echo ""
     echo "No /etc/openobserve/openobserve.env on the Pi yet."
     echo "Run first-time setup on the Pi:"
@@ -436,7 +440,7 @@ if ! ssh "$DEPLOY_HOST" "sudo test -f /etc/openobserve/openobserve.env"; then
     echo "Cached binary is at $REMOTE_CACHE"
 elif [ "$RESTART" = "1" ]; then
     info "Enabling and restarting openobserve.service..."
-    if ssh "$DEPLOY_HOST" "sudo systemctl enable openobserve.service >/dev/null 2>&1 || true
+    if remote_sudo "sudo systemctl enable openobserve.service >/dev/null 2>&1 || true
         sudo systemctl restart openobserve.service
         for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
           code=\$(curl -sS -m 2 -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/ 2>/dev/null || echo 000)
@@ -448,13 +452,13 @@ elif [ "$RESTART" = "1" ]; then
         ok "openobserve.service is up on port 5080"
     else
         echo "Warning: service did not become ready. Recent logs:" >&2
-        ssh "$DEPLOY_HOST" "sudo journalctl -u openobserve -n 40 --no-pager" >&2 || true
+        remote_sudo "sudo journalctl -u openobserve -n 40 --no-pager" >&2 || true
         echo "If you see 'ZO_ROOT_USER_PASSWORD is too weak', set a stronger password in /etc/openobserve/openobserve.env" >&2
         exit 1
     fi
 
     info "Enabling and restarting otelcol-contrib.service..."
-    if ssh "$DEPLOY_HOST" "sudo systemctl enable otelcol-contrib.service >/dev/null 2>&1 || true
+    if remote_sudo "sudo systemctl enable otelcol-contrib.service >/dev/null 2>&1 || true
         sudo systemctl restart otelcol-contrib.service
         sleep 2
         systemctl is-active otelcol-contrib.service
@@ -462,7 +466,7 @@ elif [ "$RESTART" = "1" ]; then
         ok "otelcol-contrib is up on :4317 (gRPC) / :4318 (HTTP)"
     else
         echo "Warning: otelcol-contrib failed to start. Logs:" >&2
-        ssh "$DEPLOY_HOST" "sudo journalctl -u otelcol-contrib -n 40 --no-pager" >&2 || true
+        remote_sudo "sudo journalctl -u otelcol-contrib -n 40 --no-pager" >&2 || true
         exit 1
     fi
 else
@@ -476,12 +480,12 @@ echo "  OTLP: ${HOST_ONLY}:4317 (gRPC) / ${HOST_ONLY}:4318 (HTTP)"
 echo "  Saved host to $DEPLOY_ENV (used as default next run)"
 echo "  On the Syrinx host, point OTEL at ${HOST_ONLY} (scripts/setup.sh)."
 
-if ssh "$DEPLOY_HOST" "sudo test -f /etc/openobserve/openobserve.env"; then
+if remote_sudo "sudo test -f /etc/openobserve/openobserve.env"; then
     echo ""
     echo "Login (from /etc/openobserve/openobserve.env on the Pi):"
     # Password is withheld from stdout by default (shell history/scrollback/CI
     # logs are not a safe place for it). Pass --show-password to print it.
-    ssh "$DEPLOY_HOST" "sudo awk -F= '
+    remote_sudo "sudo awk -F= '
       \$1 == \"ZO_ROOT_USER_EMAIL\" { email = substr(\$0, index(\$0, \"=\") + 1) }
       \$1 == \"ZO_ROOT_USER_PASSWORD\" { pass = (\"${SHOW_PASSWORD}\" == \"1\") ? substr(\$0, index(\$0, \"=\") + 1) : \"(hidden — rerun with --show-password, or read the file on the Pi)\" }
       END {
