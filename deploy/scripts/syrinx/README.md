@@ -25,8 +25,11 @@ permissions and are never committed to git.
   `EDGE_MODE=mtls`. See "Public edge: Cloudflare Tunnel vs. mTLS" below.
 - **`setup.sh`** — the main installer. Idempotent: safe to re-run any time to
   repair config drift or pick up new settings. See "What setup.sh does" below.
-- **`update.sh [--branch <name>]`** — pulls the latest code, rebuilds, and
-  restarts. `--branch` clones that branch instead of `APP_REPO`'s default.
+- **`update.sh [--branch <name>] [--repo <url>]`** — pulls the latest code,
+  rebuilds, and restarts. `--branch` clones that branch instead of the repo's
+  default; `--repo` clones that repo (e.g. a fork) instead of
+  `https://github.com/var0xyz/syrinx`. `setup.sh` takes both too. Neither is
+  saved, so pass them on every run.
   Does not touch the firewall, the database, or the public edge (Cloudflare
   tunnel or mTLS material — both are repaired in place if missing/drifted,
   never reconfigured). Use this for routine deploys once `setup.sh` has run
@@ -109,6 +112,7 @@ first:
 ./syrinx.sh setup                        # first-time install
 ./syrinx.sh update                       # routine deploy
 ./syrinx.sh update --branch canonicalmerge  # deploy a specific branch
+./syrinx.sh update --repo https://github.com/someone/syrinx.git  # deploy a fork
 ./syrinx.sh restart
 ./syrinx.sh signup-mode invite
 ./syrinx.sh psql -c 'select count(*) from users;'

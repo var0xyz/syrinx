@@ -4,19 +4,26 @@
 # UNIFIED SECURE DEPLOYMENT ENGINE (Idempotent Architecture Blueprint)
 # Target Environment: Raspberry Pi 5 / Debian 13 (Trixie)
 #
-# Usage: ./setup.sh [--branch <name>]
-#   --branch <name>   Clone this branch instead of APP_REPO's default branch.
+# Usage: ./setup.sh [--branch <name>] [--repo <url>]
+#   --branch <name>   Clone this branch instead of the repo's default branch.
+#   --repo <url>      Clone this repo (e.g. a fork) instead of the official one.
 # ==============================================================================
 
 # Exit immediately if a command exits with a non-zero status
 set -e
 
 BRANCH=""
+REPO_OVERRIDE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --branch)
             [ $# -ge 2 ] || { echo "❌ Error: --branch requires a value"; exit 1; }
             BRANCH="$2"
+            shift 2
+            ;;
+        --repo)
+            [ $# -ge 2 ] || { echo "❌ Error: --repo requires a value"; exit 1; }
+            REPO_OVERRIDE="$2"
             shift 2
             ;;
         *)
@@ -67,18 +74,16 @@ fi
 
 echo "📝 Please configure your application parameters below:"
 
-read -p "🔹 Enter System Identifier/Application Name [${APP_NAME:-myapp}]: " APP_NAME_INPUT
+read -p "🔹 Enter System Identifier/Application Name [${APP_NAME:-syrinx}]: " APP_NAME_INPUT
 APP_NAME=$(echo "${APP_NAME_INPUT:-$APP_NAME}" | tr -d ' ' | tr 'A-Z' 'a-z')
-APP_NAME="${APP_NAME:-myapp}"
+APP_NAME="${APP_NAME:-syrinx}"
 
 read -p "🔹 Enter your Public Registered Domain [${APP_DOMAIN:-}]: " APP_DOMAIN_INPUT
 APP_DOMAIN="${APP_DOMAIN_INPUT:-$APP_DOMAIN}"
 
-read -p "🔹 Enter GitHub Repository URL (monorepo) [${APP_REPO:-}]: " APP_REPO_INPUT
-APP_REPO="${APP_REPO_INPUT:-$APP_REPO}"
-
-# Fixed to Syrinx's own repo layout — this script deploys Syrinx specifically,
-# not an arbitrary app, so these aren't user-configurable.
+# Fixed to Syrinx's own layout — this script deploys Syrinx specifically, not
+# an arbitrary app. The repo is the official one unless --repo names a fork.
+APP_REPO="${REPO_OVERRIDE:-https://github.com/var0xyz/syrinx.git}"
 BACKEND_PATH="src/backend"
 FRONTEND_PATH="src/frontend"
 
@@ -167,8 +172,8 @@ else
     echo "📡 Observability: disabled (no OTEL collector)"
 fi
 
-if [ -z "$APP_DOMAIN" ] || [ -z "$APP_REPO" ]; then
-    echo "❌ Error: APP_DOMAIN and APP_REPO are required."
+if [ -z "$APP_DOMAIN" ]; then
+    echo "❌ Error: APP_DOMAIN is required."
     exit 1
 fi
 if [ "$EDGE_MODE" = "cloudflare" ] && [ -z "$CF_TOKEN" ]; then
@@ -181,7 +186,6 @@ umask 077
 {
     printf "APP_NAME=%q\n" "$APP_NAME"
     printf "APP_DOMAIN=%q\n" "$APP_DOMAIN"
-    printf "APP_REPO=%q\n" "$APP_REPO"
     printf "EDGE_MODE=%q\n" "$EDGE_MODE"
     printf "CF_TOKEN=%q\n" "$CF_TOKEN"
     printf "CF_DNS_TOKEN=%q\n" "${CF_DNS_TOKEN:-}"

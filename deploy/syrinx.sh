@@ -7,8 +7,10 @@
 #   ./syrinx.sh <command> [args...]
 #
 # Commands (map 1:1 to the script of the same name on the host):
-#   setup [--branch <name>]     sudo ./setup.sh [--branch <name>]
-#   update [--branch <name>]    sudo ./update.sh [--branch <name>]
+#   setup [--branch <name>] [--repo <url>]
+#                               sudo ./setup.sh [same args]
+#   update [--branch <name>] [--repo <url>]
+#                               sudo ./update.sh [same args]
 #   restart                     sudo ./restart.sh
 #   signup-mode <mode>          sudo ./set-signup-mode.sh <mode>
 #   psql [args...]              sudo ./psql.sh [args...]
@@ -20,6 +22,7 @@
 #   ./syrinx.sh setup
 #   DEPLOY_HOST=pi@10.0.0.50 ./syrinx.sh update
 #   ./syrinx.sh update --branch canonicalmerge
+#   ./syrinx.sh update --repo https://github.com/someone/syrinx.git
 #   ./syrinx.sh signup-mode invite
 #   ./syrinx.sh psql -c 'select count(*) from users;'
 #   ./syrinx.sh server-key

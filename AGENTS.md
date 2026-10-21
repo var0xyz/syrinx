@@ -380,7 +380,8 @@ the full command map). It reuses the host saved in
 `deploy/scripts/syrinx/deploy.env`; only `setup` may (re)establish that host.
 
 **`setup.sh` is interactive** (confirms/collects `APP_NAME`, `APP_DOMAIN`,
-`APP_REPO`, `EDGE_MODE`, Cloudflare tokens, `TELEMETRY_HOST`) but every prompt
+`EDGE_MODE`, Cloudflare tokens, `TELEMETRY_HOST`; the repo is never asked:
+`https://github.com/var0xyz/syrinx` unless `--repo <url>` names a fork) but every prompt
 falls back to the value already saved in `~/syrinx/setup.env` on the host when
 given a blank line. So once a host has been set up once, a non-interactive
 agent/CI run can re-run it by piping blank lines through:
