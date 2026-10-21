@@ -429,11 +429,12 @@ fetch_source() {
         info "Updating OpenObserve source → ${VERSION_TAG}..."
         git -C "$SRC_DIR" fetch --tags origin
         git -C "$SRC_DIR" checkout -f "$VERSION_TAG"
-        # Preserve web/dist when SKIP_WEB=1 so npm build can be skipped.
+        # Keep target/ so a rerun reuses compiled crates (an hour on small
+        # machines); keep web/dist when SKIP_WEB=1 so npm build can be skipped.
         if [ "$SKIP_WEB" = "1" ]; then
-            git -C "$SRC_DIR" clean -fdx -e web/dist
+            git -C "$SRC_DIR" clean -fdx -e target -e web/dist
         else
-            git -C "$SRC_DIR" clean -fdx
+            git -C "$SRC_DIR" clean -fdx -e target
         fi
     else
         info "Cloning OpenObserve ${VERSION_TAG}..."
@@ -547,8 +548,9 @@ build_server() {
             AR_aarch64_unknown_linux_gnu
         # Cargo keeps finished crates, so a rerun resumes where this stopped.
         cargo zigbuild --release --target "$TARGET_WITH_GLIBC" || die "Build failed. \
-If rustc was killed (SIGKILL), it ran out of memory: re-run with a lower \
-O2_BUILD_JOBS (now ${O2_BUILD_JOBS}, e.g. O2_BUILD_JOBS=1) or add swap."
+If rustc was killed (SIGKILL), it ran out of memory: the openobserve crate \
+alone peaks at ~22 GB, so add swap until RAM+swap is ~24 GB (a lower \
+O2_BUILD_JOBS, now ${O2_BUILD_JOBS}, only helps a little)."
     )
 
     local bin="$SRC_DIR/target/${TARGET}/release/openobserve"

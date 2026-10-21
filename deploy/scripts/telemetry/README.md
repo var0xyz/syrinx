@@ -54,6 +54,12 @@ real values).
   `.cross-build/installed-tools`; tools that were already there stay), then
   deletes `.cross-build`. `--dist` also deletes `dist/`, `--yes` skips the
   prompt. Packages something else now depends on are skipped.
+- **`watch-cross-compile.sh`** — macOS only: runs
+  `cross-compile-openobserve-pi.sh` in tmux beside a memory monitor
+  (pressure level, swap, compressor, free disk, thermal limit, top processes
+  every 5s), logging both to `./o2-logs/<timestamp>/` in the current
+  directory and syncing to disk each sample, so the lead-up to a crash
+  survives a reboot.
 - **`deploy-openobserve-pi.sh`** — copies a cross-compiled binary to a
   Pi over `scp`/`ssh`, installs it, and wires up (or repairs) the
   `openobserve` and `otelcol-contrib` systemd units. Prompts for the Pi's
@@ -77,6 +83,43 @@ a quick smoke test (spin the binary up against a throwaway localhost
 instance) before trusting it. Cross-compiling on a workstation
 (`cross-compile-*`, macOS or Debian/Arch Linux) is faster; building on-Pi
 (`build-openobserve-pi.sh`) is the fallback when neither is available.
+
+## Cross-compile requirements
+
+Building OpenObserve v0.91.5 on an M1 Mac mini with 8 GB of RAM takes
+**about an hour**.
+
+**Memory.** One `rustc` compiles the `openobserve` crate and peaks at
+**~22 GB** on its own. `O2_BUILD_JOBS` limits how many crates build at once,
+not that one crate's peak, so lowering it barely helps: what matters is
+RAM + swap of **~24 GB or more**. With 32 GB of RAM it never swaps; with
+less, most of the build time is spent swapping.
+
+- **macOS** swaps to the system disk and grows swap on demand. On the 8 GB
+  M1 swap reached ~10 GB (plus ~3.7 GB compressed) and free disk fell from
+  22 GB to 12 GB during the build. If swap can't grow, macOS stalls until
+  the watchdog panics and reboots the machine (the panic report in
+  `/Library/Logs/DiagnosticReports/` says `watchdog timeout: no checkins from
+  watchdogd` with `LOW swap space`). Start with **~25–30 GB of free disk**
+  on an 8 GB Mac.
+- **Linux** swap doesn't grow by itself: once RAM + swap runs out, the OOM
+  killer `SIGKILL`s `rustc` (`journalctl -k | grep -i oom` confirms it).
+  Add a swapfile until RAM + swap is ~24 GB before building.
+
+**Disk.** Besides swap: `.cross-build` is ~6 GB after a build (~5 GB of it
+the Rust `target/` cache, ~850 MB `node_modules`), the pinned nightly
+toolchain in `~/.rustup` ~3.5 GB, and the binary in `dist/` ~330 MB.
+
+**Re-runs** keep `target/`, so after a crash the build picks up from the
+crates it already compiled instead of starting over.
+`uninstall-cross-compile-tools.sh` deletes the cache and the tools when
+you're done; `watch-cross-compile.sh` (macOS) logs memory, swap and free
+disk next to the build so a crash leaves a record.
+
+On Arch-based hosts, installing missing packages runs `pacman -Syu` (a full
+upgrade, which pacman asks you to confirm): a stale package database
+otherwise 404s on mirrors. If it still 404s on Manjaro, refresh the mirror
+list with `sudo pacman-mirrors --fasttrack`.
 
 ## First run
 

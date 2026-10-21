@@ -4,9 +4,11 @@ __pycache__
 bin/
 deploy/scripts/syrinx/client-certs/
 deploy/scripts/syrinx/root-creds/
+deploy/scripts/telemetry/dist/
 docs/.vitepress/cache
 docs/.vitepress/dist
 docs/node_modules
+o2-logs/
 src/frontend/.svelte-kit
 src/frontend/build
 src/frontend/certs
