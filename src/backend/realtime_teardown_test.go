@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/gorilla/websocket"
 	"testing"
 )
 
@@ -160,8 +161,8 @@ func TestEvictStalePresenceSparesRefreshedRow(t *testing.T) {
 		t.Fatalf("stale = %v, want [%s]", stale, viewer)
 	}
 
-	if _, err := rs.db.RecordPong(ctx, viewer); err != nil {
-		t.Fatalf("RecordPong: %v", err)
+	if _, err := rs.db.RecordPongs(ctx, []string{viewer}); err != nil {
+		t.Fatalf("RecordPongs: %v", err)
 	}
 	gone, err := rs.db.EvictStalePresence(ctx, viewer, realtimePresenceTTL)
 	if err != nil {
@@ -191,20 +192,48 @@ func TestMarkUserOnlineRefreshesHeartbeat(t *testing.T) {
 	}
 }
 
-// A PONG for a reaped row reports it, so the socket can be closed.
-func TestRecordPongReportsMissingRow(t *testing.T) {
-	_, rs, viewer := newTeardownTestService(t)
+// A PONG for a reaped row reports it, so the socket can be closed; others
+// in the same batch are still refreshed.
+func TestRecordPongsReportsMissingRow(t *testing.T) {
+	db, rs, viewer := newTeardownTestService(t)
 	ctx := context.Background()
 
+	other := string(canonicalID(teardownHomeID, "other"))
+	insertTeardownIdentity(t, db, other, teardownHomeID)
+	if err := rs.db.MarkUserOnline(ctx, other); err != nil {
+		t.Fatalf("MarkUserOnline: %v", err)
+	}
 	if err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
 	}
-	live, err := rs.db.RecordPong(ctx, viewer)
+	live, err := rs.db.RecordPongs(ctx, []string{viewer, other})
 	if err != nil {
-		t.Fatalf("RecordPong: %v", err)
+		t.Fatalf("RecordPongs: %v", err)
 	}
-	if live {
-		t.Fatal("expected RecordPong to report no presence row")
+	if live[viewer] || !live[other] {
+		t.Fatalf("live = %v, want only %s", live, other)
+	}
+}
+
+// A PONG is only flagged on the client; the reaper writes it before looking
+// for stale rows, so a client that PONGed since the last pass survives.
+func TestReaperFlushesPongsBeforeEvicting(t *testing.T) {
+	db, rs, viewer := newTeardownTestService(t)
+
+	client := &realtimeClient{userID: viewer}
+	rs.connManager.mutex.Lock()
+	rs.connManager.userConnections[viewer] = map[*websocket.Conn]*realtimeClient{{}: client}
+	rs.connManager.mutex.Unlock()
+
+	ageTeardownPresence(t, db, viewer)
+	rs.handlePong(client)
+	rs.reapStalePresence()
+
+	if n := countTeardownRows(t, db, "online_users"); n != 1 {
+		t.Fatalf("expected the PONGed client's row to survive, got %d rows", n)
+	}
+	if client.pongPending.Load() {
+		t.Fatal("expected the reaper to clear the pending PONG")
 	}
 }
 

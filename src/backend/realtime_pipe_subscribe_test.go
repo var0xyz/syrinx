@@ -199,9 +199,9 @@ func TestStalePresenceEviction(t *testing.T) {
 	}
 }
 
-// RecordPong refreshes the heartbeat, which is what keeps a live client
+// RecordPongs refreshes the heartbeat, which is what keeps a live client
 // from being reaped.
-func TestRecordPongRefreshesHeartbeat(t *testing.T) {
+func TestRecordPongsRefreshesHeartbeat(t *testing.T) {
 	db := openPipeTestDB(t)
 	svc := NewDataService(db, pipeTestServerID)
 	ctx := context.Background()
@@ -216,12 +216,12 @@ func TestRecordPongRefreshesHeartbeat(t *testing.T) {
 		t.Fatalf("age last_pong: %v", err)
 	}
 
-	live, err := svc.RecordPong(ctx, viewer)
+	live, err := svc.RecordPongs(ctx, []string{viewer})
 	if err != nil {
-		t.Fatalf("RecordPong: %v", err)
+		t.Fatalf("RecordPongs: %v", err)
 	}
-	if !live {
-		t.Fatal("expected RecordPong to find the presence row")
+	if !live[viewer] {
+		t.Fatal("expected RecordPongs to find the presence row")
 	}
 
 	stale, err := svc.StalePresence(ctx, realtimePresenceTTL)

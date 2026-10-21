@@ -8105,19 +8105,27 @@ func (s *DataService) SetPeerDown(ctx context.Context, serverID string, down boo
 	return err
 }
 
-// RecordPong refreshes a user's liveness heartbeat, reporting whether a
-// presence row was there to refresh. The SPA sends PONG once a minute;
-// the reaper evicts anything older than two.
-func (s *DataService) RecordPong(ctx context.Context, userID string) (bool, error) {
-	selfIdentity := identityID(userID)
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE online_users SET last_pong = CURRENT_TIMESTAMP WHERE user_id = $1
-	`, selfIdentity)
+// RecordPongs refreshes the heartbeat of several users in one statement and
+// reports which still had a presence row (the rest were reaped).
+func (s *DataService) RecordPongs(ctx context.Context, userIDs []string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		UPDATE online_users SET last_pong = CURRENT_TIMESTAMP
+		WHERE user_id = ANY($1)
+		RETURNING user_id
+	`, pq.Array(userIDs))
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	defer rows.Close()
+	live := make(map[string]bool, len(userIDs))
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		live[userID] = true
+	}
+	return live, rows.Err()
 }
 
 // StalePresence lists users whose heartbeat is older than ttl. Nothing is
