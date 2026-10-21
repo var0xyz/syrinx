@@ -17,8 +17,8 @@
 # Set FORCE_HOST_PROMPT=1 to be asked again (e.g. switching hosts).
 #
 # Reads APP_NAME from ~/syrinx/setup.env on the host (the directory
-# deploy.sh copies scripts to and setup.sh saves its answers in), so run
-# ./deploy.sh setup at least once on this host before this script.
+# deploy/syrinx.sh copies scripts to and setup.sh saves its answers in), so run
+# ./deploy/syrinx.sh setup at least once on this host before this script.
 #
 # Downloads the latest syrinx-1-*.sxi.gpg and its .passphrase sidecar over
 # SSH (sudo cat, since both are root-export-user-owned 600 files — nothing
@@ -36,6 +36,8 @@ REMOTE_DIR="${REMOTE_DIR:-syrinx}"
 OUT_DIR="${OUT_DIR:-$SCRIPT_DIR/root-creds}"
 
 die() { echo "Error: $*" >&2; exit 1; }
+# shellcheck source=../remote-sudo.sh
+. "$SCRIPT_DIR/../remote-sudo.sh"
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
@@ -112,23 +114,24 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
     die "Cannot SSH to $DEPLOY_HOST — check IP, user, and that the host is reachable on this network"
 fi
 ok "SSH OK"
+remote_sudo_init
 
 info "Reading APP_NAME from ~/${REMOTE_DIR}/setup.env on the host..."
 # setup.env is written by setup.sh (run as root, see line 18-19 there) as
 # mode 600 root:root — it holds CF_TOKEN. A non-privileged read here always
 # comes back empty, so this must go through sudo like every other read of a
 # root-owned file below (REMOTE_EXPORT_FILE, REMOTE_PASSPHRASE_FILE, etc.).
-APP_NAME="$(ssh "$DEPLOY_HOST" "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
-[ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run setup first (./deploy.sh setup)"
+APP_NAME="$(remote_sudo "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
+[ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run setup first (./deploy/syrinx.sh setup)"
 ok "APP_NAME=$APP_NAME"
 
 REMOTE_EXPORT_DIR="/var/lib/${APP_NAME}/root-export"
 info "Locating latest export in ${REMOTE_EXPORT_DIR} ..."
-REMOTE_EXPORT_FILE="$(ssh "$DEPLOY_HOST" "sudo find $(printf '%q' "$REMOTE_EXPORT_DIR") -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' 2>/dev/null | sort | tail -n1" || true)"
+REMOTE_EXPORT_FILE="$(remote_sudo "sudo find $(printf '%q' "$REMOTE_EXPORT_DIR") -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' 2>/dev/null | sort | tail -n1" || true)"
 [ -n "$REMOTE_EXPORT_FILE" ] || die "No syrinx-1-*.sxi.gpg found in ${REMOTE_EXPORT_DIR} on $DEPLOY_HOST — has the root identity been minted yet?"
 REMOTE_PASSPHRASE_FILE="${REMOTE_EXPORT_FILE}.passphrase"
 
-if ! ssh "$DEPLOY_HOST" "sudo test -f $(printf '%q' "$REMOTE_PASSPHRASE_FILE")"; then
+if ! remote_sudo "sudo test -f $(printf '%q' "$REMOTE_PASSPHRASE_FILE")"; then
     die "Found $REMOTE_EXPORT_FILE but its .passphrase sidecar is missing on $DEPLOY_HOST — cannot import without it"
 fi
 
@@ -139,11 +142,11 @@ LOCAL_EXPORT_FILE="$OUT_DIR/$EXPORT_BASENAME"
 LOCAL_PASSPHRASE_FILE="$OUT_DIR/${EXPORT_BASENAME}.passphrase"
 
 info "Copying export file..."
-ssh "$DEPLOY_HOST" "sudo cat $(printf '%q' "$REMOTE_EXPORT_FILE")" > "$LOCAL_EXPORT_FILE"
+remote_sudo "sudo cat $(printf '%q' "$REMOTE_EXPORT_FILE")" > "$LOCAL_EXPORT_FILE"
 chmod 600 "$LOCAL_EXPORT_FILE"
 
 info "Copying passphrase..."
-ssh "$DEPLOY_HOST" "sudo cat $(printf '%q' "$REMOTE_PASSPHRASE_FILE")" > "$LOCAL_PASSPHRASE_FILE"
+remote_sudo "sudo cat $(printf '%q' "$REMOTE_PASSPHRASE_FILE")" > "$LOCAL_PASSPHRASE_FILE"
 chmod 600 "$LOCAL_PASSPHRASE_FILE"
 
 ok "Saved to:"
@@ -158,7 +161,7 @@ echo ""
 read -r -p "Delete these files from ${DEPLOY_HOST} now? [y/N]: " DELETE_REMOTE
 case "${DELETE_REMOTE:-N}" in
     y|Y)
-        ssh "$DEPLOY_HOST" "sudo rm -f $(printf '%q' "$REMOTE_EXPORT_FILE") $(printf '%q' "$REMOTE_PASSPHRASE_FILE")"
+        remote_sudo "sudo rm -f $(printf '%q' "$REMOTE_EXPORT_FILE") $(printf '%q' "$REMOTE_PASSPHRASE_FILE")"
         ok "Deleted from $DEPLOY_HOST"
         ;;
     *)

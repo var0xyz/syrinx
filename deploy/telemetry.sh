@@ -137,8 +137,8 @@ ok "SSH OK"
 REMOTE_ENV=""
 if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     "tr -d '\\0' </proc/device-tree/model 2>/dev/null | grep -qi 'raspberry pi'"; then
-    # shellcheck source=scripts/telemetry/remote-sudo.sh
-    . "$TELEMETRY_SCRIPTS_DIR/remote-sudo.sh"
+    # shellcheck source=scripts/remote-sudo.sh
+    . "$TELEMETRY_SCRIPTS_DIR/../remote-sudo.sh"
     remote_sudo_init
     O2_VERSION="$(remote_sudo "sudo grep -s '^O2_VERSION=' $(printf '%q' "$REMOTE_DIR")/telemetry.env" | cut -d= -f2- || true)"
     O2_VERSION="${O2_VERSION:-0.91.5}"
@@ -198,8 +198,8 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
 fi
 
 # Only what setup.sh/update.sh/build-openobserve-pi.sh actually need on the
-# Pi — the cross-compile, uninstall, watch, deploy, remote-sudo and tunnel
-# scripts and this script itself all run from the workstation and are left out.
+# Pi — the cross-compile, uninstall, watch, deploy and tunnel scripts and this
+# script itself all run from the workstation and are left out.
 info "Copying deploy/scripts/telemetry to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
 ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")/dashboards"
 scp -q "$TELEMETRY_SCRIPTS_DIR/common.sh" "$TELEMETRY_SCRIPTS_DIR/setup.sh" "$TELEMETRY_SCRIPTS_DIR/update.sh" \
