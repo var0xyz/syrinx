@@ -12,7 +12,10 @@ export const isOnline = writable(
  * by reloading (applyUpdate), never automatically. */
 export const updateAvailable = writable(false);
 
-type ReconnectListener = () => void;
+/** 'online': the network came back. 'visible': the app returned to the
+ * foreground, where the socket may or may not have survived. */
+export type ReconnectReason = 'online' | 'visible';
+type ReconnectListener = (reason: ReconnectReason) => void;
 const reconnectListeners = new Set<ReconnectListener>();
 
 /** Fires when the device transitions from offline to online, or the app
@@ -22,10 +25,10 @@ export function onReconnect(listener: ReconnectListener): () => void {
   return () => reconnectListeners.delete(listener);
 }
 
-function notifyReconnect(): void {
+function notifyReconnect(reason: ReconnectReason): void {
   for (const listener of reconnectListeners) {
     try {
-      listener();
+      listener(reason);
     } catch (error) {
       console.error('Reconnect listener failed:', error);
     }
@@ -49,7 +52,7 @@ function applyOnlineStatus(online: boolean): boolean {
   }
 
   if (online && !wasOnline) {
-    notifyReconnect();
+    notifyReconnect('online');
     return true;
   }
   return false;
@@ -96,7 +99,7 @@ export function initializePWA() {
     }
     const notified = updateOnlineStatus();
     if (wasHidden && !notified && navigator.onLine) {
-      notifyReconnect();
+      notifyReconnect('visible');
     }
     wasHidden = false;
   });

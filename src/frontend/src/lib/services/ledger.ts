@@ -118,6 +118,13 @@ async function walk(): Promise<void> {
   }
 }
 
+/** Fetches the ledger only when this device holds none (signup, import,
+ * recovery). After that entries arrive over the WebSocket, and a gap in
+ * them is what triggers a backfill. */
+export async function syncLedgerIfEmpty(): Promise<void> {
+  if ((await ledgerRepository.getAll()).length === 0) await syncLedger();
+}
+
 /** A LEDGER_ENTRY pushed over the WebSocket. One that doesn't follow the
  * last entry held means some were missed, so the client catches up. */
 export async function receiveLedgerEntry(entry: api.LedgerEntry): Promise<void> {

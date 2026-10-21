@@ -17,7 +17,7 @@
   import ServerUnreachableIndicator from '$lib/components/ServerUnreachableIndicator.svelte';
   import ServerIdMismatchIndicator from '$lib/components/ServerIdMismatchIndicator.svelte';
   import UpdateAvailableIndicator from '$lib/components/UpdateAvailableIndicator.svelte';
-  import { initializePWA, onReconnect } from '$lib/services/pwa';
+  import { initializePWA, onReconnect, type ReconnectReason } from '$lib/services/pwa';
   import { syncPendingEvictions } from '$lib/services/eviction';
   import { pendingVouchesRepository } from '$lib/repositories/pendingVouches';
   import { ingestPushedVouch } from '$lib/services/vouches';
@@ -27,7 +27,7 @@
   import { authService } from '$lib/services/auth';
   import { ensureDeviceId } from '$lib/services/deviceId';
   import { enforceImportGate } from '$lib/services/restoreFlow';
-  import { serverConnection, ServerEvent } from '$lib/services/serverConnection';
+  import { serverConnection, ServerEvent, SILENT_SOCKET_MS } from '$lib/services/serverConnection';
   import { create } from '@bufbuild/protobuf';
   import { ThreadRemovalSchema } from '$lib/proto/common_pb';
   import { dbService } from '$lib/services/db';
@@ -94,7 +94,18 @@
   let trustedSessionStarted = false;
   let stopReconnect: (() => void) | undefined;
 
-  function syncAfterReconnect() {
+  let socketRecheck: ReturnType<typeof setTimeout> | undefined;
+
+  function syncAfterReconnect(reason: ReconnectReason) {
+    clearTimeout(socketRecheck);
+    // Back to a socket that still hears the server's PINGs: skip the resync,
+    // but check again once a PING is due, in case the OS killed it meanwhile.
+    if (reason === 'visible' && serverConnection.seemsAlive()) {
+      socketRecheck = setTimeout(() => {
+        if (!serverConnection.seemsAlive()) syncAfterReconnect('online');
+      }, SILENT_SOCKET_MS);
+      return;
+    }
     refreshServerInfo();
     if (!authService.isLoggedIn()) return;
     authService.getCurrentUser().then((currentUser) => {
