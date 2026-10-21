@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy a Mac-cross-compiled OpenObserve binary to a Raspberry Pi.
+# Deploy a cross-compiled OpenObserve binary to a Raspberry Pi.
 #
 # Expects the artifact from cross-compile-openobserve-pi.sh:
 #   dist/openobserve-vX.Y.Z-pi-arm64

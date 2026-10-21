@@ -21,7 +21,7 @@
 #
 # setup/update/build wrap the on-Pi scripts of the same name — this scp's
 # them over and runs them via ssh+sudo. cross-compile-openobserve-pi.sh and
-# deploy-openobserve-pi.sh already run from the Mac and do their own
+# deploy-openobserve-pi.sh already run from the workstation and do their own
 # ssh/scp — run those directly (from deploy/scripts/telemetry/) instead of
 # through this script.
 #
@@ -133,7 +133,7 @@ fi
 ok "SSH OK"
 
 # Pi hosts can't run upstream OpenObserve binaries (no AES), so setup needs
-# a Pi build: an existing one, a Mac cross-compile, or an on-Pi build.
+# a Pi build: an existing one, a local cross-compile, or an on-Pi build.
 REMOTE_ENV=""
 if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     "tr -d '\\0' </proc/device-tree/model 2>/dev/null | grep -qi 'raspberry pi'"; then
@@ -155,13 +155,17 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     echo "OpenObserve ${O2_VERSION_TAG} build for the Raspberry Pi:"
     options=()
     [ -n "$existing" ] && options+=("existing")
-    [ "$(uname -s)" = "Darwin" ] && options+=("cross")
+    # cross-compile-openobserve-pi.sh runs on macOS, apt or pacman hosts.
+    if [ "$(uname -s)" = "Darwin" ] || command -v apt-get >/dev/null 2>&1 \
+        || command -v pacman >/dev/null 2>&1; then
+        options+=("cross")
+    fi
     options+=("pi")
     i=1
     for opt in "${options[@]}"; do
         case "$opt" in
             existing) echo "  $i) Use the already compiled binary ${existing}" ;;
-            cross)    echo "  $i) Cross-compile on this Mac (minutes)" ;;
+            cross)    echo "  $i) Cross-compile on this machine (minutes)" ;;
             pi)       echo "  $i) Build on the Pi (1–3+ hours)" ;;
         esac
         i=$((i + 1))
@@ -191,7 +195,7 @@ fi
 
 # Only what setup.sh/update.sh/build-openobserve-pi.sh actually need on the
 # Pi — cross-compile-openobserve-pi.sh, deploy-openobserve-pi.sh, tunnel.sh,
-# and this script itself all run from the Mac and are left out.
+# and this script itself all run from the workstation and are left out.
 info "Copying deploy/scripts/telemetry to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
 ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")/dashboards"
 scp -q "$TELEMETRY_SCRIPTS_DIR/common.sh" "$TELEMETRY_SCRIPTS_DIR/setup.sh" "$TELEMETRY_SCRIPTS_DIR/update.sh" \

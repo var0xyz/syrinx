@@ -394,7 +394,7 @@ telemetry_o2_pi_install_origin() {
         tr -d '[:space:]' < "$origin_file"
         return 0
     fi
-    # Deploy from Mac writes .version next to the artifact; treat that as cross.
+    # A cross-compile deploy writes .version next to the artifact; treat that as cross.
     if [ -f "${cached}.version" ]; then
         echo "cross"
         return 0
@@ -657,7 +657,7 @@ telemetry_install_openobserve_for_pi() {
     cached="$(telemetry_o2_pi_cached_binary)"
     origin="$(telemetry_o2_pi_install_origin)"
 
-    # Prefer an existing Pi binary (usually Mac cross-compile). Never rebuild
+    # Prefer an existing Pi binary (usually a cross-compile). Never rebuild
     # just because a smoke test was flaky — only rebuild when forced.
     if [ "${O2_FORCE_REBUILD:-}" != "1" ] && [ -x "$cached" ]; then
         echo "ℹ️  Found cached Pi binary: $cached (origin=${origin})"
@@ -691,13 +691,13 @@ telemetry_install_openobserve_for_pi() {
         :
     elif [ "$origin" = "cross" ] || [ "${O2_INSTALL_MODE:-}" = "cross" ]; then
         echo "❌ No cached OpenObserve binary for $(telemetry_o2_version_tag)." >&2
-        echo "   This host is configured for Mac cross-compile deploys." >&2
-        echo "   → On your Mac: ./telemetry/cross-compile-openobserve-pi.sh && ./telemetry/deploy-openobserve-pi.sh" >&2
+        echo "   This host is configured for cross-compile deploys." >&2
+        echo "   → On your workstation (macOS, Debian or Arch): ./telemetry/cross-compile-openobserve-pi.sh && ./telemetry/deploy-openobserve-pi.sh" >&2
         echo "   → Or force an on-Pi build: O2_ALLOW_SOURCE_BUILD=1 sudo ./update.sh" >&2
         exit 1
     elif [ "${O2_ALLOW_SOURCE_BUILD:-0}" != "1" ] && [ "${O2_INSTALL_MODE:-}" != "source" ]; then
         echo "❌ No OpenObserve binary at $cached" >&2
-        echo "   Preferred path: cross-compile on Mac, then deploy-openobserve-pi.sh" >&2
+        echo "   Preferred path: cross-compile on a workstation, then deploy-openobserve-pi.sh" >&2
         echo "   On-Pi source builds: O2_ALLOW_SOURCE_BUILD=1 sudo ./setup.sh" >&2
         exit 1
     fi

@@ -42,10 +42,14 @@ real values).
   take 1–3+ hours on a Pi 4). Normally invoked automatically by
   `setup.sh`/`update.sh`; only needed directly for troubleshooting.
 - **`cross-compile-openobserve-pi.sh`** — the **preferred** build path: runs
-  on a Mac, cross-compiles OpenObserve for `aarch64-unknown-linux-gnu` using
-  Zig (`cargo zigbuild`), and optionally deploys the result straight to a Pi
-  via `DEPLOY_HOST=`. Minutes instead of hours.
-- **`deploy-openobserve-pi.sh`** — copies a Mac-cross-compiled binary to a
+  on macOS, a Debian-based Linux (apt) or an Arch-based Linux (pacman),
+  cross-compiles OpenObserve for `aarch64-unknown-linux-gnu` using Zig
+  (`cargo zigbuild`), and optionally deploys the result straight to a Pi via
+  `DEPLOY_HOST=`. Minutes instead of hours. Missing build deps come from
+  Homebrew, apt or pacman (with `sudo`); on Debian, Zig and (if the distro's
+  is older than 20) Node come from upstream tarballs under
+  `.cross-build/toolchain` (`ZIG_VERSION`, `NODE_VERSION` override them).
+- **`deploy-openobserve-pi.sh`** — copies a cross-compiled binary to a
   Pi over `scp`/`ssh`, installs it, and wires up (or repairs) the
   `openobserve` and `otelcol-contrib` systemd units. Prompts for the Pi's
   address and remembers it in `deploy.env` (gitignored).
@@ -65,9 +69,9 @@ OpenObserve's prebuilt `arm64` binaries require, so they `SIGILL` on start
 `common.sh` patches around this (`target-feature=+neon` instead of
 `+aes,+neon`, no `gxhash` SIMD) before building, and every install path runs
 a quick smoke test (spin the binary up against a throwaway localhost
-instance) before trusting it. Cross-compiling on a Mac (`cross-compile-*`)
-is faster; building on-Pi (`build-openobserve-pi.sh`) is the fallback when
-no Mac is available.
+instance) before trusting it. Cross-compiling on a workstation
+(`cross-compile-*`, macOS or Debian/Arch Linux) is faster; building on-Pi
+(`build-openobserve-pi.sh`) is the fallback when neither is available.
 
 ## First run
 
@@ -126,9 +130,9 @@ on the host, so redeploying can't clobber settings already saved there.
 
 When the host is a Raspberry Pi, `telemetry.sh setup` first asks how to get
 the OpenObserve binary: use an already compiled one (cached on the Pi, or in
-local `dist/`, offered only if one exists), cross-compile on this Mac
-(`cross-compile-openobserve-pi.sh`, then `deploy-openobserve-pi.sh` uploads
-it), or build on the Pi (`O2_FORCE_REBUILD=1`, 1–3+ hours). A blank answer
+local `dist/`, offered only if one exists), cross-compile on this machine
+(macOS or Debian/Arch Linux; `cross-compile-openobserve-pi.sh`, then
+`deploy-openobserve-pi.sh` uploads it), or build on the Pi (`O2_FORCE_REBUILD=1`, 1–3+ hours). A blank answer
 picks the first option.
 
 Env vars set locally aren't visible over `ssh` on their own, so
@@ -142,7 +146,7 @@ script flow above and just execs `tunnel.sh` directly, sharing the same
 `deploy.env`.
 
 `cross-compile-openobserve-pi.sh` and `deploy-openobserve-pi.sh` already run
-from the Mac and do their own `ssh`/`scp` — use those directly (from
+from the workstation and do their own `ssh`/`scp` — use those directly (from
 `deploy/scripts/telemetry/`) rather than through `telemetry.sh`.
 
 ## Network exposure model
@@ -200,7 +204,7 @@ host in `deploy.env` with `deploy-openobserve-pi.sh` and `../../telemetry.sh`.
 
 ## Typical workflows
 
-**Mac → Pi (recommended, fast):**
+**Workstation (macOS, Debian or Arch) → Pi (recommended, fast):**
 ```
 ./cross-compile-openobserve-pi.sh
 ./deploy-openobserve-pi.sh          # prompts for the Pi's address
@@ -210,7 +214,7 @@ or in one shot:
 DEPLOY_HOST=pi@10.0.0.50 ./cross-compile-openobserve-pi.sh
 ```
 
-**On the Pi directly (no Mac available):**
+**On the Pi directly (no workstation available):**
 ```
 sudo ./setup.sh          # first time
 sudo ./update.sh         # subsequent updates
