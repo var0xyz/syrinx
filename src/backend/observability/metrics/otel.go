@@ -279,9 +279,10 @@ func (r *OTEL) RevokedKeyUsed(ctx context.Context, reporterUserID, targetUserID,
 
 // ContentRejected records a client-reported signed resource that failed
 // verification and was refused a local write. reason may be empty.
-func (r *OTEL) ContentRejected(ctx context.Context, reporterUserID, storeName, reason string) {
+func (r *OTEL) ContentRejected(ctx context.Context, reporterUserID, authorID, storeName, reason string) {
 	add(ctx, r.contentRejected,
 		str("reporter.id", reporterUserID),
+		str("author.id", authorID),
 		str("store.name", storeName),
 		str("reason", reason),
 	)

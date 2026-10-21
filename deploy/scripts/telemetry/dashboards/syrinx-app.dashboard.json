@@ -3816,10 +3816,10 @@
           }
         },
         {
-          "id": "syrinx_reeds_rejected_length",
+          "id": "syrinx_reeds_rejected",
           "type": "line",
-          "title": "Length rejections",
-          "description": "SignReed HTTP 400 from ReedContentWithinLimits (max raw 1400, visible 140). No Data = no rejections in the selected window.",
+          "title": "Rejected reeds by reason",
+          "description": "Reeds and threads clients refused to store: bad signatures, tampering, over-limit content, unknown or revoked keys, false tag claims",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -3836,11 +3836,11 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum(increase(syrinx_reeds_rejected_length[5m]))",
+              "query": "sum by (reason) (increase(syrinx_content_rejected{store_name=~\"reeds|threads\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_reeds_rejected_length",
+                "stream": "syrinx_content_rejected",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -3853,53 +3853,7 @@
                 }
               },
               "config": {
-                "promql_legend": "total",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "sum(increase(syrinx_reeds_rejected_length{raw_exceeds_max=\"true\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reeds_rejected_length",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "raw over max",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "sum(increase(syrinx_reeds_rejected_length{visible_exceeds_max=\"true\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reeds_rejected_length",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "visible over max",
+                "promql_legend": "{reason}",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }
@@ -4009,202 +3963,6 @@
             "w": 96,
             "h": 14,
             "i": 44
-          }
-        },
-        {
-          "id": "syrinx_reed_raw_chars",
-          "type": "area",
-          "title": "Reed body length (raw chars) \u2014 p50/p90/p99",
-          "description": "Shape of len(body) on successful publish, from OTLP histogram buckets (not just the mean). Cap is 1400 raw chars \u2014 p99 hugging the cap may indicate abuse. Bucket boundaries are SDK defaults, coarse between 100\u20131400; see syrinx/observability for tuning a View if more resolution near the cap is needed.",
-          "config": {
-            "show_legends": true,
-            "legends_position": null,
-            "unit": null,
-            "base_map": {
-              "type": "osm"
-            },
-            "map_view": {
-              "zoom": 1.0,
-              "lat": 0.0,
-              "lng": 0.0
-            }
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_reed_content_raw_chars_bucket[5m])))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reed_content_raw_chars_bucket",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "p50",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_reed_content_raw_chars_bucket[5m])))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reed_content_raw_chars_bucket",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "p90",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_reed_content_raw_chars_bucket[5m])))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reed_content_raw_chars_bucket",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "p99",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            }
-          ],
-          "layout": {
-            "x": 0,
-            "y": 28,
-            "w": 96,
-            "h": 14,
-            "i": 45
-          }
-        },
-        {
-          "id": "syrinx_reed_visible_chars",
-          "type": "area",
-          "title": "Reed body length (visible chars) \u2014 p50/p90/p99",
-          "description": "Shape of CountMarkdownCharacters(body) on publish. Cap is 140 visible chars.",
-          "config": {
-            "show_legends": true,
-            "legends_position": null,
-            "unit": null,
-            "base_map": {
-              "type": "osm"
-            },
-            "map_view": {
-              "zoom": 1.0,
-              "lat": 0.0,
-              "lng": 0.0
-            }
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "histogram_quantile(0.5, sum by (le) (increase(syrinx_reed_content_visible_chars_bucket[5m])))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reed_content_visible_chars_bucket",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "p50",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "histogram_quantile(0.9, sum by (le) (increase(syrinx_reed_content_visible_chars_bucket[5m])))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reed_content_visible_chars_bucket",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "p90",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "histogram_quantile(0.99, sum by (le) (increase(syrinx_reed_content_visible_chars_bucket[5m])))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reed_content_visible_chars_bucket",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "p99",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            }
-          ],
-          "layout": {
-            "x": 96,
-            "y": 28,
-            "w": 96,
-            "h": 14,
-            "i": 46
           }
         },
         {
@@ -4322,7 +4080,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 42,
+            "y": 28,
             "w": 192,
             "h": 14,
             "i": 47
@@ -4397,7 +4155,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 56,
+            "y": 42,
             "w": 96,
             "h": 14,
             "i": 48
@@ -4495,7 +4253,7 @@
           ],
           "layout": {
             "x": 96,
-            "y": 56,
+            "y": 42,
             "w": 96,
             "h": 14,
             "i": 49
@@ -8418,6 +8176,172 @@
             "w": 96,
             "h": 16,
             "i": 88
+          }
+        },
+        {
+          "id": "syrinx_rejected_by_author",
+          "type": "table",
+          "title": "Top 10 authors of rejected reeds",
+          "description": "Authors whose reeds or threads clients refused most",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT author_id, sum(total) AS total FROM ( SELECT reporter_id, author_id, store_name, reason, max(value) AS total FROM syrinx_content_rejected GROUP BY reporter_id, author_id, store_name, reason ) WHERE author_id IS NOT NULL AND author_id != '' GROUP BY author_id ORDER BY total DESC LIMIT 10",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_content_rejected",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Author",
+                    "alias": "author_id",
+                    "column": "author_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "author_id",
+                        "function": null,
+                        "alias": "author_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 74,
+            "w": 96,
+            "h": 16,
+            "i": 100
+          }
+        },
+        {
+          "id": "syrinx_rejected_by_reporter",
+          "type": "table",
+          "title": "Top 10 users rejecting content",
+          "description": "Users whose clients refused the most content, of any kind",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT reporter_id, sum(total) AS total FROM ( SELECT reporter_id, author_id, store_name, reason, max(value) AS total FROM syrinx_content_rejected GROUP BY reporter_id, author_id, store_name, reason ) WHERE reporter_id IS NOT NULL AND reporter_id != '' GROUP BY reporter_id ORDER BY total DESC LIMIT 10",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_content_rejected",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "User",
+                    "alias": "reporter_id",
+                    "column": "reporter_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reporter_id",
+                        "function": null,
+                        "alias": "reporter_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 74,
+            "w": 96,
+            "h": 16,
+            "i": 101
           }
         }
       ]

@@ -250,7 +250,7 @@
       const tagged = await firstPartMatching(reed, (part) => verifyClaimedTags(part, tag));
       if (!tagged) {
         console.warn('ServerConnection: pipe reed tag claim mismatch, rejecting:', reed.id);
-        serverConnection.sendContentRejected('reeds', 'tag_claim_mismatch');
+        serverConnection.sendContentRejected('reeds', 'tag_claim_mismatch', reed.id);
         serverConnection.sendDataInvalid(data.id);
         return;
       }

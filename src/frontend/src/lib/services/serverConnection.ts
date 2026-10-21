@@ -524,7 +524,7 @@ class ServerConnection {
         reed = await decryptRelayPayload(data.ciphertext);
       } catch (error) {
         console.warn(`ServerConnection: failed to decrypt ${label}:`, error);
-        this.sendContentRejected('reeds', 'decrypt_failed');
+        this.sendContentRejected('reeds', 'decrypt_failed', data.reedId ?? '');
         if (data.id) this.sendDataInvalid(data.id);
         return;
       }
@@ -657,11 +657,12 @@ class ServerConnection {
   }
 
   /** Reports content the client refused to store or trust. `reason` is one
-   * of a small standardized set (docs/content_privacy.md), or omitted. */
-  sendContentRejected(storeName: string, reason?: string): void {
+   * of a small standardized set (docs/content_privacy.md); `reedId` lets the
+   * server attribute it to the reed's author. */
+  sendContentRejected(storeName: string, reason: string, reedId: string): void {
     this.sendMsg({
       type: MessageType.CONTENT_REJECTED,
-      payload: { case: 'contentRejected', value: { storeName, reason: reason ?? '' } },
+      payload: { case: 'contentRejected', value: { storeName, reason, reedId } },
     });
   }
 
@@ -858,4 +859,7 @@ class ServerConnection {
 
 export const serverConnection = new ServerConnection();
 
-setContentRejectedReporter((storeName) => serverConnection.sendContentRejected(storeName));
+// verifyReed reports refused reeds itself, with the reason and reed id.
+setContentRejectedReporter((storeName) => {
+  if (storeName !== 'reeds') serverConnection.sendContentRejected(storeName, '', '');
+});

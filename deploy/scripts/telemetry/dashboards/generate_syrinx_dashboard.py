@@ -214,12 +214,13 @@ def top_users_sql(stream: str, labels: list[str], keys: list[str], limit: int = 
 
 
 def top_table(*, pid: str, title: str, stream: str, labels: list[str],
-              keys: list[tuple[str, str]], layout: dict, description: str) -> dict:
+              keys: list[tuple[str, str]], layout: dict, description: str,
+              limit: int = 25) -> dict:
     return sql_panel(
         pid=pid,
         title=title,
         ptype="table",
-        sql=top_users_sql(stream, labels, [k for k, _ in keys]),
+        sql=top_users_sql(stream, labels, [k for k, _ in keys], limit),
         layout=layout,
         x=[axis(label, key) for key, label in keys] + [axis("Total", "total")],
         y=[],
@@ -274,9 +275,7 @@ REEDS_DELETED = metric_stream("syrinx.reeds.deleted")
 THREADS_PUBLISHED = metric_stream("syrinx.threads.published")
 THREAD_SIZE = metric_stream("syrinx.thread.size")
 ECHOES_TARGETED = metric_stream("syrinx.echoes.targeted")
-REEDS_REJECTED_LENGTH = metric_stream("syrinx.reeds.rejected.length")
-REED_RAW_CHARS = metric_stream("syrinx.reed.content.raw_chars")
-REED_VISIBLE_CHARS = metric_stream("syrinx.reed.content.visible_chars")
+CONTENT_REJECTED = metric_stream("syrinx.content.rejected")
 REED_HOLDERS = metric_stream("syrinx.reed.holders")
 REED_COVERAGE = metric_stream("syrinx.reed.coverage_percent")
 WS_MESSAGES = metric_stream("syrinx.ws.messages")
@@ -1003,24 +1002,19 @@ reeds = [
         ),
     ),
     promql_panel(
-        pid="syrinx_reeds_rejected_length",
-        title="Length rejections",
+        pid="syrinx_reeds_rejected",
+        title="Rejected reeds by reason",
         queries=[
-            promql_total(REEDS_REJECTED_LENGTH, "total"),
-            promql_labeled(
-                REEDS_REJECTED_LENGTH, "raw_exceeds_max", "true", "raw over max"
-            ),
-            promql_labeled(
-                REEDS_REJECTED_LENGTH,
-                "visible_exceeds_max",
-                "true",
-                "visible over max",
+            (
+                f'sum by (reason) (increase({CONTENT_REJECTED}{{store_name=~"reeds|threads"}}[{WINDOW}]))',
+                "{reason}",
+                CONTENT_REJECTED,
             ),
         ],
         layout=layout(48, 14, 48, 14, 43),
         description=(
-            "SignReed HTTP 400 from ReedContentWithinLimits (max raw 1400, visible 140). "
-            "No Data = no rejections in the selected window."
+            "Reeds and threads clients refused to store: bad signatures, tampering, "
+            "over-limit content, unknown or revoked keys, false tag claims"
         ),
     ),
     promql_panel(
@@ -1035,30 +1029,6 @@ reeds = [
         description="Tag count bucketed 0–3 exact, 4 = four or more (never tag text)",
     ),
     promql_panel(
-        pid="syrinx_reed_raw_chars",
-        title="Reed body length (raw chars) — p50/p90/p99",
-        ptype="area",
-        queries=histogram_percentile_bands(REED_RAW_CHARS),
-        layout=layout(0, 28, 96, 14, 45),
-        description=(
-            "Shape of len(body) on successful publish, from OTLP histogram buckets "
-            "(not just the mean). Cap is 1400 raw chars — p99 hugging the cap may "
-            "indicate abuse. Bucket boundaries are SDK defaults, coarse between "
-            "100–1400; see syrinx/observability for tuning a View if more "
-            "resolution near the cap is needed."
-        ),
-    ),
-    promql_panel(
-        pid="syrinx_reed_visible_chars",
-        title="Reed body length (visible chars) — p50/p90/p99",
-        ptype="area",
-        queries=histogram_percentile_bands(REED_VISIBLE_CHARS),
-        layout=layout(96, 28, 96, 14, 46),
-        description=(
-            "Shape of CountMarkdownCharacters(body) on publish. Cap is 140 visible chars."
-        ),
-    ),
-    promql_panel(
         pid="syrinx_reed_holders_coverage",
         title="Reed holders & coverage % — p50/p90/p99",
         ptype="area",
@@ -1068,7 +1038,7 @@ reeds = [
             ),
             histogram_quantile_query(REED_COVERAGE, 0.5, "coverage % p50"),
         ],
-        layout=layout(0, 42, 192, 14, 47),
+        layout=layout(0, 28, 192, 14, 47),
         description=(
             "holders and coverage % are the same event (ReedCoverage records both "
             "together — coverage % = holders / active users) so they're merged here. "
@@ -1082,7 +1052,7 @@ reeds = [
             promql_total(THREADS_PUBLISHED, "threads"),
             promql_labeled(REEDS_PUBLISHED, "reed_kind", "thread", "thread parts"),
         ],
-        layout=layout(0, 56, 96, 14, 48),
+        layout=layout(0, 42, 96, 14, 48),
         description=(
             "Successful CreateThread calls (not replays), next to the reeds they "
             "contain (syrinx.reeds.published with reed.kind=thread)."
@@ -1093,7 +1063,7 @@ reeds = [
         title="Thread size (parts) — p50/p90/p99",
         ptype="area",
         queries=histogram_percentile_bands(THREAD_SIZE),
-        layout=layout(96, 56, 96, 14, 49),
+        layout=layout(96, 42, 96, 14, 49),
         description=(
             "Parts per thread at publish, from OTLP histogram buckets. "
             "Threads cap at 30 parts."
@@ -1454,6 +1424,26 @@ abuse = [
         queries=[(f"sum({WS_CONNECTIONS})", "connections", WS_CONNECTIONS)],
         layout=layout(96, 58, 96, 16, 88),
         description="Sockets open right now across replicas; resets when a process restarts",
+    ),
+    top_table(
+        pid="syrinx_rejected_by_author",
+        title="Top 10 authors of rejected reeds",
+        stream=CONTENT_REJECTED,
+        labels=["reporter_id", "author_id", "store_name", "reason"],
+        keys=[("author_id", "Author")],
+        layout=layout(0, 74, 96, 16, 100),
+        limit=10,
+        description="Authors whose reeds or threads clients refused most",
+    ),
+    top_table(
+        pid="syrinx_rejected_by_reporter",
+        title="Top 10 users rejecting content",
+        stream=CONTENT_REJECTED,
+        labels=["reporter_id", "author_id", "store_name", "reason"],
+        keys=[("reporter_id", "User")],
+        layout=layout(96, 74, 96, 16, 101),
+        limit=10,
+        description="Users whose clients refused the most content, of any kind",
     ),
 ]
 
