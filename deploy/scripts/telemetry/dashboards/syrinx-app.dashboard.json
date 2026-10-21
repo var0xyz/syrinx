@@ -4110,6 +4110,136 @@
           }
         },
         {
+          "id": "syrinx_ws_work",
+          "type": "table",
+          "title": "Work per WebSocket message type",
+          "description": "Each inbound message, connect, disconnect, relay timeout and presence reap is its own trace",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT w.operation_name AS work, count(DISTINCT w.trace_id) AS msgs, approx_percentile_cont(w.duration, 0.95) / 1000.0 AS p95_ms, sum(CASE WHEN q.operation_name IN ('sql.conn.query', 'sql.conn.exec') THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT w.trace_id) AS stmts_per_msg, sum(CASE WHEN q.operation_name LIKE 'crypto.%' THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT w.trace_id) AS crypto_per_msg FROM syrinx w LEFT JOIN syrinx q ON q.trace_id = w.trace_id AND q.span_id != w.span_id WHERE (w.operation_name LIKE 'ws.%' OR w.operation_name LIKE 'presence.%') AND (w.reference_parent_span_id IS NULL OR w.reference_parent_span_id = '') GROUP BY work ORDER BY stmts_per_msg * msgs DESC LIMIT 40",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Work",
+                    "alias": "work",
+                    "column": "work",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "work",
+                        "function": null,
+                        "alias": "work"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Count",
+                    "alias": "msgs",
+                    "column": "msgs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "msgs",
+                        "function": null,
+                        "alias": "msgs"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "DB statements / msg",
+                    "alias": "stmts_per_msg",
+                    "column": "stmts_per_msg",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "stmts_per_msg",
+                        "function": null,
+                        "alias": "stmts_per_msg"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Sign+verify / msg",
+                    "alias": "crypto_per_msg",
+                    "column": "crypto_per_msg",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "crypto_per_msg",
+                        "function": null,
+                        "alias": "crypto_per_msg"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 28,
+            "w": 192,
+            "h": 18,
+            "i": 93
+          }
+        },
+        {
           "id": "syrinx_ws_relay_health",
           "type": "line",
           "title": "Relay path (in vs out)",
@@ -4247,7 +4377,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 28,
+            "y": 46,
             "w": 192,
             "h": 14,
             "i": 53
