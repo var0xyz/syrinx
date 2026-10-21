@@ -54,7 +54,7 @@ func (h *Handlers) recountersignProfileTx(ctx context.Context, tx *sql.Tx, userI
 		return fmt.Errorf("load profile: %w", err)
 	}
 	signedAt := time.Now().UTC().Truncate(time.Second)
-	sig, err := h.countersign(buildProfilePayload(userID, username, keyID, h.services.db.GetServerID(),
+	sig, err := h.countersign(ctx, buildProfilePayload(userID, username, keyID, h.services.db.GetServerID(),
 		h.signingKey.Fingerprint, userSignature, inviteID, role, perms, bio, memberSince.UTC(), signedAt), signedAt)
 	if err != nil {
 		return err

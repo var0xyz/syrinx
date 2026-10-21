@@ -198,7 +198,7 @@ func (env *recoveryRecordEnv) countersignedHere(ctx context.Context, sig ServerS
 	if armor == "" {
 		return refuseRecord("unknown server key %s", fp)
 	}
-	if err := env.verifier.verifySignature(string(payload(fp)), sig.Armor, armor); err != nil {
+	if err := env.verifier.verifySignature(ctx, string(payload(fp)), sig.Armor, armor); err != nil {
 		return refuseRecord("bad countersignature")
 	}
 	return nil
@@ -222,7 +222,7 @@ func (env *recoveryRecordEnv) signedBy(ctx context.Context, tx *sql.Tx, owner st
 	if err != nil {
 		return err
 	}
-	if err := env.verifier.verifySignature(string(payload), sig.Armor, armor); err != nil {
+	if err := env.verifier.verifySignature(ctx, string(payload), sig.Armor, armor); err != nil {
 		return refuseRecord("bad signature by %s", sig.ID)
 	}
 	return nil

@@ -157,6 +157,7 @@ func main() {
 	// Wrap database with instrumentation
 	dataService := NewDataService(db, cfg.ServerName)
 	cryptoService := newCryptoService()
+	cryptoService.SetMetrics(obs.Metrics())
 	services := &Services{
 		db:     dataService,
 		crypto: cryptoService,

@@ -586,7 +586,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 
 	userSigArmor := userSignature
 	userPayload := buildVouchUserPayload(voucherKeyID, subjectKeyID, note)
-	if err := h.services.crypto.verifySignature(string(userPayload), userSigArmor, voucherKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(userPayload), userSigArmor, voucherKey.Armor); err != nil {
 		log.Error().
 			Str("voucherID", voucherID).
 			Str("subjectKeyID", subjectKeyID).
@@ -601,7 +601,7 @@ func (h *Handlers) CreateVouch(w http.ResponseWriter, r *http.Request) {
 	serverPayload := buildVouchServerPayload(
 		subjectKeyID, h.signingKey.Fingerprint, userSignature, now,
 	)
-	serverSignature, err := h.countersign(serverPayload, now)
+	serverSignature, err := h.countersign(r.Context(), serverPayload, now)
 	if err != nil {
 		log.Error().Err(err).Msg("Error producing vouch countersignature")
 		internalServerError(w)
@@ -742,7 +742,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 
 	sigArmor := signature
 	payload := buildVouchWithdrawalUserPayload(existing.ID)
-	if err := h.services.crypto.verifySignature(string(payload), sigArmor, voucherKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(payload), sigArmor, voucherKey.Armor); err != nil {
 		log.Error().
 			Str("voucherID", voucherID).
 			Str("subjectKeyID", subjectKeyID).
@@ -759,7 +759,7 @@ func (h *Handlers) WithdrawVouch(w http.ResponseWriter, r *http.Request) {
 	serverPayload := buildVouchWithdrawalServerPayload(
 		existing.ID, h.signingKey.Fingerprint, signature, now,
 	)
-	serverSignature, err := h.countersign(serverPayload, now)
+	serverSignature, err := h.countersign(r.Context(), serverPayload, now)
 	if err != nil {
 		log.Error().Err(err).Msg("Error producing withdrawal countersignature")
 		internalServerError(w)

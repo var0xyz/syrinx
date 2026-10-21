@@ -38,7 +38,7 @@ func (f *threadFixture) deleteThread(t *testing.T, threadID, signature string) *
 func (f *threadFixture) removalSignature(t *testing.T, threadID, threadSignature string) string {
 	t.Helper()
 	payload := buildThreadRemovalUserPayload(f.h.services.db.GetServerID(), threadID, threadSignature)
-	sig, err := f.h.services.crypto.sign(string(payload), f.kp.PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func signedThreadRemoval(t *testing.T, s signedKeyRevocation, ids []string, boun
 	t.Helper()
 	cryptoSvc := newCryptoService()
 	sign := func(payload []byte, armor string) string {
-		sig, err := cryptoSvc.sign(string(payload), armor)
+		sig, err := cryptoSvc.sign(context.Background(), string(payload), armor)
 		if err != nil {
 			t.Fatal(err)
 		}

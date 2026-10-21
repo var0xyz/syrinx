@@ -75,7 +75,7 @@ func (s *e2eServer) signupInvited(t *testing.T, username, inviteID, inviteSecret
 func (s *e2eServer) signupAs(t *testing.T, bare, username, inviteID, inviteSecret string) *e2eUser {
 	t.Helper()
 	h := s.h
-	userIDSig, err := h.services.crypto.sign(bare, h.signingKey.Armor)
+	userIDSig, err := h.services.crypto.sign(context.Background(), bare, h.signingKey.Armor)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,13 +83,13 @@ func (s *e2eServer) signupAs(t *testing.T, bare, username, inviteID, inviteSecre
 	if err != nil {
 		t.Fatal(err)
 	}
-	keySelfSig, err := h.services.crypto.sign(kp.PublicKey, kp.PrivateKey)
+	keySelfSig, err := h.services.crypto.sign(context.Background(), kp.PublicKey, kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	self := canonicalID(h.services.db.GetServerID(), bare)
 	keyID := string(appendEntity(self, kp.Fingerprint))
-	userSig, err := h.services.crypto.sign(string(buildUserIdentityPayload(username, keyID, "")), kp.PrivateKey)
+	userSig, err := h.services.crypto.sign(context.Background(), string(buildUserIdentityPayload(username, keyID, "")), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func (s *e2eServer) claim(t *testing.T, u *e2eUser, snap recoverySnapshot) {
 	s.h.IssueChallenge(rr, httptest.NewRequest(http.MethodGet, "/api/recovery/identity/claim", nil))
 	var ch pb.ChallengeResponse
 	decodeProto(t, rr.Body.Bytes(), &ch)
-	sig, err := s.h.services.crypto.sign(ch.GetChallenge(), u.kp.PrivateKey)
+	sig, err := s.h.services.crypto.sign(context.Background(), ch.GetChallenge(), u.kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func (s *e2eServer) rotate(t *testing.T, u *e2eUser) {
 		t.Fatal(err)
 	}
 	mustSign := func(text, priv string) string {
-		sig, err := c.sign(text, priv)
+		sig, err := c.sign(context.Background(), text, priv)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -345,7 +345,7 @@ func (s *e2eServer) rotate(t *testing.T, u *e2eUser) {
 func (s *e2eServer) post(t *testing.T, u *e2eUser, replyTo, echoing string, mentions ...string) string {
 	t.Helper()
 	id := string(appendEntity(identityID(u.id), uuid.Must(uuid.NewV7()).String()))
-	sig, err := s.h.services.crypto.sign("content of "+id, u.kp.PrivateKey)
+	sig, err := s.h.services.crypto.sign(context.Background(), "content of "+id, u.kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

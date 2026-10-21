@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +32,7 @@ func (f *adminFixture) flag(t *testing.T, reporter, reedID, note string) int {
 	t.Helper()
 	createdAt := time.Now().UTC().Truncate(time.Second)
 	payload := buildReedFlagPayload(reedID, f.ids[reporter], f.keyID(reporter), note, createdAt)
-	sig, err := f.h.services.crypto.sign(string(payload), f.keys[reporter].PrivateKey)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.keys[reporter].PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

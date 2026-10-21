@@ -47,7 +47,7 @@ func TestRebind_RevokesLostKeyAndBindsRestrictedKey(t *testing.T) {
 	}
 	payload := buildAdminRevocationServerPayload(f.ids["u1"], oldKeyID, rev.Admin.ID, rev.Admin.RequesterSignature.Armor,
 		rev.Admin.Decision.Signature.Armor, f.srv, f.h.signingKey.Fingerprint, rev.ServerSignature.SignedAt)
-	if err := f.h.services.crypto.verifySignature(string(payload), rev.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
+	if err := f.h.services.crypto.verifySignature(ctx, string(payload), rev.ServerSignature.Armor, f.h.signingKey.Armor); err != nil {
 		t.Fatalf("admin revocation countersignature: %v", err)
 	}
 	if pbRev := pbKeyRevocation(rev); pbRev.GetAdmin().GetRequest().GetId() != rev.Admin.ID || pbRev.UserSignature != nil {

@@ -100,7 +100,7 @@ func newVouchRefFixture(t *testing.T) *vouchRefFixture {
 
 func (f *vouchRefFixture) sign(t *testing.T, payload []byte, privateKey string) string {
 	t.Helper()
-	armor, err := f.crypto.sign(string(payload), privateKey)
+	armor, err := f.crypto.sign(context.Background(), string(payload), privateKey)
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}

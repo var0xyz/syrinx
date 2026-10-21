@@ -161,6 +161,8 @@ type Recorder interface {
 	ServerRecovery(ctx context.Context, stage string, ok bool)
 	Mailbox(ctx context.Context, op Op, kind string)
 	UserSearch(ctx context.Context, remote bool)
+	// CryptoOperation times one OpenPGP sign or verify (op), by key algorithm.
+	CryptoOperation(ctx context.Context, op, algorithm string, ok bool, took time.Duration)
 
 	FederationLifecycle(ctx context.Context, event, peerServerID, adminID string)
 	FederationDeliveryBacklog(ctx context.Context, peerServerID string, items int)
@@ -223,6 +225,7 @@ func (Noop) AccountRecovery(context.Context, string, bool, string)              
 func (Noop) ServerRecovery(context.Context, string, bool)                              {}
 func (Noop) Mailbox(context.Context, Op, string)                                       {}
 func (Noop) UserSearch(context.Context, bool)                                          {}
+func (Noop) CryptoOperation(context.Context, string, string, bool, time.Duration)      {}
 func (Noop) FederationLifecycle(context.Context, string, string, string)               {}
 func (Noop) FederationDeliveryBacklog(context.Context, string, int)                    {}
 

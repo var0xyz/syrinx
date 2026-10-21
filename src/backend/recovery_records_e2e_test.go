@@ -48,7 +48,7 @@ func (s *e2eServer) mintRoot(t *testing.T) *e2eUser {
 	}
 	rootID := string(canonicalID(serverID, rootUserID))
 	keyID := string(appendEntity(identityID(rootID), kp.Fingerprint))
-	userSig, err := c.sign(string(buildUserIdentityPayload(rootUsername, keyID, "")), kp.PrivateKey)
+	userSig, err := c.sign(context.Background(), string(buildUserIdentityPayload(rootUsername, keyID, "")), kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func (s *e2eServer) mintRoot(t *testing.T) *e2eUser {
 
 func (s *e2eServer) sign(t *testing.T, u *e2eUser, payload []byte) string {
 	t.Helper()
-	sig, err := s.h.services.crypto.sign(string(payload), u.kp.PrivateKey)
+	sig, err := s.h.services.crypto.sign(context.Background(), string(payload), u.kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

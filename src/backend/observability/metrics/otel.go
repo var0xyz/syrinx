@@ -73,6 +73,7 @@ type OTEL struct {
 	userSearches           metric.Int64Counter
 	federationLifecycle    metric.Int64Counter
 	federationDeliveryOwed metric.Int64Gauge
+	cryptoDuration         metric.Int64Histogram
 }
 
 // New builds an OTEL recorder from a meter. An instrument that fails to
@@ -174,6 +175,8 @@ func New(m metric.Meter) *OTEL {
 	r.userSearches = counter("syrinx.search.users")
 	r.federationLifecycle = counter("syrinx.federation.lifecycle")
 	r.federationDeliveryOwed = gauge("syrinx.federation.delivery.backlog")
+	// Microseconds: an Ed25519 signature takes ~25 µs, below a millisecond.
+	r.cryptoDuration = histogram("syrinx.crypto.duration_us")
 	return r
 }
 
@@ -205,6 +208,15 @@ func set(ctx context.Context, g metric.Int64Gauge, v int64, attrs ...attribute.K
 }
 
 func str(k, v string) attribute.KeyValue { return attribute.String(k, v) }
+
+// CryptoOperation records one sign or verify; its count is the operation rate.
+func (r *OTEL) CryptoOperation(ctx context.Context, op, algorithm string, ok bool, took time.Duration) {
+	record(ctx, r.cryptoDuration, took.Microseconds(),
+		str("crypto.op", op),
+		str("crypto.algorithm", algorithm),
+		attribute.Bool("ok", ok),
+	)
+}
 
 func (r *OTEL) UserCreated(ctx context.Context, signupMode string) {
 	add(ctx, r.usersCreated, str("signup.mode", signupMode))

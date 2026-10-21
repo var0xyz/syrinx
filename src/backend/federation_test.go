@@ -616,7 +616,7 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 
 	// Approve (by a different admin) creates the servers row and backfills
 	// both the attempt's and the invitation's server_id.
-	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.countersign, peerNotYetApproved, nil); err != nil {
+	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.signerFor(context.Background()), peerNotYetApproved, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := ds.db.QueryRowContext(context.Background(),
@@ -728,7 +728,7 @@ func TestApproveFederationAttempt_RootBypassesSelfApprove(t *testing.T) {
 func establishedPeer(t *testing.T, h *Handlers, ds *DataService, invID, createdBy, approvedBy string, callerIsRoot bool, at time.Time) string {
 	t.Helper()
 	attemptID := pendingAttemptFromInvitation(t, ds, invID, createdBy, at)
-	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.countersign, peerNotYetApproved, nil); err != nil {
+	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, approvedBy, at, callerIsRoot, h.signerFor(context.Background()), peerNotYetApproved, nil); err != nil {
 		t.Fatal(err)
 	}
 	return "server-" + invID

@@ -915,14 +915,14 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 		h.writeAdminError(w, r, err, "Error loading signing key")
 		return
 	}
-	if err := h.services.crypto.verifySignature(string(req.payload()), req.RequesterSignature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(req.payload()), req.RequesterSignature.Armor, key.Armor); err != nil {
 		h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageOpen, "bad_signature")
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	req.RequesterServerSignature, err = h.countersign(buildAdminRequestOpenedPayload(req.ID, req.RequesterSignature.Armor,
+	req.RequesterServerSignature, err = h.countersign(r.Context(), buildAdminRequestOpenedPayload(req.ID, req.RequesterSignature.Armor,
 		h.services.db.GetServerID(), h.signingKey.Fingerprint, now), now)
 	if err != nil {
 		log.Error().Err(err).Msg("Error countersigning admin request")
@@ -1059,7 +1059,7 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload := buildAdminDecisionPayload(req.ID, decision.Decision, callerID, decision.Signature.ID, req.RequesterSignature.Armor)
-	if err := h.services.crypto.verifySignature(string(payload), decision.Signature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(payload), decision.Signature.Armor, key.Armor); err != nil {
 		h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageDecide, "bad_signature")
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
@@ -1074,7 +1074,7 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	serverID := h.services.db.GetServerID()
 	now := time.Now().UTC().Truncate(time.Second)
-	serverSig, err := h.countersign(buildAdminRequestServerPayload(req.ID, state, req.RequesterSignature.Armor,
+	serverSig, err := h.countersign(r.Context(), buildAdminRequestServerPayload(req.ID, state, req.RequesterSignature.Armor,
 		decision.Signature.Armor, serverID, h.signingKey.Fingerprint, now), now)
 	if err != nil {
 		log.Error().Err(err).Msg("Error countersigning admin decision")
@@ -1198,7 +1198,7 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 		return nil
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	serverSig, err := h.countersign(buildAdminRequestServerPayload(req.ID, adminStateMoot, req.RequesterSignature.Armor,
+	serverSig, err := h.countersign(ctx, buildAdminRequestServerPayload(req.ID, adminStateMoot, req.RequesterSignature.Armor,
 		"", h.services.db.GetServerID(), h.signingKey.Fingerprint, now), now)
 	if err != nil {
 		return err
@@ -1290,7 +1290,7 @@ func (h *Handlers) verifyForeignAdminRequest(ctx context.Context, peerServerID s
 		if err != nil || key == nil {
 			return fmt.Errorf("resolve %s's key: %v", s.userID, err)
 		}
-		if err := h.services.crypto.verifySignature(string(s.bytes), s.sig.Armor, key.Armor); err != nil {
+		if err := h.services.crypto.verifySignature(ctx, string(s.bytes), s.sig.Armor, key.Armor); err != nil {
 			return fmt.Errorf("%s's signature: %w", s.userID, err)
 		}
 	}

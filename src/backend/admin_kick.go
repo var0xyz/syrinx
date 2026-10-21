@@ -24,7 +24,7 @@ func (h *Handlers) kickExecutor() adminExecutor {
 			serverID := h.services.db.GetServerID()
 			for _, target := range req.remainingTargets() {
 				now := time.Now().UTC().Truncate(time.Second)
-				sig, err := h.countersign(buildAccountKickServerPayload(serverID, target, req.ID,
+				sig, err := h.countersign(ctx, buildAccountKickServerPayload(serverID, target, req.ID,
 					req.RequesterSignature.Armor, req.Decision.Signature.Armor, h.signingKey.Fingerprint, now), now)
 				if err != nil {
 					return err

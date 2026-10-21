@@ -21,11 +21,11 @@ import (
 func signedForeignBlock(t *testing.T, s signedKeyRevocation, blocked string, signedAt time.Time) BlockCert {
 	t.Helper()
 	cryptoSvc := newCryptoService()
-	userSig, err := cryptoSvc.sign(string(buildBlockUserPayload(s.userID, blocked, s.keyID)), s.userKP.PrivateKey)
+	userSig, err := cryptoSvc.sign(context.Background(), string(buildBlockUserPayload(s.userID, blocked, s.keyID)), s.userKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverSig, err := cryptoSvc.sign(string(buildBlockServerPayload(s.userID, blocked, s.serverKP.Fingerprint, userSig, signedAt)), s.serverKP.PrivateKey)
+	serverSig, err := cryptoSvc.sign(context.Background(), string(buildBlockServerPayload(s.userID, blocked, s.serverKP.Fingerprint, userSig, signedAt)), s.serverKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

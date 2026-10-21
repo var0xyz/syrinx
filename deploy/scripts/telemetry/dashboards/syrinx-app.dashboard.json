@@ -1832,6 +1832,440 @@
       ]
     },
     {
+      "tabId": "crypto",
+      "name": "Crypto",
+      "panels": [
+        {
+          "id": "syrinx_crypto_ops",
+          "type": "line",
+          "title": "Signatures and checks per 5m",
+          "description": "Every OpenPGP sign and verify the server performs, incl. response signing",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(increase(syrinx_crypto_duration_us_count{crypto_op=\"sign\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_crypto_duration_us_count",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "sign",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(increase(syrinx_crypto_duration_us_count{crypto_op=\"verify\",ok=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_crypto_duration_us_count",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "verify ok",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(increase(syrinx_crypto_duration_us_count{crypto_op=\"verify\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_crypto_duration_us_count",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "verify failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 89
+          }
+        },
+        {
+          "id": "syrinx_crypto_latency",
+          "type": "line",
+          "title": "Sign / verify latency p95 (\u00b5s)",
+          "description": "From crypto spans; an Ed25519 signature is ~25 \u00b5s, RSA-2048 ~1 ms",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, operation_name, approx_percentile_cont(duration, 0.95) AS p95_us FROM syrinx WHERE operation_name LIKE 'crypto.%' GROUP BY ts, operation_name ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "p95 \u00b5s",
+                    "alias": "p95_us",
+                    "column": "p95_us",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_us",
+                        "function": null,
+                        "alias": "p95_us"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [
+                  {
+                    "label": "Operation",
+                    "alias": "operation_name",
+                    "column": "operation_name",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "operation_name",
+                        "function": null,
+                        "alias": "operation_name"
+                      }
+                    ]
+                  }
+                ],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 90
+          }
+        },
+        {
+          "id": "syrinx_crypto_per_request",
+          "type": "table",
+          "title": "Signatures and checks per request, by route",
+          "description": "Requests that did any crypto, joined to their crypto spans by trace",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT r.http_route AS route, count(DISTINCT r.trace_id) AS reqs, sum(CASE WHEN c.operation_name = 'crypto.sign' THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT r.trace_id) AS signs_per_req, sum(CASE WHEN c.operation_name = 'crypto.verify' THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT r.trace_id) AS verifies_per_req, sum(c.duration) * 1.0 / count(DISTINCT r.trace_id) AS crypto_us_per_req FROM syrinx r JOIN syrinx c ON c.trace_id = r.trace_id WHERE r.span_kind = '2' AND r.http_route IS NOT NULL AND c.operation_name LIKE 'crypto.%' GROUP BY route ORDER BY crypto_us_per_req DESC LIMIT 30",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Route",
+                    "alias": "route",
+                    "column": "route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "route",
+                        "function": null,
+                        "alias": "route"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Signs / req",
+                    "alias": "signs_per_req",
+                    "column": "signs_per_req",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "signs_per_req",
+                        "function": null,
+                        "alias": "signs_per_req"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Verifies / req",
+                    "alias": "verifies_per_req",
+                    "column": "verifies_per_req",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "verifies_per_req",
+                        "function": null,
+                        "alias": "verifies_per_req"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Crypto \u00b5s / req",
+                    "alias": "crypto_us_per_req",
+                    "column": "crypto_us_per_req",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "crypto_us_per_req",
+                        "function": null,
+                        "alias": "crypto_us_per_req"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 192,
+            "h": 18,
+            "i": 91
+          }
+        },
+        {
+          "id": "syrinx_crypto_algorithms",
+          "type": "bar",
+          "title": "Operations by key algorithm",
+          "description": "eddsa for current server keys; rsa only from keys made before the switch",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT crypto_algorithm, operation_name, count(*) AS cnt FROM syrinx WHERE operation_name LIKE 'crypto.%' GROUP BY crypto_algorithm, operation_name ORDER BY cnt DESC",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Algorithm",
+                    "alias": "crypto_algorithm",
+                    "column": "crypto_algorithm",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "crypto_algorithm",
+                        "function": null,
+                        "alias": "crypto_algorithm"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Count",
+                    "alias": "cnt",
+                    "column": "cnt",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "cnt",
+                        "function": null,
+                        "alias": "cnt"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [
+                  {
+                    "label": "Operation",
+                    "alias": "operation_name",
+                    "column": "operation_name",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "operation_name",
+                        "function": null,
+                        "alias": "operation_name"
+                      }
+                    ]
+                  }
+                ],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 32,
+            "w": 192,
+            "h": 12,
+            "i": 92
+          }
+        }
+      ]
+    },
+    {
       "tabId": "users",
       "name": "Users",
       "panels": [

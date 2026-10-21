@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 
@@ -18,14 +19,14 @@ func TestVerifySignature_BinaryOnly(t *testing.T) {
 	}
 	msg := "a\nb"
 
-	binSig, err := c.sign(msg, kp.PrivateKey)
+	binSig, err := c.sign(context.Background(), msg, kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.verifySignature(msg, binSig, kp.PublicKey); err != nil {
+	if err := c.verifySignature(context.Background(), msg, binSig, kp.PublicKey); err != nil {
 		t.Fatalf("binary signature rejected: %v", err)
 	}
-	if err := c.verifySignature("a\r\nb", binSig, kp.PublicKey); err == nil {
+	if err := c.verifySignature(context.Background(), "a\r\nb", binSig, kp.PublicKey); err == nil {
 		t.Fatal("binary signature verified a CRLF variant")
 	}
 
@@ -37,10 +38,10 @@ func TestVerifySignature_BinaryOnly(t *testing.T) {
 	if err := openpgp.ArmoredDetachSignText(&textSig, entities[0], strings.NewReader(msg), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.verifySignature(msg, textSig.String(), kp.PublicKey); err == nil {
+	if err := c.verifySignature(context.Background(), msg, textSig.String(), kp.PublicKey); err == nil {
 		t.Fatal("text-mode signature accepted by verifySignature")
 	}
-	if err := c.verifySignedChallenge(textSig.String(), kp.PublicKey, msg); err == nil {
+	if err := c.verifySignedChallenge(context.Background(), textSig.String(), kp.PublicKey, msg); err == nil {
 		t.Fatal("text-mode signature accepted by verifySignedChallenge")
 	}
 }

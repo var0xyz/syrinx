@@ -544,13 +544,13 @@ func (h *Handlers) BlockUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Active public key not available")
 		return
 	}
-	if err := h.services.crypto.verifySignature(string(buildBlockUserPayload(userID, blockedUserID, keyID)), userSignature, pubKey.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(r.Context(), string(buildBlockUserPayload(userID, blockedUserID, keyID)), userSignature, pubKey.Armor); err != nil {
 		writeError(w, http.StatusUnauthorized, "signature verification failed")
 		return
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)
-	serverSignature, err := h.countersign(buildBlockServerPayload(userID, blockedUserID, h.signingKey.Fingerprint, userSignature, now), now)
+	serverSignature, err := h.countersign(r.Context(), buildBlockServerPayload(userID, blockedUserID, h.signingKey.Fingerprint, userSignature, now), now)
 	if err != nil {
 		log.Error().Err(err).Msg("Error producing block countersignature")
 		internalServerError(w)
@@ -799,7 +799,7 @@ func (h *Handlers) acceptForeignBlock(ctx context.Context, peerServerID string, 
 		return fmt.Errorf("resolve blocking user key: %v", err)
 	}
 	userPayload := buildBlockUserPayload(cert.UserID, cert.BlockedUserID, cert.UserSignature.ID)
-	if err := h.services.crypto.verifySignature(string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
 		return fmt.Errorf("user signature: %w", err)
 	}
 	signedAt := cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)

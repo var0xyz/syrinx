@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog/log"
@@ -50,6 +49,8 @@ type responseSigner struct {
 	responseSent    bool
 	cryptoService   *cryptoService
 	signingKeyArmor string
+	// ctx is the request's, so the signature's span joins its trace.
+	ctx context.Context
 }
 
 // Header returns the header map (delegates to underlying ResponseWriter)
@@ -169,7 +170,7 @@ func (rs *responseSigner) signCompleteResponse() error {
 // signDetached creates a detached signature of the message
 func (rs *responseSigner) signDetached(message, privateKey string) (string, error) {
 	// Use crypto service to sign the message
-	signature, err := rs.cryptoService.sign(message, privateKey)
+	signature, err := rs.cryptoService.sign(rs.ctx, message, privateKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to sign message: %w", err)
 	}
@@ -610,7 +611,7 @@ func (h *Handlers) verifyRequestSignature(r *http.Request, signature, publicKey 
 	}
 
 	// Use the existing CryptoService method to verify the signature
-	return h.services.crypto.verifySignature(requestString, decodedSignature, publicKey)
+	return h.services.crypto.verifySignature(r.Context(), requestString, decodedSignature, publicKey)
 }
 
 // buildCanonicalRequestString creates a canonical representation of the request for signing
@@ -763,6 +764,7 @@ func (h *Handlers) responseSignerMiddleware(signingKeyArmor string) func(http.Ha
 				statusCode:      http.StatusOK,
 				cryptoService:   h.services.crypto,
 				signingKeyArmor: signingKeyArmor,
+				ctx:             r.Context(),
 			}
 
 			// Continue with wrapped writer

@@ -31,7 +31,7 @@ func TestVerifyRecoveryReedCountersig_RealSignature(t *testing.T) {
 
 	authorKeyID := authorID + "/AUTHORKEY"
 	payload := buildReedPayload(serverID, canonicalReedID, serverKP.Fingerprint, authorKeyID, userSigArmor, ts)
-	sigArmor, err := cryptoSvc.sign(string(payload), serverKP.PrivateKey)
+	sigArmor, err := cryptoSvc.sign(context.Background(), string(payload), serverKP.PrivateKey)
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}

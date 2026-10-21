@@ -181,7 +181,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// aAdmin is also the invitation's own creator here — passing
 	// callerIsRoot bypasses the different-admin check so this test can
 	// focus on the handshake round-trip itself, not that rule.
-	if _, _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.countersign, a.h.notifyPeerOfApproval, nil); err != nil {
+	if _, _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.signerFor(context.Background()), a.h.notifyPeerOfApproval, nil); err != nil {
 		t.Fatal(err)
 	}
 	approvedInv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
@@ -209,7 +209,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	// mirrors a real bidirectional federation link.
 	// b is the responder side — no local invitation row to compare bAdmin
 	// against, so this exercises the "unrestricted" branch, not root bypass.
-	if _, _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.countersign, b.h.notifyPeerOfApproval, nil); err != nil {
+	if _, _, err := b.ds.ApproveFederationAttempt(context.Background(), bAttempt.ID, bAdmin, time.Now().UTC(), false, b.h.signerFor(context.Background()), b.h.notifyPeerOfApproval, nil); err != nil {
 		t.Fatal(err)
 	}
 	assertPeerFrontendURL(t, b.ds, bAttempt.RemoteServerID, "https://app.server-a.example")
@@ -251,7 +251,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	}
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
 	badCanonical := http.MethodGet + " " + badReq.URL.Path + "\n\n\n\n" + timestamp
-	badSigArmor, err := newCryptoService().sign(badCanonical, strangerKP.PrivateKey)
+	badSigArmor, err := newCryptoService().sign(context.Background(), badCanonical, strangerKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestIncomingFederationAttempt_WrongSecret(t *testing.T) {
 	inviteID, _ := createInvitationEncryptedTo(t, a, aAdmin, remoteKP)
 
 	signBytes := buildFederationConnectPayload(inviteID, "server-b", a.srv.URL, "https://app.server-b.example", remoteKP.Fingerprint)
-	sigArmor, err := a.h.services.crypto.sign(string(signBytes), remoteKP.PrivateKey)
+	sigArmor, err := a.h.services.crypto.sign(context.Background(), string(signBytes), remoteKP.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,10 +135,10 @@ func TestRotateServerKey(t *testing.T) {
 	}
 
 	payload := string(buildServerKeyRevocationPayload("Ab3xY9pQ", rev.KeyID, rev.Successor, rev.Compromised, rev.Reason, rev.SignedAt))
-	if err := cryptoSvc.verifySignature(payload, rev.Signature, publicArmorOf(t, db, rev.KeyID)); err != nil {
+	if err := cryptoSvc.verifySignature(ctx, payload, rev.Signature, publicArmorOf(t, db, rev.KeyID)); err != nil {
 		t.Errorf("revoked key's signature: %v", err)
 	}
-	if err := cryptoSvc.verifySignature(payload, rev.SuccessorSignature, publicArmorOf(t, db, rev.Successor)); err != nil {
+	if err := cryptoSvc.verifySignature(ctx, payload, rev.SuccessorSignature, publicArmorOf(t, db, rev.Successor)); err != nil {
 		t.Errorf("successor's signature: %v", err)
 	}
 }
@@ -275,14 +275,14 @@ func TestRotationIsLoggedAndRetiresTheOldSigner(t *testing.T) {
 		fp, _, _ := parseIdentityID(identityID(rev.Successor))
 		payload := buildLedgerEntryPayload(e.ID, e.PrevID, prevSig, e.Kind, "", "", time.Time{}, e.Message, "", nil,
 			"Ab3xY9pQ", fp, e.ServerSignature.SignedAt)
-		if err := cryptoSvc.verifySignature(string(payload), e.ServerSignature.Armor, publicArmorOf(t, db, rev.Successor)); err != nil {
+		if err := cryptoSvc.verifySignature(ctx, string(payload), e.ServerSignature.Armor, publicArmorOf(t, db, rev.Successor)); err != nil {
 			t.Fatalf("entry %d signature: %v", i, err)
 		}
 		prevSig = e.ServerSignature.Armor
 	}
 
 	retired := func(payload []byte, ts time.Time) (ServerSignature, error) {
-		armor, err := cryptoSvc.sign(string(payload), first.Armor)
+		armor, err := cryptoSvc.sign(ctx, string(payload), first.Armor)
 		return ServerSignature{ID: rotated.KeyID, Armor: armor, SignedAt: ts}, err
 	}
 	tx, err := db.BeginTx(ctx, nil)

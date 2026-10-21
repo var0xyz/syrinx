@@ -137,7 +137,7 @@ func (h *Handlers) verifyFlagSignature(ctx context.Context, f reedFlag) error {
 		return refuse(http.StatusUnauthorized, "bad_key", "Active public key not available")
 	}
 	payload := buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note, f.CreatedAt)
-	if err := h.services.crypto.verifySignature(string(payload), f.Signature.Armor, key.Armor); err != nil {
+	if err := h.services.crypto.verifySignature(ctx, string(payload), f.Signature.Armor, key.Armor); err != nil {
 		return refuse(http.StatusUnauthorized, "bad_signature", "signature verification failed")
 	}
 	return nil

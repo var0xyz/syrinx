@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	gocrypto "crypto"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
@@ -12,12 +13,18 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+
+	"syrinx/observability/metrics"
 )
 
 // idAlphabet is the character set for entity IDs.
@@ -92,7 +99,59 @@ func cryptoHash(data string) []byte {
 }
 
 // cryptoService implements OpenPGP key/signature/encryption operations.
-type cryptoService struct{}
+type cryptoService struct {
+	// Parsed private keys by armor: parsing costs far more than signing, and
+	// only the server's own few keys are signed with.
+	privateKeys sync.Map
+	metrics     metrics.Recorder
+}
+
+// SetMetrics wires the recorder that times every sign and verify.
+func (s *cryptoService) SetMetrics(r metrics.Recorder) { s.metrics = r }
+
+var cryptoTracer = otel.Tracer("syrinx/crypto")
+
+// observe times one sign or verify: a span under ctx's request span and a
+// duration sample. Call the returned func with the key algorithm and outcome.
+func (s *cryptoService) observe(ctx context.Context, op string) func(algo packet.PublicKeyAlgorithm, err error) {
+	start := time.Now()
+	_, span := cryptoTracer.Start(ctx, "crypto."+op)
+	return func(algo packet.PublicKeyAlgorithm, err error) {
+		name := keyAlgorithmName(algo)
+		span.SetAttributes(attribute.String("crypto.algorithm", name))
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "")
+		}
+		span.End()
+		if s != nil && s.metrics != nil {
+			s.metrics.CryptoOperation(ctx, op, name, err == nil, time.Since(start))
+		}
+	}
+}
+
+func keyAlgorithmName(algo packet.PublicKeyAlgorithm) string {
+	switch algo {
+	case packet.PubKeyAlgoRSA, packet.PubKeyAlgoRSASignOnly, packet.PubKeyAlgoRSAEncryptOnly:
+		return "rsa"
+	case packet.PubKeyAlgoEdDSA:
+		return "eddsa"
+	case packet.PubKeyAlgoEd25519:
+		return "ed25519"
+	case packet.PubKeyAlgoEd448:
+		return "ed448"
+	case packet.PubKeyAlgoECDSA:
+		return "ecdsa"
+	case 0:
+		return "unknown"
+	default:
+		return "other"
+	}
+}
+
+// keyConfig makes new server and root keys Ed25519 (EdDSA, v4 keys, as the
+// SPA makes user keys): signing is much faster than with RSA.
+var keyConfig = &packet.Config{Algorithm: packet.PubKeyAlgoEdDSA}
 
 // newCryptoService creates a new crypto service
 func newCryptoService() *cryptoService {
@@ -150,7 +209,7 @@ func (s *cryptoService) extractPublicKeyArmor(entity *openpgp.Entity) (string, e
 // createKeyPair creates a new OpenPGP key pair
 func (s *cryptoService) createKeyPair(userID string, email string, comment string) (*cryptoKeyPair, error) {
 	// Create a new entity with a primary key pair
-	entity, err := openpgp.NewEntity(userID, comment, email, nil)
+	entity, err := openpgp.NewEntity(userID, comment, email, keyConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create entity: %w", err)
 	}
@@ -158,7 +217,7 @@ func (s *cryptoService) createKeyPair(userID string, email string, comment strin
 	// Sign all the identities
 	var identity string
 	for _, id := range entity.Identities {
-		err := id.SelfSignature.SignUserId(id.UserId.Id, entity.PrimaryKey, entity.PrivateKey, nil)
+		err := id.SelfSignature.SignUserId(id.UserId.Id, entity.PrimaryKey, entity.PrivateKey, keyConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sign identity: %w", err)
 		}
@@ -232,22 +291,18 @@ func (s *cryptoService) createKeyPair(userID string, email string, comment strin
 }
 
 // sign creates a detached signature of the message
-func (s *cryptoService) sign(message, privateKey string) (string, error) {
-	// Parse the armored private key
-	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(privateKey))
+func (s *cryptoService) sign(ctx context.Context, message, privateKey string) (string, error) {
+	done := s.observe(ctx, "sign")
+	entity, err := s.privateKeyEntity(privateKey)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse private key: %w", err)
+		done(0, err)
+		return "", err
 	}
-
-	if len(entities) == 0 {
-		return "", fmt.Errorf("no entities found in private key")
-	}
-
-	entity := entities[0]
 
 	// Generate a detached signature
 	var sigBuf bytes.Buffer
 	err = openpgp.DetachSign(&sigBuf, entity, strings.NewReader(message), nil)
+	done(entity.PrimaryKey.PubKeyAlgo, err)
 	if err != nil {
 		return "", fmt.Errorf("failed to create detached signature: %w", err)
 	}
@@ -271,6 +326,27 @@ func (s *cryptoService) sign(message, privateKey string) (string, error) {
 	}
 
 	return armoredBuf.String(), nil
+}
+
+// privateKeyEntity parses an armored private key once and reuses it after.
+func (s *cryptoService) privateKeyEntity(privateKey string) (*openpgp.Entity, error) {
+	// A nil service (some tests build Handlers without one) parses uncached.
+	if s != nil {
+		if cached, ok := s.privateKeys.Load(privateKey); ok {
+			return cached.(*openpgp.Entity), nil
+		}
+	}
+	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(privateKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse private key: %w", err)
+	}
+	if len(entities) == 0 {
+		return nil, fmt.Errorf("no entities found in private key")
+	}
+	if s != nil {
+		s.privateKeys.Store(privateKey, entities[0])
+	}
+	return entities[0], nil
 }
 
 // encrypt encrypts plaintext to an OpenPGP public key (armored PGP message).
@@ -406,7 +482,7 @@ func (s *cryptoService) decryptSymmetric(armoredCiphertext, password string) ([]
 }
 
 // verifySignature verifies a detached signature
-func (s *cryptoService) verifySignature(message, signature, publicKey string) error {
+func (s *cryptoService) verifySignature(ctx context.Context, message, signature, publicKey string) error {
 	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
 	if err != nil {
 		return err
@@ -420,13 +496,37 @@ func (s *cryptoService) verifySignature(message, signature, publicKey string) er
 	if err != nil {
 		return err
 	}
-	return verifyBinaryDetached(entities, message, block.Body)
+	return s.verifyBinaryDetached(ctx, entities, message, block.Body)
+}
+
+// verifySignatureWithEntity is verifySignature for an already-parsed key.
+func (s *cryptoService) verifySignatureWithEntity(ctx context.Context, message, signature string, entity *openpgp.Entity) error {
+	block, err := armor.Decode(strings.NewReader(signature))
+	if errors.Is(err, io.EOF) {
+		return fmt.Errorf("signature is not PGP armor")
+	}
+	if err != nil {
+		return err
+	}
+	return s.verifyBinaryDetached(ctx, openpgp.EntityList{entity}, message, block.Body)
 }
 
 // verifyBinaryDetached refuses text-mode signatures, which canonicalize
 // line endings and so verify bytes the signer never signed.
-func verifyBinaryDetached(entities openpgp.EntityList, message string, signature io.Reader) error {
-	sig, _, err := openpgp.VerifyDetachedSignature(entities, strings.NewReader(message), signature, nil)
+// Every signature check ends here, so this is where verify is timed.
+func (s *cryptoService) verifyBinaryDetached(ctx context.Context, entities openpgp.EntityList, message string, signature io.Reader) (err error) {
+	done := s.observe(ctx, "verify")
+	var sig *packet.Signature
+	defer func() {
+		var algo packet.PublicKeyAlgorithm
+		if sig != nil {
+			algo = sig.PubKeyAlgo
+		} else if len(entities) > 0 {
+			algo = entities[0].PrimaryKey.PubKeyAlgo
+		}
+		done(algo, err)
+	}()
+	sig, _, err = openpgp.VerifyDetachedSignature(entities, strings.NewReader(message), signature, nil)
 	if err != nil {
 		return err
 	}
@@ -437,12 +537,12 @@ func verifyBinaryDetached(entities openpgp.EntityList, message string, signature
 }
 
 // verifyDetachedSignature verifies a detached signature (alias for verifySignature)
-func (s *cryptoService) verifyDetachedSignature(message, signature, publicKey string) error {
-	return s.verifySignature(message, signature, publicKey)
+func (s *cryptoService) verifyDetachedSignature(ctx context.Context, message, signature, publicKey string) error {
+	return s.verifySignature(ctx, message, signature, publicKey)
 }
 
 // verifySignedChallenge verifies a signed challenge using the provided public key
-func (s *cryptoService) verifySignedChallenge(signature, publicKey, challenge string) error {
+func (s *cryptoService) verifySignedChallenge(ctx context.Context, signature, publicKey, challenge string) error {
 	// Read the public key entities
 	entities, err := openpgp.ReadArmoredKeyRing(strings.NewReader(publicKey))
 	if err != nil {
@@ -460,7 +560,7 @@ func (s *cryptoService) verifySignedChallenge(signature, publicKey, challenge st
 	}
 
 	// This is a detached signature, verify it against the challenge
-	if err := verifyBinaryDetached(entities, challenge, block.Body); err != nil {
+	if err := s.verifyBinaryDetached(ctx, entities, challenge, block.Body); err != nil {
 		return fmt.Errorf("detached signature verification failed: %w", err)
 	}
 
@@ -510,16 +610,19 @@ func (s *cryptoService) extractEntity(publicKey string) (*openpgp.Entity, error)
 }
 
 // validateAndExtractPublicKey validates a public key and its signature, then extracts metadata
-func (s *cryptoService) validateAndExtractPublicKey(publicKey, signature string) (*cryptographicKey, error) {
-	err := s.verifySignedChallenge(signature, publicKey, publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate challenge signature: %w", err)
-	}
-
-	// Extract key metadata
+func (s *cryptoService) validateAndExtractPublicKey(ctx context.Context, publicKey, signature string) (*cryptographicKey, error) {
 	entity, err := s.extractEntity(publicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract entity: %w", err)
+	}
+	return s.validateAndExtractKey(ctx, entity, publicKey, signature)
+}
+
+// validateAndExtractKey is validateAndExtractPublicKey for a key the caller
+// already parsed from publicKey, so it isn't parsed again.
+func (s *cryptoService) validateAndExtractKey(ctx context.Context, entity *openpgp.Entity, publicKey, signature string) (*cryptographicKey, error) {
+	if err := s.verifySignatureWithEntity(ctx, publicKey, signature, entity); err != nil {
+		return nil, fmt.Errorf("failed to validate challenge signature: %w", err)
 	}
 
 	fingerprint := hex.EncodeToString(entity.PrimaryKey.Fingerprint)

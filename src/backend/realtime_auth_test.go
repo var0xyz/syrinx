@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http/httptest"
 	"net/url"
@@ -13,7 +14,7 @@ import (
 
 func realtimeAuthRequest(t *testing.T, h *Handlers, kp cryptoKeyPair, keyID, payload, timestamp, nonce string) (string, error) {
 	t.Helper()
-	sig, err := h.services.crypto.sign(payload, kp.PrivateKey)
+	sig, err := h.services.crypto.sign(context.Background(), payload, kp.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
