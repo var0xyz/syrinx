@@ -1016,6 +1016,34 @@ websocket = [
         layout=layout(0, 14, 192, 14, 52),
         description="Server → client frames (ws.direction=out)",
     ),
+    sql_panel(
+        pid="syrinx_ws_work",
+        title="Work per WebSocket message type",
+        ptype="table",
+        sql=(
+            f"SELECT w.operation_name AS work, count(DISTINCT w.trace_id) AS msgs, "
+            f"approx_percentile_cont(w.duration, 0.95) / 1000.0 AS p95_ms, "
+            f"sum(CASE WHEN q.operation_name IN ('sql.conn.query', 'sql.conn.exec') "
+            f"THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT w.trace_id) AS stmts_per_msg, "
+            f"sum(CASE WHEN q.{CRYPTO} THEN 1 ELSE 0 END) * 1.0 "
+            f"/ count(DISTINCT w.trace_id) AS crypto_per_msg "
+            f"FROM syrinx w LEFT JOIN syrinx q ON q.trace_id = w.trace_id "
+            f"AND q.span_id != w.span_id "
+            f"WHERE (w.operation_name LIKE 'ws.%' OR w.operation_name LIKE 'presence.%') "
+            f"AND (w.reference_parent_span_id IS NULL OR w.reference_parent_span_id = '') "
+            f"GROUP BY work ORDER BY stmts_per_msg * msgs DESC LIMIT 40"
+        ),
+        layout=layout(0, 28, 192, 18, 93),
+        x=[axis("Work", "work")],
+        y=[
+            axis("Count", "msgs"),
+            axis("p95 ms", "p95_ms"),
+            axis("DB statements / msg", "stmts_per_msg"),
+            axis("Sign+verify / msg", "crypto_per_msg"),
+        ],
+        decimals=2,
+        description="Each inbound message, connect, disconnect, relay timeout and presence reap is its own trace",
+    ),
     promql_panel(
         pid="syrinx_ws_relay_health",
         title="Relay path (in vs out)",
@@ -1046,7 +1074,7 @@ websocket = [
                 "out: DATA_RESPONSE",
             ),
         ],
-        layout=layout(0, 28, 192, 14, 53),
+        layout=layout(0, 46, 192, 14, 53),
         description="Quick view of reed relay request/response/miss balance",
     ),
 ]
