@@ -93,7 +93,9 @@ Building OpenObserve v0.91.5 on an M1 Mac mini with 8 GB of RAM takes
 **~22 GB** on its own. `O2_BUILD_JOBS` limits how many crates build at once,
 not that one crate's peak, so lowering it barely helps: what matters is
 RAM + swap of **~24 GB or more**. With 32 GB of RAM it never swaps; with
-less, most of the build time is spent swapping.
+less, most of the build time is spent swapping. The cross-compile script
+checks this before installing anything and asks before building on a
+machine that falls short (`O2_MIN_MEMORY_GB` changes the threshold).
 
 - **macOS** swaps to the system disk and grows swap on demand. On the 8 GB
   M1 swap reached ~10 GB (plus ~3.7 GB compressed) and free disk fell from
