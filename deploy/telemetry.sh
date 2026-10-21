@@ -9,24 +9,22 @@
 # Commands (map 1:1 to the script of the same name on the host):
 #   setup                      sudo ./setup.sh
 #   update                     sudo ./update.sh
-#   build                      sudo ./build-openobserve-pi.sh
 #   tunnel                     runs tunnel.sh locally (no scp/ssh-to-script)
 #
 # Examples:
 #   ./telemetry.sh setup
 #   DEPLOY_HOST=pi@10.0.0.50 ./telemetry.sh update
-#   ./telemetry.sh build
 #   SHOW_PASSWORD=1 ./telemetry.sh setup    # print the OpenObserve admin password
 #   ./telemetry.sh tunnel                   # SSH port-forward to the UI
 #
-# setup/update/build wrap the on-Pi scripts of the same name — this scp's
+# setup/update wrap the host scripts of the same name — this scp's
 # them over and runs them via ssh+sudo. cross-compile-openobserve-pi.sh and
 # deploy-openobserve-pi.sh already run from the workstation and do their own
 # ssh/scp — run those directly (from deploy/scripts/telemetry/) instead of
 # through this script.
 #
 # Only `setup` asks for the host address, saved to
-# deploy/scripts/telemetry/deploy.env (mode 600, gitignored); update/build,
+# deploy/scripts/telemetry/deploy.env (mode 600, gitignored); update,
 # deploy-openobserve-pi.sh and tunnel.sh all reuse it. DEPLOY_HOST=...
 # overrides it for one run.
 
@@ -46,7 +44,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,31p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -113,7 +111,6 @@ fi
 case "$CMD" in
     setup)  REMOTE_SCRIPT="setup.sh" ;;
     update) REMOTE_SCRIPT="update.sh" ;;
-    build)  REMOTE_SCRIPT="build-openobserve-pi.sh" ;;
     -h|--help|help) usage; exit 0 ;;
     *) die "Unknown command: $CMD (run '$0 --help' for the list)" ;;
 esac
@@ -126,7 +123,7 @@ if [ -n "$DEPLOY_HOST_FROM_ENV" ]; then
 else
     DEPLOY_HOST_SET_BY_ENV=0
 fi
-# Only setup asks for (and saves) the host; update and build reuse it.
+# Only setup asks for (and saves) the host; update reuses it.
 if [ "$CMD" = "setup" ]; then
     DEPLOY_HOST="$(prompt_host)"
     save_host "$DEPLOY_HOST"
@@ -141,9 +138,8 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
 fi
 ok "SSH OK"
 
-# Pi hosts can't run upstream OpenObserve binaries (no AES), so setup needs
-# a Pi build: an existing one, a local cross-compile, or an on-Pi build.
-REMOTE_ENV=""
+# Pi hosts can't run upstream OpenObserve binaries (no AES), so setup needs a
+# cross-compiled one: already built, or built now on this machine.
 if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
     "tr -d '\\0' </proc/device-tree/model 2>/dev/null | grep -qi 'raspberry pi'"; then
     # shellcheck source=scripts/remote-sudo.sh
@@ -172,13 +168,14 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
         || command -v pacman >/dev/null 2>&1; then
         options+=("cross")
     fi
-    options+=("pi")
+    if [ "${#options[@]}" -eq 0 ]; then
+        die "No OpenObserve ${O2_VERSION_TAG} Pi binary yet, and this machine can't cross-compile one (needs macOS, Debian or Arch). Build it elsewhere with deploy/scripts/telemetry/cross-compile-openobserve-pi.sh"
+    fi
     i=1
     for opt in "${options[@]}"; do
         case "$opt" in
             existing) echo "  $i) Use the already compiled binary ${existing}" ;;
             cross)    echo "  $i) Cross-compile on this machine (~1 hour, needs ~24 GB RAM+swap)" ;;
-            pi)       echo "  $i) Build on the Pi (1–3+ hours)" ;;
         esac
         i=$((i + 1))
     done
@@ -202,17 +199,16 @@ if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
                     "$TELEMETRY_SCRIPTS_DIR/deploy-openobserve-pi.sh"
             fi
             ;;
-        pi) REMOTE_ENV="O2_FORCE_REBUILD=1" ;;
     esac
 fi
 
-# Only what setup.sh/update.sh/build-openobserve-pi.sh actually need on the
+# Only what setup.sh/update.sh actually need on the
 # Pi — the cross-compile, uninstall, watch, deploy and tunnel scripts and this
 # script itself all run from the workstation and are left out.
 info "Copying deploy/scripts/telemetry to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
 ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")/dashboards"
 scp -q "$TELEMETRY_SCRIPTS_DIR/common.sh" "$TELEMETRY_SCRIPTS_DIR/setup.sh" "$TELEMETRY_SCRIPTS_DIR/update.sh" \
-    "$TELEMETRY_SCRIPTS_DIR/build-openobserve-pi.sh" "$TELEMETRY_SCRIPTS_DIR/README.md" \
+    "$TELEMETRY_SCRIPTS_DIR/README.md" \
     "${DEPLOY_HOST}:${REMOTE_DIR}/"
 scp -q "$TELEMETRY_SCRIPTS_DIR"/dashboards/*.json "$TELEMETRY_SCRIPTS_DIR"/dashboards/*.py "${DEPLOY_HOST}:${REMOTE_DIR}/dashboards/"
 ok "Copied"
@@ -221,7 +217,7 @@ ok "Copied"
 # ssh doesn't carry local env vars over on its own, so it has to be spelled
 # out explicitly in the remote command.
 REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh"
-REMOTE_CMD="$REMOTE_CMD && sudo -p $(printf '%q' "$SUDO_PROMPT") SHOW_PASSWORD=$(printf '%q' "${SHOW_PASSWORD:-0}") $REMOTE_ENV ./$REMOTE_SCRIPT"
+REMOTE_CMD="$REMOTE_CMD && sudo -p $(printf '%q' "$SUDO_PROMPT") SHOW_PASSWORD=$(printf '%q' "${SHOW_PASSWORD:-0}") ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done

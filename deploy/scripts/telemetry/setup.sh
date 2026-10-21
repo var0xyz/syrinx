@@ -130,9 +130,8 @@ telemetry_write_otel_config "$AUTH_HEADER"
 
 echo -e "\n📦 Installing OpenObserve and OTEL Collector..."
 if telemetry_is_raspberry_pi; then
-    echo "ℹ️  Raspberry Pi: uses the Pi binary cached in $O2_PI_BUILD_DIR."
-    echo "   Run ./deploy/telemetry.sh setup from your workstation to pick how it is"
-    echo "   built (existing binary, local cross-compile, or on-Pi build)."
+    echo "ℹ️  Raspberry Pi: installs the cross-compiled binary cached in $O2_PI_BUILD_DIR."
+    echo "   Run ./deploy/telemetry.sh setup from your workstation to build or reuse it."
 fi
 telemetry_install_stack
 telemetry_configure_firewall

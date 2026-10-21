@@ -201,24 +201,10 @@ remote_sudo "sudo install -o root -g root -m 755 $(printf '%q' "$SOURCE_ON_PI") 
   if [ -f $(printf '%q' "${TMP_REMOTE}.version") ]; then
     sudo install -o root -g root -m 644 $(printf '%q' "${TMP_REMOTE}.version") $(printf '%q' "${REMOTE_CACHE}.version")
   fi
-  printf 'cross\n' | sudo tee $(printf '%q' "${REMOTE_CACHE}.origin") >/dev/null
   rm -f $(printf '%q' "$TMP_REMOTE") $(printf '%q' "${TMP_REMOTE}.version")
   true"
 
-# Remember install mode so on-Pi update.sh does not start a source build.
-remote_sudo_stdin "sudo bash -s" <<'REMOTE'
-set -euo pipefail
-for f in /home/*/scripts/telemetry.env /root/scripts/telemetry.env; do
-  [ -f "$f" ] || continue
-  if grep -q '^O2_INSTALL_MODE=' "$f"; then
-    sed -i 's/^O2_INSTALL_MODE=.*/O2_INSTALL_MODE=cross/' "$f"
-  else
-    echo 'O2_INSTALL_MODE=cross' >> "$f"
-  fi
-done
-REMOTE
-
-ok "Installed /usr/local/bin/openobserve (cached at $REMOTE_CACHE, origin=cross)"
+ok "Installed /usr/local/bin/openobserve (cached at $REMOTE_CACHE)"
 
 # Ensure systemd unit + service user exist (config may already be on the Pi).
 info "Wiring openobserve.service..."

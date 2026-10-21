@@ -15,8 +15,8 @@ real values).
 ## Scripts
 
 - **[`../../telemetry.sh`](../../telemetry.sh)** — run from your Mac/laptop,
-  not the telemetry host. Copies `setup.sh`, `update.sh`,
-  `build-openobserve-pi.sh`, `common.sh`, and `dashboards/` to the host over
+  not the telemetry host. Copies `setup.sh`, `update.sh`, `common.sh`, and
+  `dashboards/` to the host over
   `scp` and runs the requested one via `ssh` (as root, with `sudo`);
   `telemetry.sh tunnel` runs `tunnel.sh` locally instead. See "Deploying
   without a manual copy" below.
@@ -37,11 +37,7 @@ real values).
   to a LAN-only telemetry host's OpenObserve UI, for when no Cloudflare
   Tunnel is configured (`TELEMETRY_DOMAIN` left empty during `setup.sh`).
   See "Reaching a LAN-only UI" below.
-- **`build-openobserve-pi.sh`** — builds OpenObserve from source *directly
-  on the Pi* (wrapped in `tmux` so it survives an SSH disconnect — this can
-  take 1–3+ hours on a Pi 4). Normally invoked automatically by
-  `setup.sh`/`update.sh`; only needed directly for troubleshooting.
-- **`cross-compile-openobserve-pi.sh`** — the **preferred** build path: runs
+- **`cross-compile-openobserve-pi.sh`** — the only way to get a Pi binary: runs
   on macOS, a Debian-based Linux (apt) or an Arch-based Linux (pacman),
   cross-compiles OpenObserve for `aarch64-unknown-linux-gnu` using Zig
   (`cargo zigbuild`), and optionally deploys the result straight to a Pi via
@@ -60,6 +56,10 @@ real values).
   every 5s), logging both to `./o2-logs/<timestamp>/` in the current
   directory and syncing to disk each sample, so the lead-up to a crash
   survives a reboot.
+- **`watch-build.sh`** — the Linux counterpart, run in tmux on the build
+  machine: `./watch-build.sh ./cross-compile-openobserve-pi.sh`. Same
+  `./o2-logs/<timestamp>/` logs, and the monitor stops the moment the build
+  exits; `summary.txt` has exit code, duration, peak memory and OOM kills.
 - **`deploy-openobserve-pi.sh`** — copies a cross-compiled binary to a
   Pi over `scp`/`ssh`, installs it, and wires up (or repairs) the
   `openobserve` and `otelcol-contrib` systemd units. Prompts for the Pi's
@@ -77,12 +77,25 @@ real values).
 Raspberry Pi CPUs lack the AES hardware instruction that upstream
 OpenObserve's prebuilt `arm64` binaries require, so they `SIGILL` on start
 ([openobserve#3910](https://github.com/openobserve/openobserve/issues/3910)).
-`common.sh` patches around this (`target-feature=+neon` instead of
-`+aes,+neon`, no `gxhash` SIMD) before building, and every install path runs
-a quick smoke test (spin the binary up against a throwaway localhost
-instance) before trusting it. Cross-compiling on a workstation
-(`cross-compile-*`, macOS or Debian/Arch Linux) is faster; building on-Pi
-(`build-openobserve-pi.sh`) is the fallback when neither is available.
+`cross-compile-openobserve-pi.sh` patches around this
+(`target-feature=+neon` instead of `+aes,+neon`, no `gxhash` SIMD) and builds
+on a workstation; on the Pi, `setup.sh`/`update.sh` install that binary and
+run a quick smoke test (spin it up against a throwaway localhost instance).
+
+## Why OpenObserve isn't built on the Pi
+
+Compiling OpenObserve on the Pi itself isn't supported. Measured on a
+Raspberry Pi 4 (4 GB RAM, 2 GB zram swap, plus a 4 GB swapfile):
+
+- The web UI alone peaked at ~7.6 GB (Node) and took 19 minutes.
+- The 842 dependency crates took ~3 h 25 m with 2 jobs.
+- The `openobserve` crate then used up all ~9.7 GB of RAM + swap and was
+  still growing (it peaks at ~22 GB, see below). The Pi thrashed until its
+  hardware watchdog reset it, and the run was lost.
+
+Finishing would take ~18 GB more swap on the SD card: many more hours of
+swapping and heavy card wear, for a binary a workstation builds in about an
+hour. So a Pi only ever runs a cross-compiled binary.
 
 ## Cross-compile requirements
 
@@ -115,8 +128,8 @@ toolchain in `~/.rustup` ~3.5 GB, and the binary in `dist/` ~330 MB.
 **Re-runs** keep `target/`, so after a crash the build picks up from the
 crates it already compiled instead of starting over.
 `uninstall-cross-compile-tools.sh` deletes the cache and the tools when
-you're done; `watch-cross-compile.sh` (macOS) logs memory, swap and free
-disk next to the build so a crash leaves a record.
+you're done; `watch-cross-compile.sh` (macOS) and `watch-build.sh` (Linux)
+log memory, swap and free disk next to the build so a crash leaves a record.
 
 On Arch-based hosts, installing missing packages runs `pacman -Syu` (a full
 upgrade, which pacman asks you to confirm): a stale package database
@@ -161,21 +174,20 @@ box.
 
 ## Deploying without a manual copy
 
-`setup.sh`/`update.sh`/`build-openobserve-pi.sh` assume they're already
+`setup.sh`/`update.sh` assume they're already
 sitting on the telemetry host. `../../telemetry.sh` runs on your Mac/laptop
 instead:
 
 ```
 ./telemetry.sh setup                  # first-time install
 ./telemetry.sh update                 # routine update
-./telemetry.sh build                  # on-Pi source build (troubleshooting)
 SHOW_PASSWORD=1 ./telemetry.sh setup  # also print the OpenObserve admin password
 ./telemetry.sh tunnel                 # SSH port-forward to the UI (see below)
 ```
 
 (run from `deploy/`, i.e. `./deploy/telemetry.sh setup` from the repo root)
 
-It prompts once for the host address, saves it to `deploy.env` (mode 600,
+`setup` prompts for the host address and saves it to `deploy.env` (mode 600,
 gitignored — shared with `deploy-openobserve-pi.sh` and `tunnel.sh`), copies
 the files each script needs to `~/telemetry` on the host over `scp`,
 then `ssh`es in and runs the requested script with `sudo`. It never touches
@@ -184,10 +196,9 @@ on the host, so redeploying can't clobber settings already saved there.
 
 When the host is a Raspberry Pi, `telemetry.sh setup` first asks how to get
 the OpenObserve binary: use an already compiled one (cached on the Pi, or in
-local `dist/`, offered only if one exists), cross-compile on this machine
+local `dist/`, offered only if one exists), or cross-compile on this machine
 (macOS or Debian/Arch Linux; `cross-compile-openobserve-pi.sh`, then
-`deploy-openobserve-pi.sh` uploads it), or build on the Pi (`O2_FORCE_REBUILD=1`, 1–3+ hours). A blank answer
-picks the first option.
+`deploy-openobserve-pi.sh` uploads it). A blank answer picks the first option.
 
 Env vars set locally aren't visible over `ssh` on their own, so
 `telemetry.sh` forwards `SHOW_PASSWORD` explicitly into the remote `sudo`
@@ -268,11 +279,9 @@ or in one shot:
 DEPLOY_HOST=pi@10.0.0.50 ./cross-compile-openobserve-pi.sh
 ```
 
-**On the Pi directly (no workstation available):**
-```
-sudo ./setup.sh          # first time
-sudo ./update.sh         # subsequent updates
-```
+**On the host directly:** `sudo ./setup.sh` / `sudo ./update.sh` work as
+long as the OpenObserve binary is there: downloaded on amd64/arm64 servers,
+already in the cache on a Pi (cross-compiled and uploaded as above).
 
 **Regenerating the bundled Syrinx dashboard after adding a metric:**
 ```

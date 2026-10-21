@@ -17,14 +17,8 @@ O2_ENV_DIR="/etc/openobserve"
 O2_ENV_FILE="$O2_ENV_DIR/openobserve.env"
 OTEL_CONFIG="/etc/otelcol/config.yaml"
 O2_INSTALL_MODE="binary"
+# Where deploy-openobserve-pi.sh drops the cross-compiled Pi binary.
 O2_PI_BUILD_DIR="/var/lib/openobserve/build"
-O2_SOURCE_DIR="$O2_PI_BUILD_DIR/openobserve-src"
-O2_BUILD_JOBS="${O2_BUILD_JOBS:-2}"
-# Node heap for OpenObserve web UI build (MiB). Pi 4 needs swap + raised limit.
-O2_NODE_MAX_OLD_SPACE_SIZE="${O2_NODE_MAX_OLD_SPACE_SIZE:-}"
-O2_BUILD_TMUX_SESSION="openobserve-build"
-O2_BUILD_LOG="$O2_PI_BUILD_DIR/build.log"
-O2_BUILD_EXIT_FILE="$O2_PI_BUILD_DIR/build.exit"
 
 # --- Architecture detection (kernel + dpkg) -----------------------------------
 # Supported platforms: arm64 | amd64 (native OpenObserve binaries).
@@ -162,7 +156,6 @@ telemetry_persist_env() {
         printf "O2_VERSION=%q\n" "${O2_VERSION:-0.91.5}"
         printf "OTELCOL_VERSION=%q\n" "${OTELCOL_VERSION:-0.120.0}"
         printf "O2_RELEASE_TYPE=%q\n" "${O2_RELEASE_TYPE:-opensource}"
-        printf "O2_BUILD_JOBS=%q\n" "${O2_BUILD_JOBS:-2}"
         printf "O2_INSTALL_MODE=%q\n" "${O2_INSTALL_MODE:-binary}"
         printf "TELEMETRY_DOMAIN=%q\n" "${TELEMETRY_DOMAIN:-}"
         printf "CF_TOKEN=%q\n" "${CF_TOKEN:-}"
@@ -381,342 +374,27 @@ telemetry_o2_pi_cached_binary() {
     printf '%s/openobserve-%s-pi-arm64' "$O2_PI_BUILD_DIR" "$(telemetry_o2_version_tag)"
 }
 
-telemetry_o2_pi_cached_origin() {
-    printf '%s.origin' "$(telemetry_o2_pi_cached_binary)"
-}
-
-# cross | source | unknown — how the cached Pi binary was produced.
-telemetry_o2_pi_install_origin() {
-    local origin_file cached
-    cached="$(telemetry_o2_pi_cached_binary)"
-    origin_file="$(telemetry_o2_pi_cached_origin)"
-    if [ -f "$origin_file" ]; then
-        tr -d '[:space:]' < "$origin_file"
-        return 0
-    fi
-    # A cross-compile deploy writes .version next to the artifact; treat that as cross.
-    if [ -f "${cached}.version" ]; then
-        echo "cross"
-        return 0
-    fi
-    case "${O2_INSTALL_MODE:-}" in
-        cross|source) echo "$O2_INSTALL_MODE" ;;
-        *) echo "unknown" ;;
-    esac
-}
-
-telemetry_o2_mark_pi_origin() {
-    local origin="$1"
-    mkdir -p "$O2_PI_BUILD_DIR"
-    printf '%s\n' "$origin" > "$(telemetry_o2_pi_cached_origin)"
-}
-
-telemetry_script_dir() {
-    cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
-}
-
-telemetry_should_wrap_build_in_tmux() {
-    [ "${TELEMETRY_IN_TMUX:-}" = "1" ] && return 1
-    [ "${TELEMETRY_SKIP_TMUX:-}" = "1" ] && return 1
-    [ -n "${TMUX:-}" ] && return 1
-    return 0
-}
-
-telemetry_write_o2_build_wrapper() {
-    local script_dir env_file wrapper
-    script_dir="$(telemetry_script_dir)"
-    env_file="${TELEMETRY_ENV:-$script_dir/telemetry.env}"
-    wrapper="$O2_PI_BUILD_DIR/build-wrapper.sh"
-    cat > "$wrapper" <<EOF
-#!/bin/bash
-set -euo pipefail
-export TELEMETRY_IN_TMUX=1
-. $(printf '%q' "$script_dir/common.sh")
-if [ -f $(printf '%q' "$env_file") ]; then
-    set -a
-    . $(printf '%q' "$env_file")
-    set +a
-fi
-telemetry_build_openobserve_from_source
-EOF
-    chmod 755 "$wrapper"
-}
-
-telemetry_wait_for_o2_tmux_build() {
-    local session exit_code
-    session="$O2_BUILD_TMUX_SESSION"
-
-    echo ""
-    echo "🖥️  OpenObserve build running in tmux session: $session"
-    echo "   Attach (safe to disconnect SSH after attaching): tmux attach -t $session"
-    echo "   Detach without stopping build: Ctrl-b then d"
-    echo "   Log: $O2_BUILD_LOG"
-    echo ""
-
-    while tmux has-session -t "$session" 2>/dev/null; do
-        sleep 15
-    done
-
-    if [ ! -f "$O2_BUILD_EXIT_FILE" ]; then
-        echo "❌ Build session ended without exit status — check $O2_BUILD_LOG" >&2
-        exit 1
-    fi
-
-    exit_code="$(cat "$O2_BUILD_EXIT_FILE")"
-    rm -f "$O2_BUILD_EXIT_FILE"
-
-    if [ "$exit_code" != "0" ]; then
-        echo "❌ OpenObserve build failed (exit $exit_code). Last 30 log lines:" >&2
-        tail -n 30 "$O2_BUILD_LOG" >&2 || true
-        exit 1
-    fi
-}
-
-telemetry_run_o2_build_in_tmux() {
-    local session wrapper
-    session="$O2_BUILD_TMUX_SESSION"
-
-    if ! telemetry_should_wrap_build_in_tmux; then
-        telemetry_build_openobserve_from_source
-        return 0
-    fi
-
-    if tmux has-session -t "$session" 2>/dev/null; then
-        echo "ℹ️  OpenObserve build already running in tmux ($session)."
-        telemetry_wait_for_o2_tmux_build
-        return 0
-    fi
-
-    echo "🖥️  Starting OpenObserve build in tmux (survives SSH disconnect)..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y tmux
-    mkdir -p "$O2_PI_BUILD_DIR"
-    rm -f "$O2_BUILD_EXIT_FILE"
-    : > "$O2_BUILD_LOG"
-
-    telemetry_write_o2_build_wrapper
-    wrapper="$O2_PI_BUILD_DIR/build-wrapper.sh"
-
-    tmux new-session -d -s "$session" \
-        "bash -lc $(printf '%q' "$wrapper") 2>&1 | tee -a $(printf '%q' "$O2_BUILD_LOG"); echo \$? > $(printf '%q' "$O2_BUILD_EXIT_FILE")"
-
-    telemetry_wait_for_o2_tmux_build
-}
-
-telemetry_cargo_env() {
-    if [ -f /root/.cargo/env ]; then
-        # shellcheck disable=SC1091
-        . /root/.cargo/env
-    elif [ -f "${HOME}/.cargo/env" ]; then
-        # shellcheck disable=SC1091
-        . "${HOME}/.cargo/env"
-    fi
-}
-
-telemetry_install_o2_build_deps() {
-    echo "📦 Installing OpenObserve build dependencies..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        git curl ca-certificates build-essential protobuf-compiler \
-        pkg-config libssl-dev
-
-    if ! command -v node >/dev/null 2>&1 || [ "$(node -p "process.versions.node.split('.')[0]")" -lt 20 ]; then
-        echo "⬇️  Installing Node.js 20 (required for OpenObserve UI build)..."
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
-    fi
-
-    if ! command -v cargo >/dev/null 2>&1; then
-        echo "⬇️  Installing Rust (rustup)..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
-    fi
-    telemetry_cargo_env
-}
-
-telemetry_ensure_build_swap() {
-    local mem_kb swap_kb swapfile=/swapfile-o2-build swap_gb=4
-
-    mem_kb="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
-    swap_kb="$(awk '/SwapTotal:/ {print $2}' /proc/meminfo)"
-
-    # Pi 4 (≤4GB RAM): npm run build needs ~3GB Node heap; ensure enough swap.
-    if [ "$mem_kb" -ge 6000000 ]; then
-        return 0
-    fi
-
-    if [ "$swap_kb" -ge $((swap_gb * 1024 * 1024 - 200000)) ]; then
-        return 0
-    fi
-
-    if swapon --show 2>/dev/null | grep -qF "$swapfile"; then
-        echo "💾 Resizing build swap to ${swap_gb}G..."
-        swapoff "$swapfile" 2>/dev/null || true
-    fi
-
-    echo "💾 Adding ${swap_gb}G swap for source build (Pi RAM is tight)..."
-    rm -f "$swapfile"
-    if ! fallocate -l "${swap_gb}G" "$swapfile" 2>/dev/null; then
-        dd if=/dev/zero of="$swapfile" bs=1M count=$((swap_gb * 1024)) status=progress
-    fi
-    chmod 600 "$swapfile"
-    mkswap "$swapfile" >/dev/null
-    swapon "$swapfile"
-}
-
-# The web UI's Vite build needs over 3 GB of heap; a 3 GB cap made it abort on
-# a 4 GB Pi with swap to spare. Use ~75% of RAM+swap (swap is set up first).
-telemetry_o2_node_heap_mb() {
-    if [ -n "${O2_NODE_MAX_OLD_SPACE_SIZE:-}" ]; then
-        echo "$O2_NODE_MAX_OLD_SPACE_SIZE"
-        return 0
-    fi
-    local total_kb heap
-    total_kb="$(awk '/^(MemTotal|SwapTotal):/ {t += $2} END {print t}' /proc/meminfo)"
-    heap=$((total_kb * 3 / 4 / 1024))
-    [ "$heap" -le 8192 ] || heap=8192
-    [ "$heap" -ge 2048 ] || heap=2048
-    echo "$heap"
-}
-
-telemetry_patch_openobserve_for_pi() {
-    local src_dir="$1"
-    sed -i 's/default = \["gxhash"\]/default = []/' "$src_dir/src/config/Cargo.toml"
-    sed -i 's/target-feature=+aes,+neon/target-feature=+neon/g' "$src_dir/.cargo/config.toml"
-}
-
-telemetry_fetch_openobserve_source() {
-    local version_tag
-    version_tag="$(telemetry_o2_version_tag)"
-    mkdir -p "$O2_PI_BUILD_DIR"
-
-    if [ -f "$O2_SOURCE_DIR/.o2-checked-out-version" ] && \
-       [ "$(cat "$O2_SOURCE_DIR/.o2-checked-out-version")" != "$version_tag" ]; then
-        echo "🔄 OpenObserve version changed — removing old source tree..."
-        rm -rf "$O2_SOURCE_DIR"
-    fi
-
-    if [ -d "$O2_SOURCE_DIR/.git" ]; then
-        echo "🔄 Updating OpenObserve source at $O2_SOURCE_DIR..."
-        git -C "$O2_SOURCE_DIR" fetch --tags origin
-        git -C "$O2_SOURCE_DIR" checkout -f "$version_tag"
-        # Keep target/ so a rerun after a crash reuses compiled crates.
-        git -C "$O2_SOURCE_DIR" clean -fdx -e target
-    else
-        echo "⬇️  Cloning OpenObserve ${version_tag}..."
-        rm -rf "$O2_SOURCE_DIR"
-        git clone --depth 1 --branch "$version_tag" \
-            https://github.com/openobserve/openobserve.git "$O2_SOURCE_DIR"
-    fi
-    printf '%s\n' "$version_tag" > "$O2_SOURCE_DIR/.o2-checked-out-version"
-}
-
-telemetry_build_openobserve_from_source() {
-    local cached jobs
-    cached="$(telemetry_o2_pi_cached_binary)"
-    jobs="${O2_BUILD_JOBS:-2}"
-
-    case "${O2_RELEASE_TYPE:-opensource}" in
-        opensource|oss) ;;
-        *)
-            echo "❌ Pi source builds only support opensource (not ${O2_RELEASE_TYPE})." >&2
-            exit 1
-            ;;
-    esac
-
-    telemetry_install_o2_build_deps
-    telemetry_ensure_build_swap
-    telemetry_fetch_openobserve_source
-    telemetry_patch_openobserve_for_pi "$O2_SOURCE_DIR"
-
-    echo "🌐 Building OpenObserve web UI (embedded in binary)..."
-    local node_heap
-    node_heap="$(telemetry_o2_node_heap_mb)"
-    echo "   Node heap limit: ${node_heap} MiB (set O2_NODE_MAX_OLD_SPACE_SIZE to override)"
-    (
-        cd "$O2_SOURCE_DIR/web"
-        export NODE_OPTIONS="--max-old-space-size=${node_heap}"
-        npm ci
-        npx --yes update-browserslist-db@latest
-        # `build` also runs type-check in parallel: a second Node process
-        # competing for memory, and it doesn't change the bundle.
-        npm run build-only
-    )
-
-    echo "🔨 Compiling OpenObserve server (jobs=${jobs}) — expect 1–3+ hours on Pi 4..."
-    # Web build is done — drop Node from memory before rustc.
-    sync
-    telemetry_cargo_env
-    (
-        cd "$O2_SOURCE_DIR"
-        CARGO_BUILD_JOBS="$jobs" cargo build --release
-    )
-
-    install -o root -g root -m 755 "$O2_SOURCE_DIR/target/release/openobserve" "$cached"
-    install -o root -g root -m 755 "$cached" /usr/local/bin/openobserve
-}
-
+# Pi CPUs lack AES, so upstream arm64 binaries SIGILL; a Pi only ever runs one
+# cross-compiled on a workstation, which deploy-openobserve-pi.sh puts in the
+# cache. Building on the Pi itself runs out of memory (it needs ~24 GB).
 telemetry_install_openobserve_for_pi() {
-    local cached origin
-
+    local cached
     cached="$(telemetry_o2_pi_cached_binary)"
-    origin="$(telemetry_o2_pi_install_origin)"
-
-    # Prefer an existing Pi binary (usually a cross-compile). Never rebuild
-    # just because a smoke test was flaky — only rebuild when forced.
-    if [ "${O2_FORCE_REBUILD:-}" != "1" ] && [ -x "$cached" ]; then
-        echo "ℹ️  Found cached Pi binary: $cached (origin=${origin})"
-        install -o root -g root -m 755 "$cached" /usr/local/bin/openobserve
-        if telemetry_openobserve_smoke_test; then
-            if [ "$origin" = "cross" ]; then
-                O2_INSTALL_MODE="cross"
-                O2_BINARY_TAG="pi-cross"
-            else
-                O2_INSTALL_MODE="${O2_INSTALL_MODE:-source}"
-                [ "$O2_INSTALL_MODE" = "binary" ] && O2_INSTALL_MODE="source"
-                O2_BINARY_TAG="${O2_BINARY_TAG:-pi-source}"
-            fi
-            echo "✅ OpenObserve Pi binary OK (${O2_INSTALL_MODE}, $(telemetry_o2_version_tag))"
-            return 0
-        fi
-        # Smoke failed but binary is present — keep it for cross installs.
-        if [ "$origin" = "cross" ] || [ "${O2_INSTALL_MODE:-}" = "cross" ]; then
-            echo "⚠️  Smoke test failed; keeping cross-compiled binary (set O2_FORCE_REBUILD=1 to rebuild on-Pi)."
-            O2_INSTALL_MODE="cross"
-            O2_BINARY_TAG="pi-cross"
-            telemetry_o2_mark_pi_origin "cross"
-            return 0
-        fi
-        echo "⚠️  Cached binary failed smoke test — will rebuild only if source builds are allowed."
-    fi
-
-    if [ "${O2_FORCE_REBUILD:-}" = "1" ]; then
-        echo "🔹 O2_FORCE_REBUILD=1 — building OpenObserve from source on the Pi."
-    elif [ -x "$cached" ]; then
-        :
-    elif [ "$origin" = "cross" ] || [ "${O2_INSTALL_MODE:-}" = "cross" ]; then
-        echo "❌ No cached OpenObserve binary for $(telemetry_o2_version_tag)." >&2
-        echo "   This host is configured for cross-compile deploys." >&2
-        echo "   → On your workstation (macOS, Debian or Arch): ./telemetry/cross-compile-openobserve-pi.sh && ./telemetry/deploy-openobserve-pi.sh" >&2
-        echo "   → Or force an on-Pi build: O2_ALLOW_SOURCE_BUILD=1 sudo ./update.sh" >&2
-        exit 1
-    elif [ "${O2_ALLOW_SOURCE_BUILD:-0}" != "1" ] && [ "${O2_INSTALL_MODE:-}" != "source" ]; then
-        echo "❌ No OpenObserve binary at $cached" >&2
-        echo "   Preferred path: cross-compile on a workstation, then deploy-openobserve-pi.sh" >&2
-        echo "   On-Pi source builds: O2_ALLOW_SOURCE_BUILD=1 sudo ./setup.sh" >&2
+    if [ ! -x "$cached" ]; then
+        echo "❌ No cross-compiled OpenObserve $(telemetry_o2_version_tag) at $cached" >&2
+        echo "   From your workstation, run ./deploy/telemetry.sh setup: it offers to" >&2
+        echo "   cross-compile one (or reuse one already built) and uploads it." >&2
         exit 1
     fi
-
-    echo "🔨 Building OpenObserve from source on the Pi ($(telemetry_o2_version_tag))."
-    echo "   Pre-built upstream arm64 binaries require AES and SIGILL on Pi."
-    telemetry_run_o2_build_in_tmux
-    telemetry_o2_mark_pi_origin "source"
-
-    if ! telemetry_openobserve_smoke_test; then
-        echo "❌ Source build failed smoke test on this Pi." >&2
-        exit 1
+    echo "ℹ️  Installing cross-compiled Pi binary: $cached"
+    install -o root -g root -m 755 "$cached" /usr/local/bin/openobserve
+    O2_INSTALL_MODE="cross"
+    O2_BINARY_TAG="pi-cross"
+    if telemetry_openobserve_smoke_test; then
+        echo "✅ OpenObserve Pi binary OK (cross, $(telemetry_o2_version_tag))"
+    else
+        echo "⚠️  Smoke test failed; keeping the cross-compiled binary anyway."
     fi
-
-    O2_INSTALL_MODE="source"
-    O2_BINARY_TAG="pi-source"
-    echo "✅ OpenObserve Pi binary OK (source, $(telemetry_o2_version_tag))"
 }
 
 telemetry_install_openobserve() {
