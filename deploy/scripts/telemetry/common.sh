@@ -1055,9 +1055,85 @@ telemetry_cloudflare_tunnel_healthy() {
     systemctl is-active --quiet cloudflared || return 1
     [ -f /etc/systemd/system/cloudflared.service ] || return 1
     grep -qF -- "$token" /etc/systemd/system/cloudflared.service || return 1
+    # 530 is Cloudflare's 1033: the hostname routes to a tunnel with no connector.
+    case "$(telemetry_public_status "$domain")" in
+        000|530) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+# Resolves via Cloudflare DoH: the local resolver may cache "no such host"
+# from before the route existed. curl prints 000 itself when it can't connect.
+telemetry_public_status() {
     local code
-    code="$(curl -sS -m 12 -o /dev/null -w '%{http_code}' "https://${domain}/" 2>/dev/null || echo 000)"
-    [ "$code" != "000" ]
+    code="$(curl -sS -m 4 --doh-url https://1.1.1.1/dns-query -o /dev/null -w '%{http_code}' "https://${1}/" 2>/dev/null)" || true
+    printf '%s' "${code:-000}"
+}
+
+# 000/530: Cloudflare has no route from the domain to this tunnel; 502: the
+# route's Service URL is wrong. Anything else reached OpenObserve.
+telemetry_route_ok() {
+    case "$1" in 000|502|530) return 1 ;; *) return 0 ;; esac
+}
+
+# 000 is curl's "no response", not an HTTP code; say what each result means.
+telemetry_route_problem() {
+    case "$1" in
+        000) echo "no DNS record or no response yet (add the route)" ;;
+        530) echo "HTTP 530: the route is missing or the DNS record points at another tunnel" ;;
+        502) echo "HTTP 502: the route's Service URL is wrong; it must be http://127.0.0.1:5080" ;;
+        *) echo "HTTP $1" ;;
+    esac
+}
+
+# A token tunnel ignores config.yml; only the Cloudflare dashboard can add the
+# route. Prints it and waits up to 5 minutes (Enter skips). Sets
+# TELEMETRY_PUBLIC_CODE to the last HTTP code seen.
+telemetry_wait_for_tunnel_route() {
+    local domain="$1" token="$2" tunnel_id last="" skipped=0 end
+    TELEMETRY_PUBLIC_CODE=000
+    echo "🔎 Checking https://${domain}/ ..."
+    for _ in 1 2 3; do
+        TELEMETRY_PUBLIC_CODE="$(telemetry_public_status "$domain")"
+        telemetry_route_ok "$TELEMETRY_PUBLIC_CODE" && {
+            echo "✅ https://${domain}/ reaches OpenObserve (HTTP ${TELEMETRY_PUBLIC_CODE})"
+            return 0
+        }
+        sleep 1
+    done
+    tunnel_id="$(printf '%s' "$token" | base64 -d 2>/dev/null | sed -n 's/.*"t":"\([^"]*\)".*/\1/p')"
+    echo ""
+    echo "⚠️  https://${domain}/ isn't reaching OpenObserve: $(telemetry_route_problem "$TELEMETRY_PUBLIC_CODE")."
+    echo "   In the Cloudflare dashboard: Zero Trust → Networks → Tunnels → the tunnel"
+    echo "   with ID ${tunnel_id:-<tunnel ID>} → Add route → Published application:"
+    echo "     Subdomain + Domain: ${domain}   Path: (empty)"
+    echo "     Service URL:        http://127.0.0.1:5080"
+    echo "   If Cloudflare says a DNS record already exists, delete the"
+    echo "   ${domain} record under DNS first, then add the route again."
+    echo ""
+    echo "⏳ Waiting up to 5 minutes for the route (press Enter to skip)..."
+    end=$((SECONDS + 300))
+    while [ "$SECONDS" -lt "$end" ]; do
+        # A line (Enter, or `yes ''`) skips; EOF on stdin just waits.
+        if read -r -t 3 _ 2>/dev/null; then
+            echo "   Skipped."
+            skipped=1
+            break
+        elif [ $? -le 128 ]; then
+            sleep 3
+        fi
+        TELEMETRY_PUBLIC_CODE="$(telemetry_public_status "$domain")"
+        if telemetry_route_ok "$TELEMETRY_PUBLIC_CODE"; then
+            echo "✅ https://${domain}/ reaches OpenObserve (HTTP ${TELEMETRY_PUBLIC_CODE})"
+            return 0
+        fi
+        if [ "$TELEMETRY_PUBLIC_CODE" != "$last" ]; then
+            echo "   Now: $(telemetry_route_problem "$TELEMETRY_PUBLIC_CODE")"
+            last="$TELEMETRY_PUBLIC_CODE"
+        fi
+    done
+    [ "$skipped" = 1 ] || echo "   Gave up after 5 minutes; setup continues without the route."
+    return 1
 }
 
 # Expose OpenObserve at https://$domain via a Cloudflare Zero Trust tunnel —
@@ -1097,8 +1173,8 @@ telemetry_setup_cloudflare_tunnel() {
         systemctl stop cloudflared
     fi
 
-    # Token-managed tunnels take routes from the Cloudflare dashboard.
-    # Public Hostname → Service URL should be: http://127.0.0.1:5080
+    # Token-managed tunnels ignore this file and take routes from the Cloudflare
+    # dashboard; telemetry_wait_for_tunnel_route prints the route to add there.
     cat > /etc/cloudflared/config.yml <<EOF
 ingress:
   - hostname: "$domain"
@@ -1132,7 +1208,7 @@ EOF
     sleep 2
 
     if systemctl is-active --quiet cloudflared; then
-        echo "✅ Cloudflare tunnel online → https://${domain} (127.0.0.1:5080)"
+        echo "✅ cloudflared running for https://${domain} (127.0.0.1:5080)"
     else
         echo "❌ cloudflared failed to start" >&2
         journalctl -u cloudflared -n 30 --no-pager >&2 || true
