@@ -12,7 +12,7 @@ import {
 } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
-import { syncLedger } from './ledger';
+import { syncLedgerIfEmpty } from './ledger';
 import { setContentRejectedReporter } from './db';
 import { notificationStore } from '$lib/stores/notifications';
 import { decryptRelayPayload } from './relayDecrypt';
@@ -26,6 +26,10 @@ import { WSMessageSchema, MessageType } from '$lib/proto/websocket_pb';
 // Liveness heartbeat cadence. The server evicts presence after two minutes
 // without a PONG, so one a minute leaves room for a single missed beat.
 const PONG_INTERVAL_MS = 60_000;
+
+// The server PINGs every 30 s, so this much silence means at least two
+// were missed and the socket can't be trusted.
+export const SILENT_SOCKET_MS = 75_000;
 
 function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
   const msg = create(WSMessageSchema, {
@@ -138,6 +142,8 @@ class ServerConnection {
   // Liveness heartbeat: the server refreshes last_pong on each PONG and
   // evicts presence after two minutes without one.
   private pongTimer: ReturnType<typeof setInterval> | null = null;
+  /** When the current socket last received a frame. */
+  private lastReceivedAt = 0;
   /** Id of the "lost connection" notice raised by handleSigterm, so it can
    * be dismissed once a retry reconnects. */
   private sigtermNotificationId: string | null = null;
@@ -328,6 +334,7 @@ class ServerConnection {
       this.ws.binaryType = 'arraybuffer';
 
       this.ws.onmessage = (event) => {
+        this.lastReceivedAt = Date.now();
         try {
           if (!(event.data instanceof ArrayBuffer)) {
             console.warn('ServerConnection: received non-binary frame, ignoring');
@@ -463,6 +470,12 @@ class ServerConnection {
 
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /** Open and recently heard from: a backgrounded tab's socket can report
+   * OPEN while dead, but then the server's PINGs stop arriving. */
+  seemsAlive(): boolean {
+    return this.isConnected() && Date.now() - this.lastReceivedAt < SILENT_SOCKET_MS;
   }
 
   isReedRequestDispatched(requestId: string): boolean {
@@ -717,7 +730,7 @@ class ServerConnection {
     sessionStorage.setItem('syncRequestId', requestId);
     this.sendMsg({ type: MessageType.SYNC_REQUEST, payload: { case: 'syncRequest', value: { requestId } } });
     startReedRequestDrainer();
-    void syncLedger();
+    void syncLedgerIfEmpty();
   }
 
   async subscribeProfile(userId: string): Promise<void> {

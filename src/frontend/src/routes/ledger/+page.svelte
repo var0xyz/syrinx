@@ -1,12 +1,11 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime, formatAbsoluteDateTime, fromUnix } from '$lib/utils/time';
   import { chainOrder, ledgerRepository, type LedgerRecord } from '$lib/repositories/ledger';
-  import { ledgerChanged, ledgerTampered, syncLedger } from '$lib/services/ledger';
+  import { ledgerChanged, ledgerTampered } from '$lib/services/ledger';
   import { parsePermissionSet } from '$lib/utils/permissions';
 
   let entries: LedgerRecord[] = [];
@@ -18,10 +17,6 @@
   }
 
   $: $ledgerChanged, void load();
-
-  onMount(() => {
-    void syncLedger();
-  });
 </script>
 
 <Auth>
