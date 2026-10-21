@@ -1390,8 +1390,6 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	createReedSubscriptionsIndex := `
-	CREATE INDEX IF NOT EXISTS idx_reed_subscriptions_viewer
-		ON reed_subscriptions(viewer_user_id);
 	CREATE INDEX IF NOT EXISTS idx_reed_subscriptions_reed
 		ON reed_subscriptions(reed_id);
 	`
