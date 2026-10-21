@@ -7,8 +7,9 @@
 # setup.sh skips Cloudflare too when https://$APP_DOMAIN already responds
 # (use FORCE_CF=1 there to force a tunnel rewrite).
 #
-# Usage: ./update.sh [--branch <name>]
-#   --branch <name>   Clone this branch instead of APP_REPO's default branch.
+# Usage: ./update.sh [--branch <name>] [--repo <url>]
+#   --branch <name>   Clone this branch instead of the repo's default branch.
+#   --repo <url>      Clone this repo (e.g. a fork) instead of the official one.
 # ==============================================================================
 
 set -euo pipefail
@@ -19,11 +20,17 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 BRANCH=""
+REPO_OVERRIDE=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --branch)
             [ $# -ge 2 ] || { echo "❌ Error: --branch requires a value"; exit 1; }
             BRANCH="$2"
+            shift 2
+            ;;
+        --repo)
+            [ $# -ge 2 ] || { echo "❌ Error: --repo requires a value"; exit 1; }
+            REPO_OVERRIDE="$2"
             shift 2
             ;;
         *)
@@ -58,12 +65,13 @@ set -a
 set +a
 
 APP_NAME=$(echo "${APP_NAME:-}" | tr -d ' ' | tr 'A-Z' 'a-z')
-# Fixed to Syrinx's own repo layout (see setup.sh) — not user-configurable.
+# Fixed to Syrinx's own layout (see setup.sh); official repo unless --repo.
+APP_REPO="${REPO_OVERRIDE:-https://github.com/var0xyz/syrinx.git}"
 BACKEND_PATH="src/backend"
 FRONTEND_PATH="src/frontend"
 
-if [ -z "$APP_NAME" ] || [ -z "${APP_REPO:-}" ]; then
-    echo "❌ Error: APP_NAME and APP_REPO must be set in $SETUP_ENV"
+if [ -z "$APP_NAME" ]; then
+    echo "❌ Error: APP_NAME must be set in $SETUP_ENV"
     exit 1
 fi
 

@@ -29,6 +29,14 @@ Import the root identity file the first boot wrote at `/import` to sign in as th
 deploy/scripts/syrinx/cp-root-creds.sh   # fetch the minted root identity
 ```
 
+Both `setup` and `update` build from the official repository, [`var0xyz/syrinx`](https://github.com/var0xyz/syrinx), on its default branch. To run your own fork, or a branch other than the default, pass `--repo` and `--branch`:
+
+```bash
+./deploy/syrinx.sh update --repo https://github.com/you/syrinx.git --branch my-feature
+```
+
+Neither flag is saved, so pass them on every `setup` and `update`. An `update` without `--repo` goes back to the official repository.
+
 `setup` asks for a **public edge mode**. Both currently depend on Cloudflare:
 
 | Mode | How it works | Trade-off |
