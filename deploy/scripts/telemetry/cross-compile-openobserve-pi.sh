@@ -1,11 +1,14 @@
 #!/bin/bash
-# Cross-compile OpenObserve for Raspberry Pi (aarch64, no AES) from macOS.
+# Cross-compile OpenObserve for Raspberry Pi (aarch64, no AES) from macOS,
+# a Debian-based Linux (apt) or an Arch-based Linux (pacman).
 #
 # Produces the same artifact name the Pi install expects:
 #   openobserve-vX.Y.Z-pi-arm64
 #
-# Installs missing deps via Homebrew (brew, zig, protobuf, node, cargo-zigbuild,
-# rustup). Also ensures Xcode CLT / git / curl.
+# Installs missing deps: on macOS via Homebrew (plus Xcode CLT); on Linux via
+# apt/pacman (sudo). Rust comes from rustup and cargo-zigbuild from cargo.
+# Debian gets Zig and, if its Node is older than 20, Node from upstream
+# tarballs under .cross-build/toolchain.
 #
 # Usage:
 #   ./cross-compile-openobserve-pi.sh
@@ -21,7 +24,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 O2_VERSION="${O2_VERSION:-0.91.5}"
-O2_BUILD_JOBS="${O2_BUILD_JOBS:-$(sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+O2_BUILD_JOBS="${O2_BUILD_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
 # Bookworm/Pi OS 64-bit is glibc 2.36; 2.31 covers Bullseye too.
 O2_GLIBC="${O2_GLIBC:-2.31}"
 # Set SKIP_WEB=1 to reuse an existing web/dist (skips npm ci/build).
@@ -33,6 +36,11 @@ BUILD_ROOT="${BUILD_ROOT:-$SCRIPT_DIR/.cross-build}"
 SRC_DIR="$BUILD_ROOT/openobserve-src"
 DEPLOY_HOST="${DEPLOY_HOST:-}"
 DEPLOY_PATH="${DEPLOY_PATH:-/var/lib/openobserve/build}"
+TOOLCHAIN_DIR="$BUILD_ROOT/toolchain"
+# Upstream tarball versions, only used on Debian-based hosts.
+ZIG_VERSION="${ZIG_VERSION:-0.13.0}"
+NODE_VERSION="${NODE_VERSION:-20.18.1}"
+HOST_KIND=""
 
 version_tag() {
     case "$O2_VERSION" in
@@ -49,8 +57,35 @@ die() { echo "❌ $*" >&2; exit 1; }
 info() { echo "🔹 $*"; }
 ok() { echo "✅ $*"; }
 
-assert_macos() {
-    [ "$(uname -s)" = "Darwin" ] || die "This script is for macOS (detected: $(uname -s))"
+detect_host() {
+    case "$(uname -s)" in
+        Darwin) HOST_KIND="macos" ;;
+        Linux)
+            if command -v pacman >/dev/null 2>&1; then
+                HOST_KIND="arch"
+            elif command -v apt-get >/dev/null 2>&1; then
+                HOST_KIND="debian"
+            else
+                die "Unsupported Linux distribution: need apt-get (Debian-based) or pacman (Arch-based)"
+            fi
+            ;;
+        *) die "Unsupported host: $(uname -s) (need macOS, Debian-based or Arch-based Linux)" ;;
+    esac
+}
+
+# BSD and GNU sed disagree on -i; a backup suffix works on both.
+sed_inplace() {
+    sed -i.bak "$1" "$2"
+    rm -f "$2.bak"
+}
+
+as_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    else
+        command -v sudo >/dev/null 2>&1 || die "Need root or sudo to run: $*"
+        sudo "$@"
+    fi
 }
 
 # Prefer rustup's cargo/rustc shims over Homebrew's `rust` formula.
@@ -112,12 +147,92 @@ brew_ensure() {
 }
 
 # node@20 is keg-only — put it ahead of any older system node.
+# Same for the upstream tarball on Debian.
 link_node20() {
-    local prefix
-    prefix="$(brew --prefix node@20 2>/dev/null || true)"
+    local prefix=""
+    if command -v brew >/dev/null 2>&1; then
+        prefix="$(brew --prefix node@20 2>/dev/null || true)"
+    fi
     if [ -n "$prefix" ] && [ -x "$prefix/bin/node" ]; then
         export PATH="$prefix/bin:$PATH"
     fi
+    if [ -x "$TOOLCHAIN_DIR/node/bin/node" ]; then
+        export PATH="$TOOLCHAIN_DIR/node/bin:$PATH"
+    fi
+}
+
+linux_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64) printf 'x86_64' ;;
+        aarch64|arm64) printf 'aarch64' ;;
+        *) die "Unsupported CPU: $(uname -m)" ;;
+    esac
+}
+
+# Installs only the packages that are missing, so reruns skip sudo.
+debian_ensure() {
+    local missing=() pkg
+    for pkg in "$@"; do
+        dpkg -s "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+    done
+    [ "${#missing[@]}" -gt 0 ] || return 0
+    info "apt-get install ${missing[*]}..."
+    as_root apt-get update
+    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
+}
+
+arch_ensure() {
+    local missing=() pkg
+    for pkg in "$@"; do
+        pacman -Qi "$pkg" >/dev/null 2>&1 || missing+=("$pkg")
+    done
+    [ "${#missing[@]}" -gt 0 ] || return 0
+    # A stale sync db names versions mirrors no longer have (404s), and
+    # Arch doesn't support -Sy without -u, so this asks to upgrade the system.
+    info "pacman -Syu ${missing[*]}..."
+    as_root pacman -Syu --needed "${missing[@]}"
+}
+
+# Fetches an upstream tarball into $TOOLCHAIN_DIR/<name>.
+install_tarball() {
+    local name="$1" dest="$TOOLCHAIN_DIR/$1"
+    shift
+    local tmp="$TOOLCHAIN_DIR/$name.tar.xz" url
+    mkdir -p "$TOOLCHAIN_DIR"
+    rm -rf "$dest" "$tmp"
+    for url in "$@"; do
+        info "Downloading $url..."
+        curl -fL --proto '=https' --tlsv1.2 -o "$tmp" "$url" && break
+        rm -f "$tmp"
+    done
+    [ -f "$tmp" ] || die "Could not download $name"
+    mkdir -p "$dest"
+    tar -xJf "$tmp" -C "$dest" --strip-components=1
+    rm -f "$tmp"
+}
+
+install_node_tarball() {
+    local arch
+    arch="$(linux_arch)"
+    [ "$arch" = "x86_64" ] && arch="x64"
+    [ "$arch" = "aarch64" ] && arch="arm64"
+    install_tarball node \
+        "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${arch}.tar.xz"
+}
+
+# Zig renamed its tarballs (arch-os) in 0.14.1; try both spellings.
+ensure_zig_debian() {
+    if [ -x "$TOOLCHAIN_DIR/zig/zig" ] \
+        && [ "$("$TOOLCHAIN_DIR/zig/zig" version)" = "$ZIG_VERSION" ]; then
+        export PATH="$TOOLCHAIN_DIR/zig:$PATH"
+        return 0
+    fi
+    local arch base="https://ziglang.org/download/${ZIG_VERSION}"
+    arch="$(linux_arch)"
+    install_tarball zig \
+        "$base/zig-${arch}-linux-${ZIG_VERSION}.tar.xz" \
+        "$base/zig-linux-${arch}-${ZIG_VERSION}.tar.xz"
+    export PATH="$TOOLCHAIN_DIR/zig:$PATH"
 }
 
 ensure_node() {
@@ -131,31 +246,43 @@ ensure_node() {
         return 0
     fi
 
-    info "Installing Node 20 via Homebrew..."
-    brew_ensure node@20
-    # Prefer linking if brew allows; otherwise PATH via brew --prefix is enough.
-    brew link --overwrite --force node@20 2>/dev/null || true
+    case "$HOST_KIND" in
+        macos)
+            info "Installing Node 20 via Homebrew..."
+            brew_ensure node@20
+            # Prefer linking if brew allows; otherwise PATH via brew --prefix is enough.
+            brew link --overwrite --force node@20 2>/dev/null || true
+            ;;
+        arch)
+            info "Installing Node via pacman..."
+            arch_ensure nodejs npm
+            ;;
+        debian)
+            info "Installing Node ${NODE_VERSION} into $TOOLCHAIN_DIR..."
+            install_node_tarball
+            ;;
+    esac
     link_node20
     refresh_path
     link_node20
 
-    command -v node >/dev/null 2>&1 || die "node still missing after brew install node@20"
+    command -v node >/dev/null 2>&1 || die "node still missing after installing Node 20"
     major="$(node -p "process.versions.node.split('.')[0]")"
-    [ "$major" -ge 20 ] || die "Need Node 20+ (have $(node -v)). Try: brew link --overwrite --force node@20"
+    [ "$major" -ge 20 ] || die "Need Node 20+ (have $(node -v) at $(command -v node))"
     ok "Node $(node -v)"
 }
 
 ensure_rust() {
     refresh_path
 
-    if ! command -v rustup >/dev/null 2>&1; then
+    if [ "$HOST_KIND" = "macos" ] && ! command -v rustup >/dev/null 2>&1; then
         info "Installing rustup via Homebrew..."
         brew_ensure rustup
         refresh_path
     fi
 
     if ! command -v rustup >/dev/null 2>&1; then
-        info "Falling back to official rustup installer..."
+        info "Installing rustup via the official installer..."
         curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
         refresh_path
     fi
@@ -163,14 +290,15 @@ ensure_rust() {
     command -v rustup >/dev/null 2>&1 || die "rustup not available after install"
     prefer_rustup_bin
 
-    # First-time rustup needs a default toolchain so cargo exists on PATH.
-    if ! command -v cargo >/dev/null 2>&1; then
+    # A fresh rustup has a cargo shim but no default toolchain behind it,
+    # so test that cargo actually runs, not just that it's on PATH.
+    if ! cargo --version >/dev/null 2>&1; then
         info "Bootstrapping Rust toolchain via rustup..."
         rustup default stable
         refresh_path
     fi
 
-    command -v cargo >/dev/null 2>&1 || die "cargo not available after rustup install"
+    cargo --version >/dev/null 2>&1 || die "cargo not available after rustup install"
     prefer_rustup_bin
 
     # Guard against Homebrew's `rust` formula winning on PATH (E0463 for cross targets).
@@ -192,15 +320,18 @@ ensure_cargo_zigbuild() {
         return 0
     fi
 
-    info "Installing cargo-zigbuild via Homebrew..."
-    if brew install cargo-zigbuild; then
-        refresh_path
-    else
-        info "brew install cargo-zigbuild failed — falling back to cargo install..."
+    if [ "$HOST_KIND" = "macos" ]; then
+        info "Installing cargo-zigbuild via Homebrew..."
+        if brew install cargo-zigbuild; then
+            refresh_path
+        else
+            info "brew install cargo-zigbuild failed — falling back to cargo install..."
+        fi
     fi
 
     if ! command -v cargo-zigbuild >/dev/null 2>&1; then
-        cargo install cargo-zigbuild
+        info "Installing cargo-zigbuild via cargo..."
+        cargo install --locked cargo-zigbuild
         refresh_path
     fi
 
@@ -208,8 +339,7 @@ ensure_cargo_zigbuild() {
     ok "cargo-zigbuild $(cargo-zigbuild --version 2>/dev/null | head -1 || echo ok)"
 }
 
-ensure_deps() {
-    info "Installing / verifying host dependencies (Homebrew)..."
+ensure_deps_macos() {
     ensure_homebrew
 
     # Xcode CLT provides git/clang; brew git as fallback.
@@ -223,6 +353,26 @@ ensure_deps() {
     brew_ensure curl
     brew_ensure zig
     brew_ensure protobuf
+}
+
+# The host C toolchain builds the build.rs scripts; Zig only links the target.
+ensure_deps_debian() {
+    debian_ensure build-essential ca-certificates curl file git pkg-config \
+        protobuf-compiler tar xz-utils
+    ensure_zig_debian
+}
+
+ensure_deps_arch() {
+    arch_ensure base-devel ca-certificates curl file git pkgconf protobuf tar xz zig
+}
+
+ensure_deps() {
+    info "Installing / verifying host dependencies ($HOST_KIND)..."
+    case "$HOST_KIND" in
+        macos) ensure_deps_macos ;;
+        debian) ensure_deps_debian ;;
+        arch) ensure_deps_arch ;;
+    esac
 
     ensure_node
     ensure_rust
@@ -233,6 +383,7 @@ ensure_deps() {
 
     command -v git >/dev/null 2>&1 || die "git missing"
     command -v curl >/dev/null 2>&1 || die "curl missing"
+    command -v file >/dev/null 2>&1 || die "file missing"
     command -v zig >/dev/null 2>&1 || die "zig missing"
     command -v protoc >/dev/null 2>&1 || die "protoc missing"
     command -v node >/dev/null 2>&1 || die "node missing"
@@ -301,11 +452,11 @@ patch_for_pi() {
     [ -f "$cargo_toml" ] || die "Missing $cargo_toml"
     [ -f "$cargo_cfg" ] || die "Missing $cargo_cfg"
 
-    # macOS/BSD sed needs '' after -i. Keep the program on one line so the
-    # script file cannot be misread if edited while a long build is running.
-    sed -i '' 's/default = \["gxhash"\]/default = []/' "$cargo_toml"
-    sed -i '' 's/target-feature=+aes,+neon/target-feature=+neon/g' "$cargo_cfg"
-    sed -i '' '/^\[target\.aarch64-unknown-linux-gnu\]/,/^\[/{/^linker = /d;}' "$cargo_cfg"
+    # Keep each program on one line so the script file cannot be misread
+    # if edited while a long build is running.
+    sed_inplace 's/default = \["gxhash"\]/default = []/' "$cargo_toml"
+    sed_inplace 's/target-feature=+aes,+neon/target-feature=+neon/g' "$cargo_cfg"
+    sed_inplace '/^\[target\.aarch64-unknown-linux-gnu\]/,/^\[/{/^linker = /d;}' "$cargo_cfg"
 
     # Ensure rustflags stay Pi-safe even if upstream layout changes.
     if ! grep -q 'target-feature=+neon' "$cargo_cfg"; then
@@ -328,7 +479,7 @@ build_web() {
         die "SKIP_WEB=1 but $SRC_DIR/web/dist/index.html is missing — build once without SKIP_WEB"
     fi
 
-    info "Building web UI on Mac (embedded into the binary)..."
+    info "Building web UI locally (embedded into the binary)..."
     (
         cd "$SRC_DIR/web"
         export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=8192}"
@@ -342,7 +493,7 @@ build_web() {
 
 build_server() {
     info "Cross-compiling OpenObserve ${VERSION_TAG} → ${TARGET_WITH_GLIBC} (jobs=${O2_BUILD_JOBS})..."
-    # Final link opens hundreds of .rlib inputs; macOS default fd limit
+    # Final link opens hundreds of .rlib inputs; the default fd limit
     # (often 256–1024) makes zig fail with ProcessFdQuotaExceeded.
     local soft
     soft="$(ulimit -n 2>/dev/null || echo 0)"
@@ -393,9 +544,9 @@ deploy_to_pi() {
 }
 
 main() {
-    assert_macos
+    detect_host
     echo "================================================================"
-    echo "Cross-compile OpenObserve for Raspberry Pi (from macOS)"
+    echo "Cross-compile OpenObserve for Raspberry Pi (from ${HOST_KIND})"
     echo "================================================================"
     echo "Version:  ${VERSION_TAG}"
     echo "Target:   ${TARGET_WITH_GLIBC}"
