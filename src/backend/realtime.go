@@ -751,7 +751,7 @@ func (cm *realtimeConnectionManager) UnregisterClient(client *realtimeClient) bo
 // session: any prior sockets are closed so RELAY_REQUEST / fanout cannot land
 // on a zombie connection the SPA no longer reads.
 func (cm *realtimeConnectionManager) registerClient(client *realtimeClient) {
-	log.Info().Msg("Registering client " + client.userID + " with connection " + client.conn.RemoteAddr().String())
+	log.Info().Str("userID", client.userID).Msg("Registering client")
 	cm.mutex.Lock()
 
 	var stale []*realtimeClient

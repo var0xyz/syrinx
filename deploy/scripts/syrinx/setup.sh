@@ -483,19 +483,31 @@ ln -sfn "$RELEASE_DIR" "$WWW_ROOT/build"
 echo -e "\n🌐 Configuring nginx (SPA + API proxy, edge mode: $EDGE_MODE)..."
 STATIC_PORT=8081
 
+# Visitors' IPs never reach the app: nothing forwards them, and headers a
+# client or cloudflared adds are cleared (an empty value drops the header).
+NO_CLIENT_IP='        proxy_set_header X-Real-IP "";
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header Forwarded "";
+        proxy_set_header Cf-Connecting-Ip "";
+        proxy_set_header True-Client-IP "";
+        proxy_set_header Cf-Ipcountry "";'
+
 # Shared location blocks — only the listen/TLS preamble differs by edge mode.
 NGINX_LOCATIONS=$(cat <<EOF
     root $WWW_ROOT/build;
     index index.html;
+
+    # No access log (it would hold IPs and user agents); errors only at crit.
+    access_log off;
+    error_log /var/log/nginx/error.log crit;
 
     # Backend API
     location /api/ {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
+$NO_CLIENT_IP
     }
 
     # WebSocket
@@ -505,9 +517,8 @@ NGINX_LOCATIONS=$(cat <<EOF
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
+$NO_CLIENT_IP
         proxy_read_timeout 86400;
     }
 

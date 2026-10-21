@@ -140,7 +140,25 @@ To turn it off later, re-run `setup` and answer `off`. A blank answer keeps the 
 
 ### Privacy
 
-Treat the telemetry host as holding member data. Metrics and logs carry raw user, reed and key IDs. They also record who follows, blocks, invites and vouches for whom, so together they map the community's social graph. Reed content is never included.
+Telemetry records **no IP addresses, user agents, device IDs or usernames**. What it does record is pseudonymous: user, reed and key IDs. Reed content is never included.
+
+How that's enforced:
+
+- **nginx never passes a visitor's IP to the app.** It sends no `X-Real-IP` or `X-Forwarded-For`, and it clears the IP headers a client or Cloudflare may add (`Cf-Connecting-Ip`, `True-Client-IP`, `Forwarded`, `Cf-Ipcountry`). The app only ever sees connections from `127.0.0.1`.
+- **The app host's collector deletes client details from every span** (`client.address`, `network.peer.address`, `user_agent.original` and their older names) before anything leaves the host, in case one ever slips past nginx.
+- **The app's request log has no address, user agent or query string**: the WebSocket handshake's query carries the device ID. Log lines name users by ID, never by username.
+- **nginx keeps no access log**, and its error log only records critical errors.
+
+The nginx changes take effect on `./deploy/syrinx.sh setup`, the collector's on `setup` or `update`.
+
+What remains, and why the telemetry host still needs care:
+
+- Logs and the abuse and admin metrics carry user, reed and key IDs, and some name two users: block refusals (who an author refused), flags and rejected content (reporter and author), and log lines for follows, blocks and vouches. Together they can map parts of the community's social graph.
+- A user ID isn't an IP, but anyone who also sees the community or the database can match it to an account.
+- nginx's critical-error lines name the client address: `127.0.0.1` behind the Cloudflare Tunnel, but the visitor's real IP in `mtls` mode.
+- In `cloudflare` mode Cloudflare sees every visitor's IP; that's outside Syrinx's control.
+
+Keeping it safe:
 
 - Keep the collector on your LAN. Its OTLP ports have no authentication, so the telemetry host's firewall opens them only to the LAN ranges you configure.
 - If you expose the OpenObserve UI through a Cloudflare Tunnel, put a Cloudflare Access policy in front of the login page.
