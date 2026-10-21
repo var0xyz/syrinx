@@ -96,7 +96,7 @@ as_root() {
         "$@"
     else
         command -v sudo >/dev/null 2>&1 || die "Need root or sudo to run: $*"
-        sudo "$@"
+        sudo -p "[sudo] password for %u on this computer (%h), to install build tools: " "$@"
     fi
 }
 

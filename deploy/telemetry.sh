@@ -38,6 +38,9 @@ DEPLOY_ENV="${DEPLOY_ENV:-$TELEMETRY_SCRIPTS_DIR/deploy.env}"
 SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
 REMOTE_DIR="${REMOTE_DIR:-telemetry}"
 
+# sudo runs on the host, so make its prompt say whose password it wants.
+SUDO_PROMPT="[sudo] password for %u on %h (the remote machine, not this computer): "
+
 die() { echo "Error: $*" >&2; exit 1; }
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
@@ -218,7 +221,7 @@ ok "Copied"
 # ssh doesn't carry local env vars over on its own, so it has to be spelled
 # out explicitly in the remote command.
 REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh"
-REMOTE_CMD="$REMOTE_CMD && sudo SHOW_PASSWORD=$(printf '%q' "${SHOW_PASSWORD:-0}") $REMOTE_ENV ./$REMOTE_SCRIPT"
+REMOTE_CMD="$REMOTE_CMD && sudo -p $(printf '%q' "$SUDO_PROMPT") SHOW_PASSWORD=$(printf '%q' "${SHOW_PASSWORD:-0}") $REMOTE_ENV ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done
