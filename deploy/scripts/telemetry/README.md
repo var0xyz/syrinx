@@ -143,7 +143,11 @@ You'll be prompted for:
   same no-inbound-port pattern the Syrinx app host uses. Leave empty to keep
   this host LAN-only.
 - **Cloudflare Zero Trust Tunnel token** — only asked if a public domain was
-  given.
+  given. The tunnel also needs a route in the Cloudflare dashboard (tunnel →
+  **Add route** → **Published application**) sending the domain to Service
+  URL `http://127.0.0.1:5080`: a token tunnel ignores the host's
+  `config.yml`. If it's missing, `setup.sh` prints the exact route, with the
+  tunnel's ID, and waits up to 5 minutes for you to add it.
 - **LAN CIDRs** allowed to reach OTLP (`4317`/`4318`) and the OpenObserve UI
   (`5080`) — defaults to all RFC1918 private ranges
   (`192.168.0.0/16 10.0.0.0/8 172.16.0.0/12`); narrow this to your actual

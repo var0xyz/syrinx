@@ -155,6 +155,7 @@ echo -e "\n☁️  Checking Cloudflare tunnel..."
 FORCE_CF="${FORCE_CF:-0}"
 if [ -n "$TELEMETRY_DOMAIN" ]; then
     telemetry_setup_cloudflare_tunnel "$TELEMETRY_DOMAIN" "$CF_TOKEN" "$FORCE_CF"
+    telemetry_wait_for_tunnel_route "$TELEMETRY_DOMAIN" "$CF_TOKEN" || true
 else
     telemetry_disable_cloudflare_tunnel
     echo "⚪ Cloudflare tunnel: disabled — metrics stay LAN-only (set a public domain above to enable)"
@@ -172,7 +173,11 @@ fi
 echo "  (saved in $TELEMETRY_ENV, mode 600 — rerun setup.sh to view/change it later)"
 echo "OTLP endpoint:  ${TELEMETRY_HOST}:4317 (gRPC) / :4318 (HTTP)"
 if [ -n "$TELEMETRY_DOMAIN" ]; then
-    echo "Public UI:      https://${TELEMETRY_DOMAIN} (via Cloudflare Tunnel)"
+    if telemetry_route_ok "${TELEMETRY_PUBLIC_CODE:-000}"; then
+        echo "Public UI:      ✅ https://${TELEMETRY_DOMAIN} (via Cloudflare Tunnel, HTTP ${TELEMETRY_PUBLIC_CODE})"
+    else
+        echo "Public UI:      ❌ https://${TELEMETRY_DOMAIN}: $(telemetry_route_problem "${TELEMETRY_PUBLIC_CODE:-000}")"
+    fi
     echo "  ⚠️  This exposes the OpenObserve login page to the internet (still gated by"
     echo "     the admin email/password). Strongly recommend adding a Cloudflare Access"
     echo "     policy in the Zero Trust dashboard to restrict who can reach it."

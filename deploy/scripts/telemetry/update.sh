@@ -61,11 +61,12 @@ fi
 # Informational only — update never touches cloudflared.
 if [ -n "${TELEMETRY_DOMAIN:-}" ]; then
     if systemctl is-active --quiet cloudflared 2>/dev/null; then
-        code="$(curl -sS -m 8 -o /dev/null -w '%{http_code}' "https://${TELEMETRY_DOMAIN}/" 2>/dev/null || echo 000)"
-        case "$code" in
-            000) echo "⚠️  cloudflared is active but https://${TELEMETRY_DOMAIN} did not respond" ;;
-            *)   echo "✅ Cloudflare tunnel looks up (https://${TELEMETRY_DOMAIN} → HTTP ${code})" ;;
-        esac
+        code="$(telemetry_public_status "$TELEMETRY_DOMAIN")"
+        if telemetry_route_ok "$code"; then
+            echo "✅ Cloudflare tunnel looks up (https://${TELEMETRY_DOMAIN} → HTTP ${code})"
+        else
+            echo "⚠️  https://${TELEMETRY_DOMAIN}: $(telemetry_route_problem "$code") — run sudo ./setup.sh for the route to add"
+        fi
     else
         echo "⚠️  cloudflared is not active — run sudo ./setup.sh if the public URL is down"
     fi
