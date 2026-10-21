@@ -652,8 +652,9 @@ cloudflare_tunnel_healthy() {
     grep -qF -- "$CF_TOKEN" /etc/systemd/system/cloudflared.service || return 1
     local code
     code="$(curl -sS -m 12 -o /dev/null -w '%{http_code}' "https://${APP_DOMAIN}/" 2>/dev/null || echo 000)"
+    # 530 is Cloudflare's 1033: the hostname routes to a tunnel with no connector.
     case "$code" in
-        000|000*) return 1 ;;
+        000|000*|530) return 1 ;;
         *) return 0 ;;
     esac
 }
