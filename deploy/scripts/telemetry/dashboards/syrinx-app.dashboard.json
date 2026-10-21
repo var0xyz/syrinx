@@ -2266,6 +2266,606 @@
       ]
     },
     {
+      "tabId": "federation",
+      "name": "Federation",
+      "panels": [
+        {
+          "id": "syrinx_fed_in_volume",
+          "type": "line",
+          "title": "Requests from peers, by peer",
+          "description": "Authenticated peer requests handled here",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, peer_server_id, count(*) AS reqs FROM syrinx WHERE span_kind = '2' AND peer_server_id IS NOT NULL AND peer_server_id != '' GROUP BY ts, peer_server_id ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [
+                  {
+                    "label": "Peer",
+                    "alias": "peer_server_id",
+                    "column": "peer_server_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "peer_server_id",
+                        "function": null,
+                        "alias": "peer_server_id"
+                      }
+                    ]
+                  }
+                ],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 94
+          }
+        },
+        {
+          "id": "syrinx_fed_out_volume",
+          "type": "line",
+          "title": "Calls to peers, by peer",
+          "description": "Every server-to-server call this server makes",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT histogram(_timestamp) AS ts, peer_server_id, count(*) AS calls FROM syrinx WHERE operation_name = 'federation.out' GROUP BY ts, peer_server_id ORDER BY ts",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Timestamp",
+                    "alias": "ts",
+                    "column": "ts",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": "ASC",
+                    "args": [
+                      {
+                        "field": "ts",
+                        "function": null,
+                        "alias": "ts"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Calls",
+                    "alias": "calls",
+                    "column": "calls",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "calls",
+                        "function": null,
+                        "alias": "calls"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [
+                  {
+                    "label": "Peer",
+                    "alias": "peer_server_id",
+                    "column": "peer_server_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "peer_server_id",
+                        "function": null,
+                        "alias": "peer_server_id"
+                      }
+                    ]
+                  }
+                ],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 96,
+            "h": 14,
+            "i": 95
+          }
+        },
+        {
+          "id": "syrinx_fed_in_cost",
+          "type": "table",
+          "title": "What peers ask of us",
+          "description": "Per peer and route: volume, failures, latency and the DB and crypto work each request costs here",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT r.peer_server_id AS peer, r.http_route AS route, count(DISTINCT r.span_id) AS reqs, count(DISTINCT CASE WHEN r.http_response_status_code >= 400 THEN r.span_id END) AS errors, approx_percentile_cont(r.duration, 0.95) / 1000.0 AS p95_ms, sum(CASE WHEN q.operation_name IN ('sql.conn.query', 'sql.conn.exec') THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT r.span_id) AS stmts_per_req, sum(CASE WHEN q.operation_name LIKE 'crypto.%' THEN 1 ELSE 0 END) * 1.0 / count(DISTINCT r.span_id) AS crypto_per_req FROM syrinx r LEFT JOIN syrinx q ON q.trace_id = r.trace_id AND q.span_id != r.span_id WHERE r.span_kind = '2' AND r.peer_server_id IS NOT NULL AND r.peer_server_id != '' GROUP BY peer, route ORDER BY reqs DESC LIMIT 40",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Peer",
+                    "alias": "peer",
+                    "column": "peer",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "peer",
+                        "function": null,
+                        "alias": "peer"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Route",
+                    "alias": "route",
+                    "column": "route",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "route",
+                        "function": null,
+                        "alias": "route"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Requests",
+                    "alias": "reqs",
+                    "column": "reqs",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reqs",
+                        "function": null,
+                        "alias": "reqs"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Errors",
+                    "alias": "errors",
+                    "column": "errors",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "errors",
+                        "function": null,
+                        "alias": "errors"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "DB statements / req",
+                    "alias": "stmts_per_req",
+                    "column": "stmts_per_req",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "stmts_per_req",
+                        "function": null,
+                        "alias": "stmts_per_req"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Sign+verify / req",
+                    "alias": "crypto_per_req",
+                    "column": "crypto_per_req",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "crypto_per_req",
+                        "function": null,
+                        "alias": "crypto_per_req"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 192,
+            "h": 18,
+            "i": 96
+          }
+        },
+        {
+          "id": "syrinx_fed_out_cost",
+          "type": "table",
+          "title": "Our calls to peers",
+          "description": "Failures: transport errors and 4xx/5xx answers",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            },
+            "decimals": 2
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT peer_server_id AS peer, federation_leg AS leg, count(*) AS calls, sum(CASE WHEN span_status = 'ERROR' THEN 1 ELSE 0 END) AS failures, approx_percentile_cont(duration, 0.95) / 1000.0 AS p95_ms FROM syrinx WHERE operation_name = 'federation.out' GROUP BY peer, leg ORDER BY calls DESC LIMIT 40",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx",
+                "stream_type": "traces",
+                "x": [
+                  {
+                    "label": "Peer",
+                    "alias": "peer",
+                    "column": "peer",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "peer",
+                        "function": null,
+                        "alias": "peer"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Leg",
+                    "alias": "leg",
+                    "column": "leg",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "leg",
+                        "function": null,
+                        "alias": "leg"
+                      }
+                    ]
+                  }
+                ],
+                "y": [
+                  {
+                    "label": "Calls",
+                    "alias": "calls",
+                    "column": "calls",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "calls",
+                        "function": null,
+                        "alias": "calls"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Failures",
+                    "alias": "failures",
+                    "column": "failures",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "failures",
+                        "function": null,
+                        "alias": "failures"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "p95 ms",
+                    "alias": "p95_ms",
+                    "column": "p95_ms",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "p95_ms",
+                        "function": null,
+                        "alias": "p95_ms"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 32,
+            "w": 192,
+            "h": 16,
+            "i": 97
+          }
+        },
+        {
+          "id": "syrinx_fed_backlog",
+          "type": "line",
+          "title": "Delivery backlog by peer",
+          "description": "Author streams still owed to each peer",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (peer_server_id) (syrinx_federation_delivery_backlog)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_delivery_backlog",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{peer_server_id}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 48,
+            "w": 96,
+            "h": 14,
+            "i": 98
+          }
+        },
+        {
+          "id": "syrinx_fed_lifecycle",
+          "type": "line",
+          "title": "Peer connects and disconnects",
+          "description": "",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (event) (increase(syrinx_federation_lifecycle[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_lifecycle",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{event}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 48,
+            "w": 96,
+            "h": 14,
+            "i": 99
+          }
+        }
+      ]
+    },
+    {
       "tabId": "users",
       "name": "Users",
       "panels": [
@@ -3091,8 +3691,8 @@
         {
           "id": "syrinx_echoes_targeted",
           "type": "line",
-          "title": "Echoes sent vs received",
-          "description": "Echo sent = new echo reed published; targeted = original reed indexed (syrinx.echoes.targeted)",
+          "title": "Echoes published",
+          "description": "Chorus echoes count towards the original reed; self echoes are users echoing their own reed, which don't",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -3108,29 +3708,6 @@
           },
           "queryType": "promql",
           "queries": [
-            {
-              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"echo\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reeds_published",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "echo sent",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
             {
               "query": "sum(increase(syrinx_echoes_targeted[5m]))",
               "vrlFunctionQuery": null,
@@ -3149,7 +3726,30 @@
                 }
               },
               "config": {
-                "promql_legend": "echo indexed on target",
+                "promql_legend": "chorus echoes",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(increase(syrinx_reeds_published{reed_kind=\"echo\"}[5m])) - sum(increase(syrinx_echoes_targeted[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "self echoes",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }
