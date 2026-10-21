@@ -416,7 +416,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	exists, err := h.services.db.UsernameExists(r.Context(), username, string(canonicalID(h.services.db.GetServerID(), userID)))
 	if err != nil {
 		log.Error().
-			Str("username", username).
+			Str("userID", userID).
 			Err(err).Msg("Failed to check username")
 		internalServerError(w)
 		return
@@ -559,12 +559,12 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 		// Username race → 400. A userID collision (or anything else) is a
 		// 500; the client retries signup with a fresh random ID.
 		if errors.Is(err, ErrUsernameTaken) {
-			log.Info().Str("username", username).Msg("Username already exists")
+			log.Info().Str("userID", userID).Msg("Username already exists")
 			reject("username_taken")
 			writeError(w, http.StatusBadRequest, "Username already exists")
 			return
 		}
-		log.Error().Err(err).Msg("Failed to create user '" + username + "'")
+		log.Error().Str("userID", userID).Err(err).Msg("Failed to create user")
 		internalServerError(w)
 		return
 	}
@@ -572,7 +572,6 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().
 		Str("userID", user.ID).
-		Str("username", username).
 		Str("fingerprint", string(canonicalFingerprint)).
 		Msg("Identity record created")
 
@@ -724,7 +723,6 @@ func (h *Handlers) respondUsernameAvailability(w http.ResponseWriter, r *http.Re
 	exists, err := h.services.db.UsernameExists(r.Context(), username, exceptUserID)
 	if err != nil {
 		log.Error().
-			Str("username", username).
 			Err(err).Msg("Failed to get user by username")
 		internalServerError(w)
 		return
@@ -1530,7 +1528,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Error().
 				Str("userID", userID).
-				Str("username", username).
 				Err(err).Msg("Error checking if username exists")
 			internalServerError(w)
 			return
@@ -1538,7 +1535,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		if exists {
 			log.Info().
 				Str("userID", userID).
-				Str("username", username).
 				Msg("Username already taken")
 			h.usernameRefusalReason(r.Context(), username, "rename", userID)
 			writeError(w, http.StatusBadRequest, "Username already taken")
@@ -1654,7 +1650,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		// Race with a concurrent rename that took our target username
 		// between the UsernameExists check above and this UPDATE.
 		if errors.Is(err, ErrUsernameTaken) {
-			log.Info().Str("username", username).Msg("Username already taken (race)")
+			log.Info().Str("userID", userID).Msg("Username already taken (race)")
 			writeError(w, http.StatusBadRequest, "Username already taken")
 			return
 		}
@@ -1685,7 +1681,6 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().
 		Str("userID", userID).
-		Str("username", username).
 		Msg("Signed identity record updated")
 
 	h.metrics.UserUpdated(r.Context(), currentUser.Username != username)

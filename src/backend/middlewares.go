@@ -265,13 +265,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		// Log the request details
 		duration := time.Since(start)
+		// No address, user agent or query string (the WS handshake's carries
+		// the device id): nothing here may tie a user to a device or network.
 		entry := log.Info().
 			Str("request_id", requestID).
 			Str("method", r.Method).
-			Str("url", r.URL.String()).
 			Str("path", r.URL.Path).
-			Str("remote_addr", r.RemoteAddr).
-			Str("user_agent", r.UserAgent()).
 			Int("status_code", wrapped.statusCode).
 			Dur("duration", duration)
 

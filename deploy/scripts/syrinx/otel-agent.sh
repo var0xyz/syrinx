@@ -126,6 +126,28 @@ receivers:
       paging:
 
 processors:
+  # Visitors' IPs and browsers never leave this host, even if one slipped
+  # past nginx: deleted from every span before export.
+  attributes/privacy:
+    actions:
+      - key: client.address
+        action: delete
+      - key: client.port
+        action: delete
+      - key: network.peer.address
+        action: delete
+      - key: network.peer.port
+        action: delete
+      - key: user_agent.original
+        action: delete
+      - key: http.client_ip
+        action: delete
+      - key: http.user_agent
+        action: delete
+      - key: net.peer.ip
+        action: delete
+      - key: net.sock.peer.addr
+        action: delete
   batch:
     timeout: 2s
     send_batch_size: 256
@@ -150,7 +172,7 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [resource, batch]
+      processors: [attributes/privacy, resource, batch]
       exporters: [otlphttp]
     logs:
       receivers: [journald]
