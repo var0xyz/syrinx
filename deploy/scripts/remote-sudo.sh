@@ -19,7 +19,7 @@ remote_sudo_init() {
         return 0
     fi
     if [ -z "$REMOTE_SUDO_PASSWORD" ]; then
-        read -r -s -p "sudo password for ${DEPLOY_HOST}: " REMOTE_SUDO_PASSWORD </dev/tty
+        read -r -s -p "sudo password for ${DEPLOY_HOST} (that machine's, not this computer's): " REMOTE_SUDO_PASSWORD </dev/tty
         echo >&2
     fi
     REMOTE_SUDO_READY=1

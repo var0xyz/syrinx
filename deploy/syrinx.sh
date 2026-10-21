@@ -55,6 +55,9 @@ DEPLOY_ENV="${DEPLOY_ENV:-$SYRINX_SCRIPTS_DIR/deploy.env}"
 SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
 REMOTE_DIR="${REMOTE_DIR:-syrinx}"
 
+# sudo runs on the host, so make its prompt say whose password it wants.
+SUDO_PROMPT="[sudo] password for %u on %h (the remote machine, not this computer): "
+
 die() { echo "Error: $*" >&2; exit 1; }
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
@@ -150,7 +153,7 @@ if [ "$CMD" != "setup" ]; then
     scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
     # macOS forwards LC_CTYPE=UTF-8 over ssh, which isn't a Linux locale and
     # makes apt/dpkg/psql's perl warn; C.UTF-8 exists on every Debian host.
-    REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
+    REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
     for arg in "$@"; do
         REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
     done
@@ -183,7 +186,7 @@ ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")"
 scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
 ok "Copied"
 
-REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
+REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done
