@@ -7,7 +7,7 @@
 #   otel_agent_install <telemetry_host> <service_name>
 #   otel_agent_remove
 
-OTELCOL_AGENT_VERSION="${OTELCOL_AGENT_VERSION:-0.120.1}"
+OTELCOL_AGENT_VERSION="${OTELCOL_AGENT_VERSION:-0.120.0}"
 OTEL_AGENT_CONFIG_DIR="/etc/otelcol-agent"
 OTEL_AGENT_CONFIG="$OTEL_AGENT_CONFIG_DIR/config.yaml"
 OTEL_AGENT_UNIT="otelcol-agent.service"

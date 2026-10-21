@@ -124,6 +124,13 @@ then `ssh`es in and runs the requested script with `sudo`. It never touches
 `telemetry.env` on the host — that's only ever written by `setup.sh` itself,
 on the host, so redeploying can't clobber settings already saved there.
 
+When the host is a Raspberry Pi, `telemetry.sh setup` first asks how to get
+the OpenObserve binary: use an already compiled one (cached on the Pi, or in
+local `dist/`, offered only if one exists), cross-compile on this Mac
+(`cross-compile-openobserve-pi.sh`, then `deploy-openobserve-pi.sh` uploads
+it), or build on the Pi (`O2_FORCE_REBUILD=1`, 1–3+ hours). A blank answer
+picks the first option.
+
 Env vars set locally aren't visible over `ssh` on their own, so
 `telemetry.sh` forwards `SHOW_PASSWORD` explicitly into the remote `sudo`
 invocation — setting it before `./telemetry.sh setup`/`update` has the same

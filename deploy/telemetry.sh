@@ -132,6 +132,63 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
 fi
 ok "SSH OK"
 
+# Pi hosts can't run upstream OpenObserve binaries (no AES), so setup needs
+# a Pi build: an existing one, a Mac cross-compile, or an on-Pi build.
+REMOTE_ENV=""
+if [ "$CMD" = "setup" ] && ssh "$DEPLOY_HOST" \
+    "tr -d '\\0' </proc/device-tree/model 2>/dev/null | grep -qi 'raspberry pi'"; then
+    O2_VERSION="$(ssh "$DEPLOY_HOST" "sudo grep -s '^O2_VERSION=' $(printf '%q' "$REMOTE_DIR")/telemetry.env" | cut -d= -f2- || true)"
+    O2_VERSION="${O2_VERSION:-0.91.5}"
+    O2_VERSION_TAG="v${O2_VERSION#v}"
+    O2_ARTIFACT_NAME="openobserve-${O2_VERSION_TAG}-pi-arm64"
+    LOCAL_ARTIFACT="$TELEMETRY_SCRIPTS_DIR/dist/$O2_ARTIFACT_NAME"
+    REMOTE_ARTIFACT="/var/lib/openobserve/build/$O2_ARTIFACT_NAME"
+
+    existing="" existing_src=""
+    if ssh "$DEPLOY_HOST" "sudo test -x $(printf '%q' "$REMOTE_ARTIFACT")"; then
+        existing="on the Pi ($REMOTE_ARTIFACT)" existing_src="pi"
+    elif [ -f "$LOCAL_ARTIFACT" ]; then
+        existing="on this machine ($LOCAL_ARTIFACT)" existing_src="local"
+    fi
+
+    echo ""
+    echo "OpenObserve ${O2_VERSION_TAG} build for the Raspberry Pi:"
+    options=()
+    [ -n "$existing" ] && options+=("existing")
+    [ "$(uname -s)" = "Darwin" ] && options+=("cross")
+    options+=("pi")
+    i=1
+    for opt in "${options[@]}"; do
+        case "$opt" in
+            existing) echo "  $i) Use the already compiled binary ${existing}" ;;
+            cross)    echo "  $i) Cross-compile on this Mac (minutes)" ;;
+            pi)       echo "  $i) Build on the Pi (1–3+ hours)" ;;
+        esac
+        i=$((i + 1))
+    done
+    read -r -p "Choice [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+        *[!0-9]*|0) die "Invalid choice: $choice" ;;
+    esac
+    [ "$choice" -le "${#options[@]}" ] || die "Invalid choice: $choice"
+    O2_BUILD_CHOICE="${options[$((choice - 1))]}"
+
+    case "$O2_BUILD_CHOICE" in
+        existing|cross)
+            if [ "$O2_BUILD_CHOICE" = "cross" ]; then
+                O2_VERSION="$O2_VERSION" "$TELEMETRY_SCRIPTS_DIR/cross-compile-openobserve-pi.sh"
+            fi
+            # Uploads the local artifact into the Pi's cache.
+            if [ "$O2_BUILD_CHOICE" = "cross" ] || [ "$existing_src" = "local" ]; then
+                DEPLOY_HOST="$DEPLOY_HOST" O2_VERSION="$O2_VERSION" RESTART=0 \
+                    "$TELEMETRY_SCRIPTS_DIR/deploy-openobserve-pi.sh"
+            fi
+            ;;
+        pi) REMOTE_ENV="O2_FORCE_REBUILD=1" ;;
+    esac
+fi
+
 # Only what setup.sh/update.sh/build-openobserve-pi.sh actually need on the
 # Pi — cross-compile-openobserve-pi.sh, deploy-openobserve-pi.sh, tunnel.sh,
 # and this script itself all run from the Mac and are left out.
@@ -147,7 +204,7 @@ ok "Copied"
 # ssh doesn't carry local env vars over on its own, so it has to be spelled
 # out explicitly in the remote command.
 REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh"
-REMOTE_CMD="$REMOTE_CMD && sudo SHOW_PASSWORD=$(printf '%q' "${SHOW_PASSWORD:-0}") ./$REMOTE_SCRIPT"
+REMOTE_CMD="$REMOTE_CMD && sudo SHOW_PASSWORD=$(printf '%q' "${SHOW_PASSWORD:-0}") $REMOTE_ENV ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done
