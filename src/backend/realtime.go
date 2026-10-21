@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -622,6 +623,10 @@ type realtimeClient struct {
 	lastPing         time.Time
 	writeMu          sync.Mutex
 	wsRecordOutbound func(messageType int, data []byte)
+
+	// pongPending is set by each PONG and cleared when the reaper writes the
+	// heartbeat, so all clients' PONGs cost one write per pass.
+	pongPending atomic.Bool
 }
 
 // realtimeConnectionManager manages WebSocket connections and subscriptions.
@@ -946,6 +951,22 @@ func (cm *realtimeConnectionManager) SendToAll(msg *pb.WSMessage) error {
 }
 
 // HasConnection reports whether any active WebSocket is registered for the user.
+// takePongs returns, by user, the clients that sent a PONG since the last
+// call, and clears their flags.
+func (cm *realtimeConnectionManager) takePongs() map[string][]*realtimeClient {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+	pongs := make(map[string][]*realtimeClient)
+	for userID, conns := range cm.userConnections {
+		for _, c := range conns {
+			if c.pongPending.Swap(false) {
+				pongs[userID] = append(pongs[userID], c)
+			}
+		}
+	}
+	return pongs
+}
+
 func (cm *realtimeConnectionManager) HasConnection(userID string) bool {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
@@ -2121,11 +2142,45 @@ func (rs *realtimeService) startPeriodicCleanup() {
 	}
 }
 
+// flushPongs writes every heartbeat since the last pass in one statement. A
+// client whose row was reaped is closed, so it reconnects and subscribes again.
+func (rs *realtimeService) flushPongs(ctx context.Context) {
+	pongs := rs.connManager.takePongs()
+	if len(pongs) == 0 {
+		return
+	}
+	userIDs := make([]string, 0, len(pongs))
+	for userID := range pongs {
+		userIDs = append(userIDs, userID)
+	}
+	live, err := rs.db.RecordPongs(ctx, userIDs)
+	if err != nil {
+		log.Error().Err(err).Int("users", len(userIDs)).Msg("Failed to record PONG heartbeats")
+		// Keep them pending so the next pass writes them.
+		for _, clients := range pongs {
+			for _, c := range clients {
+				c.pongPending.Store(true)
+			}
+		}
+		return
+	}
+	for userID, clients := range pongs {
+		if live[userID] {
+			continue
+		}
+		for _, c := range clients {
+			c.conn.Close()
+		}
+	}
+}
+
 // reapStalePresence is one eviction pass. A stale user with a socket here
 // is disconnected, and the socket's close path tears them down; anyone else
 // is torn down here before their presence row goes.
 func (rs *realtimeService) reapStalePresence() {
 	ctx := context.Background()
+	// Heartbeats first, so a client that just PONGed isn't seen as stale.
+	rs.flushPongs(ctx)
 	stale, err := rs.db.StalePresence(ctx, realtimePresenceTTL)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to load stale presence rows")
@@ -2622,17 +2677,10 @@ func (rs *realtimeService) handlePing(client *realtimeClient, ping *pb.PingMessa
 // handlePong records a client-initiated liveness heartbeat. The SPA sends
 // PONG once a minute; presence rows that stop being refreshed are evicted by
 // reapStalePresence, which is what lets a crashed replica's stale rows expire.
+// handlePong only marks the client; the reaper writes the heartbeat for all
+// clients at once (flushPongs) instead of one UPDATE per PONG.
 func (rs *realtimeService) handlePong(client *realtimeClient) {
-	live, err := rs.db.RecordPong(context.Background(), client.userID)
-	if err != nil {
-		log.Error().Err(err).Str("userID", client.userID).Msg("Failed to record PONG heartbeat")
-		return
-	}
-	// The row was reaped, and this socket's subscriptions with it. Closing
-	// makes the client reconnect and subscribe again.
-	if !live {
-		client.conn.Close()
-	}
+	client.pongPending.Store(true)
 }
 
 // handleSubscribeUser handles user subscription requests.

@@ -186,7 +186,13 @@ can't: a foreign viewer has no presence row here, and
 the reaper, boot), so a new path that deletes `online_users` without calling
 it leaks rows.
 
-### A3 — Realtime federation assumes a single replica
+### Concurrency — running several replicas
+
+The server is built and tested as one process. Each entry below is a place
+that assumption is load-bearing; all of them need solving before replicas
+can run side by side.
+
+#### C1 — Realtime federation assumes a single replica
 **Where:** `CLEAR_PRESENCE_ON_BOOT` in `main.go`; `reapStalePresence` and
 `handlePong` in `realtime.go`; `specs/federation/08_server_reset.md`.
 The boot clear, the `realtime-reset` notices and the reaper's "is the socket
@@ -195,6 +201,22 @@ replica, one restarting would wipe state its siblings still serve and tell
 peers to forget the whole server, so the notices are off whenever
 `CLEAR_PRESENCE_ON_BOOT` is. Running several replicas needs presence and
 reset semantics per replica first.
+
+#### C2 — Presence heartbeats are written by the replica holding the socket
+**Where:** `handlePong`, `flushPongs` and `reapStalePresence` in
+`realtime.go`; `RecordPongs` in `services.go`.
+A PONG only flags its socket in memory, and that replica's reaper writes all
+flagged users' `last_pong` in one statement at the start of each 30 s pass.
+On one replica this is safe, since the same pass writes heartbeats before it
+looks for stale rows. With several:
+- A replica whose reaper stalls past ~30 s stops refreshing its users, and
+  another replica's reaper evicts them while they're still connected. The
+  margin is thin: a PONG every 60 s, written within 30 s, is at most 90 s old
+  against the 2-minute TTL.
+- A crashed replica loses up to 30 s of heartbeats (harmless on its own).
+
+Before running replicas, flush heartbeats on their own ticker per replica, or
+have each replica reap only users whose sockets it holds.
 
 ### A4 — Federation delivery is best-effort at the edges
 **Where:** `federation_delivery.go`, `openForeignEvent` in `realtime.go`;
