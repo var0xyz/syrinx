@@ -25,20 +25,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 O2_VERSION="${O2_VERSION:-0.91.5}"
-# Linux has no compressed memory, so cap jobs at ~3 GB of RAM+swap each or
-# the OOM killer SIGKILLs rustc. macOS copes with the CPU count.
-default_build_jobs() {
-    local cpus mem_kb
-    cpus="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-    mem_kb="$(awk '/^(MemTotal|SwapTotal):/ {t += $2} END {print t + 0}' /proc/meminfo 2>/dev/null || echo 0)"
-    if [ "${mem_kb:-0}" -gt 0 ]; then
-        local by_mem=$((mem_kb / 3145728))
-        [ "$by_mem" -ge 1 ] || by_mem=1
-        [ "$by_mem" -lt "$cpus" ] && cpus="$by_mem"
-    fi
-    printf '%s' "$cpus"
-}
-O2_BUILD_JOBS="${O2_BUILD_JOBS:-$(default_build_jobs)}"
+O2_BUILD_JOBS="${O2_BUILD_JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
+# The openobserve crate alone peaks at ~22 GB in one rustc; see preflight_memory.
+O2_MIN_MEMORY_GB="${O2_MIN_MEMORY_GB:-24}"
+# Room on disk for .cross-build (~6 GB) plus some slack, on top of swap.
+O2_MIN_BUILD_DISK_GB="${O2_MIN_BUILD_DISK_GB:-6}"
 # Bookworm/Pi OS 64-bit is glibc 2.36; 2.31 covers Bullseye too.
 O2_GLIBC="${O2_GLIBC:-2.31}"
 # Set SKIP_WEB=1 to reuse an existing web/dist (skips npm ci/build).
@@ -549,8 +540,7 @@ build_server() {
         # Cargo keeps finished crates, so a rerun resumes where this stopped.
         cargo zigbuild --release --target "$TARGET_WITH_GLIBC" || die "Build failed. \
 If rustc was killed (SIGKILL), it ran out of memory: the openobserve crate \
-alone peaks at ~22 GB, so add swap until RAM+swap is ~24 GB (a lower \
-O2_BUILD_JOBS, now ${O2_BUILD_JOBS}, only helps a little)."
+alone peaks at ~22 GB, so add swap until RAM+swap is ~${O2_MIN_MEMORY_GB} GB."
     )
 
     local bin="$SRC_DIR/target/${TARGET}/release/openobserve"
@@ -581,6 +571,52 @@ deploy_to_pi() {
         "$deploy_script"
 }
 
+# Too little memory gets rustc OOM-killed on Linux, and on macOS fills the
+# disk with swap until a watchdog panic reboots the machine, so check first.
+preflight_memory() {
+    local ram_gb swap_gb=0 disk_gb have_gb need_gb what
+    disk_gb="$(df -Pk "$SCRIPT_DIR" | awk 'NR == 2 {print int($4 / 1048576)}')"
+    if [ "$HOST_KIND" = "macos" ]; then
+        ram_gb="$(( $(sysctl -n hw.memsize) / 1073741824 ))"
+        # macOS swaps to the same disk and grows swap on demand.
+        have_gb=$((ram_gb + disk_gb))
+        need_gb=$((O2_MIN_MEMORY_GB + O2_MIN_BUILD_DISK_GB))
+        what="RAM ${ram_gb} GB + free disk ${disk_gb} GB = ${have_gb} GB"
+    else
+        ram_gb="$(awk '/^MemTotal:/ {print int($2 / 1048576)}' /proc/meminfo)"
+        swap_gb="$(awk '/^SwapTotal:/ {print int($2 / 1048576)}' /proc/meminfo)"
+        have_gb=$((ram_gb + swap_gb))
+        need_gb="$O2_MIN_MEMORY_GB"
+        what="RAM ${ram_gb} GB + swap ${swap_gb} GB = ${have_gb} GB"
+        [ "$disk_gb" -ge "$O2_MIN_BUILD_DISK_GB" ] || {
+            have_gb=0
+            what="$what, but only ${disk_gb} GB of free disk (need ${O2_MIN_BUILD_DISK_GB} GB)"
+        }
+    fi
+
+    if [ "$have_gb" -ge "$need_gb" ]; then
+        ok "Memory preflight: $what (need ${need_gb} GB)"
+        return 0
+    fi
+
+    echo "⚠️  Memory preflight: $what, need ${need_gb} GB." >&2
+    echo "   One rustc peaks at ~22 GB building the openobserve crate." >&2
+    if [ "$HOST_KIND" = "macos" ]; then
+        echo "   macOS swaps to this disk; when it can't grow swap it panics and reboots." >&2
+        echo "   Free up ~$((need_gb - have_gb)) GB of disk first." >&2
+    else
+        echo "   Linux's OOM killer will SIGKILL rustc. Add ~$((need_gb - have_gb)) GB of swap first." >&2
+    fi
+    if [ -t 0 ]; then
+        local answer
+        read -r -p "   Build anyway? [y/N] " answer
+        case "$answer" in
+            y|Y|yes|YES) return 0 ;;
+        esac
+    fi
+    die "Not enough memory to build (a lower O2_MIN_MEMORY_GB, now ${O2_MIN_MEMORY_GB}, skips this check)"
+}
+
 main() {
     detect_host
     echo "================================================================"
@@ -594,6 +630,7 @@ main() {
     fi
     echo ""
 
+    preflight_memory
     ensure_deps
     fetch_source
     ensure_rust_target_for_source
