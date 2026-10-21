@@ -456,6 +456,8 @@ chmod 644 "/etc/cron.d/$APP_NAME-challenges-cleanup"
 RELEASES_DIR="$WWW_ROOT/releases"
 RELEASE_DIR="$RELEASES_DIR/$(date +%Y%m%dT%H%M%S)-${GIT_COMMIT:0:12}"
 mkdir -p "$RELEASES_DIR"
+# nginx (www-data) must traverse these; setup.sh's umask 077 would leave them 700.
+chmod 755 "$WWW_ROOT" "$RELEASES_DIR"
 cp -r build "$RELEASE_DIR"
 chown -R root:www-data "$RELEASE_DIR"
 find "$RELEASE_DIR" -type d -exec chmod 755 {} \;
