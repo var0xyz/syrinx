@@ -124,8 +124,11 @@ prompt_host() {
 # Every command except setup: use the saved host silently, no prompt/banner/
 # connectivity probe. Nothing saved yet means setup has never run here.
 load_saved_host_or_die() {
+    # DEPLOY_HOST from the environment wins for one run; deploy.env would
+    # otherwise overwrite it.
+    local from_env="${DEPLOY_HOST:-}"
     load_saved_host
-    local host="${DEPLOY_HOST:-}"
+    local host="${from_env:-${DEPLOY_HOST:-}}"
     [ -n "$host" ] || die "No saved host — run './syrinx.sh setup' first"
     normalize_host "$host"
 }
