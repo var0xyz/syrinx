@@ -53,7 +53,7 @@ func (f *foreignFoldFixture) onlineUser(t *testing.T, name string) string {
 func (f *foreignFoldFixture) request(t *testing.T, userID string) {
 	t.Helper()
 	client := &realtimeClient{userID: userID}
-	f.rs.handleForeignRequestReedFromClient(client, generateRealtimeEventID(userID), f.reedID, teardownPeerID)
+	f.rs.handleForeignRequestReedFromClient(context.Background(), client, generateRealtimeEventID(userID), f.reedID, teardownPeerID)
 }
 
 func (f *foreignFoldFixture) pendingFor(t *testing.T, userID string) int {
@@ -170,7 +170,7 @@ func TestForeignCarrierDisconnectPromotesWaiting(t *testing.T) {
 	f := newForeignFoldFixture(t)
 	carrier, waiting := f.fillCrossings(t)
 
-	f.rs.teardownUser(carrier)
+	f.rs.teardownUser(context.Background(), carrier)
 	f.rs.peerCalls.Wait()
 	if err := f.rs.db.MarkUserOffline(context.Background(), carrier); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
@@ -190,7 +190,7 @@ func TestForeignInvalidCopyPromotesWaiting(t *testing.T) {
 	if err := f.db.QueryRow(`SELECT event_id FROM pending_events WHERE requester_user_id = $1`, carrier).Scan(&eventID); err != nil {
 		t.Fatalf("find carrier event: %v", err)
 	}
-	f.rs.handleDataInvalid(&realtimeClient{userID: carrier}, eventID)
+	f.rs.handleDataInvalid(context.Background(), &realtimeClient{userID: carrier}, eventID)
 
 	if len(f.crossings) != maxForeignCrossings+1 || f.crossings[maxForeignCrossings] != waiting {
 		t.Fatalf("crossings = %v, want %s promoted", f.crossings, waiting)
@@ -225,7 +225,7 @@ func TestForeignProfilePageFolds(t *testing.T) {
 		t.Fatalf("AllocateReed holder: %v", err)
 	}
 
-	f.rs.handleForeignProfilePageFromClient(&realtimeClient{userID: viewer}, author, teardownPeerID, 1)
+	f.rs.handleForeignProfilePageFromClient(ctx, &realtimeClient{userID: viewer}, author, teardownPeerID, 1)
 
 	if len(f.crossings) != 1 {
 		t.Fatalf("crossings = %v, want only the reed nobody here holds", f.crossings)

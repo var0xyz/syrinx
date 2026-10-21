@@ -69,13 +69,13 @@ func TestThreadFetch_AckAllocatesEveryPart(t *testing.T) {
 		}
 	}
 
-	rs.requestThread(&realtimeClient{userID: bob}, generateRealtimeEventID(bob), ids[0])
+	rs.requestThread(ctx, &realtimeClient{userID: bob}, generateRealtimeEventID(bob), ids[0])
 	eventID := threadEventFor(t, ds, bob, ids[0])
 	if eventID == "" {
 		t.Fatal("no thread event registered")
 	}
 	relayed(t, ds, eventID, f.author)
-	rs.handleDataAck(&realtimeClient{userID: bob}, eventID)
+	rs.handleDataAck(ctx, &realtimeClient{userID: bob}, eventID)
 
 	want := append([]string{}, ids...)
 	sort.Strings(want)
@@ -100,7 +100,7 @@ func TestThreadFetch_UnknownThread(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rs.requestThread(&realtimeClient{userID: f.author}, generateRealtimeEventID(f.author), plain)
+	rs.requestThread(ctx, &realtimeClient{userID: f.author}, generateRealtimeEventID(f.author), plain)
 	if threadEventFor(t, ds, f.author, plain) != "" {
 		t.Fatal("a plain reed was requested as a thread")
 	}
@@ -115,7 +115,7 @@ func TestThreadFetch_RelayCarriesRecord(t *testing.T) {
 	rs := newRealtimeService(f.h.services.db, newCryptoService(), "")
 	ids := f.seedThread(t, [][]string{nil, nil}, [][]string{nil, nil})
 
-	out := rs.relayedThreadData(ids[0], "ct")
+	out := rs.relayedThreadData(context.Background(), ids[0], "ct")
 	if out.Ciphertext != "ct" || out.Record == nil || fmt.Sprint(out.Record.ReedIDs) != fmt.Sprint(ids) {
 		t.Fatalf("relayed thread = %+v, want ciphertext and record of %v", out, ids)
 	}
@@ -154,7 +154,7 @@ func TestThreadFetch_ForeignAckUsesVerifiedRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			rs.requestThread(&realtimeClient{userID: reader}, generateRealtimeEventID(reader), ids[0])
+			rs.requestThread(ctx, &realtimeClient{userID: reader}, generateRealtimeEventID(reader), ids[0])
 			eventID := threadEventFor(t, rs.db, reader, ids[0])
 			if eventID == "" {
 				t.Fatal("no thread event registered")
@@ -169,7 +169,7 @@ func TestThreadFetch_ForeignAckUsesVerifiedRecord(t *testing.T) {
 			if err := rs.db.MarkEventRelayed(ctx, eventID); err != nil {
 				t.Fatal(err)
 			}
-			rs.handleDataAck(&realtimeClient{userID: reader}, eventID)
+			rs.handleDataAck(ctx, &realtimeClient{userID: reader}, eventID)
 
 			got := allocatedTo(t, rs.db, reader)
 			if !tc.verified {

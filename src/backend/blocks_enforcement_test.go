@@ -77,9 +77,9 @@ func TestBlockedRequestsAnsweredWithUserBlocked(t *testing.T) {
 
 	bob, got := blockCapture(t, rs, f.bob)
 	requestID := generateRealtimeEventID(f.bob)
-	rs.requestReed(bob, requestID, reedID)
-	rs.handleProfilePage(bob, f.alice, 1)
-	rs.handleSubscribeReed(bob, reedID)
+	rs.requestReed(context.Background(), bob, requestID, reedID)
+	rs.handleProfilePage(context.Background(), bob, f.alice, 1)
+	rs.handleSubscribeReed(context.Background(), bob, reedID)
 
 	if len(*got) != 3 {
 		t.Fatalf("USER_BLOCKED frames = %d, want 3", len(*got))
@@ -93,7 +93,7 @@ func TestBlockedRequestsAnsweredWithUserBlocked(t *testing.T) {
 	}
 
 	carol, carolGot := blockCapture(t, rs, f.carol)
-	rs.requestReed(carol, generateRealtimeEventID(f.carol), reedID)
+	rs.requestReed(context.Background(), carol, generateRealtimeEventID(f.carol), reedID)
 	if len(*carolGot) != 0 {
 		t.Fatal("carol was refused")
 	}

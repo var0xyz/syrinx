@@ -65,7 +65,7 @@ func captureEvictionAcks(t *testing.T, rs *realtimeService, userID, reedID strin
 		}
 	})
 
-	rs.handleEviction(client, reedID)
+	rs.handleEviction(context.Background(), client, reedID)
 	return acked
 }
 
@@ -169,7 +169,7 @@ func captureKeyEvictionAcks(t *testing.T, rs *realtimeService, userID, keyID str
 		}
 	})
 
-	rs.handleKeyEviction(client, keyID)
+	rs.handleKeyEviction(context.Background(), client, keyID)
 	return acked
 }
 

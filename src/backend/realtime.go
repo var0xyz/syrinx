@@ -18,6 +18,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	"syrinx/observability/metrics"
@@ -889,8 +891,8 @@ func (cm *realtimeConnectionManager) SendToUser(userID string, msg *pb.WSMessage
 // isUserOnline reports presence from online_users, not this replica's
 // socket map, so a recipient on another replica still counts as online.
 // Errs toward true: a failed lookup shouldn't silently drop a dispatch.
-func (rs *realtimeService) isUserOnline(userID string) bool {
-	online, err := rs.db.IsUserOnline(context.Background(), userID)
+func (rs *realtimeService) isUserOnline(ctx context.Context, userID string) bool {
+	online, err := rs.db.IsUserOnline(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to check user presence")
 		return true
@@ -1084,8 +1086,8 @@ func normalizePipeTag(tag string) string {
 // reedSubscriberUserIDs returns the distinct users subscribed to reedID,
 // excluding excludeUserID ("" excludes nobody). Backed by reed_subscriptions,
 // so the recipient set is identical on every replica.
-func (rs *realtimeService) reedSubscriberUserIDs(reedID, excludeUserID string) []string {
-	subscribers, err := rs.db.GetReedSubscriberUserIDs(context.Background(), reedID, excludeUserID)
+func (rs *realtimeService) reedSubscriberUserIDs(ctx context.Context, reedID, excludeUserID string) []string {
+	subscribers, err := rs.db.GetReedSubscriberUserIDs(ctx, reedID, excludeUserID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed subscribers")
 		return nil
@@ -1097,7 +1099,7 @@ func (rs *realtimeService) reedSubscriberUserIDs(reedID, excludeUserID string) [
 // skipping excludeUserID ("" skips nobody). Per-user via SendToUser, so a
 // subscriber on another replica is reached over the bus.
 func (rs *realtimeService) sendToReedSubscribers(reedID, excludeUserID string, msg *pb.WSMessage) error {
-	for _, userID := range rs.reedSubscriberUserIDs(reedID, excludeUserID) {
+	for _, userID := range rs.reedSubscriberUserIDs(context.Background(), reedID, excludeUserID) {
 		if err := rs.connManager.SendToUser(userID, msg); err != nil {
 			log.Debug().Err(err).Str("userID", userID).Str("reedID", reedID).Msg("Failed to send reed subscription message")
 		}
@@ -1620,42 +1622,42 @@ func (rs *realtimeService) fanoutKeyRevocation(keyID string, rev *KeyRevocation)
 		if err != nil || requestID == "" {
 			continue
 		}
-		rs.dispatchKeyRevoked(recipientID, requestID, keyID, rev)
+		rs.dispatchKeyRevoked(context.Background(), recipientID, requestID, keyID, rev)
 	}
 }
 
 // loadKeyRevocation returns keyID's revocation: stored here for a local key,
 // fetched from its home server for a foreign one.
-func (rs *realtimeService) loadKeyRevocation(keyID string) (*KeyRevocation, error) {
-	rev, err := rs.db.GetKeyRevocation(context.Background(), keyID)
+func (rs *realtimeService) loadKeyRevocation(ctx context.Context, keyID string) (*KeyRevocation, error) {
+	rev, err := rs.db.GetKeyRevocation(ctx, keyID)
 	if err != nil || rev != nil {
 		return rev, err
 	}
 	if foreign, _ := rs.isForeignReed(keyID); foreign && rs.foreignKeyRevocationHook != nil {
-		return rs.foreignKeyRevocationHook(context.Background(), keyID)
+		return rs.foreignKeyRevocationHook(ctx, keyID)
 	}
 	return nil, nil
 }
 
 // dispatchKeyRevoked records a key_revoked event for recipientID and sends it.
 // rev may be nil, in which case it is loaded.
-func (rs *realtimeService) dispatchKeyRevoked(recipientID, requestID, keyID string, rev *KeyRevocation) {
+func (rs *realtimeService) dispatchKeyRevoked(ctx context.Context, recipientID, requestID, keyID string, rev *KeyRevocation) {
 	eventID := generateRealtimeEventID(recipientID)
-	if err := rs.db.CreatePendingKeyEvent(context.Background(), eventID, requestID, recipientID, keyID); err != nil {
+	if err := rs.db.CreatePendingKeyEvent(ctx, eventID, requestID, recipientID, keyID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Str("keyID", keyID).Msg("Failed to create key_revoked pending event")
 		return
 	}
-	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventCreated, string(keyRevokedEvent))
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventCreated, string(keyRevokedEvent))
 
 	if rev == nil {
-		loaded, err := rs.loadKeyRevocation(keyID)
+		loaded, err := rs.loadKeyRevocation(ctx, keyID)
 		if err != nil || loaded == nil {
 			log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation for delivery")
 			return
 		}
 		rev = loaded
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
+	ok, err := rs.db.MarkEventDispatched(ctx, eventID, recipientID)
 	if err != nil || !ok {
 		if err != nil {
 			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark key_revoked dispatched")
@@ -1721,7 +1723,7 @@ func (rs *realtimeService) fanoutReedRemoval(authorUserID, reedID string, cert *
 	// Anyone viewing this reed's thread (SUBSCRIBE_REED) needs to know it's
 	// gone too — same gap as ReplyPosted: a reed-stat subscriber isn't
 	// necessarily a follower/broadcast/profile subscriber.
-	reedSubscribers := rs.reedSubscriberUserIDs(reedID, "")
+	reedSubscribers := rs.reedSubscriberUserIDs(context.Background(), reedID, "")
 	rs.dispatchRemovalMany(reedSubscribers, reedID, cert)
 
 	// If the removed reed was itself a reply, everyone subscribed to an
@@ -1756,7 +1758,7 @@ func (rs *realtimeService) fanoutThreadRemoval(rm *threadRemoval) {
 		recipients = unionUserIDs(recipients, []string{sub.ViewerUserID})
 	}
 	for _, reedID := range rm.Record.ReedIDs {
-		recipients = unionUserIDs(recipients, rs.reedSubscriberUserIDs(reedID, ""))
+		recipients = unionUserIDs(recipients, rs.reedSubscriberUserIDs(ctx, reedID, ""))
 	}
 	holders, err := rs.db.OnlineThreadHolders(ctx, threadID)
 	if err != nil {
@@ -1772,33 +1774,33 @@ func (rs *realtimeService) fanoutThreadRemoval(rm *threadRemoval) {
 		if foreign, _ := rs.isForeignReed(recipientID); foreign {
 			continue
 		}
-		rs.dispatchThreadRemovalTo(recipientID, threadID, rm)
+		rs.dispatchThreadRemovalTo(ctx, recipientID, threadID, rm)
 	}
 }
 
-func (rs *realtimeService) dispatchThreadRemovalTo(recipientID, threadID string, rm *threadRemoval) {
-	requestID, err := rs.db.GetSyncRequestID(context.Background(), recipientID)
+func (rs *realtimeService) dispatchThreadRemovalTo(ctx context.Context, recipientID, threadID string, rm *threadRemoval) {
+	requestID, err := rs.db.GetSyncRequestID(ctx, recipientID)
 	if err != nil || requestID == "" {
 		return
 	}
 	eventID := generateRealtimeEventID(recipientID)
-	if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, threadRemovedEvent, threadID); err != nil {
+	if err := rs.createPendingReedEvent(ctx, eventID, requestID, recipientID, threadRemovedEvent, threadID); err != nil {
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create thread_removed pending event")
 		return
 	}
-	rs.deliverThreadRemoved(eventID, requestID, recipientID, threadID, rm)
+	rs.deliverThreadRemoved(ctx, eventID, requestID, recipientID, threadID, rm)
 }
 
-func (rs *realtimeService) deliverThreadRemoved(eventID, requestID, recipientID, threadID string, rm *threadRemoval) {
+func (rs *realtimeService) deliverThreadRemoved(ctx context.Context, eventID, requestID, recipientID, threadID string, rm *threadRemoval) {
 	if rm == nil {
 		var err error
-		rm, err = rs.db.GetThreadRemoval(context.Background(), threadID)
+		rm, err = rs.db.GetThreadRemoval(ctx, threadID)
 		if err != nil || rm == nil {
 			log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread removal for delivery")
 			return
 		}
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
+	ok, err := rs.db.MarkEventDispatched(ctx, eventID, recipientID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark thread_removed dispatched")
 		return
@@ -1821,7 +1823,7 @@ func (rs *realtimeService) HandleForeignThreadRemoval(rm *threadRemoval) {
 // profile subs, and pipe listeners for the claimed tags. reedID is canonical.
 // excludeFromFollowers drops recipients who are already getting REED_REPLY
 // for this same reed via notifyParentSubscribersOfReply (see handlePublishReady).
-func (rs *realtimeService) fanoutNewReed(reedID string, tags []string, excludeFromFollowers []string) {
+func (rs *realtimeService) fanoutNewReed(ctx context.Context, reedID string, tags []string, excludeFromFollowers []string) {
 	authorUserID := reedAuthorIdentity(reedID)
 	log.Info().
 		Str("userID", authorUserID).
@@ -1829,14 +1831,14 @@ func (rs *realtimeService) fanoutNewReed(reedID string, tags []string, excludeFr
 		Int("tags", len(tags)).
 		Msg("Fanning out new reed")
 
-	broadcastRecipients, err := rs.db.GetBroadcastSubscribers(context.Background(), authorUserID)
+	broadcastRecipients, err := rs.db.GetBroadcastSubscribers(ctx, authorUserID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msg("Failed to get broadcast subscribers from database")
 	}
 
-	rs.fanoutNewReedCore(reedID, broadcastRecipients, tags, excludeFromFollowers)
+	rs.fanoutNewReedCore(ctx, reedID, broadcastRecipients, tags, excludeFromFollowers)
 }
 
 // fanoutNewReedNoBroadcast dispatches to followers, profile subs, and pipe
@@ -1848,25 +1850,25 @@ func (rs *realtimeService) fanoutNewReedNoBroadcast(reedID string, tags []string
 		Int("tags", len(tags)).
 		Msg("Fanning out new reed (no broadcast)")
 
-	rs.fanoutNewReedCore(reedID, nil, tags, excludeFromFollowers)
+	rs.fanoutNewReedCore(context.Background(), reedID, nil, tags, excludeFromFollowers)
 }
 
-func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients, tags, excludeFromFollowers []string) {
+func (rs *realtimeService) fanoutNewReedCore(ctx context.Context, reedID string, broadcastRecipients, tags, excludeFromFollowers []string) {
 	authorUserID := reedAuthorIdentity(reedID)
 
-	onlineAdmins, err := rs.db.GetOnlineAdmins(context.Background(), authorUserID)
+	onlineAdmins, err := rs.db.GetOnlineAdmins(ctx, authorUserID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get online admins for reed archival")
 	}
 
-	followers, err := rs.db.GetOnlineFollowers(context.Background(), authorUserID)
+	followers, err := rs.db.GetOnlineFollowers(ctx, authorUserID)
 	if err != nil {
 		log.Error().
 			Err(err).
 			Msg("Failed to get online followers from database")
 	}
 
-	pipeListeners, err := rs.db.GetPipeListeners(context.Background(), normalizePipeTags(tags), authorUserID)
+	pipeListeners, err := rs.db.GetPipeListeners(ctx, normalizePipeTags(tags), authorUserID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get pipe listeners from database")
 	}
@@ -1887,11 +1889,11 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 		Int("pipeListeners", len(pipeListeners)).
 		Int("broadcastSubscribers", len(broadcastOnly)).
 		Msg("Dispatching new reed to recipients")
-	rs.dispatchMany(followersOnly, followReedEvent, reedID)
-	rs.dispatchMany(pipeListeners, pipeReedEvent, reedID)
-	rs.dispatchMany(broadcastOnly, broadcastReedEvent, reedID)
+	rs.dispatchMany(ctx, followersOnly, followReedEvent, reedID)
+	rs.dispatchMany(ctx, pipeListeners, pipeReedEvent, reedID)
+	rs.dispatchMany(ctx, broadcastOnly, broadcastReedEvent, reedID)
 
-	profileSubscribers, err := rs.db.GetProfileSubscribers(context.Background(), authorUserID)
+	profileSubscribers, err := rs.db.GetProfileSubscribers(ctx, authorUserID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -1904,7 +1906,7 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 	for _, sub := range profileSubscribers {
 		covered = append(covered, sub.ViewerUserID)
 	}
-	rs.dispatchMany(subtractUserIDs(onlineAdmins, covered), archiveReedEvent, reedID)
+	rs.dispatchMany(ctx, subtractUserIDs(onlineAdmins, covered), archiveReedEvent, reedID)
 
 	for _, sub := range profileSubscribers {
 		// A foreign viewer's own server gets new-reed and dispatches it.
@@ -1913,7 +1915,7 @@ func (rs *realtimeService) fanoutNewReedCore(reedID string, broadcastRecipients,
 		}
 		eventID := generateRealtimeEventID(sub.ViewerUserID)
 		requestID := generateRealtimeEventID(sub.ViewerUserID)
-		if err := rs.createProfileSubscriptionEvent(context.Background(), eventID, requestID, sub.ViewerUserID, profileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
+		if err := rs.createProfileSubscriptionEvent(ctx, eventID, requestID, sub.ViewerUserID, profileSubscriptionEvent, reedID, sub.SubscriptionID); err != nil {
 			log.Error().
 				Err(err).
 				Str("viewerUserID", sub.ViewerUserID).
@@ -1986,7 +1988,7 @@ func (rs *realtimeService) dispatchRemovalTo(recipientID, reedID string, cert *r
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create reed_removed pending event")
 		return
 	}
-	rs.deliverReedRemoved(eventID, requestID, recipientID, reedID, cert)
+	rs.deliverReedRemoved(context.Background(), eventID, requestID, recipientID, reedID, cert)
 }
 
 func (rs *realtimeService) dispatchAccountRemovalMany(recipients []string, removedUserID string, cert *accountRemovalWire) {
@@ -2005,22 +2007,22 @@ func (rs *realtimeService) dispatchAccountRemovalTo(recipientID, removedUserID s
 		log.Error().Err(err).Str("recipientID", recipientID).Msg("Failed to create account_removed pending event")
 		return
 	}
-	rs.deliverAccountRemoved(eventID, requestID, recipientID, removedUserID, cert)
+	rs.deliverAccountRemoved(context.Background(), eventID, requestID, recipientID, removedUserID, cert)
 }
 
-func (rs *realtimeService) deliverAccountRemoved(eventID, requestID, recipientID, removedUserID string, cert *accountRemovalWire) {
+func (rs *realtimeService) deliverAccountRemoved(ctx context.Context, eventID, requestID, recipientID, removedUserID string, cert *accountRemovalWire) {
 	wire := accountRemovalWire{}
 	if cert != nil {
 		wire = *cert
 	} else {
 		var err error
-		wire, err = rs.db.GetAccountRemovalWire(context.Background(), removedUserID)
+		wire, err = rs.db.GetAccountRemovalWire(ctx, removedUserID)
 		if err != nil || wire.UserID == "" {
 			log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to load account removal cert for delivery")
 			return
 		}
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
+	ok, err := rs.db.MarkEventDispatched(ctx, eventID, recipientID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark account_removed dispatched")
 		return
@@ -2033,19 +2035,19 @@ func (rs *realtimeService) deliverAccountRemoved(eventID, requestID, recipientID
 	}
 }
 
-func (rs *realtimeService) deliverReedRemoved(eventID, requestID, recipientID, reedID string, cert *reedRemovalWire) {
+func (rs *realtimeService) deliverReedRemoved(ctx context.Context, eventID, requestID, recipientID, reedID string, cert *reedRemovalWire) {
 	wire := reedRemovalWire{}
 	if cert != nil {
 		wire = *cert
 	} else {
 		var err error
-		wire, err = rs.db.GetReedRemovalWire(context.Background(), reedID)
+		wire, err = rs.db.GetReedRemovalWire(ctx, reedID)
 		if err != nil || wire.UserID == "" {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed removal cert for delivery")
 			return
 		}
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), eventID, recipientID)
+	ok, err := rs.db.MarkEventDispatched(ctx, eventID, recipientID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to mark reed_removed dispatched")
 		return
@@ -2061,14 +2063,14 @@ func (rs *realtimeService) deliverReedRemoved(eventID, requestID, recipientID, r
 // dispatchMany creates a pending reed event for each recipient and triggers
 // relay dispatch to the reed's author (also the holder for published-reed
 // fanout). reedID is canonical.
-func (rs *realtimeService) dispatchMany(recipients []string, eventName realtimeEventName, reedID string) {
+func (rs *realtimeService) dispatchMany(ctx context.Context, recipients []string, eventName realtimeEventName, reedID string) {
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
-		rs.dispatchManyForeign(recipients, eventName, reedID, homeServerID)
+		rs.dispatchManyForeign(ctx, recipients, eventName, reedID, homeServerID)
 		return
 	}
 
 	for _, recipientID := range recipients {
-		requestID, err := rs.db.GetSyncRequestID(context.Background(), recipientID)
+		requestID, err := rs.db.GetSyncRequestID(ctx, recipientID)
 		if err != nil || requestID == "" {
 			// User hasn't sent SYNC_REQUEST yet; they'll receive this via catchUp on connect.
 			log.Debug().
@@ -2078,7 +2080,7 @@ func (rs *realtimeService) dispatchMany(recipients []string, eventName realtimeE
 			continue
 		}
 		eventID := generateRealtimeEventID(recipientID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, recipientID, eventName, reedID); errors.Is(err, errRecipientBlocked) {
+		if err := rs.createPendingReedEvent(ctx, eventID, requestID, recipientID, eventName, reedID); errors.Is(err, errRecipientBlocked) {
 			continue
 		} else if err != nil {
 			log.Error().
@@ -2106,13 +2108,13 @@ func (rs *realtimeService) dispatchMany(recipients []string, eventName realtimeE
 // callers) itself foreign — needs the same cross-server relay-holder
 // bridge already used for a client's own foreign REQUEST_REED, registered
 // once per recipient against reedID's true home server.
-func (rs *realtimeService) dispatchManyForeign(recipients []string, eventName realtimeEventName, reedID, homeServerID string) {
+func (rs *realtimeService) dispatchManyForeign(ctx context.Context, recipients []string, eventName realtimeEventName, reedID, homeServerID string) {
 	if rs.foreignRequestReedHook == nil {
 		return
 	}
 	for _, recipientID := range recipients {
 		requestID := generateRealtimeEventID(recipientID)
-		if _, _, err := rs.openForeignEvent(context.Background(), recipientID, requestID, reedID, homeServerID, eventName); err != nil && !errors.Is(err, errRecipientBlocked) {
+		if _, _, err := rs.openForeignEvent(ctx, recipientID, requestID, reedID, homeServerID, eventName); err != nil && !errors.Is(err, errRecipientBlocked) {
 			log.Error().Err(err).Str("recipientID", recipientID).Str("reedID", reedID).Msg("Failed to open foreign event")
 		}
 	}
@@ -2178,7 +2180,8 @@ func (rs *realtimeService) flushPongs(ctx context.Context) {
 // is disconnected, and the socket's close path tears them down; anyone else
 // is torn down here before their presence row goes.
 func (rs *realtimeService) reapStalePresence() {
-	ctx := context.Background()
+	ctx, span := startWSSpan("presence.reap")
+	defer span.End()
 	// Heartbeats first, so a client that just PONGed isn't seen as stale.
 	rs.flushPongs(ctx)
 	stale, err := rs.db.StalePresence(ctx, realtimePresenceTTL)
@@ -2194,7 +2197,7 @@ func (rs *realtimeService) reapStalePresence() {
 			evicted++
 			continue
 		}
-		rs.teardownUser(userID)
+		rs.teardownUser(ctx, userID)
 		gone, err := rs.db.EvictStalePresence(ctx, userID, realtimePresenceTTL)
 		if err != nil {
 			log.Error().Err(err).Str("userID", userID).Msg("Failed to evict stale presence row")
@@ -2287,17 +2290,22 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 	}
 	rs.connManager.RegisterClient(client)
 
-	if err := rs.db.MarkUserOnline(context.Background(), userID); err != nil {
+	// Not r.Context(): the session's work outlives the upgrade request, and
+	// teardown hands its context to goroutines.
+	connectCtx, connectSpan := startWSSpan("ws.connect")
+	if err := rs.db.MarkUserOnline(connectCtx, userID); err != nil {
 		log.Error().
 			Str("userID", userID).
 			Err(err).Msg("Failed to mark user as online")
 		// Registered above; left in the map, the dead socket would count
 		// as a live connection until the process restarts.
 		rs.connManager.UnregisterClient(client)
+		connectSpan.End()
 		return
 	}
 
-	rs.handleUserCameOnline(client)
+	rs.handleUserCameOnline(connectCtx, client)
+	connectSpan.End()
 	rs.metrics.WSSession(context.Background(), true)
 
 	log.Info().
@@ -2318,10 +2326,12 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	rs.teardownUser(userID)
-	if err := rs.db.MarkUserOffline(context.Background(), userID); err != nil {
+	disconnectCtx, disconnectSpan := startWSSpan("ws.disconnect")
+	rs.teardownUser(disconnectCtx, userID)
+	if err := rs.db.MarkUserOffline(disconnectCtx, userID); err != nil {
 		log.Error().Err(err).Msg("Failed to mark user as offline")
 	}
+	disconnectSpan.End()
 
 	log.Info().
 		Str("userID", userID).
@@ -2339,7 +2349,7 @@ func (rs *realtimeService) dispatchForeignNewReed(ctx context.Context, reedID, a
 	}
 	var parentSubs []string
 	if foreignParentID != "" {
-		for _, viewer := range rs.reedSubscriberUserIDs(foreignParentID, authorID) {
+		for _, viewer := range rs.reedSubscriberUserIDs(ctx, foreignParentID, authorID) {
 			if foreign, _ := rs.isForeignReed(viewer); !foreign {
 				parentSubs = append(parentSubs, viewer)
 			}
@@ -2374,12 +2384,12 @@ func (rs *realtimeService) dispatchForeignNewReed(ctx context.Context, reedID, a
 	covered = unionUserIDs(covered, profileViewers)
 	broadcast = subtractUserIDs(broadcast, covered)
 
-	rs.dispatchMany(mentioned, mentionEvent, reedID)
-	rs.dispatchMany(admins, adminMentionEvent, reedID)
-	rs.dispatchMany(parentSubs, reedReplyEvent, reedID)
-	rs.dispatchMany(followers, followReedEvent, reedID)
-	rs.dispatchMany(profileViewers, profileSubscriptionEvent, reedID)
-	rs.dispatchMany(broadcast, broadcastReedEvent, reedID)
+	rs.dispatchMany(ctx, mentioned, mentionEvent, reedID)
+	rs.dispatchMany(ctx, admins, adminMentionEvent, reedID)
+	rs.dispatchMany(ctx, parentSubs, reedReplyEvent, reedID)
+	rs.dispatchMany(ctx, followers, followReedEvent, reedID)
+	rs.dispatchMany(ctx, profileViewers, profileSubscriptionEvent, reedID)
+	rs.dispatchMany(ctx, broadcast, broadcastReedEvent, reedID)
 }
 
 // forgetPeer drops all realtime state shared with serverID, in both
@@ -2422,8 +2432,7 @@ func (rs *realtimeService) forgetPeer(ctx context.Context, serverID string) {
 // teardownUser ends everything userID has open. Local rows go right away,
 // before presence (pending events cascade off online_users); peers are told
 // in the background from what was read first, so a reconnect never races them.
-func (rs *realtimeService) teardownUser(userID string) {
-	ctx := context.Background()
+func (rs *realtimeService) teardownUser(ctx context.Context, userID string) {
 
 	foreignPending, err := rs.db.GetForeignPendingEventsByRequester(ctx, userID)
 	if err != nil {
@@ -2455,15 +2464,14 @@ func (rs *realtimeService) teardownUser(userID string) {
 	rs.peerCalls.Add(1)
 	go func() {
 		defer rs.peerCalls.Done()
-		rs.notifyPeersOfTeardown(userID, foreignPending, reedSubs)
+		rs.notifyPeersOfTeardown(ctx, userID, foreignPending, reedSubs)
 	}()
 }
 
 // notifyPeersOfTeardown tells home servers that userID's relay requests
 // and subscriptions there are gone, and hands on the border crossings
 // userID was carrying.
-func (rs *realtimeService) notifyPeersOfTeardown(userID string, foreignPending []foreignPendingEvent, reedSubs []viewerReedSubscription) {
-	ctx := context.Background()
+func (rs *realtimeService) notifyPeersOfTeardown(ctx context.Context, userID string, foreignPending []foreignPendingEvent, reedSubs []viewerReedSubscription) {
 	for _, fpe := range foreignPending {
 		if rs.foreignCancelHook == nil {
 			break
@@ -2548,6 +2556,14 @@ func (rs *realtimeService) handleClientMessages(client *realtimeClient) {
 	}
 }
 
+var realtimeTracer = otel.Tracer("syrinx/realtime")
+
+// startWSSpan opens a span for one unit of WebSocket work as its own trace:
+// the /ws/ request span stays open for the whole session.
+func startWSSpan(name string) (context.Context, trace.Span) {
+	return realtimeTracer.Start(context.Background(), name, trace.WithNewRoot())
+}
+
 // handleProtobufMessage handles every inbound WebSocket message, all of
 // which travel as a binary protobuf WSMessage.
 func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []byte) {
@@ -2559,101 +2575,104 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 
 	log.Debug().Str("type", msg.Type.String()).Msg("Received protobuf WebSocket message")
 
+	ctx, span := startWSSpan("ws." + msg.Type.String())
+	defer span.End()
+
 	switch msg.Type {
 	case pb.MessageType_PING:
-		rs.handlePing(client, msg.GetPing())
+		rs.handlePing(ctx, client, msg.GetPing())
 
 	case pb.MessageType_SUBSCRIBE_USER:
-		rs.handleSubscribeUser(client, msg.GetSubscribe())
+		rs.handleSubscribeUser(ctx, client, msg.GetSubscribe())
 
 	case pb.MessageType_SUBSCRIBE_BROADCAST:
-		rs.handleSubscribeBroadcast(client, msg.GetSubscribe())
+		rs.handleSubscribeBroadcast(ctx, client, msg.GetSubscribe())
 
 	case pb.MessageType_UNSUBSCRIBE_USER:
-		rs.handleUnsubscribeUser(client, msg.GetSubscribe())
+		rs.handleUnsubscribeUser(ctx, client, msg.GetSubscribe())
 
 	case pb.MessageType_UNSUBSCRIBE_BROADCAST:
-		rs.handleUnsubscribeBroadcast(client, msg.GetSubscribe())
+		rs.handleUnsubscribeBroadcast(ctx, client, msg.GetSubscribe())
 
 	case pb.MessageType_REQUEST_REED:
-		rs.handleRequestReed(client, msg.GetRequestReed())
+		rs.handleRequestReed(ctx, client, msg.GetRequestReed())
 
 	case pb.MessageType_REQUEST_THREAD:
-		rs.handleRequestThread(client, msg.GetRequestThread())
+		rs.handleRequestThread(ctx, client, msg.GetRequestThread())
 
 	case pb.MessageType_SYNC_REQUEST:
-		rs.handleSyncRequest(client, msg.GetSyncRequest().GetRequestId())
+		rs.handleSyncRequest(ctx, client, msg.GetSyncRequest().GetRequestId())
 
 	case pb.MessageType_RELAY_RESPONSE:
-		rs.handleRelayResponse(client, msg.Id, msg.GetRelayResponse().GetCiphertext())
+		rs.handleRelayResponse(ctx, client, msg.Id, msg.GetRelayResponse().GetCiphertext())
 
 	case pb.MessageType_RELAY_MISS:
-		rs.handleRelayMiss(client.userID, msg.Id)
+		rs.handleRelayMiss(ctx, client.userID, msg.Id)
 
 	case pb.MessageType_RELAY_ERROR:
-		rs.handleRelayError(client.userID, msg.Id)
+		rs.handleRelayError(ctx, client.userID, msg.Id)
 
 	case pb.MessageType_DATA_ACK:
-		rs.handleDataAck(client, msg.Id)
+		rs.handleDataAck(ctx, client, msg.Id)
 
 	case pb.MessageType_DATA_INVALID:
-		rs.handleDataInvalid(client, msg.Id)
+		rs.handleDataInvalid(ctx, client, msg.Id)
 
 	case pb.MessageType_MAILBOX_ACK:
-		rs.handleMailboxAck(client, msg.GetMailboxAck().GetId())
+		rs.handleMailboxAck(ctx, client, msg.GetMailboxAck().GetId())
 
 	case pb.MessageType_KEY_FETCH_ERROR:
 		kfe := msg.GetKeyFetchError()
-		rs.handleKeyFetchError(client, kfe.GetUserId(), kfe.GetKeyId())
+		rs.handleKeyFetchError(ctx, client, kfe.GetUserId(), kfe.GetKeyId())
 
 	case pb.MessageType_REVOKED_KEY_USED:
 		rku := msg.GetRevokedKeyUsed()
-		rs.handleRevokedKeyUsed(client, rku.GetUserId(), rku.GetKeyId())
+		rs.handleRevokedKeyUsed(ctx, client, rku.GetUserId(), rku.GetKeyId())
 
 	case pb.MessageType_CONTENT_REJECTED:
 		cr := msg.GetContentRejected()
-		rs.handleContentRejected(client, cr.GetStoreName(), cr.GetReason())
+		rs.handleContentRejected(ctx, client, cr.GetStoreName(), cr.GetReason())
 
 	case pb.MessageType_SUBSCRIBE_PROFILE:
-		rs.handleSubscribeProfile(client, msg.GetSubscribeProfile().GetUserId())
+		rs.handleSubscribeProfile(ctx, client, msg.GetSubscribeProfile().GetUserId())
 
 	case pb.MessageType_UNSUBSCRIBE_PROFILE:
-		rs.handleUnsubscribeProfile(client, msg.GetUnsubscribeProfile().GetUserId())
+		rs.handleUnsubscribeProfile(ctx, client, msg.GetUnsubscribeProfile().GetUserId())
 
 	case pb.MessageType_PROFILE_PAGE:
 		pp := msg.GetProfilePage()
-		rs.handleProfilePage(client, pp.GetUserId(), pp.GetPage())
+		rs.handleProfilePage(ctx, client, pp.GetUserId(), pp.GetPage())
 
 	case pb.MessageType_PUBLISH_READY:
 		pr := msg.GetPublishReady()
-		rs.handlePublishReady(client, pr.GetReedId(), shouldBroadcastReed(pr))
+		rs.handlePublishReady(ctx, client, pr.GetReedId(), shouldBroadcastReed(pr))
 
 	case pb.MessageType_EVICTION:
-		rs.handleEviction(client, msg.GetEviction().GetReedId())
+		rs.handleEviction(ctx, client, msg.GetEviction().GetReedId())
 
 	case pb.MessageType_KEY_EVICTION:
-		rs.handleKeyEviction(client, msg.GetKeyEviction().GetKeyId())
+		rs.handleKeyEviction(ctx, client, msg.GetKeyEviction().GetKeyId())
 
 	case pb.MessageType_SUBSCRIBE_REED:
-		rs.handleSubscribeReed(client, msg.GetSubscribeReed().GetReedId())
+		rs.handleSubscribeReed(ctx, client, msg.GetSubscribeReed().GetReedId())
 
 	case pb.MessageType_UNSUBSCRIBE_REED:
-		rs.handleUnsubscribeReed(client, msg.GetUnsubscribeReed().GetReedId())
+		rs.handleUnsubscribeReed(ctx, client, msg.GetUnsubscribeReed().GetReedId())
 
 	case pb.MessageType_SUBSCRIBE_PIPE:
-		rs.handleSubscribePipe(client, msg.GetSubscribePipe().GetTag())
+		rs.handleSubscribePipe(ctx, client, msg.GetSubscribePipe().GetTag())
 
 	case pb.MessageType_UNSUBSCRIBE_PIPE:
-		rs.handleUnsubscribePipe(client, msg.GetUnsubscribePipe().GetTag())
+		rs.handleUnsubscribePipe(ctx, client, msg.GetUnsubscribePipe().GetTag())
 
 	case pb.MessageType_USER_BLOCKED_ACK:
-		rs.ackBlockEvent(client, msg.GetUserBlockedAck().GetUserId(), blockEventBlock)
+		rs.ackBlockEvent(ctx, client, msg.GetUserBlockedAck().GetUserId(), blockEventBlock)
 
 	case pb.MessageType_USER_UNBLOCKED_ACK:
-		rs.ackBlockEvent(client, msg.GetUserUnblockedAck().GetUserId(), blockEventUnblock)
+		rs.ackBlockEvent(ctx, client, msg.GetUserUnblockedAck().GetUserId(), blockEventUnblock)
 
 	case pb.MessageType_PONG:
-		rs.handlePong(client)
+		rs.handlePong(ctx, client)
 
 	default:
 		log.Warn().Str("type", msg.Type.String()).Msg("Unknown protobuf WebSocket message type")
@@ -2661,7 +2680,7 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 }
 
 // handlePing handles ping messages.
-func (rs *realtimeService) handlePing(client *realtimeClient, ping *pb.PingMessage) {
+func (rs *realtimeService) handlePing(ctx context.Context, client *realtimeClient, ping *pb.PingMessage) {
 	response := &pb.WSMessage{
 		Type: pb.MessageType_PONG,
 		Payload: &pb.WSMessage_Pong{
@@ -2679,18 +2698,18 @@ func (rs *realtimeService) handlePing(client *realtimeClient, ping *pb.PingMessa
 // reapStalePresence, which is what lets a crashed replica's stale rows expire.
 // handlePong only marks the client; the reaper writes the heartbeat for all
 // clients at once (flushPongs) instead of one UPDATE per PONG.
-func (rs *realtimeService) handlePong(client *realtimeClient) {
+func (rs *realtimeService) handlePong(ctx context.Context, client *realtimeClient) {
 	client.pongPending.Store(true)
 }
 
 // handleSubscribeUser handles user subscription requests.
-func (rs *realtimeService) handleSubscribeUser(client *realtimeClient, subscribe *pb.SubscribeMessage) {
+func (rs *realtimeService) handleSubscribeUser(ctx context.Context, client *realtimeClient, subscribe *pb.SubscribeMessage) {
 	client.Subscribe(realtimeSubscribeUser)
 }
 
 // handleSubscribeBroadcast handles broadcast subscription requests.
-func (rs *realtimeService) handleSubscribeBroadcast(client *realtimeClient, subscribe *pb.SubscribeMessage) {
-	err := rs.db.SubscribeToBroadcast(context.Background(), client.userID)
+func (rs *realtimeService) handleSubscribeBroadcast(ctx context.Context, client *realtimeClient, subscribe *pb.SubscribeMessage) {
+	err := rs.db.SubscribeToBroadcast(ctx, client.userID)
 	if err != nil {
 		log.Error().
 			Str("userID", client.userID).
@@ -2700,13 +2719,13 @@ func (rs *realtimeService) handleSubscribeBroadcast(client *realtimeClient, subs
 }
 
 // handleUnsubscribeUser handles user unsubscription requests.
-func (rs *realtimeService) handleUnsubscribeUser(client *realtimeClient, subscribe *pb.SubscribeMessage) {
+func (rs *realtimeService) handleUnsubscribeUser(ctx context.Context, client *realtimeClient, subscribe *pb.SubscribeMessage) {
 	client.Unsubscribe(realtimeSubscribeUser)
 }
 
 // handleUnsubscribeBroadcast handles broadcast unsubscription requests.
-func (rs *realtimeService) handleUnsubscribeBroadcast(client *realtimeClient, subscribe *pb.SubscribeMessage) {
-	if err := rs.db.UnsubscribeFromBroadcast(context.Background(), client.userID); err != nil {
+func (rs *realtimeService) handleUnsubscribeBroadcast(ctx context.Context, client *realtimeClient, subscribe *pb.SubscribeMessage) {
+	if err := rs.db.UnsubscribeFromBroadcast(ctx, client.userID); err != nil {
 		log.Error().
 			Str("userID", client.userID).
 			Err(err).
@@ -2760,8 +2779,8 @@ const profilePageSize = 50
 // dispatchNext claims and sends the holder's oldest undispatched pending
 // event, if any. Returns true if something was dispatched — dispatchN uses
 // this to know when a holder's queue has run dry.
-func (rs *realtimeService) dispatchNext(holderUserID string) bool {
-	pe, err := rs.db.GetNextPendingForHolder(context.Background(), holderUserID)
+func (rs *realtimeService) dispatchNext(ctx context.Context, holderUserID string) bool {
+	pe, err := rs.db.GetNextPendingForHolder(ctx, holderUserID)
 	if err != nil {
 		log.Error().Err(err).Str("holderUserID", holderUserID).Msg("Failed to get next pending event for holder")
 		return false
@@ -2771,14 +2790,14 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 		return false
 	}
 	if realtimeEventName(pe.EventName) == reedRemovedEvent {
-		rs.deliverReedRemoved(pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
-		return rs.dispatchNext(holderUserID)
+		rs.deliverReedRemoved(ctx, pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
+		return rs.dispatchNext(ctx, holderUserID)
 	}
 	if realtimeEventName(pe.EventName) == threadRemovedEvent {
-		rs.deliverThreadRemoved(pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
-		return rs.dispatchNext(holderUserID)
+		rs.deliverThreadRemoved(ctx, pe.EventID, pe.RequestID, pe.RequesterUserID, pe.ReedID, nil)
+		return rs.dispatchNext(ctx, holderUserID)
 	}
-	ok, err := rs.db.MarkEventDispatched(context.Background(), pe.EventID, holderUserID)
+	ok, err := rs.db.MarkEventDispatched(ctx, pe.EventID, holderUserID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to mark event dispatched")
 		return false
@@ -2789,11 +2808,11 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 	// A foreign request carries the key its requester's server named
 	// (foreign_relay_requests); a local requester's key is their active one.
 	requesterKeyID := ""
-	if frr, ferr := rs.db.GetForeignRelayRequest(context.Background(), pe.EventID); ferr != nil {
+	if frr, ferr := rs.db.GetForeignRelayRequest(ctx, pe.EventID); ferr != nil {
 		log.Error().Err(ferr).Str("eventID", pe.EventID).Msg("Failed to check foreign relay request for dispatch")
 	} else if frr != nil {
 		requesterKeyID = frr.RequestingKeyID
-	} else if keyID, kerr := rs.db.GetActiveKeyFingerprint(context.Background(), pe.RequesterUserID); kerr != nil {
+	} else if keyID, kerr := rs.db.GetActiveKeyFingerprint(ctx, pe.RequesterUserID); kerr != nil {
 		log.Error().Err(kerr).Str("eventID", pe.EventID).Msg("Failed to load requester's active key for dispatch")
 	} else {
 		requesterKeyID = keyID
@@ -2809,7 +2828,7 @@ func (rs *realtimeService) dispatchNext(holderUserID string) bool {
 			Str("eventID", pe.EventID).
 			Str("reedID", pe.ReedID).
 			Msg("Failed to send relay request to holder")
-		if _, resetErr := rs.db.ResetDispatchedAt(context.Background(), pe.EventID, holderUserID); resetErr != nil {
+		if _, resetErr := rs.db.ResetDispatchedAt(ctx, pe.EventID, holderUserID); resetErr != nil {
 			log.Error().Err(resetErr).Str("eventID", pe.EventID).Msg("Failed to reset dispatched_at after relay send failure")
 		}
 		return false
@@ -2843,7 +2862,9 @@ func (rs *realtimeService) startRelayTimer(holderUserID, eventID string) {
 		}
 		rs.relayTimersMu.Unlock()
 		if current {
-			rs.handleRelayTimeout(holderUserID, eventID)
+			ctx, span := startWSSpan("ws.relay_timeout")
+			rs.handleRelayTimeout(ctx, holderUserID, eventID)
+			span.End()
 		}
 	})
 	rs.relayTimers[eventID] = t
@@ -2862,7 +2883,7 @@ func (rs *realtimeService) stopRelayTimer(eventID string) {
 // dispatchN calls dispatchNext up to n times, stopping early once the
 // holder's queue is empty (dispatchNext returns false).
 func (rs *realtimeService) dispatchN(holderUserID string, n int) {
-	dispatchNTimes(n, func() bool { return rs.dispatchNext(holderUserID) })
+	dispatchNTimes(n, func() bool { return rs.dispatchNext(context.Background(), holderUserID) })
 }
 
 // dispatchNTimes calls step up to n times, stopping the first time it
@@ -2883,11 +2904,11 @@ func (rs *realtimeService) dispatchNextIfConnected(holderUserID string) {
 	if holderUserID == "" {
 		return
 	}
-	if !rs.isUserOnline(holderUserID) {
+	if !rs.isUserOnline(context.Background(), holderUserID) {
 		log.Debug().Str("holderUserID", holderUserID).Msg("Holder has no active WebSocket; skipping relay dispatch")
 		return
 	}
-	rs.dispatchNext(holderUserID)
+	rs.dispatchNext(context.Background(), holderUserID)
 }
 
 // dispatchNIfConnected is dispatchN guarded by HasConnection, matching
@@ -2896,7 +2917,7 @@ func (rs *realtimeService) dispatchNIfConnected(holderUserID string, n int) {
 	if holderUserID == "" {
 		return
 	}
-	if !rs.isUserOnline(holderUserID) {
+	if !rs.isUserOnline(context.Background(), holderUserID) {
 		log.Debug().Str("holderUserID", holderUserID).Msg("Holder has no active WebSocket; skipping relay dispatch")
 		return
 	}
@@ -2919,7 +2940,7 @@ func generateRealtimeEventID(requesterUserID string) string {
 // deletePendingEvent's "deleted"/"fulfilled" so wasted-bandwidth analysis
 // (created with no matching fulfilled/deleted) can correlate by event.id.
 func (rs *realtimeService) createPendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID string) error {
-	if eventName != reedRemovedEvent && eventName != threadRemovedEvent && rs.blockedBy(reedAuthorIdentity(reedID), requesterUserID) != nil {
+	if eventName != reedRemovedEvent && eventName != threadRemovedEvent && rs.blockedBy(ctx, reedAuthorIdentity(reedID), requesterUserID) != nil {
 		return errRecipientBlocked
 	}
 	if err := rs.db.CreatePendingReedEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID); err != nil {
@@ -2940,7 +2961,7 @@ func (rs *realtimeService) createPendingAccountEvent(ctx context.Context, eventI
 
 // createProfileSubscriptionEvent mirrors createPendingReedEvent for profile-subscription events.
 func (rs *realtimeService) createProfileSubscriptionEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID, subscriptionID string) error {
-	if rs.blockedBy(reedAuthorIdentity(reedID), requesterUserID) != nil {
+	if rs.blockedBy(ctx, reedAuthorIdentity(reedID), requesterUserID) != nil {
 		return errRecipientBlocked
 	}
 	if err := rs.db.CreateProfileSubscriptionEvent(ctx, eventID, requestID, requesterUserID, eventName, reedID, subscriptionID); err != nil {
@@ -2968,28 +2989,28 @@ func (rs *realtimeService) deletePendingEvent(ctx context.Context, eventID strin
 
 // handleRequestReed is REQUEST_REED's entry point: the SPA only
 // ever sends this as a binary protobuf frame.
-func (rs *realtimeService) handleRequestReed(client *realtimeClient, req *pb.RequestReedMessage) {
+func (rs *realtimeService) handleRequestReed(ctx context.Context, client *realtimeClient, req *pb.RequestReedMessage) {
 	if req == nil || req.GetRequestId() == "" || req.GetReedId() == "" {
 		return
 	}
-	rs.requestReed(client, req.GetRequestId(), req.GetReedId())
+	rs.requestReed(ctx, client, req.GetRequestId(), req.GetReedId())
 }
 
-func (rs *realtimeService) requestReed(client *realtimeClient, requestID, reedID string) {
+func (rs *realtimeService) requestReed(ctx context.Context, client *realtimeClient, requestID, reedID string) {
 	if !rs.validateRequestID(requestID, client.userID) {
 		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
 		return
 	}
-	if rs.refuseIfBlocked(client, requestID, reedAuthorIdentity(reedID)) {
+	if rs.refuseIfBlocked(ctx, client, requestID, reedAuthorIdentity(reedID)) {
 		return
 	}
 
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
-		rs.handleForeignRequestReedFromClient(client, requestID, reedID, homeServerID)
+		rs.handleForeignRequestReedFromClient(ctx, client, requestID, reedID, homeServerID)
 		return
 	}
 
-	exists, hasHolders, _, eventID, err := rs.registerReedRequest(context.Background(), reedID, client.userID, client.userID, requestID, true, requestReedEvent)
+	exists, hasHolders, _, eventID, err := rs.registerReedRequest(ctx, reedID, client.userID, client.userID, requestID, true, requestReedEvent)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to register reed request")
 		return
@@ -3001,7 +3022,7 @@ func (rs *realtimeService) requestReed(client *realtimeClient, requestID, reedID
 	}
 	if !hasHolders {
 		if rs.foreignFallbackHook != nil {
-			if fallbackEventID, ok := rs.tryPeerFallback(context.Background(), reedID, client.userID, requestID); ok {
+			if fallbackEventID, ok := rs.tryPeerFallback(ctx, reedID, client.userID, requestID); ok {
 				rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, fallbackEventID, reedID))
 				return
 			}
@@ -3017,21 +3038,21 @@ func (rs *realtimeService) requestReed(client *realtimeClient, requestID, reedID
 	rs.connManager.SendToUser(client.userID, newRequestAckMsg(requestID, eventID, reedID))
 }
 
-func (rs *realtimeService) handleRequestThread(client *realtimeClient, req *pb.RequestThreadMessage) {
+func (rs *realtimeService) handleRequestThread(ctx context.Context, client *realtimeClient, req *pb.RequestThreadMessage) {
 	if req == nil || req.GetRequestId() == "" || req.GetThreadId() == "" {
 		return
 	}
-	rs.requestThread(client, req.GetRequestId(), req.GetThreadId())
+	rs.requestThread(ctx, client, req.GetRequestId(), req.GetThreadId())
 }
 
 // requestThread relays a whole thread to the requester from a holder of
 // its head, or registers it with the thread's home server.
-func (rs *realtimeService) requestThread(client *realtimeClient, requestID, threadID string) {
+func (rs *realtimeService) requestThread(ctx context.Context, client *realtimeClient, requestID, threadID string) {
 	if !rs.validateRequestID(requestID, client.userID) {
 		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
 		return
 	}
-	if rs.refuseIfBlocked(client, requestID, reedAuthorIdentity(threadID)) {
+	if rs.refuseIfBlocked(ctx, client, requestID, reedAuthorIdentity(threadID)) {
 		return
 	}
 	if foreign, homeServerID := rs.isForeignReed(threadID); foreign {
@@ -3039,7 +3060,7 @@ func (rs *realtimeService) requestThread(client *realtimeClient, requestID, thre
 			rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, threadID))
 			return
 		}
-		eventID, result, err := rs.openForeignEvent(context.Background(), client.userID, requestID, threadID, homeServerID, requestThreadEvent)
+		eventID, result, err := rs.openForeignEvent(ctx, client.userID, requestID, threadID, homeServerID, requestThreadEvent)
 		if err != nil {
 			return
 		}
@@ -3053,7 +3074,7 @@ func (rs *realtimeService) requestThread(client *realtimeClient, requestID, thre
 		return
 	}
 
-	rec, err := rs.db.GetThreadRecord(context.Background(), threadID)
+	rec, err := rs.db.GetThreadRecord(ctx, threadID)
 	if err != nil {
 		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread record")
 		return
@@ -3062,7 +3083,7 @@ func (rs *realtimeService) requestThread(client *realtimeClient, requestID, thre
 		rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, threadID))
 		return
 	}
-	exists, hasHolders, _, eventID, err := rs.registerReedRequest(context.Background(), threadID, client.userID, client.userID, requestID, true, requestThreadEvent)
+	exists, hasHolders, _, eventID, err := rs.registerReedRequest(ctx, threadID, client.userID, client.userID, requestID, true, requestThreadEvent)
 	if err != nil {
 		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to register thread request")
 		return
@@ -3239,12 +3260,12 @@ func (rs *realtimeService) registerReedRequest(ctx context.Context, reedID, requ
 // handleForeignRequestReedFromClient is handleRequestReed's foreign
 // branch: register the request with reedID's home server over peer HTTP
 // (via the injected hook) instead of running registerReedRequest locally.
-func (rs *realtimeService) handleForeignRequestReedFromClient(client *realtimeClient, requestID, reedID, homeServerID string) {
+func (rs *realtimeService) handleForeignRequestReedFromClient(ctx context.Context, client *realtimeClient, requestID, reedID, homeServerID string) {
 	if rs.foreignRequestReedHook == nil {
 		rs.connManager.SendToUser(client.userID, newReedNotFoundMsg(requestID, reedID))
 		return
 	}
-	eventID, result, err := rs.openForeignEvent(context.Background(), client.userID, requestID, reedID, homeServerID, requestReedEvent)
+	eventID, result, err := rs.openForeignEvent(ctx, client.userID, requestID, reedID, homeServerID, requestReedEvent)
 	if err != nil {
 		return
 	}
@@ -3501,12 +3522,12 @@ func (rs *realtimeService) HandleForeignProfilePage(ctx context.Context, authorI
 	return reedIDs, len(reedIDs), hasMore, nil
 }
 
-func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID string) {
-	if userID == "" || rs.refuseIfBlocked(client, "", userID) {
+func (rs *realtimeService) handleSubscribeProfile(ctx context.Context, client *realtimeClient, userID string) {
+	if userID == "" || rs.refuseIfBlocked(ctx, client, "", userID) {
 		return
 	}
 
-	if _, err := rs.db.CreateProfileSubscription(context.Background(), generateRealtimeEventID(client.userID), client.userID, userID); err != nil {
+	if _, err := rs.db.CreateProfileSubscription(ctx, generateRealtimeEventID(client.userID), client.userID, userID); err != nil {
 		log.Error().Err(err).Msg("Failed to create profile subscription")
 		return
 	}
@@ -3515,8 +3536,8 @@ func (rs *realtimeService) handleSubscribeProfile(client *realtimeClient, userID
 // handleProfilePage registers relay requests for one page of an author's
 // reed history. Independent of any profile subscription: the events carry
 // no subscription id and survive the viewer navigating away.
-func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID string, page uint32) {
-	if userID == "" || rs.refuseIfBlocked(client, "", userID) {
+func (rs *realtimeService) handleProfilePage(ctx context.Context, client *realtimeClient, userID string, page uint32) {
+	if userID == "" || rs.refuseIfBlocked(ctx, client, "", userID) {
 		return
 	}
 	if page < 1 {
@@ -3524,11 +3545,11 @@ func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID stri
 	}
 
 	if foreign, homeServerID := rs.isForeignReed(userID); foreign {
-		rs.handleForeignProfilePageFromClient(client, userID, homeServerID, page)
+		rs.handleForeignProfilePageFromClient(ctx, client, userID, homeServerID, page)
 		return
 	}
 
-	reedIDs, hasMore, err := rs.db.GetAuthorReedPage(context.Background(), userID, int(page), profilePageSize)
+	reedIDs, hasMore, err := rs.db.GetAuthorReedPage(ctx, userID, int(page), profilePageSize)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get author reed page")
 		return
@@ -3538,7 +3559,7 @@ func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID stri
 	// waits on however many events this page turns out to need.
 	rs.connManager.SendToUser(client.userID, newPageAckMsg(userID, page, uint32(len(reedIDs)), hasMore))
 
-	missing, err := rs.db.SubtractHeldReeds(context.Background(), reedIDs, client.userID)
+	missing, err := rs.db.SubtractHeldReeds(ctx, reedIDs, client.userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to subtract held reeds for viewer")
 		return
@@ -3547,11 +3568,11 @@ func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID stri
 	for _, reedID := range missing {
 		eventID := generateRealtimeEventID(client.userID)
 		requestID := generateRealtimeEventID(client.userID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, client.userID, profileSubscriptionEvent, reedID); err != nil {
+		if err := rs.createPendingReedEvent(ctx, eventID, requestID, client.userID, profileSubscriptionEvent, reedID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create profile page event")
 			continue
 		}
-		holder, err := rs.db.GetOnlineReedHolder(context.Background(), reedID)
+		holder, err := rs.db.GetOnlineReedHolder(ctx, reedID)
 		if err != nil || holder == "" {
 			continue
 		}
@@ -3562,11 +3583,10 @@ func (rs *realtimeService) handleProfilePage(client *realtimeClient, userID stri
 // handleForeignProfilePageFromClient is handleProfilePage's foreign branch:
 // the home server lists the page, and each reed the viewer lacks is opened
 // here and folded at the border like any request for a foreign reed.
-func (rs *realtimeService) handleForeignProfilePageFromClient(client *realtimeClient, authorID, homeServerID string, page uint32) {
+func (rs *realtimeService) handleForeignProfilePageFromClient(ctx context.Context, client *realtimeClient, authorID, homeServerID string, page uint32) {
 	if rs.foreignProfilePageHook == nil {
 		return
 	}
-	ctx := context.Background()
 
 	reedIDs, count, hasMore, err := rs.foreignProfilePageHook(ctx, authorID, client.userID, int(page))
 	if err != nil {
@@ -3603,12 +3623,12 @@ func (rs *realtimeService) HandleForeignReedRemoval(authorUserID, reedID string,
 	rs.fanoutReedRemoval(authorUserID, reedID, cert)
 }
 
-func (rs *realtimeService) handleUnsubscribeProfile(client *realtimeClient, userID string) {
+func (rs *realtimeService) handleUnsubscribeProfile(ctx context.Context, client *realtimeClient, userID string) {
 	if userID == "" {
 		return
 	}
 
-	subscriptionID, err := rs.db.GetProfileSubscription(context.Background(), client.userID, userID)
+	subscriptionID, err := rs.db.GetProfileSubscription(ctx, client.userID, userID)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to get profile subscription")
 		return
@@ -3617,7 +3637,7 @@ func (rs *realtimeService) handleUnsubscribeProfile(client *realtimeClient, user
 		return
 	}
 
-	if err := rs.db.DeleteProfileSubscription(context.Background(), subscriptionID); err != nil {
+	if err := rs.db.DeleteProfileSubscription(ctx, subscriptionID); err != nil {
 		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete profile subscription")
 	}
 }
@@ -3736,7 +3756,7 @@ func (rs *realtimeService) HandleForeignReplyNotify(ctx context.Context, parentR
 // server's users subscribed to it, reporting whether there were any.
 func (rs *realtimeService) DeliverForeignReedStats(ctx context.Context, reedID, excludeUserID string, msg *pb.WSMessage) bool {
 	delivered := false
-	for _, viewer := range rs.reedSubscriberUserIDs(reedID, excludeUserID) {
+	for _, viewer := range rs.reedSubscriberUserIDs(ctx, reedID, excludeUserID) {
 		if foreign, _ := rs.isForeignReed(viewer); foreign {
 			continue
 		}
@@ -3748,8 +3768,8 @@ func (rs *realtimeService) DeliverForeignReedStats(ctx context.Context, reedID, 
 	return delivered
 }
 
-func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID string) {
-	if reedID == "" || rs.refuseIfBlocked(client, "", reedAuthorIdentity(reedID)) {
+func (rs *realtimeService) handleSubscribeReed(ctx context.Context, client *realtimeClient, reedID string) {
+	if reedID == "" || rs.refuseIfBlocked(ctx, client, "", reedAuthorIdentity(reedID)) {
 		return
 	}
 
@@ -3758,17 +3778,17 @@ func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID st
 	// fanout find this viewer at all — connManager's map is in-memory only
 	// and never leaves this process.
 	subscriptionID := generateRealtimeEventID(client.userID)
-	if err := rs.db.CreateReedSubscription(context.Background(), subscriptionID, client.userID, reedID); err != nil {
+	if err := rs.db.CreateReedSubscription(ctx, subscriptionID, client.userID, reedID); err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to create reed subscription")
 		return
 	}
 
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
-		rs.handleForeignSubscribeReedFromClient(client, reedID, homeServerID)
+		rs.handleForeignSubscribeReedFromClient(ctx, client, reedID, homeServerID)
 		return
 	}
 
-	exists, err := rs.db.ReedExists(context.Background(), reedID)
+	exists, err := rs.db.ReedExists(ctx, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to check reed for subscribe")
 		return
@@ -3777,7 +3797,7 @@ func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID st
 		return
 	}
 
-	echoes, coveragePct, replies, likes, err := rs.db.GetReedStatsSnapshot(context.Background(), reedID)
+	echoes, coveragePct, replies, likes, err := rs.db.GetReedStatsSnapshot(ctx, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed stats for subscribe")
 		return
@@ -3794,11 +3814,11 @@ func (rs *realtimeService) handleSubscribeReed(client *realtimeClient, reedID st
 // relay back the initial snapshot. The local reed_subscriptions row was
 // already created by the caller — this only handles the peer round trip
 // and the client's initial REED_STATS.
-func (rs *realtimeService) handleForeignSubscribeReedFromClient(client *realtimeClient, reedID, homeServerID string) {
+func (rs *realtimeService) handleForeignSubscribeReedFromClient(ctx context.Context, client *realtimeClient, reedID, homeServerID string) {
 	if rs.foreignSubscribeReedHook == nil {
 		return
 	}
-	snapshot, ok, err := rs.foreignSubscribeReedHook(context.Background(), reedID, client.userID)
+	snapshot, ok, err := rs.foreignSubscribeReedHook(ctx, reedID, client.userID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to register foreign reed stats subscription")
 		return
@@ -3813,11 +3833,11 @@ func (rs *realtimeService) handleForeignSubscribeReedFromClient(client *realtime
 	}
 }
 
-func (rs *realtimeService) handleUnsubscribeReed(client *realtimeClient, reedID string) {
+func (rs *realtimeService) handleUnsubscribeReed(ctx context.Context, client *realtimeClient, reedID string) {
 	if reedID == "" {
 		return
 	}
-	subscriptionID, err := rs.db.GetReedSubscription(context.Background(), client.userID, reedID)
+	subscriptionID, err := rs.db.GetReedSubscription(ctx, client.userID, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to get reed subscription")
 		return
@@ -3825,35 +3845,35 @@ func (rs *realtimeService) handleUnsubscribeReed(client *realtimeClient, reedID 
 	if subscriptionID == "" {
 		return
 	}
-	if err := rs.db.DeleteReedSubscription(context.Background(), subscriptionID); err != nil {
+	if err := rs.db.DeleteReedSubscription(ctx, subscriptionID); err != nil {
 		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete reed subscription")
 	}
 
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign && rs.foreignUnsubscribeReedHook != nil {
-		if err := rs.foreignUnsubscribeReedHook(context.Background(), reedID, client.userID); err != nil {
+		if err := rs.foreignUnsubscribeReedHook(ctx, reedID, client.userID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Str("homeServerID", homeServerID).Msg("Failed to notify home server of reed stats unsubscribe")
 		}
 	}
 }
 
-func (rs *realtimeService) handleSubscribePipe(client *realtimeClient, rawTag string) {
+func (rs *realtimeService) handleSubscribePipe(ctx context.Context, client *realtimeClient, rawTag string) {
 	tag := normalizePipeTag(rawTag)
 	if tag == "" {
 		return
 	}
-	if err := rs.db.SubscribePipe(context.Background(), client.userID, tag); err != nil {
+	if err := rs.db.SubscribePipe(ctx, client.userID, tag); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("tag", tag).Msg("Failed to subscribe to pipe")
 		return
 	}
 	log.Debug().Str("userID", client.userID).Str("tag", tag).Msg("Client subscribed to pipe")
 }
 
-func (rs *realtimeService) handleUnsubscribePipe(client *realtimeClient, rawTag string) {
+func (rs *realtimeService) handleUnsubscribePipe(ctx context.Context, client *realtimeClient, rawTag string) {
 	tag := normalizePipeTag(rawTag)
 	if tag == "" {
 		return
 	}
-	if err := rs.db.UnsubscribePipe(context.Background(), client.userID, tag); err != nil {
+	if err := rs.db.UnsubscribePipe(ctx, client.userID, tag); err != nil {
 		log.Error().Err(err).Str("userID", client.userID).Str("tag", tag).Msg("Failed to unsubscribe from pipe")
 		return
 	}
@@ -3895,18 +3915,18 @@ func normalizePipeTags(tags []string) []string {
 // one viewer misses one update, never retried — same tolerance every
 // other live WS fanout already has for a client that's simply offline.
 func (rs *realtimeService) notifyForeignReedSubscribers(reedID string, msg *pb.WSMessage) {
-	rs.notifyForeignReedSubscribersExcept(reedID, "", msg)
+	rs.notifyForeignReedSubscribersExcept(context.Background(), reedID, "", msg)
 }
 
 // notifyForeignReedSubscribersExcept is notifyForeignReedSubscribers with
 // one viewer skipped — mirrors sendToReedSubscribersExceptAuthor's own
 // exclude param, used by the ripple-push sites so a ripple's own author
 // doesn't get their own content echoed back to another of their devices.
-func (rs *realtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUserID string, msg *pb.WSMessage) {
+func (rs *realtimeService) notifyForeignReedSubscribersExcept(ctx context.Context, reedID, excludeUserID string, msg *pb.WSMessage) {
 	if rs.foreignReedStatsHook == nil {
 		return
 	}
-	subs, err := rs.db.GetReedSubscribers(context.Background(), reedID)
+	subs, err := rs.db.GetReedSubscribers(ctx, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load reed subscribers for foreign stats push")
 		return
@@ -3922,21 +3942,21 @@ func (rs *realtimeService) notifyForeignReedSubscribersExcept(reedID, excludeUse
 		return
 	}
 	for serverID := range peers {
-		status, err := rs.foreignReedStatsHook(context.Background(), serverID, reedID, excludeUserID, msg)
+		status, err := rs.foreignReedStatsHook(ctx, serverID, reedID, excludeUserID, msg)
 		if err == nil && status != http.StatusNotFound {
 			continue
 		}
 		// Unreachable, or nobody there is watching any more: stop pushing.
 		log.Info().Err(err).Int("status", status).Str("reedID", reedID).Str("peerServerID", serverID).Msg("Dropping peer's reed subscriptions after failed push")
-		if err := rs.db.DeleteReedSubscriptionsForServer(context.Background(), reedID, serverID); err != nil {
+		if err := rs.db.DeleteReedSubscriptionsForServer(ctx, reedID, serverID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Str("peerServerID", serverID).Msg("Failed to drop peer's reed subscriptions")
 		}
 	}
 }
 
-func (rs *realtimeService) notifyReedCoverage(reedID string) {
+func (rs *realtimeService) notifyReedCoverage(ctx context.Context, reedID string) {
 	authorUserID := reedAuthorIdentity(reedID)
-	exists, err := rs.db.ReedExists(context.Background(), reedID)
+	exists, err := rs.db.ReedExists(ctx, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to check reed for coverage notify")
 		return
@@ -3948,7 +3968,7 @@ func (rs *realtimeService) notifyReedCoverage(reedID string) {
 		return
 	}
 
-	holders, percent, err := rs.db.GetReedCoverage(context.Background(), reedID)
+	holders, percent, err := rs.db.GetReedCoverage(ctx, reedID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -3958,7 +3978,7 @@ func (rs *realtimeService) notifyReedCoverage(reedID string) {
 		return
 	}
 
-	rs.metrics.ReedCoverage(context.Background(), holders, percent)
+	rs.metrics.ReedCoverage(ctx, holders, percent)
 
 	msg := newReedCoverageMsg(reedID, percent)
 	if err := rs.BroadcastReedCoverage(reedID, msg); err != nil {
@@ -3993,8 +4013,8 @@ func (rs *realtimeService) notifyReedEchoes(reedID string) {
 // makes the author a relay target before their own client is ready to
 // serve it, and the resulting relay miss deletes their allocation,
 // orphaning the reed from relay entirely.
-func (rs *realtimeService) notifyParentSubscribersOfReply(replyReedID string) {
-	parentReedID, ok, err := rs.db.ReplyParent(context.Background(), replyReedID)
+func (rs *realtimeService) notifyParentSubscribersOfReply(ctx context.Context, replyReedID string) {
+	parentReedID, ok, err := rs.db.ReplyParent(ctx, replyReedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", replyReedID).Msg("Failed to resolve reply parent")
 		return
@@ -4007,18 +4027,18 @@ func (rs *realtimeService) notifyParentSubscribersOfReply(replyReedID string) {
 
 // notifyMentionedUsers pushes reedID to each online local user it
 // mentions. An offline recipient is picked up by catchUp instead.
-func (rs *realtimeService) notifyMentionedUsers(reedID string) {
-	mentionedUserIDs, err := rs.db.GetOnlineMentionedUsers(context.Background(), reedID)
+func (rs *realtimeService) notifyMentionedUsers(ctx context.Context, reedID string) {
+	mentionedUserIDs, err := rs.db.GetOnlineMentionedUsers(ctx, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Msg("Failed to load mentions for notify")
 		return
 	}
 	if len(mentionedUserIDs) > 0 {
-		rs.dispatchMany(mentionedUserIDs, mentionEvent, reedID)
+		rs.dispatchMany(ctx, mentionedUserIDs, mentionEvent, reedID)
 	}
-	admins := rs.mentionedAdmins(context.Background(), reedID, reedAuthorIdentity(reedID), mentionedUserIDs)
+	admins := rs.mentionedAdmins(ctx, reedID, reedAuthorIdentity(reedID), mentionedUserIDs)
 	if len(admins) > 0 {
-		rs.dispatchMany(admins, adminMentionEvent, reedID)
+		rs.dispatchMany(ctx, admins, adminMentionEvent, reedID)
 	}
 }
 
@@ -4044,8 +4064,8 @@ func (rs *realtimeService) mentionedAdmins(ctx context.Context, reedID, authorID
 // notifyParentAuthorOfReply pushes replyReedID to its direct parent's
 // online author (skip on self-reply), unless they're already a thread
 // subscriber — notifyReedSubscribersOfReply covers that case already.
-func (rs *realtimeService) notifyParentAuthorOfReply(replyReedID string) {
-	parentReedID, ok, err := rs.db.ReplyParent(context.Background(), replyReedID)
+func (rs *realtimeService) notifyParentAuthorOfReply(ctx context.Context, replyReedID string) {
+	parentReedID, ok, err := rs.db.ReplyParent(ctx, replyReedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", replyReedID).Msg("Failed to resolve reply parent for author notify")
 		return
@@ -4058,15 +4078,15 @@ func (rs *realtimeService) notifyParentAuthorOfReply(replyReedID string) {
 	if parentAuthorID == "" || parentAuthorID == replyAuthorID {
 		return
 	}
-	if !rs.isUserOnline(parentAuthorID) {
+	if !rs.isUserOnline(ctx, parentAuthorID) {
 		return
 	}
-	for _, sub := range rs.reedSubscriberUserIDs(parentReedID, replyAuthorID) {
+	for _, sub := range rs.reedSubscriberUserIDs(ctx, parentReedID, replyAuthorID) {
 		if sub == parentAuthorID {
 			return
 		}
 	}
-	rs.dispatchMany([]string{parentAuthorID}, reedReplyEvent, replyReedID)
+	rs.dispatchMany(ctx, []string{parentAuthorID}, reedReplyEvent, replyReedID)
 }
 
 // notifyReplyAncestorsOfRemoval walks removedReedID's ancestor chain,
@@ -4083,7 +4103,7 @@ func (rs *realtimeService) notifyReplyAncestorsOfRemoval(removedReedID string, c
 		if !ok {
 			return
 		}
-		recipients := rs.reedSubscriberUserIDs(parentReedID, "")
+		recipients := rs.reedSubscriberUserIDs(context.Background(), parentReedID, "")
 		rs.dispatchRemovalMany(recipients, removedReedID, cert)
 		reedID = parentReedID
 	}
@@ -4094,7 +4114,7 @@ func (rs *realtimeService) notifyReplyAncestorsOfRemoval(removedReedID string, c
 func (rs *realtimeService) HandleForeignReplyRemovalAtParent(parentReedID, removedReedID string, cert *reedRemovalWire) {
 	reedID := parentReedID
 	for {
-		recipients := rs.reedSubscriberUserIDs(reedID, "")
+		recipients := rs.reedSubscriberUserIDs(context.Background(), reedID, "")
 		rs.dispatchRemovalMany(recipients, removedReedID, cert)
 		nextReedID, ok, err := rs.db.ReplyParent(context.Background(), reedID)
 		if err != nil {
@@ -4115,9 +4135,9 @@ func (rs *realtimeService) HandleForeignReplyRemovalAtParent(parentReedID, remov
 // FOLLOW_REED/PIPE_REED (the server never stores reed content).
 func (rs *realtimeService) notifyReedSubscribersOfReply(ancestorReedID, replyReedID string) {
 	replyUserID := reedAuthorIdentity(replyReedID)
-	recipients := rs.reedSubscriberUserIDs(ancestorReedID, replyUserID)
+	recipients := rs.reedSubscriberUserIDs(context.Background(), ancestorReedID, replyUserID)
 	if len(recipients) > 0 {
-		rs.dispatchMany(recipients, reedReplyEvent, replyReedID)
+		rs.dispatchMany(context.Background(), recipients, reedReplyEvent, replyReedID)
 	}
 }
 
@@ -4153,7 +4173,7 @@ func (rs *realtimeService) notifyRipplePosted(reedID, rippleAuthorID string, rip
 	if err := rs.sendToReedSubscribers(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_POSTED")
 	}
-	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
+	rs.notifyForeignReedSubscribersExcept(context.Background(), reedID, rippleAuthorID, msg)
 }
 
 // notifyRippleUpdated pushes a soft-deleted ripple response to everyone
@@ -4169,7 +4189,7 @@ func (rs *realtimeService) notifyRippleUpdated(reedID, rippleAuthorID string, ri
 	if err := rs.sendToReedSubscribers(reedID, rippleAuthorID, msg); err != nil {
 		log.Error().Err(err).Str("userID", authorUserID).Str("reedID", reedID).Msg("Failed to broadcast RIPPLE_UPDATED")
 	}
-	rs.notifyForeignReedSubscribersExcept(reedID, rippleAuthorID, msg)
+	rs.notifyForeignReedSubscribersExcept(context.Background(), reedID, rippleAuthorID, msg)
 }
 
 // notifyRippleRecipients tells the reed's author and the replied-to author
@@ -4222,7 +4242,7 @@ func (rs *realtimeService) notifyReedLikes(reedID string) {
 	rs.notifyForeignReedSubscribers(reedID, msg)
 }
 
-func (rs *realtimeService) handleSyncRequest(client *realtimeClient, requestID string) {
+func (rs *realtimeService) handleSyncRequest(ctx context.Context, client *realtimeClient, requestID string) {
 	if requestID == "" {
 		return
 	}
@@ -4230,28 +4250,28 @@ func (rs *realtimeService) handleSyncRequest(client *realtimeClient, requestID s
 		rs.connManager.SendToUser(client.userID, newInvalidRequestIDErrorMsg(requestID))
 		return
 	}
-	if err := rs.db.SetSyncRequestID(context.Background(), client.userID, requestID); err != nil {
+	if err := rs.db.SetSyncRequestID(ctx, client.userID, requestID); err != nil {
 		log.Error().Err(err).Msg("Failed to store sync request ID")
 		return
 	}
-	rs.catchUp(client.userID, requestID)
-	rs.catchUpBlocks(client.userID)
-	rs.dispatchNext(client.userID)
-	rs.redispatchPendingRequests(client.userID)
+	rs.catchUp(ctx, client.userID, requestID)
+	rs.catchUpBlocks(ctx, client.userID)
+	rs.dispatchNext(ctx, client.userID)
+	rs.redispatchPendingRequests(ctx, client.userID)
 	// Every SYNC doubles as the keepalive for delivery to peers.
 	if rs.deliverBehindHook != nil {
 		go rs.deliverBehindHook()
 	}
 }
 
-func (rs *realtimeService) redispatchPendingRequests(requesterUserID string) {
-	requests, err := rs.db.GetPendingRequestsForRequester(context.Background(), requesterUserID)
+func (rs *realtimeService) redispatchPendingRequests(ctx context.Context, requesterUserID string) {
+	requests, err := rs.db.GetPendingRequestsForRequester(ctx, requesterUserID)
 	if err != nil {
 		log.Error().Err(err).Str("requesterUserID", requesterUserID).Msg("Failed to get pending requests for requester")
 		return
 	}
 	for _, req := range requests {
-		reset, err := rs.db.ResetDispatchedAt(context.Background(), req.EventID, req.DispatchedTo)
+		reset, err := rs.db.ResetDispatchedAt(ctx, req.EventID, req.DispatchedTo)
 		if err != nil {
 			log.Error().Err(err).Str("eventID", req.EventID).Msg("Failed to reset dispatched_at for pending request")
 			continue
@@ -4259,7 +4279,7 @@ func (rs *realtimeService) redispatchPendingRequests(requesterUserID string) {
 		if !reset {
 			continue // redispatched since we read it
 		}
-		holder, err := rs.db.GetOnlineReedHolder(context.Background(), req.ReedID)
+		holder, err := rs.db.GetOnlineReedHolder(ctx, req.ReedID)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", req.ReedID).Msg("Failed to get holder for pending request on reconnect")
 			continue
@@ -4270,14 +4290,13 @@ func (rs *realtimeService) redispatchPendingRequests(requesterUserID string) {
 	}
 }
 
-func (rs *realtimeService) handleUserCameOnline(client *realtimeClient) {
+func (rs *realtimeService) handleUserCameOnline(ctx context.Context, client *realtimeClient) {
 	// Nothing sent until client signals readiness via SYNC_REQUEST
 }
 
 // catchUpReed opens one missed event for userID. A foreign reed goes
 // through the border fold; a local one waits for a local holder.
-func (rs *realtimeService) catchUpReed(userID, requestID string, eventName realtimeEventName, reedID string) {
-	ctx := context.Background()
+func (rs *realtimeService) catchUpReed(ctx context.Context, userID, requestID string, eventName realtimeEventName, reedID string) {
 	if foreign, homeServerID := rs.isForeignReed(reedID); foreign {
 		if _, _, err := rs.openForeignEvent(ctx, userID, requestID, reedID, homeServerID, eventName); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Str("eventName", string(eventName)).Msg("Failed to open catch-up event for foreign reed")
@@ -4299,8 +4318,8 @@ func (rs *realtimeService) catchUpReed(userID, requestID string, eventName realt
 	}
 }
 
-func (rs *realtimeService) catchUp(userID, requestID string) {
-	unallocated, err := rs.db.GetMissingOut(context.Background(), userID)
+func (rs *realtimeService) catchUp(ctx context.Context, userID, requestID string) {
+	unallocated, err := rs.db.GetMissingOut(ctx, userID)
 	if err != nil {
 		log.Error().
 			Err(err).
@@ -4309,89 +4328,89 @@ func (rs *realtimeService) catchUp(userID, requestID string) {
 		return
 	}
 	for _, reed := range unallocated {
-		rs.catchUpReed(userID, requestID, followReedEvent, reed.ReedID)
+		rs.catchUpReed(ctx, userID, requestID, followReedEvent, reed.ReedID)
 	}
 
-	missingMentions, err := rs.db.GetMissingMentions(context.Background(), userID)
+	missingMentions, err := rs.db.GetMissingMentions(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing mentions")
 		return
 	}
 	for _, reed := range missingMentions {
-		rs.catchUpReed(userID, requestID, mentionEvent, reed.ReedID)
+		rs.catchUpReed(ctx, userID, requestID, mentionEvent, reed.ReedID)
 	}
 
-	missingAdminMentions, err := rs.db.GetMissingAdminMentions(context.Background(), userID)
+	missingAdminMentions, err := rs.db.GetMissingAdminMentions(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing admin mentions")
 		return
 	}
 	for _, reed := range missingAdminMentions {
 		if !slices.ContainsFunc(missingMentions, func(m unallocatedReed) bool { return m.ReedID == reed.ReedID }) {
-			rs.catchUpReed(userID, requestID, adminMentionEvent, reed.ReedID)
+			rs.catchUpReed(ctx, userID, requestID, adminMentionEvent, reed.ReedID)
 		}
 	}
 
-	missingReplies, err := rs.db.GetMissingReplies(context.Background(), userID)
+	missingReplies, err := rs.db.GetMissingReplies(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing replies")
 		return
 	}
 	for _, reed := range missingReplies {
-		rs.catchUpReed(userID, requestID, reedReplyEvent, reed.ReedID)
+		rs.catchUpReed(ctx, userID, requestID, reedReplyEvent, reed.ReedID)
 	}
 
-	removals, err := rs.db.GetMissingRemovals(context.Background(), userID)
+	removals, err := rs.db.GetMissingRemovals(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing reed removals")
 		return
 	}
 	for _, rem := range removals {
 		eventID := generateRealtimeEventID(userID)
-		if err := rs.createPendingReedEvent(context.Background(), eventID, requestID, userID, reedRemovedEvent, rem.ReedID); err != nil {
+		if err := rs.createPendingReedEvent(ctx, eventID, requestID, userID, reedRemovedEvent, rem.ReedID); err != nil {
 			log.Error().Err(err).Str("reedID", rem.ReedID).Msg("Failed to create catch-up reed_removed event")
 			continue
 		}
-		rs.deliverReedRemoved(eventID, requestID, userID, rem.ReedID, &rem.Cert)
+		rs.deliverReedRemoved(ctx, eventID, requestID, userID, rem.ReedID, &rem.Cert)
 	}
 
-	threadRemovals, err := rs.db.GetMissingThreadRemovals(context.Background(), userID)
+	threadRemovals, err := rs.db.GetMissingThreadRemovals(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing thread removals")
 		return
 	}
 	for _, threadID := range threadRemovals {
-		if err := rs.db.UpsertReedIdentity(context.Background(), threadID); err != nil {
+		if err := rs.db.UpsertReedIdentity(ctx, threadID); err != nil {
 			log.Error().Err(err).Str("threadID", threadID).Msg("Failed to upsert thread identity for catch-up")
 			continue
 		}
-		rs.dispatchThreadRemovalTo(userID, threadID, nil)
+		rs.dispatchThreadRemovalTo(ctx, userID, threadID, nil)
 	}
 
-	accountRemovals, err := rs.db.GetMissingAccountRemovals(context.Background(), userID)
+	accountRemovals, err := rs.db.GetMissingAccountRemovals(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing account removals")
 		return
 	}
 	for _, rem := range accountRemovals {
 		eventID := generateRealtimeEventID(userID)
-		if err := rs.createPendingAccountEvent(context.Background(), eventID, requestID, userID, rem.UserID); err != nil {
+		if err := rs.createPendingAccountEvent(ctx, eventID, requestID, userID, rem.UserID); err != nil {
 			log.Error().Err(err).Str("removedUserID", rem.UserID).Msg("Failed to create catch-up account_removed event")
 			continue
 		}
-		rs.deliverAccountRemoved(eventID, requestID, userID, rem.UserID, &rem.Cert)
+		rs.deliverAccountRemoved(ctx, eventID, requestID, userID, rem.UserID, &rem.Cert)
 	}
 
-	revokedKeys, err := rs.db.GetMissingKeyRevocations(context.Background(), userID)
+	revokedKeys, err := rs.db.GetMissingKeyRevocations(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get missing key revocations")
 		return
 	}
 	for _, keyID := range revokedKeys {
-		rs.dispatchKeyRevoked(userID, requestID, keyID, nil)
+		rs.dispatchKeyRevoked(ctx, userID, requestID, keyID, nil)
 	}
 
-	mailbox, err := GetPendingMailbox(context.Background(), rs.db.db, userID)
+	mailbox, err := GetPendingMailbox(ctx, rs.db.db, userID)
 	if err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to get pending mailbox messages")
 		return
@@ -4410,13 +4429,13 @@ func shouldBroadcastReed(pr *pb.PublishReadyMessage) bool {
 }
 
 // handlePublishReady runs new-reed fanout when a pending_fanout row exists.
-func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID string, broadcast bool) {
+func (rs *realtimeService) handlePublishReady(ctx context.Context, client *realtimeClient, reedID string, broadcast bool) {
 	if reedID == "" {
 		return
 	}
 	authorUserID := client.userID
 
-	claimed, tags, err := rs.db.ClaimPendingFanout(context.Background(), reedID)
+	claimed, tags, err := rs.db.ClaimPendingFanout(ctx, reedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to claim pending fanout")
 		return
@@ -4424,25 +4443,25 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID str
 
 	if claimed {
 		var excludeFromFollowers []string
-		if parentReedID, ok, err := rs.db.ReplyParent(context.Background(), reedID); err != nil {
+		if parentReedID, ok, err := rs.db.ReplyParent(ctx, reedID); err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Msg("Failed to resolve reply parent for follower exclusion")
 		} else if ok {
-			excludeFromFollowers = rs.reedSubscriberUserIDs(parentReedID, authorUserID)
+			excludeFromFollowers = rs.reedSubscriberUserIDs(ctx, parentReedID, authorUserID)
 		}
 
 		if broadcast {
-			go rs.fanoutNewReed(reedID, tags, excludeFromFollowers)
+			go rs.fanoutNewReed(ctx, reedID, tags, excludeFromFollowers)
 		} else {
 			go rs.fanoutNewReedNoBroadcast(reedID, tags, excludeFromFollowers)
 		}
-		go rs.notifyParentSubscribersOfReply(reedID)
+		go rs.notifyParentSubscribersOfReply(ctx, reedID)
 		if rs.deliverAuthorHook != nil {
 			go rs.deliverAuthorHook(authorUserID)
 		}
-		go rs.notifyParentAuthorOfReply(reedID)
-		go rs.notifyMentionedUsers(reedID)
+		go rs.notifyParentAuthorOfReply(ctx, reedID)
+		go rs.notifyMentionedUsers(ctx, reedID)
 	} else {
-		exists, err := rs.db.ReedExists(context.Background(), reedID)
+		exists, err := rs.db.ReedExists(ctx, reedID)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", reedID).Str("userID", authorUserID).Msg("Failed to check reed for publish ready ack")
 			return
@@ -4464,18 +4483,18 @@ func (rs *realtimeService) handlePublishReady(client *realtimeClient, reedID str
 // handleEviction drops this client's allocation for a reed it is about to
 // delete locally, then acks. The ack is unconditional: a retry after a
 // lost ack must still be told it may proceed with the local delete.
-func (rs *realtimeService) handleEviction(client *realtimeClient, reedID string) {
+func (rs *realtimeService) handleEviction(ctx context.Context, client *realtimeClient, reedID string) {
 	if reedID == "" {
 		return
 	}
 
-	changed, err := rs.db.DeleteReedAllocation(context.Background(), reedID, client.userID)
+	changed, err := rs.db.DeleteReedAllocation(ctx, reedID, client.userID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", reedID).Str("userID", client.userID).Msg("Failed to clear allocation on eviction")
 		return
 	}
 	if changed {
-		rs.notifyReedCoverage(reedID)
+		rs.notifyReedCoverage(ctx, reedID)
 	}
 
 	ack := &pb.WSMessage{
@@ -4490,12 +4509,12 @@ func (rs *realtimeService) handleEviction(client *realtimeClient, reedID string)
 // handleKeyEviction drops this client's allocation for a public key it is
 // about to delete locally, so its revocation is no longer owed. Acks
 // unconditionally, like handleEviction.
-func (rs *realtimeService) handleKeyEviction(client *realtimeClient, keyID string) {
+func (rs *realtimeService) handleKeyEviction(ctx context.Context, client *realtimeClient, keyID string) {
 	if keyID == "" {
 		return
 	}
 
-	if err := rs.db.DeletePublicKeyAllocation(context.Background(), client.userID, keyID); err != nil {
+	if err := rs.db.DeletePublicKeyAllocation(ctx, client.userID, keyID); err != nil {
 		log.Error().Err(err).Str("keyID", keyID).Str("userID", client.userID).Msg("Failed to clear key allocation on eviction")
 		return
 	}
@@ -4509,12 +4528,12 @@ func (rs *realtimeService) handleKeyEviction(client *realtimeClient, keyID strin
 	rs.sendProtobufMessage(client, ack)
 }
 
-func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, ciphertext string) {
+func (rs *realtimeService) handleRelayResponse(ctx context.Context, client *realtimeClient, eventID, ciphertext string) {
 	if eventID == "" {
 		return
 	}
 
-	pe, err := rs.db.GetPendingReedEvent(context.Background(), eventID)
+	pe, err := rs.db.GetPendingReedEvent(ctx, eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event")
 		rs.dispatchN(client.userID, fanoutRefillBurst)
@@ -4531,10 +4550,10 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 		return
 	}
 
-	rs.metrics.RelayEvent(context.Background(), metrics.RelayEventFulfilled, pe.EventName)
+	rs.metrics.RelayEvent(ctx, metrics.RelayEventFulfilled, pe.EventName)
 
 	if pe.EventName == string(broadcastReedEvent) {
-		username, err := rs.db.GetRealtimeUsername(context.Background(), pe.UserID)
+		username, err := rs.db.GetRealtimeUsername(ctx, pe.UserID)
 		if err != nil && err != sql.ErrNoRows {
 			log.Error().Err(err).Str("userID", pe.UserID).Msg("Failed to load author username for broadcast reed")
 		}
@@ -4548,51 +4567,51 @@ func (rs *realtimeService) handleRelayResponse(client *realtimeClient, eventID, 
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Dropping broadcast reed: author account was either removed or never existed")
 		} else {
 			log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering broadcast reed to subscriber")
-			rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+			rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 				return newBroadcastReedMsg(ciphertext, username, pe.ReedID)
 			})
 		}
 		// Broadcast is ephemeral (no DATA_ACK expected) — delete right away,
 		// unlike the deferred-until-ack pattern the branches below use.
-		if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
+		if err := rs.deletePendingEvent(ctx, eventID); err != nil {
 			log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event")
 		}
 	} else if pe.EventName == string(pipeReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering pipe reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newPipeReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(followReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering follow reed to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newFollowReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(archiveReedEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering archive reed to admin")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newArchiveReedMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(reedReplyEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering reed reply to subscriber")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newReedReplyMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(mentionEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering mention to recipient")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else if pe.EventName == string(adminMentionEvent) {
 		log.Info().Str("requesterID", pe.RequesterUserID).Str("reedID", pe.ReedID).Msg("Delivering admin mention to admin")
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, relayedThread{Ciphertext: ciphertext}, func() *pb.WSMessage {
 			return newAdminMentionMsg(pe.EventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	} else {
 		data := relayedThread{Ciphertext: ciphertext}
 		if realtimeEventName(pe.EventName) == requestThreadEvent {
-			data = rs.relayedThreadData(pe.ReedID, ciphertext)
+			data = rs.relayedThreadData(ctx, pe.ReedID, ciphertext)
 		}
-		rs.deliverOrForward(context.Background(), eventID, pe.RequesterUserID, data, func() *pb.WSMessage {
+		rs.deliverOrForward(ctx, eventID, pe.RequesterUserID, data, func() *pb.WSMessage {
 			return newDataResponseMsg(eventID, pe.RequestID, ciphertext, pe.ReedID)
 		})
 	}
@@ -4610,9 +4629,9 @@ type relayedThread struct {
 
 // relayedThreadData packs ciphertext with threadID's stored record, if this
 // server is its home.
-func (rs *realtimeService) relayedThreadData(threadID, ciphertext string) relayedThread {
+func (rs *realtimeService) relayedThreadData(ctx context.Context, threadID, ciphertext string) relayedThread {
 	out := relayedThread{Ciphertext: ciphertext}
-	rec, err := rs.db.GetThreadRecord(context.Background(), threadID)
+	rec, err := rs.db.GetThreadRecord(ctx, threadID)
 	if err != nil {
 		log.Error().Err(err).Str("threadID", threadID).Msg("Failed to load thread record for relay")
 	} else if rec != nil {
@@ -4666,36 +4685,36 @@ func (rs *realtimeService) markEventRelayed(ctx context.Context, eventID string)
 
 // handleRelayMiss: the holder truly lacks the content — drop their
 // allocation, then retry via handleFailedRelay's shared shape.
-func (rs *realtimeService) handleRelayMiss(holderUserID, eventID string) {
-	rs.handleFailedRelay(holderUserID, eventID, true)
+func (rs *realtimeService) handleRelayMiss(ctx context.Context, holderUserID, eventID string) {
+	rs.handleFailedRelay(ctx, holderUserID, eventID, true)
 }
 
 // handleRelayError: the holder has the content but couldn't relay it (a
 // failed key fetch) — keep their allocation, retry via handleFailedRelay.
-func (rs *realtimeService) handleRelayError(holderUserID, eventID string) {
-	rs.handleFailedRelay(holderUserID, eventID, false)
+func (rs *realtimeService) handleRelayError(ctx context.Context, holderUserID, eventID string) {
+	rs.handleFailedRelay(ctx, holderUserID, eventID, false)
 }
 
 // handleRelayTimeout: no response within dispatchRequestTimeout. Same
 // shape as handleRelayError — silence proves nothing about the content.
-func (rs *realtimeService) handleRelayTimeout(holderUserID, eventID string) {
+func (rs *realtimeService) handleRelayTimeout(ctx context.Context, holderUserID, eventID string) {
 	// The holder may have answered on another replica, out of this timer's reach.
-	pe, err := rs.db.GetPendingReedEvent(context.Background(), eventID)
+	pe, err := rs.db.GetPendingReedEvent(ctx, eventID)
 	if err == nil && (pe == nil || pe.Relayed) {
 		return
 	}
 	log.Warn().Str("eventID", eventID).Str("holderID", holderUserID).Msg("Relay request timed out; retrying")
-	rs.handleFailedRelay(holderUserID, eventID, false)
+	rs.handleFailedRelay(ctx, holderUserID, eventID, false)
 }
 
 // handleFailedRelay is the shared retry shape behind handleRelayMiss,
 // handleRelayError, and handleRelayTimeout: reset dispatch, requery for a
 // holder, retry or give up.
-func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, deleteAllocation bool) {
+func (rs *realtimeService) handleFailedRelay(ctx context.Context, holderUserID, eventID string, deleteAllocation bool) {
 	if eventID == "" {
 		return
 	}
-	pe, err := rs.db.GetPendingReedEvent(context.Background(), eventID)
+	pe, err := rs.db.GetPendingReedEvent(ctx, eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for relay miss/error")
 		rs.dispatchN(holderUserID, fanoutRefillBurst)
@@ -4722,12 +4741,12 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 		Msg("Relay miss/error; retrying")
 
 	if deleteAllocation {
-		if _, err := rs.db.DeleteReedAllocation(context.Background(), pe.ReedID, holderUserID); err != nil {
+		if _, err := rs.db.DeleteReedAllocation(ctx, pe.ReedID, holderUserID); err != nil {
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("holderID", holderUserID).Msg("Failed to delete allocation on relay miss")
 		}
 	}
 
-	reset, err := rs.db.ResetDispatchedAt(context.Background(), eventID, holderUserID)
+	reset, err := rs.db.ResetDispatchedAt(ctx, eventID, holderUserID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to reset dispatched_at on relay miss/error")
 	}
@@ -4737,11 +4756,11 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 		return
 	}
 
-	hasHolders, holder, err := rs.db.GetOnlineHolders(context.Background(), pe.ReedID)
+	hasHolders, holder, err := rs.db.GetOnlineHolders(ctx, pe.ReedID)
 	if err != nil {
 		log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to check reed holders on relay miss/error")
 	} else if !hasHolders {
-		rs.failReedNotHeld(pe)
+		rs.failReedNotHeld(ctx, pe)
 	} else if holder != "" {
 		rs.dispatchNextIfConnected(holder)
 	}
@@ -4756,7 +4775,7 @@ func (rs *realtimeService) handleFailedRelay(holderUserID, eventID string, delet
 // requesting peer is notified best-effort via foreignNotHeldHook so their
 // side doesn't wait forever; a failed/lost notification only leaves the
 // peer's own state stale, not this server's.
-func (rs *realtimeService) failReedNotHeld(pe *pendingReedEvent) {
+func (rs *realtimeService) failReedNotHeld(ctx context.Context, pe *pendingReedEvent) {
 	log.Info().
 		Str("eventID", pe.EventID).
 		Str("requesterID", pe.RequesterUserID).
@@ -4773,18 +4792,18 @@ func (rs *realtimeService) failReedNotHeld(pe *pendingReedEvent) {
 	var frr *foreignRelayRequest
 	if pe.RequesterUserID == "" {
 		var err error
-		frr, err = rs.db.GetForeignRelayRequest(context.Background(), pe.EventID)
+		frr, err = rs.db.GetForeignRelayRequest(ctx, pe.EventID)
 		if err != nil {
 			log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to check foreign relay request on reed not held")
 		}
 	}
 
-	if err := rs.deletePendingEvent(context.Background(), pe.EventID); err != nil {
+	if err := rs.deletePendingEvent(ctx, pe.EventID); err != nil {
 		log.Error().Err(err).Str("eventID", pe.EventID).Msg("Failed to delete pending event on reed not held")
 	}
 
 	if frr != nil && rs.foreignNotHeldHook != nil {
-		if err := rs.foreignNotHeldHook(context.Background(), frr.RequestingServerID, pe.EventID); err != nil {
+		if err := rs.foreignNotHeldHook(ctx, frr.RequestingServerID, pe.EventID); err != nil {
 			log.Error().Err(err).Str("eventID", pe.EventID).Str("requestingServerID", frr.RequestingServerID).Msg("Failed to notify requesting peer of relay give-up")
 		}
 	}
@@ -4811,12 +4830,12 @@ func ackAcceptable(pe *pendingSubject, userID string) bool {
 
 // handleDataAck is called when the viewer has received and verified a delivery successfully.
 // New reeds: allocate. Reed removals: clear allocation. Account removals: clear peer state.
-func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string) {
+func (rs *realtimeService) handleDataAck(ctx context.Context, client *realtimeClient, eventID string) {
 	if eventID == "" {
 		return
 	}
 
-	pe, err := rs.db.GetPendingSubject(context.Background(), eventID)
+	pe, err := rs.db.GetPendingSubject(ctx, eventID)
 	if err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to get pending event for data ack")
 		return
@@ -4831,35 +4850,35 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 	carried := false
 
 	if realtimeEventName(pe.EventName) == reedRemovedEvent {
-		changed, err := rs.db.DeleteReedAllocation(context.Background(), pe.ReedID, client.userID)
+		changed, err := rs.db.DeleteReedAllocation(ctx, pe.ReedID, client.userID)
 		if err != nil {
 			log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear allocation on reed_removed ack")
 		} else if changed {
-			rs.notifyReedCoverage(pe.ReedID)
+			rs.notifyReedCoverage(ctx, pe.ReedID)
 		}
 	} else if realtimeEventName(pe.EventName) == threadRemovedEvent {
-		parts, err := rs.db.DeleteThreadAllocations(context.Background(), pe.ReedID, client.userID)
+		parts, err := rs.db.DeleteThreadAllocations(ctx, pe.ReedID, client.userID)
 		if err != nil {
 			log.Error().Err(err).Str("threadID", pe.ReedID).Str("userID", client.userID).Msg("Failed to clear thread allocations on thread_removed ack")
 		}
 		for _, reedID := range parts {
-			rs.notifyReedCoverage(reedID)
+			rs.notifyReedCoverage(ctx, reedID)
 		}
 	} else if realtimeEventName(pe.EventName) == keyRevokedEvent {
-		if err := rs.db.DeletePublicKeyAllocation(context.Background(), client.userID, pe.KeyID); err != nil {
+		if err := rs.db.DeletePublicKeyAllocation(ctx, client.userID, pe.KeyID); err != nil {
 			log.Error().Err(err).Str("keyID", pe.KeyID).Str("userID", client.userID).Msg("Failed to clear key allocation on key_revoked ack")
 		}
 	} else if realtimeEventName(pe.EventName) == accountRemovedEvent {
-		targets, err := rs.db.ClearPeerStateForRemovedAccount(context.Background(), client.userID, pe.UserID)
+		targets, err := rs.db.ClearPeerStateForRemovedAccount(ctx, client.userID, pe.UserID)
 		if err != nil {
 			log.Error().Err(err).Str("removedUserID", pe.UserID).Str("viewer", client.userID).Msg("Failed to clear peer state on account_removed ack")
 		} else {
 			for _, t := range targets {
-				rs.notifyReedCoverage(t.ReedID)
+				rs.notifyReedCoverage(ctx, t.ReedID)
 			}
 		}
 	} else if realtimeEventName(pe.EventName) == requestThreadEvent {
-		carried = rs.ackThread(eventID, pe.ReedID, client.userID)
+		carried = rs.ackThread(ctx, eventID, pe.ReedID, client.userID)
 	} else {
 		// reed_identities normally already has a row for a foreign reed
 		// by request time (handleForeignRequestReedFromClient/
@@ -4872,18 +4891,18 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 		identityOK := true
 		foreign, homeServerID := rs.isForeignReed(pe.ReedID)
 		if foreign {
-			if err := rs.db.UpsertReedIdentity(context.Background(), pe.ReedID); err != nil {
+			if err := rs.db.UpsertReedIdentity(ctx, pe.ReedID); err != nil {
 				log.Error().Err(err).Str("reedID", pe.ReedID).Msg("Failed to upsert reed identity on data ack")
 				identityOK = false
 			}
 		}
 		if identityOK {
-			changed, err := rs.db.AllocateReed(context.Background(), pe.ReedID, client.userID)
+			changed, err := rs.db.AllocateReed(ctx, pe.ReedID, client.userID)
 			if err != nil {
 				log.Error().Err(err).Str("reedID", pe.ReedID).Str("userID", client.userID).Msg("Failed to allocate reed on data ack")
 			} else {
 				if changed {
-					rs.notifyReedCoverage(pe.ReedID)
+					rs.notifyReedCoverage(ctx, pe.ReedID)
 				}
 				// Tell the home server it now has a fallback target for
 				// this reed — fires whenever the acked reed is foreign,
@@ -4896,7 +4915,7 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 				// home server's fallback-routing table stale, not this
 				// server's correctness.
 				if foreign && rs.foreignHolderNotifyHook != nil {
-					if err := rs.foreignHolderNotifyHook(context.Background(), homeServerID, pe.ReedID); err != nil {
+					if err := rs.foreignHolderNotifyHook(ctx, homeServerID, pe.ReedID); err != nil {
 						log.Error().Err(err).Str("reedID", pe.ReedID).Str("homeServerID", homeServerID).Msg("Failed to notify home server of new holder")
 					}
 				}
@@ -4907,10 +4926,10 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 				// makes the home server's bookkeeping stale, not this
 				// server's. See realtimeForeignAckHook's doc comment.
 				if rs.foreignAckHook != nil {
-					if fpe, ferr := rs.db.GetForeignPendingEvent(context.Background(), eventID); ferr != nil {
+					if fpe, ferr := rs.db.GetForeignPendingEvent(ctx, eventID); ferr != nil {
 						log.Error().Err(ferr).Str("eventID", eventID).Msg("Failed to look up foreign pending event for ack notify")
 					} else if fpe != nil {
-						if err := rs.foreignAckHook(context.Background(), fpe.HomeServerID, fpe.PeerEventID); err != nil {
+						if err := rs.foreignAckHook(ctx, fpe.HomeServerID, fpe.PeerEventID); err != nil {
 							log.Error().Err(err).Str("eventID", eventID).Str("homeServerID", fpe.HomeServerID).Msg("Failed to notify home server of delivered ack")
 						}
 						carried = true
@@ -4920,7 +4939,7 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 		}
 	}
 
-	if err := rs.deletePendingEvent(context.Background(), eventID); err != nil {
+	if err := rs.deletePendingEvent(ctx, eventID); err != nil {
 		log.Error().Err(err).Str("eventID", eventID).Msg("Failed to delete pending event on data ack")
 	}
 	// The copy that crossed landed: this client now holds the reed here,
@@ -4933,8 +4952,7 @@ func (rs *realtimeService) handleDataAck(client *realtimeClient, eventID string)
 // ackThread allocates every part of threadID to userID, from this server's
 // own record or, for a foreign thread, the one it verified on relay.
 // Reports whether the copy crossed from the thread's home server.
-func (rs *realtimeService) ackThread(eventID, threadID, userID string) bool {
-	ctx := context.Background()
+func (rs *realtimeService) ackThread(ctx context.Context, eventID, threadID, userID string) bool {
 	foreign, homeServerID := rs.isForeignReed(threadID)
 	var reedIDs []string
 	if foreign {
@@ -4966,7 +4984,7 @@ func (rs *realtimeService) ackThread(eventID, threadID, userID string) bool {
 			continue
 		}
 		if changed {
-			rs.notifyReedCoverage(reedID)
+			rs.notifyReedCoverage(ctx, reedID)
 		}
 		// A crossed copy's ack below already tells the home server.
 		if foreign && crossed == nil && rs.foreignHolderNotifyHook != nil {
@@ -4988,11 +5006,10 @@ func (rs *realtimeService) ackThread(eventID, threadID, userID string) bool {
 // handleDataInvalid is called when the viewer received a reed but its signature failed verification.
 // Never allocates. A reed relayed by a local holder is reset and asked for again;
 // removals and copies that crossed from a peer are dropped.
-func (rs *realtimeService) handleDataInvalid(client *realtimeClient, eventID string) {
+func (rs *realtimeService) handleDataInvalid(ctx context.Context, client *realtimeClient, eventID string) {
 	if eventID == "" {
 		return
 	}
-	ctx := context.Background()
 
 	pe, err := rs.db.GetPendingSubject(ctx, eventID)
 	if err != nil {
@@ -5043,23 +5060,23 @@ func (rs *realtimeService) handleDataInvalid(client *realtimeClient, eventID str
 // DeleteMailboxMessage's query is scoped by bare id + userID, so split it
 // back apart first. Unlike handleDataAck, there is no pending_events
 // bookkeeping to reconcile — the row itself is the only delivery record.
-func (rs *realtimeService) handleMailboxAck(client *realtimeClient, mailboxID string) {
+func (rs *realtimeService) handleMailboxAck(ctx context.Context, client *realtimeClient, mailboxID string) {
 	userID, serverID, id, ok := parseKeyFingerprint(identityID(mailboxID))
 	if !ok || string(canonicalID(serverID, userID)) != client.userID {
 		return
 	}
-	if err := rs.db.DeleteMailboxMessage(context.Background(), id, client.userID); err != nil {
+	if err := rs.db.DeleteMailboxMessage(ctx, id, client.userID); err != nil {
 		log.Error().Err(err).Str("id", id).Str("userID", client.userID).Msg("Failed to delete mailbox message on ack")
 		return
 	}
-	rs.metrics.Mailbox(context.Background(), metrics.OpRemove, "")
+	rs.metrics.Mailbox(ctx, metrics.OpRemove, "")
 }
 
 // handleKeyFetchError is called when a client received signed content over
 // an already-authenticated connection but a subsequent key fetch needed to
 // verify it failed. Not tied to a pending_events row — this is the client
 // self-reporting an anomaly, not acking a specific delivery.
-func (rs *realtimeService) handleKeyFetchError(client *realtimeClient, targetUserID, keyID string) {
+func (rs *realtimeService) handleKeyFetchError(ctx context.Context, client *realtimeClient, targetUserID, keyID string) {
 	if targetUserID == "" || keyID == "" {
 		return
 	}
@@ -5068,13 +5085,13 @@ func (rs *realtimeService) handleKeyFetchError(client *realtimeClient, targetUse
 		Str("targetUserID", targetUserID).
 		Str("keyID", keyID).
 		Msg("Client reported key fetch error")
-	rs.metrics.KeyFetchError(context.Background(), client.userID, targetUserID, keyID)
+	rs.metrics.KeyFetchError(ctx, client.userID, targetUserID, keyID)
 }
 
 // handleRevokedKeyUsed is called when a client found signed content whose
 // timestamp is at or after its signing key's revocation — a genuine
 // revoked-key-abuse signal, surfaced for later security analysis.
-func (rs *realtimeService) handleRevokedKeyUsed(client *realtimeClient, targetUserID, keyID string) {
+func (rs *realtimeService) handleRevokedKeyUsed(ctx context.Context, client *realtimeClient, targetUserID, keyID string) {
 	if targetUserID == "" || keyID == "" {
 		return
 	}
@@ -5083,13 +5100,13 @@ func (rs *realtimeService) handleRevokedKeyUsed(client *realtimeClient, targetUs
 		Str("targetUserID", targetUserID).
 		Str("keyID", keyID).
 		Msg("Client reported content signed with a revoked key")
-	rs.metrics.RevokedKeyUsed(context.Background(), client.userID, targetUserID, keyID)
+	rs.metrics.RevokedKeyUsed(ctx, client.userID, targetUserID, keyID)
 }
 
 // handleContentRejected is called when a client received a signed resource,
 // failed to verify it, and refused to store it — the client rejecting
 // content, not a server-side signature check.
-func (rs *realtimeService) handleContentRejected(client *realtimeClient, storeName, reason string) {
+func (rs *realtimeService) handleContentRejected(ctx context.Context, client *realtimeClient, storeName, reason string) {
 	if storeName == "" {
 		return
 	}
@@ -5098,7 +5115,7 @@ func (rs *realtimeService) handleContentRejected(client *realtimeClient, storeNa
 		Str("storeName", storeName).
 		Str("reason", reason).
 		Msg("Client rejected content that failed verification")
-	rs.metrics.ContentRejected(context.Background(), client.userID, storeName, reason)
+	rs.metrics.ContentRejected(ctx, client.userID, storeName, reason)
 }
 
 // errRealtimeForeignRelayOwnershipMismatch is returned by

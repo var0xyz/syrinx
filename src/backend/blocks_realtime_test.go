@@ -48,20 +48,20 @@ func TestBlockEventOwedUntilAcked(t *testing.T) {
 		t.Fatalf("push = %+v", got.blocked)
 	}
 
-	rs.catchUpBlocks(f.bob)
+	rs.catchUpBlocks(context.Background(), f.bob)
 	if len(got.blocked) != 2 {
 		t.Fatal("unacked block not resent on catch-up")
 	}
 
-	rs.ackBlockEvent(bob, f.alice, blockEventBlock)
-	rs.catchUpBlocks(f.bob)
+	rs.ackBlockEvent(context.Background(), bob, f.alice, blockEventBlock)
+	rs.catchUpBlocks(context.Background(), f.bob)
 	if len(got.blocked) != 2 {
 		t.Fatal("acked block resent on catch-up")
 	}
 
 	// bob's ack only ever drops bob's own events.
 	f.storeBlock(t, f.alice, f.aliceKP, f.carol)
-	rs.ackBlockEvent(bob, f.alice, blockEventBlock)
+	rs.ackBlockEvent(context.Background(), bob, f.alice, blockEventBlock)
 	if events, _ := f.ds.BlockEventsFor(context.Background(), f.carol); len(events) != 1 {
 		t.Fatal("carol's block event dropped by bob's ack")
 	}
@@ -82,14 +82,14 @@ func TestUnblockReplacesOwedBlock(t *testing.T) {
 	}
 
 	// A late ack of the replaced block leaves the lift owed.
-	rs.ackBlockEvent(bob, f.alice, blockEventBlock)
-	rs.catchUpBlocks(f.bob)
+	rs.ackBlockEvent(ctx, bob, f.alice, blockEventBlock)
+	rs.catchUpBlocks(ctx, f.bob)
 	if len(got.blocked) != 0 || len(got.unblocked) != 1 || got.unblocked[0].GetUserId() != f.alice {
 		t.Fatalf("catch-up: %d blocked, %+v unblocked", len(got.blocked), got.unblocked)
 	}
 
-	rs.ackBlockEvent(bob, f.alice, blockEventUnblock)
-	rs.catchUpBlocks(f.bob)
+	rs.ackBlockEvent(ctx, bob, f.alice, blockEventUnblock)
+	rs.catchUpBlocks(ctx, f.bob)
 	if len(got.unblocked) != 1 {
 		t.Fatal("acked lift resent")
 	}
@@ -102,13 +102,13 @@ func TestReblockReplacesOwedUnblock(t *testing.T) {
 	bob, got := captureBlockFrames(t, rs, f.bob)
 
 	f.storeBlock(t, f.alice, f.aliceKP, f.bob)
-	rs.ackBlockEvent(bob, f.alice, blockEventBlock)
+	rs.ackBlockEvent(ctx, bob, f.alice, blockEventBlock)
 	if _, err := f.ds.DeleteBlock(ctx, f.alice, f.bob); err != nil {
 		t.Fatal(err)
 	}
 	f.storeBlock(t, f.alice, f.aliceKP, f.bob)
 
-	rs.catchUpBlocks(f.bob)
+	rs.catchUpBlocks(ctx, f.bob)
 	if len(got.unblocked) != 0 || len(got.blocked) != 1 {
 		t.Fatalf("catch-up after re-block: %d blocked, %d unblocked", len(got.blocked), len(got.unblocked))
 	}

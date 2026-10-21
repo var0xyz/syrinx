@@ -172,7 +172,7 @@ func TestForeignReedCaughtUpOnSync(t *testing.T) {
 		if err := f.rs.db.MarkUserOnline(ctx, u); err != nil {
 			t.Fatalf("MarkUserOnline: %v", err)
 		}
-		f.rs.catchUp(u, generateRealtimeEventID(u))
+		f.rs.catchUp(ctx, u, generateRealtimeEventID(u))
 	}
 	if name := f.eventNameFor(t, mentioned); name != string(mentionEvent) {
 		t.Fatalf("mentioned user's catch-up event = %q, want %q", name, mentionEvent)
