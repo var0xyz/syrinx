@@ -25,10 +25,10 @@
 # ssh/scp — run those directly (from deploy/scripts/telemetry/) instead of
 # through this script.
 #
-# The host address is prompted for once and saved to
-# deploy/scripts/telemetry/deploy.env (mode 600, gitignored) — the same
-# file/convention used by deploy-openobserve-pi.sh and tunnel.sh, so all
-# three share one saved host.
+# Only `setup` asks for the host address, saved to
+# deploy/scripts/telemetry/deploy.env (mode 600, gitignored); update/build,
+# deploy-openobserve-pi.sh and tunnel.sh all reuse it. DEPLOY_HOST=...
+# overrides it for one run.
 
 set -euo pipefail
 
@@ -123,8 +123,14 @@ if [ -n "$DEPLOY_HOST_FROM_ENV" ]; then
 else
     DEPLOY_HOST_SET_BY_ENV=0
 fi
-DEPLOY_HOST="$(prompt_host)"
-save_host "$DEPLOY_HOST"
+# Only setup asks for (and saves) the host; update and build reuse it.
+if [ "$CMD" = "setup" ]; then
+    DEPLOY_HOST="$(prompt_host)"
+    save_host "$DEPLOY_HOST"
+else
+    [ -n "${DEPLOY_HOST:-}" ] || die "No saved host — run './telemetry.sh setup' first"
+    DEPLOY_HOST="$(normalize_host "$DEPLOY_HOST")"
+fi
 
 info "Checking SSH connectivity..."
 if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
