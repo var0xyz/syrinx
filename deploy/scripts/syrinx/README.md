@@ -78,15 +78,15 @@ You'll be prompted for:
 - **Application name** — used to derive the Linux user, systemd unit name,
   install paths, and database name.
 - **Public domain** — the hostname the app will be served from.
-- **Git repo URL** — where to `git clone --depth 1` the monorepo from on
-  every build. Use an SSH URL or a plain public HTTPS URL; avoid embedding a
-  token in the URL (`https://TOKEN@github.com/...`) since it will briefly be
-  visible in `ps aux` output to any local user during the clone.
 - **Public edge mode** — `cloudflare` (default) or `mtls`. See "Public edge:
   Cloudflare Tunnel vs. mTLS" below before choosing.
 - **Cloudflare Zero Trust Tunnel token** — required when edge mode is
   `cloudflare`. See "Network exposure" below for why this is the only way in
-  for that mode.
+  for that mode. The tunnel also needs a route in the Cloudflare dashboard
+  (tunnel → **Add route** → **Published application**) sending the domain to
+  Service URL `http://127.0.0.1:8081`: a token tunnel
+  ignores the host's `config.yml`. If it's missing, `setup.sh` prints the
+  exact route to add, with the tunnel's ID.
 - **Cloudflare DNS API token + Zone ID** — required when edge mode is
   `mtls`, so this host can keep its domain pointed at its own public IP. See
   "Public edge: Cloudflare Tunnel vs. mTLS" below.

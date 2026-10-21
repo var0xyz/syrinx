@@ -655,10 +655,11 @@ cloudflare_tunnel_healthy() {
     [ -f /etc/systemd/system/cloudflared.service ] || return 1
     grep -qF -- "$CF_TOKEN" /etc/systemd/system/cloudflared.service || return 1
     local code
-    code="$(curl -sS -m 12 -o /dev/null -w '%{http_code}' "https://${APP_DOMAIN}/" 2>/dev/null || echo 000)"
+    # curl already prints 000 when it can't connect; don't append a second one.
+    code="$(curl -sS -m 12 -o /dev/null -w '%{http_code}' "https://${APP_DOMAIN}/" 2>/dev/null)" || true
     # 530 is Cloudflare's 1033: the hostname routes to a tunnel with no connector.
     case "$code" in
-        000|000*|530) return 1 ;;
+        ""|000|530) return 1 ;;
         *) return 0 ;;
     esac
 }
@@ -689,8 +690,8 @@ else
         systemctl stop cloudflared
     fi
 
-    # Token-managed tunnels take routes from the Cloudflare dashboard.
-    # Public hostname Service URL should be: http://127.0.0.1:$STATIC_PORT
+    # Token-managed tunnels ignore this file and take routes from the
+    # Cloudflare dashboard; the check below prints the route to add there.
     cat <<EOF > /etc/cloudflared/config.yml
 ingress:
   - hostname: "$APP_DOMAIN"
@@ -723,6 +724,65 @@ EOF
     systemctl enable cloudflared --now
     sleep 2
 fi
+
+# 000/530 mean Cloudflare has no route from the domain to this tunnel (only
+# the dashboard can add one); 502 means a route whose Service URL is wrong.
+cf_public_status() {
+    local code
+    code="$(curl -sS -m 12 -o /dev/null -w '%{http_code}' "https://${APP_DOMAIN}/" 2>/dev/null)" || true
+    printf '%s' "${code:-000}"
+}
+cf_route_ok() {
+    case "$1" in 000|502|530) return 1 ;; *) return 0 ;; esac
+}
+
+cf_public_code=000
+for _ in 1 2 3 4 5; do
+    cf_public_code="$(cf_public_status)"
+    cf_route_ok "$cf_public_code" && break
+    sleep 3
+done
+if ! cf_route_ok "$cf_public_code"; then
+    cf_tunnel_id="$(printf '%s' "$CF_TOKEN" | base64 -d 2>/dev/null | sed -n 's/.*"t":"\([^"]*\)".*/\1/p')"
+    echo ""
+    echo "⚠️  https://${APP_DOMAIN}/ isn't reaching this host (HTTP ${cf_public_code})."
+    echo "   In the Cloudflare dashboard: Zero Trust → Networks → Tunnels → the tunnel"
+    echo "   with ID ${cf_tunnel_id:-<tunnel ID>} → Add route → Published application:"
+    echo "     Subdomain + Domain: ${APP_DOMAIN}   Path: (empty)"
+    echo "     Service URL:        http://127.0.0.1:${STATIC_PORT}"
+    echo "   If Cloudflare says a DNS record already exists, delete the"
+    echo "   ${APP_DOMAIN} record under DNS first, then add the route again."
+    echo ""
+    echo "⏳ Waiting up to 5 minutes for the route (press Enter to skip)..."
+    cf_wait_end=$((SECONDS + 300))
+    cf_last_code=""
+    cf_skipped=0
+    while [ "$SECONDS" -lt "$cf_wait_end" ]; do
+        # A line (Enter, or `yes ''`) skips; EOF on stdin just waits.
+        if read -r -t 10 _ 2>/dev/null; then
+            echo "   Skipped."
+            cf_skipped=1
+            break
+        elif [ $? -le 128 ]; then
+            sleep 10
+        fi
+        cf_public_code="$(cf_public_status)"
+        if cf_route_ok "$cf_public_code"; then
+            echo "✅ https://${APP_DOMAIN}/ reaches this host (HTTP ${cf_public_code})"
+            break
+        fi
+        if [ "$cf_public_code" != "$cf_last_code" ]; then
+            case "$cf_public_code" in
+                502) echo "   HTTP 502: the route exists but its Service URL is wrong; it must be http://127.0.0.1:${STATIC_PORT}" ;;
+                *) echo "   Still HTTP ${cf_public_code}..." ;;
+            esac
+            cf_last_code="$cf_public_code"
+        fi
+    done
+    if ! cf_route_ok "$cf_public_code" && [ "$cf_skipped" = 0 ]; then
+        echo "   Gave up after 5 minutes; setup continues without the route."
+    fi
+fi
 fi
 
 # ==============================================================================
@@ -738,6 +798,11 @@ if [ "$EDGE_MODE" = "mtls" ]; then
     systemctl is-active --quiet "$DDNS_TIMER" && echo "✅ DDNS updater: ACTIVE" || echo "❌ DDNS updater: INACTIVE"
 else
     systemctl is-active --quiet cloudflared && echo "✅ Cloudflare Gateway Network: CONNECTED" || echo "❌ Cloudflare Gateway Network: DISCONNECTED"
+    case "${cf_public_code:-000}" in
+        502) echo "❌ Tunnel route to https://${APP_DOMAIN}: WRONG SERVICE URL (HTTP 502, must be http://127.0.0.1:${STATIC_PORT})" ;;
+        000|530) echo "❌ Tunnel route to https://${APP_DOMAIN}: NOT CONFIGURED (HTTP ${cf_public_code:-000}, see above)" ;;
+        *) echo "✅ Tunnel route to https://${APP_DOMAIN}: REACHABLE (HTTP ${cf_public_code})" ;;
+    esac
 fi
 if [ -n "$TELEMETRY_HOST" ]; then
     echo "✅ OTEL: journald shipper → ${TELEMETRY_HOST}:4318 (OpenObserve org=default)"
@@ -753,10 +818,14 @@ if [ "$EDGE_MODE" = "mtls" ]; then
     echo "  sudo bash -c 'source $SCRIPT_DIR/mtls.sh; mtls_issue_client_cert <name>'"
     echo "Fetch it from your laptop with: ./cp-client-cert.sh <name>"
 else
-    echo "Cloudflare dashboard → Public Hostname for $APP_DOMAIN"
+    echo "Cloudflare tunnel route (Add route → Published application) for $APP_DOMAIN"
     echo "  Service URL: http://127.0.0.1:$STATIC_PORT"
 fi
-echo "🚀 Environment build finished! Your setup is safely listening at https://$APP_DOMAIN"
+if [ "$EDGE_MODE" != "mtls" ] && ! cf_route_ok "${cf_public_code:-000}"; then
+    echo "⚠️  Environment build finished, but https://$APP_DOMAIN isn't reachable until the tunnel route is added (see above)"
+else
+    echo "🚀 Environment build finished! Your setup is safely listening at https://$APP_DOMAIN"
+fi
 echo "📝 Log saved to $LOG_FILE"
 echo "📄 App env: $ENV_FILE"
 echo "📄 Setup env: $SETUP_ENV"
