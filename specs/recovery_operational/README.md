@@ -11,11 +11,11 @@ delivery).
 
 ## Status
 
-**Proposed.** Steps 01 and 09 are partly written, not committed.
+**In progress.**
 
 | #  | Step                                                                  | Status      |
 |----|-----------------------------------------------------------------------|-------------|
-| 01 | Backup restore writes records as-is                                   | In progress |
+| 01 | Backup restore writes records as-is                                   | Implemented |
 | 02 | Refuse to boot without a current identity backup                     | Proposed    |
 | 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | Proposed    |
 | 04 | Signed peer records in `/server/info`                                 | Proposed    |
@@ -25,7 +25,7 @@ delivery).
 | 08 | Username collision certificate                                        | Proposed    |
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | In progress |
 | 10 | Recovery metrics and dashboard                                        | Proposed    |
-| 11 | Refuse removed accounts                                               | Proposed    |
+| 11 | Refuse removed accounts                                               | Implemented |
 | 12 | Keys-only restore of a recorded account                               | Proposed    |
 | 13 | Signed follows                                                        | Proposed    |
 
@@ -82,7 +82,7 @@ on) showed:
 | Precedence | Older users always win. A user from before the wipe takes a username from anyone who signed up after `first_boot_at`, whenever they come back, however long the newer user has held it. |
 | Username collisions | The loser keeps their identity; the username is nulled and a signed certificate forces a rename. A username collision never deletes an account. |
 | User ID collisions | A claim landing on an ID a signup took after `first_boot_at` deletes the newer identity. |
-| Removed accounts | Never come back through recovery, by claim or by report. |
+| Removed accounts | Never come back through recovery: the probe and the claim refuse them. Another user's report restores only their keys. |
 | Follows | Signed by the follower and countersigned. Both ends report them in recovery, newest wins. The server keeps only active follows and at most one undelivered certificate per pair. |
 | Identity backups | One timestamp, the last export. Every bundle carries every key, so it covers them all. |
 | `ops` passwords | Prompted on a TTY, read from stdin otherwise. Never an environment variable. |
@@ -348,9 +348,14 @@ With recovery always open, a removed account must not come back through it.
 The claim doesn't check `account_removals` today. A removal keeps the
 `users` row with the username and both signatures nulled, so a claim from
 an old backup takes the no-signature branch, inserts the keys and starts an
-import. The claim, peer identity reports and every other report refuse a
-user with an `account_removals` row, kicks included, with `410` like
-`BootstrapAccountRecovery` already does.
+import. The status probe and the claim refuse a user with an
+`account_removals` row, kicks included, with `410` like
+`BootstrapAccountRecovery` already does. Every other report is signed by
+its reporter, and the auth middleware already refuses a removed reporter.
+
+Another user's report of a removed account's profile is still accepted: on
+the nulled row it only restores the account's keys, which verify what it
+signed before it was removed, and never its profile or a claim.
 
 ## 12 — Keys-only restore of a recorded account
 

@@ -219,6 +219,14 @@ func spaRecoveryProfile(u *pb.User) *pb.RecoveryProfile {
 
 func (s *e2eServer) claim(t *testing.T, u *e2eUser, snap recoverySnapshot) {
 	t.Helper()
+	if rr := s.claimRequest(t, u, snap); rr.Code != http.StatusOK {
+		t.Fatalf("claim %s: %d %s", u.id, rr.Code, errorMessage(t, rr.Body.Bytes()))
+	}
+}
+
+// claimRequest runs the claim and returns the response, whatever it is.
+func (s *e2eServer) claimRequest(t *testing.T, u *e2eUser, snap recoverySnapshot) *httptest.ResponseRecorder {
+	t.Helper()
 	rr := httptest.NewRecorder()
 	s.h.IssueChallenge(rr, httptest.NewRequest(http.MethodGet, "/api/recovery/identity/claim", nil))
 	var ch pb.ChallengeResponse
@@ -236,9 +244,15 @@ func (s *e2eServer) claim(t *testing.T, u *e2eUser, snap recoverySnapshot) {
 	req.Header.Set("X-Syrinx-Device-Id", u.deviceID)
 	rr = httptest.NewRecorder()
 	s.h.ClaimIdentity(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("claim %s: %d %s", u.id, rr.Code, errorMessage(t, rr.Body.Bytes()))
-	}
+	return rr
+}
+
+// probe asks the status probe about the profile a device holds.
+func (s *e2eServer) probe(t *testing.T, snap recoverySnapshot) *httptest.ResponseRecorder {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	s.h.UserStatus(rr, protoRequest(http.MethodPost, "/api/users/status", spaRecoveryProfile(snap.profile)))
+	return rr
 }
 
 // restoreIdentity stands up server B from A's identity bundle, as
@@ -255,6 +269,18 @@ func restoreIdentity(t *testing.T, a *e2eServer) *e2eServer {
 		t.Fatalf("importIntoDB: %v", err)
 	}
 	return newE2EServer(t, dbB, true)
+}
+
+// A removed account never comes back through recovery, from a backup
+// taken before it was removed.
+func TestRecoveryE2E_RemovedAccountRefused(t *testing.T) {
+	a := newE2EServer(t, newTestDatabase(t, InitDB), false)
+	gina := a.signup(t, "gina")
+	snap := a.snapshot(t, gina.id)
+	a.deleteAccount(t, gina)
+
+	expectStatus(t, "probe", a.probe(t, snap), http.StatusGone)
+	expectStatus(t, "claim", a.claimRequest(t, gina, snap), http.StatusGone)
 }
 
 func TestRecoveryE2E_ClaimOwnIdentity(t *testing.T) {
