@@ -779,33 +779,40 @@ func (h *Handlers) notifyPeersOfOwedBlockNotices() {
 	}
 }
 
+// errBlockRefused marks a peer's block that failed verification, as
+// opposed to an error storing one.
+var errBlockRefused = errors.New("block refused")
+
 // acceptForeignBlock verifies a block made on peerServerID against one of
 // this server's users, stores it and applies it. Idempotent; a newer
 // block replaces an older one, an older one is ignored.
 func (h *Handlers) acceptForeignBlock(ctx context.Context, peerServerID string, cert BlockCert) error {
 	_, userServerID, ok := parseIdentityID(identityID(cert.UserID))
 	if cert.Type != identityTypeBlock || !ok || userServerID != peerServerID {
-		return fmt.Errorf("blocking user is not a user of the calling peer")
+		return fmt.Errorf("%w: blocking user is not a user of the calling peer", errBlockRefused)
 	}
 	if _, blockedServerID, ok := parseIdentityID(identityID(cert.BlockedUserID)); !ok || blockedServerID != h.services.db.GetServerID() {
-		return fmt.Errorf("blocked user is not local")
+		return fmt.Errorf("%w: blocked user is not local", errBlockRefused)
 	}
 	if !requesterKeyBelongsTo(cert.UserSignature.ID, cert.UserID, peerServerID) {
-		return fmt.Errorf("signing key is not the blocking user's")
+		return fmt.Errorf("%w: signing key is not the blocking user's", errBlockRefused)
 	}
 	key, err := h.resolvePublicKey(ctx, cert.UserSignature.ID)
-	if err != nil || key == nil {
-		return fmt.Errorf("resolve blocking user key: %v", err)
+	if err != nil {
+		return fmt.Errorf("resolve blocking user key: %w", err)
+	}
+	if key == nil {
+		return fmt.Errorf("%w: blocking user key could not be resolved", errBlockRefused)
 	}
 	userPayload := buildBlockUserPayload(cert.UserID, cert.BlockedUserID, cert.UserSignature.ID)
 	if err := h.services.crypto.verifySignature(ctx, string(userPayload), cert.UserSignature.Armor, key.Armor); err != nil {
-		return fmt.Errorf("user signature: %w", err)
+		return fmt.Errorf("%w: user signature: %v", errBlockRefused, err)
 	}
 	signedAt := cert.ServerSignature.SignedAt.UTC().Truncate(time.Second)
 	if err := h.verifyPeerCountersignature(ctx, peerServerID, cert.ServerSignature, func(serverFP string) []byte {
 		return buildBlockServerPayload(cert.UserID, cert.BlockedUserID, serverFP, cert.UserSignature.Armor, signedAt)
 	}); err != nil {
-		return err
+		return fmt.Errorf("%w: %v", errBlockRefused, err)
 	}
 	if err := h.services.db.UpsertRemoteIdentity(ctx, cert.UserID, peerServerID); err != nil {
 		return err
@@ -863,9 +870,14 @@ func (h *Handlers) BlockNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	cert := blockCertFromPB(&msg)
 	if err := h.acceptForeignBlock(r.Context(), peerServerID, cert); err != nil {
-		log.Warn().Err(err).Str("peerServerID", peerServerID).Str("userID", cert.UserID).Msg("Rejected block from peer")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", false)
-		writeError(w, http.StatusBadRequest, "Block failed verification")
+		if errors.Is(err, errBlockRefused) {
+			log.Warn().Err(err).Str("peerServerID", peerServerID).Str("userID", cert.UserID).Msg("Rejected block from peer")
+			writeError(w, http.StatusBadRequest, "Block failed verification")
+			return
+		}
+		log.Error().Err(err).Str("peerServerID", peerServerID).Str("userID", cert.UserID).Msg("Failed to store block from peer")
+		internalServerError(w)
 		return
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "block-notify", true)

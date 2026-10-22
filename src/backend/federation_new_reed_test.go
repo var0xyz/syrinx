@@ -107,6 +107,41 @@ func TestNewReedFromPeerRejectsOtherServersReed(t *testing.T) {
 	}
 }
 
+// A reply to, or echo of, one of our reeds that isn't here (removed, or
+// not reported back after a wipe) is recorded, never refused: a refusal
+// stalls the author's whole stream.
+func TestNewReedFromPeerRecordsLinksToMissingLocalReeds(t *testing.T) {
+	f := newForeignFoldFixture(t)
+	h := newReedTestHandlers(f)
+	author := string(canonicalID(teardownPeerID, "bob"))
+	missing := string(appendEntity(canonicalID(teardownHomeID, "alice"), "01a026d4-406f-744b-b730-fcd241bf2591"))
+
+	if code := postNewReed(t, h, teardownPeerID, &pb.RelayNewReedPayload{
+		ReedId:   f.reedID,
+		AuthorId: author,
+		Reply:    &pb.RelayNewReedReply{ParentReedId: missing, RootId: missing},
+	}); code != http.StatusNoContent {
+		t.Fatalf("reply status = %d, want 204", code)
+	}
+	var parent string
+	if err := f.db.QueryRow(`SELECT parent_reed_id FROM reed_replies WHERE reed_id = $1`, f.reedID).Scan(&parent); err != nil || parent != missing {
+		t.Fatalf("reply row parent = %q (%v), want %q", parent, err, missing)
+	}
+
+	echo := string(appendEntity(identityID(author), "01a026d4-406f-744b-b730-fcd241bf2592"))
+	if code := postNewReed(t, h, teardownPeerID, &pb.RelayNewReedPayload{
+		ReedId:   echo,
+		AuthorId: author,
+		Echo:     &pb.RelayNewReedEcho{EchoedReedId: missing},
+	}); code != http.StatusNoContent {
+		t.Fatalf("echo status = %d, want 204", code)
+	}
+	var echoed string
+	if err := f.db.QueryRow(`SELECT echoed_reed_id FROM reed_echoes WHERE echoing_reed_id = $1`, echo).Scan(&echoed); err != nil || echoed != missing {
+		t.Fatalf("echo row = %q (%v), want %q", echoed, err, missing)
+	}
+}
+
 // Removing a foreign reed drops the reply and echo references it left.
 func TestDropForeignReedReferences(t *testing.T) {
 	f := newForeignFoldFixture(t)

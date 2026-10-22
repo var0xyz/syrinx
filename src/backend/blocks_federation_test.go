@@ -108,6 +108,19 @@ func TestBlockNotifyFromPeerRefusesBadCerts(t *testing.T) {
 	}
 }
 
+// A valid block on a local user who isn't back yet is a 500, which the
+// peer retries, not a 400, which it would drop.
+func TestBlockNotifyFromPeerOnMissingUserIsRetryable(t *testing.T) {
+	s := newSignedKeyRevocation(t)
+	fake, _ := s.fakeHome(t)
+	h, _, _ := s.peerHandlers(t, fake)
+	missing := string(canonicalID(h.services.db.GetServerID(), "zed"))
+	cert := signedForeignBlock(t, s, missing, time.Now().UTC().Truncate(time.Second))
+	if code := postFromHome(t, h.BlockNotifyFromPeer, "/api/federation/relay/block-notify", blockBody(cert)); code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500", code)
+	}
+}
+
 func TestUnblockNotifyLiftsTheBlock(t *testing.T) {
 	s := newSignedKeyRevocation(t)
 	fake, _ := s.fakeHome(t)

@@ -2315,6 +2315,10 @@ func (s *DataService) InsertForeignEcho(ctx context.Context, echoingReedID, echo
 	if err := insertReedIdentity(ctx, tx, echoingReedID); err != nil {
 		return fmt.Errorf("insert echoing reed identity: %w", err)
 	}
+	// The echoed reed may be removed, or not reported back yet after a wipe.
+	if err := insertReedIdentity(ctx, tx, echoedReedID); err != nil {
+		return fmt.Errorf("insert echoed reed identity: %w", err)
+	}
 
 	_, echoingIdentityServerID, ok := parseIdentityID(identityID(echoingAuthorID))
 	if !ok {
@@ -9160,6 +9164,10 @@ func (s *DataService) InsertForeignReply(ctx context.Context, parentReedID, repl
 
 	if err := insertReedIdentity(ctx, tx, replyReedID); err != nil {
 		return fmt.Errorf("insert foreign reply reed identity: %w", err)
+	}
+	// The parent may be removed, or not reported back yet after a wipe.
+	if err := insertReedIdentity(ctx, tx, parentReedID); err != nil {
+		return fmt.Errorf("insert reply parent identity: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO reed_replies (root_id, reed_id, parent_reed_id, timestamp)
