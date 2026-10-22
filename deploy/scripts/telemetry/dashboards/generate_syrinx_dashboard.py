@@ -268,8 +268,6 @@ def metric_stream(instrument: str) -> str:
 USERS_CREATED = metric_stream("syrinx.users.created")
 USERS_DELETED = metric_stream("syrinx.users.deleted")
 USERS_BACKUP = metric_stream("syrinx.users.backup")
-USERS_WITH_FULL = metric_stream("syrinx.users.with_full_backup")
-USERS_WITHOUT_FULL = metric_stream("syrinx.users.without_full_backup")
 KEYS_REVOKED = metric_stream("syrinx.keys.revoked")
 REEDS_PUBLISHED = metric_stream("syrinx.reeds.published")
 REEDS_DELETED = metric_stream("syrinx.reeds.deleted")
@@ -901,20 +899,6 @@ users = [
         description="Compare signup and account-deletion counters over the selected window",
     ),
     promql_panel(
-        pid="syrinx_users_full_backup",
-        title="Users with full backup (.sxb)",
-        queries=[
-            (USERS_WITH_FULL, "backed up", USERS_WITH_FULL),
-            (USERS_WITHOUT_FULL, "never backed up", USERS_WITHOUT_FULL),
-        ],
-        layout=layout(0, 28, 96, 14, 35),
-        ptype="bar",
-        description=(
-            "Live snapshot from DB counters (full_backup_count > 0). "
-            "Separate from keys-only identity export."
-        ),
-    ),
-    promql_panel(
         pid="syrinx_users_backup_events",
         title="Backup events by kind",
         queries=[
@@ -922,7 +906,7 @@ users = [
             promql_labeled(USERS_BACKUP, "backup_kind", "identity", "identity (.sxi)"),
             promql_labeled(USERS_BACKUP, "backup_kind", "full", "full (.sxb)"),
         ],
-        layout=layout(96, 28, 96, 14, 36),
+        layout=layout(0, 28, 96, 14, 36),
         description=(
             "Successful SPA export acknowledgements via POST /users/me/backup "
             "(after the file is saved locally)"
@@ -935,7 +919,7 @@ users = [
             promql_labeled(USERS_BACKUP, "backup_repeat", "false", "first time"),
             promql_labeled(USERS_BACKUP, "backup_repeat", "true", "repeat"),
         ],
-        layout=layout(0, 42, 96, 14, 37),
+        layout=layout(96, 28, 96, 14, 37),
         description=(
             "repeat=true when the user had already recorded at least one backup "
             "of the same kind (identity or full)"
