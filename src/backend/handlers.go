@@ -768,6 +768,9 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.refuseRemovedAccount(w, r, profile.ID) {
+		return
+	}
 
 	// Peer-seeded only (in unclaimed_accounts) → unknown. Implies a users
 	// row exists; no need to read users yet.
@@ -3738,6 +3741,21 @@ func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, &pb.ChallengeResponse{Challenge: nonce})
 }
 
+// refuseRemovedAccount answers 410 for a removed or kicked account, which
+// recovery must never bring back, and reports whether it did.
+func (h *Handlers) refuseRemovedAccount(w http.ResponseWriter, r *http.Request, userID string) bool {
+	removed, err := h.services.db.HasAccountRemoval(r.Context(), userID)
+	if err != nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", userID).Msg("Error checking account removal")
+		internalServerError(w)
+		return true
+	}
+	if removed {
+		writeError(w, http.StatusGone, "Account removed")
+	}
+	return removed
+}
+
 // ClaimIdentity handles POST /api/recovery/identity/claim.
 func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	userID, ok := "", false
@@ -3757,6 +3775,9 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	if !live {
 		writeError(w, http.StatusBadRequest, "Unknown or expired challenge")
+		return
+	}
+	if h.refuseRemovedAccount(w, r, req.Profile.ID) {
 		return
 	}
 

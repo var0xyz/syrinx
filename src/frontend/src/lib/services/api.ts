@@ -461,6 +461,9 @@ export const apiService = {
     if (res.status === 400) {
       return { httpStatus: 400, error: (await readApiError(res))?.message || res.statusText || 'Bad Request' };
     }
+    if (res.status === 410) {
+      return { httpStatus: 410, error: 'This account was removed from this server.' };
+    }
 
     return {
       httpStatus: res.status,

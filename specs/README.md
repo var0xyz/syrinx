@@ -52,7 +52,7 @@ Each table below has a **Status** column per step. Values:
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
-| Recovery, operational | In progress | 01, 09 in progress; 02–08, 10–13                       |
+| Recovery, operational | In progress | 02–08, 10, 12–13 (01, 11 implemented; 09 in progress)  |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -495,7 +495,7 @@ refused. Follows become certificates either end can report back.
 
 | #  | Title                                                         | Status      |
 | -- | ------------------------------------------------------------- | ----------- |
-| 01 | Backup restore writes records as-is                           | In progress |
+| 01 | Backup restore writes records as-is                           | Implemented |
 | 02 | Refuse to boot without a current identity backup              | Proposed    |
 | 03 | `servers` / `server_mesh` / `server_self`                     | Proposed    |
 | 04 | Signed peer records in `/server/info`                         | Proposed    |
@@ -505,7 +505,7 @@ refused. Follows become certificates either end can report back.
 | 08 | Username collision certificate                                | Proposed    |
 | 09 | SPA: import decides; unclaimed profiles; drop `/logout`       | In progress |
 | 10 | Recovery metrics and dashboard                                | Proposed    |
-| 11 | Refuse removed accounts                                       | Proposed    |
+| 11 | Refuse removed accounts                                       | Implemented |
 | 12 | Keys-only restore of a recorded account                       | Proposed    |
 | 13 | Signed follows                                                | Proposed    |
 
