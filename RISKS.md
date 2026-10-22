@@ -190,7 +190,11 @@ it leaks rows.
 
 The server is built and tested as one process. Each entry below is a place
 that assumption is load-bearing; all of them need solving before replicas
-can run side by side.
+can run side by side. Beyond C1 and C2, two replicas booting on an empty
+database would each mint a server key, a user's stale socket on one
+replica can tear down their live session on another, and a crashed
+replica's relay requests stay dispatched forever. The plan for all of
+these is `specs/ha/` (inventory in `specs/ha/00_design.md`).
 
 #### C1 — Realtime federation assumes a single replica
 **Where:** `CLEAR_PRESENCE_ON_BOOT` in `main.go`; `reapStalePresence` and
