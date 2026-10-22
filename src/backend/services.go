@@ -783,6 +783,27 @@ func (s *DataService) GetActiveKeyFingerprint(ctx context.Context, userID string
 	return keyID.String, nil
 }
 
+// GetActiveKey loads the user's active key ID, armor and revoked state in
+// one round trip; nil when the user or the key is missing.
+func (s *DataService) GetActiveKey(ctx context.Context, userID string) (*Key, error) {
+	var key Key
+	err := s.db.QueryRowContext(ctx, `
+		SELECT pk.id, pk.armor,
+		       EXISTS(SELECT 1 FROM public_key_revocations rv WHERE rv.key_id = pk.id)
+		       OR EXISTS(SELECT 1 FROM private_key_revocations srv WHERE srv.key_id = pk.id)
+		FROM users u
+		JOIN public_keys pk ON pk.id = u.active_key_id
+		WHERE u.id = $1
+	`, userID).Scan(&key.ID, &key.Armor, &key.Revoked)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &key, nil
+}
+
 // GetUserRole returns users.role for authorization checks. The RootUserID
 // comparison itself happens in callers outside services.go (roles.go/
 // handlers.go); userID arrives in userID@serverID form already.
@@ -830,13 +851,6 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	}
 	defer tx.Rollback()
 
-	var oldUserSignatureID, oldServerSignatureID int64
-	if err := tx.QueryRowContext(ctx, `
-		SELECT user_signature_id, server_signature_id FROM users WHERE id = $1
-	`, selfIdentity).Scan(&oldUserSignatureID, &oldServerSignatureID); err != nil {
-		return err
-	}
-
 	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignature)
 	if err != nil {
 		return err
@@ -850,18 +864,23 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, `
-		UPDATE users
+	// The self-join's `old` row is the pre-update snapshot, so RETURNING
+	// hands back the superseded signature IDs.
+	var oldUserSignatureID, oldServerSignatureID int64
+	err = tx.QueryRowContext(ctx, `
+		UPDATE users u
 		SET username = $1,
 		    bio = $2,
 		    user_signature_id = $3,
 		    server_signature_id = $4
-		WHERE id = $5
+		FROM users old
+		WHERE u.id = $5 AND old.id = u.id
+		RETURNING old.user_signature_id, old.server_signature_id
 	`,
 		in.Username, in.Bio,
 		userSignatureID, serverSignatureID,
 		selfIdentity,
-	)
+	).Scan(&oldUserSignatureID, &oldServerSignatureID)
 	if err != nil {
 		if isUsernameUniqueViolation(err) {
 			return ErrUsernameTaken
@@ -872,14 +891,10 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 	// The superseded profile signature no longer describes the live
 	// profile — delete it now that the users row points at the new one.
 	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM user_signatures WHERE id = $1
-	`, oldUserSignatureID); err != nil {
-		return fmt.Errorf("delete superseded profile user signature: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM server_signatures WHERE id = $1
-	`, oldServerSignatureID); err != nil {
-		return fmt.Errorf("delete superseded profile server signature: %w", err)
+		WITH us AS (DELETE FROM user_signatures WHERE id = $1)
+		DELETE FROM server_signatures WHERE id = $2
+	`, oldUserSignatureID, oldServerSignatureID); err != nil {
+		return fmt.Errorf("delete superseded profile signatures: %w", err)
 	}
 
 	return tx.Commit()
