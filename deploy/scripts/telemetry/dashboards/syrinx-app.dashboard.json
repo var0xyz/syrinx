@@ -3216,81 +3216,6 @@
           }
         },
         {
-          "id": "syrinx_users_identity_backup",
-          "type": "bar",
-          "title": "Users with identity backup (.sxi)",
-          "description": "Live snapshot from DB counters (identity_backup_count > 0). Updated every metrics scrape (~10s).",
-          "config": {
-            "show_legends": true,
-            "legends_position": null,
-            "unit": null,
-            "base_map": {
-              "type": "osm"
-            },
-            "map_view": {
-              "zoom": 1.0,
-              "lat": 0.0,
-              "lng": 0.0
-            }
-          },
-          "queryType": "promql",
-          "queries": [
-            {
-              "query": "syrinx_users_with_identity_backup",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_users_with_identity_backup",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "backed up",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "syrinx_users_without_identity_backup",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_users_without_identity_backup",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "never backed up",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            }
-          ],
-          "layout": {
-            "x": 0,
-            "y": 28,
-            "w": 96,
-            "h": 14,
-            "i": 34
-          }
-        },
-        {
           "id": "syrinx_users_full_backup",
           "type": "bar",
           "title": "Users with full backup (.sxb)",
@@ -3358,7 +3283,7 @@
             }
           ],
           "layout": {
-            "x": 96,
+            "x": 0,
             "y": 28,
             "w": 96,
             "h": 14,
@@ -3456,8 +3381,8 @@
             }
           ],
           "layout": {
-            "x": 0,
-            "y": 42,
+            "x": 96,
+            "y": 28,
             "w": 96,
             "h": 14,
             "i": 36
@@ -3531,7 +3456,7 @@
             }
           ],
           "layout": {
-            "x": 96,
+            "x": 0,
             "y": 42,
             "w": 96,
             "h": 14,
