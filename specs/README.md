@@ -52,6 +52,7 @@ Each table below has a **Status** column per step. Values:
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
+| Recovery, operational | In progress | 01, 09 in progress; 02–08, 10–13                       |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -479,6 +480,34 @@ reconnecting. No bus, no Redis.
 | 11  | Deploy scripts: topology, per-role setup, rolling update    | Proposed |
 | 12  | Gateway and per-replica telemetry                           | Proposed |
 | 13  | Local HA dev setup and failure tests                        | Proposed |
+
+## Recovery, operational (back to normal before everyone reports)
+
+See [`recovery_operational/`](recovery_operational/README.md). Recovery is
+always available: a user the server hasn't seen claimed reports back
+whenever they show up, by full backup or by keys alone. Restoring a backup
+trusts the backup; peers become signed records clients report back; users
+and reeds of peers come back from devices, verified against peer keys.
+`RECOVERY_MODE=lockdown|operational|off` only controls signups and peers
+(`503` in lockdown). Older users always win username collisions, settled
+by a signed certificate instead of deleting the loser; removed accounts are
+refused. Follows become certificates either end can report back.
+
+| #  | Title                                                         | Status      |
+| -- | ------------------------------------------------------------- | ----------- |
+| 01 | Backup restore writes records as-is                           | In progress |
+| 02 | Refuse to boot without a current identity backup              | Proposed    |
+| 03 | `servers` / `server_mesh` / `server_self`                     | Proposed    |
+| 04 | Signed peer records in `/server/info`                         | Proposed    |
+| 05 | Recovery always available; `RECOVERY_MODE` modes              | Proposed    |
+| 06 | Delivery: `503` suspends; receive-side fixes                  | Proposed    |
+| 07 | Recovery reports servers, users, reeds, local and foreign     | Proposed    |
+| 08 | Username collision certificate                                | Proposed    |
+| 09 | SPA: import decides; unclaimed profiles; drop `/logout`       | In progress |
+| 10 | Recovery metrics and dashboard                                | Proposed    |
+| 11 | Refuse removed accounts                                       | Proposed    |
+| 12 | Keys-only restore of a recorded account                       | Proposed    |
+| 13 | Signed follows                                                | Proposed    |
 
 ## Parallelism
 
