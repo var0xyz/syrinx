@@ -195,8 +195,8 @@ by name: `auth.rejected`, `ws.handshake.rejected`, `keys.fetch_errors`,
 `flags.*`, `blocks.refusals`, `cooldown.hits`, `admin.*` and
 `federation.lifecycle`. Every other counter and histogram is charted as a
 rate and carries only bounded attributes. An id there gives every reed or
-user its own series: the chart draws one flat line per entity, `increase()`
-misses each series' only event, and the SDK holds every series until restart.
+user its own series: the chart draws one flat line per entity, and the SDK
+holds every series until restart.
 
 Allowed on metric attributes:
 
@@ -223,16 +223,19 @@ Forbidden:
 
 ### 5.6 OpenObserve usage (operator notes)
 
-Bounded counters are charted as `sum(increase(m[5m]))`: events per five
-minutes, one line per query whatever the label mix. A series' first
-increment after a restart is not counted, at most one event per label
-combination per deploy. Counters with entity ids can't use `increase()`
-(each id's series would lose its only event), so their charts use `sum(m)`,
-the running total since the last restart.
+Counters and histograms are exported with **delta** temporality: each
+point is what happened in that 10 s export, not a running total. Charts use
+`sum(sum_over_time(m[5m]))`, events per five minutes, one line per query
+whatever the label mix. Cumulative export doesn't work here: a series'
+first point is already its first event, so `increase()` reports 0 for it,
+and on a small instance most series (every per-user one) have only one
+event. Gauges and `syrinx.ws.connections` (an up-down counter) stay
+cumulative and are charted as-is. Histogram percentiles sum bucket deltas
+the same way: `histogram_quantile(q, sum by (le) (sum_over_time(m_bucket[5m])))`.
 
 Example questions this unlocks:
 
-- Signups: `sum(increase(syrinx_users_created[5m]))` by `signup_mode`.
+- Signups: `sum(sum_over_time(syrinx_users_created[5m]))` by `signup_mode`.
 - Account churn: the same over `syrinx_users_deleted` vs
   `syrinx_users_created`; split by `note_has` for annotated vs silent
   departures.

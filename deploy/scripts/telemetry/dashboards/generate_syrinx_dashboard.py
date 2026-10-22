@@ -132,40 +132,45 @@ def promql_panel(
     }
 
 
-# Bounded counters are charted as events per window. Summing first folds
-# every label combination into one line per query.
+# Counters and histograms arrive as per-export deltas (cumulative values
+# would hide each series' first event from increase()), so a window's
+# events are sum_over_time. Summing folds label combinations into one line.
 WINDOW = "5m"
 
 
-def promql_increase(selector: str, legend: str, stream: str) -> tuple[str, str, str]:
-    return (f"sum(increase({selector}[{WINDOW}]))", legend, stream)
+def promql_window_sum(selector: str, legend: str, stream: str) -> tuple[str, str, str]:
+    return (f"sum(sum_over_time({selector}[{WINDOW}]))", legend, stream)
 
 
 def promql_total(metric: str, legend: str) -> tuple[str, str, str]:
-    return promql_increase(metric, legend, metric)
+    return promql_window_sum(metric, legend, metric)
 
 
 def promql_labeled(
     metric: str, attr: str, value: str, legend: str
 ) -> tuple[str, str, str]:
-    return promql_increase(f'{metric}{{{attr}="{value}"}}', legend, metric)
+    return promql_window_sum(f'{metric}{{{attr}="{value}"}}', legend, metric)
 
 
 def promql_filter(
     metric: str, labels: dict[str, str], legend: str
 ) -> tuple[str, str, str]:
     parts = ",".join(f'{k}="{v}"' for k, v in labels.items())
-    return promql_increase(f"{metric}{{{parts}}}", legend, metric)
+    return promql_window_sum(f"{metric}{{{parts}}}", legend, metric)
 
 
 def histogram_avg(metric: str, legend: str) -> tuple[str, str, str]:
-    """Mean observation value. OTLP histograms land as separate _sum/_count streams in O2."""
-    return (f"{metric}_sum / {metric}_count", legend, f"{metric}_sum")
+    """Mean observation value over WINDOW. OTLP histograms land as separate _sum/_count streams in O2."""
+    return (
+        f"sum(sum_over_time({metric}_sum[{WINDOW}])) / sum(sum_over_time({metric}_count[{WINDOW}]))",
+        legend,
+        f"{metric}_sum",
+    )
 
 
 def histogram_samples(metric: str, legend: str) -> tuple[str, str, str]:
     """Number of histogram recordings in the window (useful for sparse series)."""
-    return (f"{metric}_count", legend, f"{metric}_count")
+    return (f"sum(sum_over_time({metric}_count[{WINDOW}]))", legend, f"{metric}_count")
 
 
 def histogram_quantile_query(
@@ -174,7 +179,7 @@ def histogram_quantile_query(
     """Percentile band from OTLP histogram buckets over the last WINDOW.
     Empty windows have no observations and render as gaps."""
     return (
-        f"histogram_quantile({quantile}, sum by (le) (increase({metric}_bucket[{WINDOW}])))",
+        f"histogram_quantile({quantile}, sum by (le) (sum_over_time({metric}_bucket[{WINDOW}])))",
         legend,
         f"{metric}_bucket",
     )
@@ -194,20 +199,18 @@ def histogram_percentile_bands(
 def promql_sum_by_values(
     metric: str, attr: str, values: list[str]
 ) -> list[tuple[str, str, str]]:
-    """One summed line per label value, for counters that carry entity ids.
-    increase() would miss each id's first event, so this is the running total
-    since the last restart."""
-    return [(f'sum({metric}{{{attr}="{v}"}})', v, metric) for v in values]
+    """One line per label value, summed over the entity ids the counter carries."""
+    return [promql_labeled(metric, attr, v, v) for v in values]
 
 
 def top_users_sql(stream: str, labels: list[str], keys: list[str], limit: int = 25) -> str:
-    """Top rows by cumulative count. Each series' max(value) is its total;
-    a server restart resets it, so totals undercount across restarts."""
+    """Top rows by event count over the dashboard's time range: each point
+    is a delta, so the sum of a series' values is its total."""
     inner = ", ".join(labels)
     outer = ", ".join(keys)
     return (
         f"SELECT {outer}, sum(total) AS total FROM ( "
-        f"SELECT {inner}, max(value) AS total FROM {stream} GROUP BY {inner} ) "
+        f"SELECT {inner}, sum(value) AS total FROM {stream} GROUP BY {inner} ) "
         f"WHERE {keys[0]} IS NOT NULL AND {keys[0]} != '' "
         f"GROUP BY {outer} ORDER BY total DESC LIMIT {limit}"
     )
@@ -241,7 +244,7 @@ def promql_ws_by_type(direction: str) -> list[tuple[str, str, str]]:
     without listing them here."""
     return [
         (
-            f'sum by (ws_message_type) (increase({WS_MESSAGES}{{ws_direction="{direction}"}}[{WINDOW}]))',
+            f'sum by (ws_message_type) (sum_over_time({WS_MESSAGES}{{ws_direction="{direction}"}}[{WINDOW}]))',
             "{ws_message_type}",
             WS_MESSAGES,
         )
@@ -606,7 +609,7 @@ federation = [
         title="Peer connects and disconnects",
         queries=[
             (
-                f"sum by (event) (increase({FEDERATION_LIFECYCLE}[{WINDOW}]))",
+                f"sum by (event) (sum_over_time({FEDERATION_LIFECYCLE}[{WINDOW}]))",
                 "{event}",
                 FEDERATION_LIFECYCLE,
             ),
@@ -966,8 +969,8 @@ reeds = [
         queries=[
             promql_total(ECHOES_TARGETED, "chorus echoes"),
             (
-                f'sum(increase({REEDS_PUBLISHED}{{reed_kind="echo"}}[{WINDOW}])) '
-                f"- sum(increase({ECHOES_TARGETED}[{WINDOW}]))",
+                f'sum(sum_over_time({REEDS_PUBLISHED}{{reed_kind="echo"}}[{WINDOW}])) '
+                f"- sum(sum_over_time({ECHOES_TARGETED}[{WINDOW}]))",
                 "self echoes",
                 REEDS_PUBLISHED,
             ),
@@ -993,7 +996,7 @@ reeds = [
         title="Rejected reeds by reason",
         queries=[
             (
-                f'sum by (reason) (increase({CONTENT_REJECTED}{{store_name=~"reeds|threads"}}[{WINDOW}]))',
+                f'sum by (reason) (sum_over_time({CONTENT_REJECTED}{{store_name=~"reeds|threads"}}[{WINDOW}]))',
                 "{reason}",
                 CONTENT_REJECTED,
             ),
@@ -1241,7 +1244,7 @@ admin = [
         title="Admin actions executed",
         queries=[
             *promql_sum_by_values(ADMIN_EXECUTED, "action", ADMIN_ACTIONS),
-            (f'sum({ADMIN_EXECUTED}{{ok="false"}})', "failed", ADMIN_EXECUTED),
+            (f'sum(sum_over_time({ADMIN_EXECUTED}{{ok="false"}}[{WINDOW}]))', "failed", ADMIN_EXECUTED),
         ],
         layout=layout(0, 14, 96, 14, 69),
         description="Approved actions, counted once per target (once for a broadcast)",
@@ -1295,7 +1298,7 @@ admin = [
         title="Flags raised vs dismissed",
         queries=[
             *promql_sum_by_values(FLAGS_CREATED, "origin", ["local", "peer"]),
-            (f"sum({FLAGS_DISMISSED})", "dismissals", FLAGS_DISMISSED),
+            (f"sum(sum_over_time({FLAGS_DISMISSED}[{WINDOW}]))", "dismissals", FLAGS_DISMISSED),
         ],
         layout=layout(0, 58, 96, 14, 75),
         description="Flags from this server's members and from peers', and admin dismissals",
@@ -1313,8 +1316,8 @@ admin = [
         pid="syrinx_admin_mail",
         title="Admin mail",
         queries=[
-            (f'sum({ADMIN_MAIL}{{action="broadcast"}})', "broadcasts", ADMIN_MAIL),
-            (f'sum({ADMIN_MAIL}{{action="unicast"}})', "private messages", ADMIN_MAIL),
+            (f'sum(sum_over_time({ADMIN_MAIL}{{action="broadcast"}}[{WINDOW}]))', "broadcasts", ADMIN_MAIL),
+            (f'sum(sum_over_time({ADMIN_MAIL}{{action="unicast"}}[{WINDOW}]))', "private messages", ADMIN_MAIL),
         ],
         layout=layout(0, 72, 96, 14, 77),
         description="Approved broadcasts and private messages delivered to mailboxes",
@@ -1377,7 +1380,7 @@ abuse = [
         queries=[
             promql_labeled(USERNAME_CHECKS, "available", "true", "available"),
             promql_labeled(USERNAME_CHECKS, "available", "false", "taken"),
-            (f"sum({RESERVED_HITS})", "reserved name hits", RESERVED_HITS),
+            (f"sum(sum_over_time({RESERVED_HITS}[{WINDOW}]))", "reserved name hits", RESERVED_HITS),
         ],
         layout=layout(96, 30, 96, 14, 84),
         description="A spike in checks without signups suggests username enumeration",
