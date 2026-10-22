@@ -156,7 +156,7 @@ func TestForeignReedCaughtUpOnSync(t *testing.T) {
 		t.Fatalf("follow: %v", err)
 	}
 	for _, u := range []string{mentioned, follower} {
-		if err := f.rs.db.MarkUserOffline(ctx, u); err != nil {
+		if _, err := f.rs.db.MarkUserOffline(ctx, u); err != nil {
 			t.Fatalf("MarkUserOffline: %v", err)
 		}
 	}

@@ -4598,10 +4598,10 @@
       "name": "Relay",
       "panels": [
         {
-          "id": "syrinx_relay_lifecycle",
+          "id": "syrinx_relay_lag",
           "type": "line",
-          "title": "Pending relay events by lifecycle stage",
-          "description": "pending_events rows created, fulfilled and deleted per 5m (syrinx.relay.event). Created persistently above fulfilled plus deleted means requests are leaking.",
+          "title": "Relay event lag",
+          "description": "Relay events created but not yet deleted (syrinx.relay.pending). It should drain back to zero; a floor that keeps rising means requests are leaking.",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -4618,11 +4618,11 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{relay_lifecycle=\"created\"}[5m]))",
+              "query": "sum(syrinx_relay_pending)",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4635,53 +4635,7 @@
                 }
               },
               "config": {
-                "promql_legend": "created",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "sum(sum_over_time(syrinx_relay_event{relay_lifecycle=\"fulfilled\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_relay_event",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "fulfilled",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "sum(sum_over_time(syrinx_relay_event{relay_lifecycle=\"deleted\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_relay_event",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "deleted",
+                "promql_legend": "open events",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }
@@ -4696,10 +4650,10 @@
           }
         },
         {
-          "id": "syrinx_relay_lifecycle_by_kind",
+          "id": "syrinx_relay_lag_by_kind",
           "type": "line",
-          "title": "Relay events by kind",
-          "description": "All lifecycle stages summed together, split by event.kind",
+          "title": "Relay event lag by kind",
+          "description": "Open relay events split by event.kind",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -4716,11 +4670,11 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"request_reed\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"request_reed\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4739,11 +4693,34 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"profile_subscription\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"request_thread\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "request_thread",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_relay_pending{event_kind=\"profile_subscription\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4762,11 +4739,11 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"follow_reed\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"follow_reed\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4785,11 +4762,11 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"broadcast_reed\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"broadcast_reed\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4808,11 +4785,11 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"pipe_reed\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"pipe_reed\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4831,11 +4808,11 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"reed_removed\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"reed_removed\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4854,11 +4831,34 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"account_removed\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"thread_removed\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "thread_removed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_relay_pending{event_kind=\"account_removed\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4877,11 +4877,34 @@
               }
             },
             {
-              "query": "sum(sum_over_time(syrinx_relay_event{event_kind=\"reed_reply\"}[5m]))",
+              "query": "sum(syrinx_relay_pending{event_kind=\"key_revoked\"})",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_relay_event",
+                "stream": "syrinx_relay_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "key_revoked",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_relay_pending{event_kind=\"reed_reply\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_pending",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -4895,6 +4918,75 @@
               },
               "config": {
                 "promql_legend": "reed_reply",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_relay_pending{event_kind=\"archive_reed\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "archive_reed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_relay_pending{event_kind=\"mention\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "mention",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_relay_pending{event_kind=\"admin_mention\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_relay_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "admin_mention",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }

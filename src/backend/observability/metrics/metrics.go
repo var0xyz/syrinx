@@ -54,14 +54,13 @@ const (
 	RevocationRebind   RevocationKind = "rebind"
 )
 
-// RelayLifecycle is a pending relay event's stage. Created minus fulfilled
-// and deleted over time approximates leaked requests.
+// RelayLifecycle is a pending relay event's stage. Created minus deleted
+// is how many relay requests are still open.
 type RelayLifecycle string
 
 const (
-	RelayEventCreated   RelayLifecycle = "created"
-	RelayEventFulfilled RelayLifecycle = "fulfilled"
-	RelayEventDeleted   RelayLifecycle = "deleted"
+	RelayEventCreated RelayLifecycle = "created"
+	RelayEventDeleted RelayLifecycle = "deleted"
 )
 
 // Op is the direction of a toggle-style action.

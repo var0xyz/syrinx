@@ -278,7 +278,7 @@ CONTENT_REJECTED = metric_stream("syrinx.content.rejected")
 REED_HOLDERS = metric_stream("syrinx.reed.holders")
 REED_COVERAGE = metric_stream("syrinx.reed.coverage_percent")
 WS_MESSAGES = metric_stream("syrinx.ws.messages")
-RELAY_EVENTS = metric_stream("syrinx.relay.event")
+RELAY_PENDING = metric_stream("syrinx.relay.pending")
 FEDERATION_RELAY = metric_stream("syrinx.federation.relay")
 FEDERATION_BACKLOG = metric_stream("syrinx.federation.delivery.backlog")
 FEDERATION_LIFECYCLE = metric_stream("syrinx.federation.lifecycle")
@@ -1136,41 +1136,40 @@ websocket = [
 
 relay = [
     promql_panel(
-        pid="syrinx_relay_lifecycle",
-        title="Pending relay events by lifecycle stage",
-        queries=[
-            promql_labeled(RELAY_EVENTS, "relay_lifecycle", "created", "created"),
-            promql_labeled(RELAY_EVENTS, "relay_lifecycle", "fulfilled", "fulfilled"),
-            promql_labeled(RELAY_EVENTS, "relay_lifecycle", "deleted", "deleted"),
-        ],
+        pid="syrinx_relay_lag",
+        title="Relay event lag",
+        queries=[(f"sum({RELAY_PENDING})", "open events", RELAY_PENDING)],
         layout=layout(0, 0, 96, 14, 60),
         description=(
-            "pending_events rows created, fulfilled and deleted per 5m "
-            "(syrinx.relay.event). Created persistently above fulfilled plus "
-            "deleted means requests are leaking."
+            "Relay events created but not yet deleted (syrinx.relay.pending). "
+            "It should drain back to zero; a floor that keeps rising means "
+            "requests are leaking."
         ),
     ),
     promql_panel(
-        pid="syrinx_relay_lifecycle_by_kind",
-        title="Relay events by kind",
+        pid="syrinx_relay_lag_by_kind",
+        title="Relay event lag by kind",
         queries=[
-            *promql_labeled_queries(
-                RELAY_EVENTS,
-                "event_kind",
-                [
-                    ("request_reed", "request_reed"),
-                    ("profile_subscription", "profile_subscription"),
-                    ("follow_reed", "follow_reed"),
-                    ("broadcast_reed", "broadcast_reed"),
-                    ("pipe_reed", "pipe_reed"),
-                    ("reed_removed", "reed_removed"),
-                    ("account_removed", "account_removed"),
-                    ("reed_reply", "reed_reply"),
-                ],
-            ),
+            (f'sum({RELAY_PENDING}{{event_kind="{kind}"}})', kind, RELAY_PENDING)
+            for kind in [
+                    "request_reed",
+                    "request_thread",
+                    "profile_subscription",
+                    "follow_reed",
+                    "broadcast_reed",
+                    "pipe_reed",
+                    "reed_removed",
+                    "thread_removed",
+                    "account_removed",
+                    "key_revoked",
+                    "reed_reply",
+                    "archive_reed",
+                    "mention",
+                    "admin_mention",
+            ]
         ],
         layout=layout(96, 0, 96, 14, 61),
-        description="All lifecycle stages summed together, split by event.kind",
+        description="Open relay events split by event.kind",
     ),
     promql_panel(
         pid="syrinx_federation_relay_volume",

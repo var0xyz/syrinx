@@ -119,12 +119,15 @@ func TestForgetPeerReportsLocalViewers(t *testing.T) {
 	db, rs, viewer := newTeardownTestService(t)
 	seedPeerResetState(t, db, rs, viewer)
 
-	viewers, err := rs.db.ForgetPeerRealtimeState(context.Background(), teardownPeerID)
+	viewers, deleted, err := rs.db.ForgetPeerRealtimeState(context.Background(), teardownPeerID)
 	if err != nil {
 		t.Fatalf("ForgetPeerRealtimeState: %v", err)
 	}
 	if len(viewers) != 1 || viewers[0] != viewer {
 		t.Fatalf("viewers = %v, want [%s]", viewers, viewer)
+	}
+	if len(deleted) != 1 || deleted[0] != "REQUEST_REED" {
+		t.Fatalf("deleted = %v, want the peer's one relay request", deleted)
 	}
 
 	// The lost-connection message names the peer even once it's revoked.

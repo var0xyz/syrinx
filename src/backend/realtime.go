@@ -2198,11 +2198,12 @@ func (rs *realtimeService) reapStalePresence() {
 			continue
 		}
 		rs.teardownUser(ctx, userID)
-		gone, err := rs.db.EvictStalePresence(ctx, userID, realtimePresenceTTL)
+		gone, deleted, err := rs.db.EvictStalePresence(ctx, userID, realtimePresenceTTL)
 		if err != nil {
 			log.Error().Err(err).Str("userID", userID).Msg("Failed to evict stale presence row")
 			continue
 		}
+		rs.recordPendingDeleted(ctx, deleted)
 		if gone {
 			evicted++
 			continue
@@ -2328,8 +2329,10 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 
 	disconnectCtx, disconnectSpan := startWSSpan("ws.disconnect")
 	rs.teardownUser(disconnectCtx, userID)
-	if err := rs.db.MarkUserOffline(disconnectCtx, userID); err != nil {
+	if deleted, err := rs.db.MarkUserOffline(disconnectCtx, userID); err != nil {
 		log.Error().Err(err).Msg("Failed to mark user as offline")
+	} else {
+		rs.recordPendingDeleted(disconnectCtx, deleted)
 	}
 	disconnectSpan.End()
 
@@ -2406,11 +2409,12 @@ func (rs *realtimeService) forgetPeer(ctx context.Context, serverID string) {
 		}
 	}
 
-	viewers, err := rs.db.ForgetPeerRealtimeState(ctx, serverID)
+	viewers, deleted, err := rs.db.ForgetPeerRealtimeState(ctx, serverID)
 	if err != nil {
 		log.Error().Err(err).Str("serverID", serverID).Msg("Failed to forget peer realtime state")
 		return
 	}
+	rs.recordPendingDeleted(ctx, deleted)
 	if len(viewers) > 0 {
 		name, err := rs.db.GetServerName(ctx, serverID)
 		if err != nil || name == "" {
@@ -2449,12 +2453,12 @@ func (rs *realtimeService) teardownUser(ctx context.Context, userID string) {
 	if deleted, err := rs.db.DeletePendingEventsByUser(ctx, userID); err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete pending events on disconnect")
 	} else {
-		for _, d := range deleted {
-			rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName)
-		}
+		rs.recordPendingDeleted(ctx, deleted)
 	}
-	if err := rs.db.DeleteProfileSubscriptionsByViewer(ctx, userID); err != nil {
+	if deleted, err := rs.db.DeleteProfileSubscriptionsByViewer(ctx, userID); err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete profile subscriptions on disconnect")
+	} else {
+		rs.recordPendingDeleted(ctx, deleted)
 	}
 	if err := rs.db.DeleteReedSubscriptionsByViewer(ctx, userID); err != nil {
 		log.Error().Err(err).Str("userID", userID).Msg("Failed to delete reed subscriptions on disconnect")
@@ -2935,10 +2939,8 @@ func generateRealtimeEventID(requesterUserID string) string {
 	return string(appendEntity(identityID(requesterUserID), uuid.New().String()))
 }
 
-// createPendingReedEvent wraps db.CreatePendingReedEvent, additionally
-// recording a "created" RelayEvent lifecycle sample — the counterpart to
-// deletePendingEvent's "deleted"/"fulfilled" so wasted-bandwidth analysis
-// (created with no matching fulfilled/deleted) can correlate by event.id.
+// createPendingReedEvent wraps db.CreatePendingReedEvent, recording a
+// "created" sample, the counterpart to deletePendingEvent's "deleted".
 func (rs *realtimeService) createPendingReedEvent(ctx context.Context, eventID, requestID, requesterUserID string, eventName realtimeEventName, reedID string) error {
 	if eventName != reedRemovedEvent && eventName != threadRemovedEvent && rs.blockedBy(ctx, reedAuthorIdentity(reedID), requesterUserID) != nil {
 		return errRecipientBlocked
@@ -2971,11 +2973,15 @@ func (rs *realtimeService) createProfileSubscriptionEvent(ctx context.Context, e
 	return nil
 }
 
-// deletePendingEvent wraps db.DeletePendingEvent, additionally recording a
-// "deleted" RelayEvent lifecycle sample when a row was actually removed
-// (eventName is empty if it was already gone — nothing to record). Use
-// this for a delete that's cleanup/cancellation; use the fulfilled sample
-// alongside a delivery instead when the event was actually answered.
+// recordPendingDeleted records a "deleted" sample per removed pending event.
+func (rs *realtimeService) recordPendingDeleted(ctx context.Context, eventNames []string) {
+	for _, name := range eventNames {
+		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, name)
+	}
+}
+
+// deletePendingEvent wraps db.DeletePendingEvent, recording a "deleted"
+// sample only when a row was actually removed.
 func (rs *realtimeService) deletePendingEvent(ctx context.Context, eventID string) error {
 	eventName, err := rs.db.DeletePendingEvent(ctx, eventID)
 	if err != nil {
@@ -3637,9 +3643,11 @@ func (rs *realtimeService) handleUnsubscribeProfile(ctx context.Context, client 
 		return
 	}
 
-	if err := rs.db.DeleteProfileSubscription(ctx, subscriptionID); err != nil {
+	deleted, err := rs.db.DeleteProfileSubscription(ctx, subscriptionID)
+	if err != nil {
 		log.Error().Err(err).Str("subscriptionID", subscriptionID).Msg("Failed to delete profile subscription")
 	}
+	rs.recordPendingDeleted(ctx, deleted)
 }
 
 // realtimeForeignReedStatsSnapshot is the initial stats snapshot returned
@@ -4540,8 +4548,7 @@ func (rs *realtimeService) handleRelayResponse(ctx context.Context, client *real
 		return
 	}
 	if pe == nil {
-		// Already resolved (e.g. a retransmit) — no duplicate "fulfilled"
-		// sample, just advance the holder's queue.
+		// Already resolved (e.g. a retransmit): just advance the holder's queue.
 		rs.dispatchN(client.userID, fanoutRefillBurst)
 		return
 	}
@@ -4549,8 +4556,6 @@ func (rs *realtimeService) handleRelayResponse(ctx context.Context, client *real
 		log.Warn().Str("eventID", eventID).Str("userID", client.userID).Msg("Ignoring RELAY_RESPONSE: not the dispatched holder")
 		return
 	}
-
-	rs.metrics.RelayEvent(ctx, metrics.RelayEventFulfilled, pe.EventName)
 
 	if pe.EventName == string(broadcastReedEvent) {
 		username, err := rs.db.GetRealtimeUsername(ctx, pe.UserID)

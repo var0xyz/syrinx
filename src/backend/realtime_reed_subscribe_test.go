@@ -17,6 +17,7 @@ const reedSubTestServerID = "testserver"
 func ensureReedSubSchema(db *sql.DB) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS reed_subscriptions CASCADE`,
+		`DROP TABLE IF EXISTS pending_events CASCADE`,
 		`DROP TABLE IF EXISTS online_users CASCADE`,
 		`DROP TABLE IF EXISTS reed_identities CASCADE`,
 		`DROP TABLE IF EXISTS identities CASCADE`,
@@ -35,6 +36,11 @@ func ensureReedSubSchema(db *sql.DB) error {
 			sync_request_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			last_pong TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNLOGGED TABLE pending_events (
+			event_id VARCHAR(255) PRIMARY KEY,
+			requester_user_id VARCHAR(255) REFERENCES online_users(user_id) ON DELETE CASCADE,
+			event_name VARCHAR(255) NOT NULL
 		)`,
 		`CREATE UNLOGGED TABLE reed_subscriptions (
 			subscription_id VARCHAR(255) PRIMARY KEY,
@@ -193,7 +199,7 @@ func TestReedSubscriptionsClearedByTeardownNotPresence(t *testing.T) {
 		t.Fatalf("CreateReedSubscription: %v", err)
 	}
 
-	if err := svc.MarkUserOffline(ctx, viewer); err != nil {
+	if _, err := svc.MarkUserOffline(ctx, viewer); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
 	}
 	countRows := func() int {

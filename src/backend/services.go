@@ -8024,17 +8024,28 @@ func (s *DataService) GetSyncRequestID(ctx context.Context, userID string) (stri
 	return id, err
 }
 
-// MarkUserOffline marks a user as offline in the database.
-func (s *DataService) MarkUserOffline(ctx context.Context, userID string) error {
+// MarkUserOffline marks a user as offline in the database and returns the
+// event_name of each pending event that went with the presence row.
+func (s *DataService) MarkUserOffline(ctx context.Context, userID string) ([]string, error) {
 	selfIdentity := identityID(userID)
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM online_users WHERE user_id = $1
-	`, selfIdentity)
+	var deleted []string
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		deleted, err = deletedEventNames(tx.QueryContext(ctx, `
+			DELETE FROM pending_events WHERE requester_user_id = $1
+			RETURNING event_name
+		`, selfIdentity))
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM online_users WHERE user_id = $1`, selfIdentity)
+		return err
+	})
 	if err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("[ERR] Failed to mark user as offline")
-		return err
+		return nil, err
 	}
-	return nil
+	return deleted, nil
 }
 
 // ClearRealtimeState drops every presence row, subscription and in-flight
@@ -8060,12 +8071,12 @@ func (s *DataService) ClearRealtimeState(ctx context.Context) error {
 }
 
 // ForgetPeerRealtimeState drops everything shared with serverID in both
-// directions: its users' subscriptions and relay requests here, and our
-// users' subscriptions to its profiles and reeds, whose viewers it returns.
-func (s *DataService) ForgetPeerRealtimeState(ctx context.Context, serverID string) ([]string, error) {
+// directions. It returns the viewers of our users' dropped subscriptions to
+// its profiles and reeds, and the event_names of the pending events dropped.
+func (s *DataService) ForgetPeerRealtimeState(ctx context.Context, serverID string) (viewers, deleted []string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer tx.Rollback()
 
@@ -8081,19 +8092,34 @@ func (s *DataService) ForgetPeerRealtimeState(ctx context.Context, serverID stri
 		WHERE ri.server_id = $1
 	`, serverID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var viewers []string
 	for rows.Next() {
 		var viewer identityID
 		if err := rows.Scan(&viewer); err != nil {
 			rows.Close()
-			return nil, err
+			return nil, nil, err
 		}
 		viewers = append(viewers, string(viewer))
 	}
 	if err := rows.Close(); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	// Removed explicitly rather than by the subscriptions' cascade, so each
+	// one is reported.
+	deleted, err = deletedEventNames(tx.QueryContext(ctx, `
+		DELETE FROM pending_events
+		WHERE event_id IN (SELECT event_id FROM foreign_relay_requests WHERE requesting_server_id = $1)
+		   OR subscription_id IN (
+			SELECT subscription_id FROM profile_subscriptions
+			WHERE viewer_user_id IN (SELECT id FROM identities WHERE server_id = $1)
+			   OR author_user_id IN (SELECT id FROM identities WHERE server_id = $1)
+		   )
+		RETURNING event_name
+	`, serverID))
+	if err != nil {
+		return nil, nil, err
 	}
 
 	for _, stmt := range []string{
@@ -8103,14 +8129,12 @@ func (s *DataService) ForgetPeerRealtimeState(ctx context.Context, serverID stri
 		`DELETE FROM reed_subscriptions
 		 WHERE viewer_user_id IN (SELECT id FROM identities WHERE server_id = $1)
 		    OR reed_id IN (SELECT id FROM reed_identities WHERE server_id = $1)`,
-		`DELETE FROM pending_events
-		 WHERE event_id IN (SELECT event_id FROM foreign_relay_requests WHERE requesting_server_id = $1)`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, serverID); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return viewers, tx.Commit()
+	return viewers, deleted, tx.Commit()
 }
 
 // GetServerName returns a server's display name, revoked or not; empty
@@ -8179,19 +8203,37 @@ func (s *DataService) StalePresence(ctx context.Context, ttl time.Duration) ([]s
 	return stale, rows.Err()
 }
 
-// EvictStalePresence deletes one presence row if its heartbeat is still
-// older than ttl, reporting whether it did. A user who reconnected or sent
-// a PONG since StalePresence listed them keeps their row.
-func (s *DataService) EvictStalePresence(ctx context.Context, userID string, ttl time.Duration) (bool, error) {
+// EvictStalePresence deletes one presence row, and its pending events, if
+// its heartbeat is still older than ttl. A user who reconnected or sent a
+// PONG since StalePresence listed them keeps their row.
+func (s *DataService) EvictStalePresence(ctx context.Context, userID string, ttl time.Duration) (gone bool, deleted []string, err error) {
 	cutoff := time.Now().UTC().Add(-ttl)
-	res, err := s.db.ExecContext(ctx, `
-		DELETE FROM online_users WHERE user_id = $1 AND last_pong < $2
-	`, identityID(userID), cutoff)
+	selfIdentity := identityID(userID)
+	err = s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, `
+			SELECT true FROM online_users WHERE user_id = $1 AND last_pong < $2
+			FOR UPDATE
+		`, selfIdentity, cutoff).Scan(&gone)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		deleted, err = deletedEventNames(tx.QueryContext(ctx, `
+			DELETE FROM pending_events WHERE requester_user_id = $1
+			RETURNING event_name
+		`, selfIdentity))
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM online_users WHERE user_id = $1`, selfIdentity)
+		return err
+	})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	n, err := res.RowsAffected()
-	return n > 0, err
+	return gone, deleted, nil
 }
 
 // IsUserOnline reports whether a user has a live presence row. Unlike the
@@ -8837,42 +8879,53 @@ func (s *DataService) DeletePendingEvent(ctx context.Context, eventID string) (e
 	return eventName, err
 }
 
-// deletedPendingEvent identifies one row DeletePendingEventsByUser removed,
-// for per-event telemetry.
-type deletedPendingEvent struct {
-	EventID   string
-	EventName string
-}
-
-// DeletePendingEventsByUser deletes all pending events for a given requester
-// user ID (e.g. the user went offline) and reports which ones were removed.
-func (s *DataService) DeletePendingEventsByUser(ctx context.Context, userID string) ([]deletedPendingEvent, error) {
-	selfIdentity := identityID(userID)
-	rows, err := s.db.QueryContext(ctx, `
-		DELETE FROM pending_events WHERE requester_user_id = $1
-		RETURNING event_id, event_name
-	`, selfIdentity)
+// deletedEventNames collects the rows of a DELETE FROM pending_events ...
+// RETURNING event_name, so every removal can be counted.
+func deletedEventNames(rows *sql.Rows, err error) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var deleted []deletedPendingEvent
+	var names []string
 	for rows.Next() {
-		var d deletedPendingEvent
-		if err := rows.Scan(&d.EventID, &d.EventName); err != nil {
+		var name string
+		if err := rows.Scan(&name); err != nil {
 			return nil, err
 		}
-		deleted = append(deleted, d)
+		names = append(names, name)
 	}
-	return deleted, rows.Err()
+	return names, rows.Err()
 }
 
-// DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a given viewer.
-func (s *DataService) DeleteProfileSubscriptionsByViewer(ctx context.Context, userID string) error {
+// DeletePendingEventsByUser deletes all pending events for a given requester
+// user ID (e.g. the user went offline) and returns their event_names.
+func (s *DataService) DeletePendingEventsByUser(ctx context.Context, userID string) ([]string, error) {
+	return deletedEventNames(s.db.QueryContext(ctx, `
+		DELETE FROM pending_events WHERE requester_user_id = $1
+		RETURNING event_name
+	`, identityID(userID)))
+}
+
+// DeleteProfileSubscriptionsByViewer deletes all profile subscriptions for a
+// given viewer and returns the event_names of their pending events.
+func (s *DataService) DeleteProfileSubscriptionsByViewer(ctx context.Context, userID string) ([]string, error) {
 	selfIdentity := identityID(userID)
-	_, err := s.db.ExecContext(ctx, `DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, selfIdentity)
-	return err
+	var deleted []string
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		deleted, err = deletedEventNames(tx.QueryContext(ctx, `
+			DELETE FROM pending_events WHERE subscription_id IN (
+				SELECT subscription_id FROM profile_subscriptions WHERE viewer_user_id = $1
+			)
+			RETURNING event_name
+		`, selfIdentity))
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `DELETE FROM profile_subscriptions WHERE viewer_user_id = $1`, selfIdentity)
+		return err
+	})
+	return deleted, err
 }
 
 // viewerSubscription is one of a viewer's own active profile subscriptions
@@ -9607,12 +9660,25 @@ func (s *DataService) GetProfileSubscription(ctx context.Context, viewerUserID, 
 	return id, err
 }
 
-// DeleteProfileSubscription deletes a subscription by ID, cascading to its pending_events.
-func (s *DataService) DeleteProfileSubscription(ctx context.Context, subscriptionID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM profile_subscriptions WHERE subscription_id = $1
-	`, subscriptionID)
-	return err
+// DeleteProfileSubscription deletes a subscription by ID and its
+// pending_events, returning their event_names.
+func (s *DataService) DeleteProfileSubscription(ctx context.Context, subscriptionID string) ([]string, error) {
+	var deleted []string
+	err := s.inUnloggedTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		deleted, err = deletedEventNames(tx.QueryContext(ctx, `
+			DELETE FROM pending_events WHERE subscription_id = $1
+			RETURNING event_name
+		`, subscriptionID))
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			DELETE FROM profile_subscriptions WHERE subscription_id = $1
+		`, subscriptionID)
+		return err
+	})
+	return deleted, err
 }
 
 // CreateReedSubscription records an active reed-stats subscription for a

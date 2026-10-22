@@ -28,7 +28,6 @@ type OTEL struct {
 	mentionClaimRejected metric.Int64Counter
 	usersBackup          metric.Int64Counter
 	wsMessages           metric.Int64Counter
-	relayEvents          metric.Int64Counter
 	federationRelay      metric.Int64Counter
 	holders              metric.Int64Histogram
 	coveragePercent      metric.Int64Histogram
@@ -51,6 +50,7 @@ type OTEL struct {
 	authRejected           metric.Int64Counter
 	wsHandshakeRejected    metric.Int64Counter
 	wsConnections          metric.Int64UpDownCounter
+	relayPending           metric.Int64UpDownCounter
 	wsSessions             metric.Int64Counter
 	signupRejected         metric.Int64Counter
 	usernameChecks         metric.Int64Counter
@@ -126,7 +126,6 @@ func New(m metric.Meter) *OTEL {
 	r.mentionClaimRejected = counter("syrinx.mentions.claim_rejected")
 	r.usersBackup = counter("syrinx.users.backup")
 	r.wsMessages = counter("syrinx.ws.messages")
-	r.relayEvents = counter("syrinx.relay.event")
 	r.federationRelay = counter("syrinx.federation.relay")
 	r.holders = histogram("syrinx.reed.holders")
 	r.coveragePercent = histogram("syrinx.reed.coverage_percent")
@@ -152,6 +151,11 @@ func New(m metric.Meter) *OTEL {
 		logFailure("syrinx.ws.connections", err)
 	} else {
 		r.wsConnections = c
+	}
+	if c, err := m.Int64UpDownCounter("syrinx.relay.pending"); err != nil {
+		logFailure("syrinx.relay.pending", err)
+	} else {
+		r.relayPending = c
 	}
 	r.wsSessions = counter("syrinx.ws.sessions")
 	r.signupRejected = counter("syrinx.signup.rejected")
@@ -311,9 +315,16 @@ func (r *OTEL) WSMessage(ctx context.Context, direction Direction, msgType strin
 	add(ctx, r.wsMessages, str("ws.direction", string(direction)), str("ws.message.type", msgType))
 }
 
-// RelayEvent records one stage of a pending relay event's life.
+// RelayEvent moves the count of open pending relay events by one.
 func (r *OTEL) RelayEvent(ctx context.Context, lifecycle RelayLifecycle, eventKind string) {
-	add(ctx, r.relayEvents, str("relay.lifecycle", string(lifecycle)), str("event.kind", eventKind))
+	if r.relayPending == nil {
+		return
+	}
+	delta := int64(1)
+	if lifecycle == RelayEventDeleted {
+		delta = -1
+	}
+	r.relayPending.Add(ctx, delta, metric.WithAttributes(str("event.kind", eventKind)))
 }
 
 // FederationRelay records one federation HTTP call, either side: this

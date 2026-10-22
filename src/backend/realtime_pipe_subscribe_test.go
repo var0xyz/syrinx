@@ -24,6 +24,7 @@ func openPipeTestDB(t *testing.T) *sql.DB {
 func ensurePipeSchema(db *sql.DB) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS pipe_subscriptions CASCADE`,
+		`DROP TABLE IF EXISTS pending_events CASCADE`,
 		`DROP TABLE IF EXISTS online_users CASCADE`,
 		`DROP TABLE IF EXISTS identities CASCADE`,
 		`CREATE TABLE identities (
@@ -36,6 +37,11 @@ func ensurePipeSchema(db *sql.DB) error {
 			sync_request_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			last_pong TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE UNLOGGED TABLE pending_events (
+			event_id VARCHAR(255) PRIMARY KEY,
+			requester_user_id VARCHAR(255) REFERENCES online_users(user_id) ON DELETE CASCADE,
+			event_name VARCHAR(255) NOT NULL
 		)`,
 		`CREATE UNLOGGED TABLE pipe_subscriptions (
 			user_id VARCHAR(255) NOT NULL REFERENCES online_users(user_id) ON DELETE CASCADE,
@@ -130,8 +136,16 @@ func TestPipeSubscriptionsCascadeOnOffline(t *testing.T) {
 		}
 	}
 
-	if err := svc.MarkUserOffline(ctx, viewer); err != nil {
+	if _, err := db.Exec(`INSERT INTO pending_events (event_id, requester_user_id, event_name) VALUES ('ev', $1, 'pipe_reed')`, string(identityID(viewer))); err != nil {
+		t.Fatalf("insert pending event: %v", err)
+	}
+
+	deleted, err := svc.MarkUserOffline(ctx, viewer)
+	if err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0] != "pipe_reed" {
+		t.Fatalf("deleted = %v, want [pipe_reed]", deleted)
 	}
 
 	var remaining int
@@ -174,7 +188,7 @@ func TestStalePresenceEviction(t *testing.T) {
 	if len(listed) != 1 || listed[0] != stale {
 		t.Fatalf("stale = %v, want [%s]", listed, stale)
 	}
-	gone, err := svc.EvictStalePresence(ctx, stale, realtimePresenceTTL)
+	gone, _, err := svc.EvictStalePresence(ctx, stale, realtimePresenceTTL)
 	if err != nil {
 		t.Fatalf("EvictStalePresence: %v", err)
 	}
