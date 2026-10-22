@@ -8,16 +8,10 @@ import { ensureDeviceId } from './deviceId';
 import { localStorageService } from './localstorage';
 import { serverInfo } from './serverInfo';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
-import { revocationRepository } from '$lib/repositories/revocation';
-import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
-import { removedReedsRepository } from '$lib/repositories/removedReeds';
-import { threadsRepository } from '$lib/repositories/threads';
-import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { allowUnsigned } from '$lib/verifiers';
 import type { PrivateKey } from '$lib/repositories/privateKey';
-import type { ReedType } from '$lib/types/reed';
 
 export type BackupTable = {
   name: string;
@@ -325,7 +319,7 @@ export function isIdentityBackupPayload(backup: BackupPayload): boolean {
 
 /**
  * Write private keys + session markers from an identity backup. Public keys
- * come after, once requests can be signed: see restoreBackupPublicKeys.
+ * come after: see restoreBackupPublicKeys.
  */
 export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<void> {
   assertIdentityBackupKeys(backup);
@@ -353,8 +347,7 @@ export async function writeIdentityKeysBackup(backup: BackupPayload): Promise<vo
   }
 }
 
-/** An identity backup's public keys. Checking a rotated key's predecessor
- * is a signed request, so this runs once the session can sign. */
+/** An identity backup's public keys. */
 export async function restoreBackupPublicKeys(backup: BackupPayload): Promise<void> {
   const table = (backup.indexedDB?.tables ?? []).find((t) => t.name === 'publicKeys');
   for (const item of table?.items ?? []) {
@@ -400,61 +393,17 @@ export function backupKeyItemId(item: object): string | undefined {
     ?? (item as { id?: string; keyId?: string }).keyId;
 }
 
-/**
- * A self-signed server key has an empty serverSignature.id (nothing
- * countersigns it). Other keys need it cached to verify their own
- * serverSignature, so it must restore first — getAll() order gives no guarantee.
- */
-function orderServerKeysFirst(table: BackupTable): BackupTable {
-  const items = [...(table.items ?? [])];
-  items.sort((a, b) => {
-    const aIsServerKey = (a as api.PublicKey)?.serverSignature?.id === '' ? 0 : 1;
-    const bIsServerKey = (b as api.PublicKey)?.serverSignature?.id === '' ? 0 : 1;
-    return aIsServerKey - bIsServerKey;
-  });
-  return { ...table, items };
-}
-
 async function restoreItem(storeName: string, item: unknown): Promise<void> {
   switch (storeName) {
-    case 'publicKeys': {
-      const key = item as api.PublicKey;
-      // A self-signed server key (see ensureServerKeyCached) can't be
-      // verified against itself — restore it unsigned, like on first cache.
-      if (key.serverSignature?.id === '') {
-        await dbService.put('publicKeys', key, allowUnsigned);
-      } else {
-        await publicKeyRepository.put(key);
-      }
-      return;
-    }
-    case 'revocations':
-      await revocationRepository.put(item as api.KeyRevocation);
-      return;
     case 'users': {
       const user = item as api.User & { __meta__?: { deleted?: boolean } };
       if ((user as any)?.__meta__?.deleted || (user as any)?.deleted) {
         await userRepository.writeTombstone(user.id);
         return;
       }
-      await userRepository.put(user);
+      await dbService.put('users', user, allowUnsigned);
       return;
     }
-    case 'reeds':
-      await reedsService.storeReed(item as ReedType);
-      return;
-    case 'removedReeds':
-      await removedReedsRepository.put(item as api.ReedRemoval);
-      return;
-    case 'removedAccounts':
-      await removedAccountsRepository.put(item as api.AccountRemoval);
-      return;
-    case 'threads':
-      await threadsRepository.put(item as api.ThreadRecord);
-      return;
-    case 'removedThreads':
-      await threadsRepository.putRemoval(item as api.ThreadRemoval);
-      return;
     case 'echoCounts':
     case 'replyCounts':
       return;
@@ -473,8 +422,8 @@ async function restoreItem(storeName: string, item: unknown): Promise<void> {
 }
 
 /**
- * Write backup contents to localStorage and IndexedDB.
- * Signed stores go through repository puts (real verifiers).
+ * Write backup contents to localStorage and IndexedDB as they are: the
+ * backup password is the proof, signatures are the server's to check.
  */
 export async function writeBackup(backup: BackupPayload): Promise<void> {
   const preservedDeviceId =
@@ -494,19 +443,8 @@ export async function writeBackup(backup: BackupPayload): Promise<void> {
 
   await dbService.init();
 
-  // Verifiers fall back to a signed API call only on a publicKeys cache
-  // miss — restoring publicKeys first keeps every later lookup a hit.
-  // users goes next: storeReed opportunistically looks up the author
-  // profile after each reed, which would otherwise also miss the cache.
   const tables = backup.indexedDB?.tables ?? [];
-  const ordered = [
-    ...tables.filter((t) => t.name === 'privateKeys'),
-    ...tables.filter((t) => t.name === 'publicKeys').map(orderServerKeysFirst),
-    ...tables.filter((t) => t.name === 'users'),
-    ...tables.filter((t) => !['privateKeys', 'publicKeys', 'users'].includes(t.name)),
-  ];
-
-  for (const table of ordered) {
+  for (const table of tables) {
     for (const item of table.items ?? []) {
       try {
         await restoreItem(table.name, item);

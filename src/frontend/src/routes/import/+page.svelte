@@ -66,8 +66,8 @@
   onMount(async () => {
     if (await redirectForRestoreState()) return;
     if (isImportComplete() && !isRecoveryInProgress()) {
-      // The marker can outlive the identity it describes (logout, an
-      // IndexedDB wipe) since nothing clears it independently — only trust
+      // The marker can outlive the identity it describes (an IndexedDB
+      // wipe) since nothing clears it independently — only trust
       // "complete" when a real user still resolves.
       const user = await authService.getCurrentUser();
       if (user) {

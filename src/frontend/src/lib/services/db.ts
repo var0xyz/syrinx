@@ -21,7 +21,7 @@ export function payloadByteLength(data: unknown): number {
 const STORE_DEFAULTS: Record<string, () => Record<string, unknown>> = {
   reeds: () => ({ content: '', tags: [], mentions: [] }),
   unsignedReeds: () => ({ content: '', tags: [], mentions: [] }),
-  users: () => ({ bio: '' }),
+  users: () => ({ bio: '', permissions: [] }),
   revocations: () => ({ reason: '' }),
   pendingRevocation: () => ({ reason: '' }),
   vouches: () => ({ note: '' }),
