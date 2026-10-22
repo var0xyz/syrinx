@@ -1652,7 +1652,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT http_route, avg(db_queries) AS avg_queries, approx_percentile_cont(db_queries, 0.95) AS p95_queries, count(*) AS requests FROM ( SELECT h.http_route, h.trace_id, count(d.span_id) AS db_queries FROM syrinx h INNER JOIN syrinx d ON h.trace_id = d.trace_id AND d.db_system = 'postgresql' WHERE span_kind = '2' AND h.http_route IS NOT NULL GROUP BY h.http_route, h.trace_id ) GROUP BY http_route ORDER BY avg_queries DESC LIMIT 25",
+              "query": "SELECT http_route, avg(db_queries) AS avg_queries, approx_percentile_cont(db_queries, 0.95) AS p95_queries, count(*) AS requests FROM ( SELECT h.http_route, h.trace_id, count(d.span_id) AS db_queries FROM syrinx h INNER JOIN syrinx d ON h.trace_id = d.trace_id AND d.operation_name IN ('sql.conn.query', 'sql.conn.exec') WHERE h.span_kind = '2' AND h.http_route IS NOT NULL GROUP BY h.http_route, h.trace_id ) GROUP BY http_route ORDER BY avg_queries DESC LIMIT 25",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -1766,7 +1766,7 @@
           "queryType": "sql",
           "queries": [
             {
-              "query": "SELECT histogram(_timestamp) AS ts, avg(db_ms * 100.0 / nullif(http_ms, 0)) AS db_pct FROM ( SELECT h._timestamp, h.duration / 1000.0 AS http_ms, coalesce(sum(d.duration), 0) / 1000.0 AS db_ms FROM syrinx h LEFT JOIN syrinx d ON h.trace_id = d.trace_id AND d.db_system = 'postgresql' WHERE span_kind = '2' GROUP BY h.trace_id, h._timestamp, h.duration ) GROUP BY ts ORDER BY ts",
+              "query": "SELECT histogram(_timestamp) AS ts, avg(db_ms * 100.0 / nullif(http_ms, 0)) AS db_pct FROM ( SELECT h._timestamp, h.duration / 1000.0 AS http_ms, coalesce(sum(d.duration), 0) / 1000.0 AS db_ms FROM syrinx h LEFT JOIN syrinx d ON h.trace_id = d.trace_id AND d.operation_name IN ('sql.conn.query', 'sql.conn.exec') WHERE h.span_kind = '2' GROUP BY h.trace_id, h._timestamp, h.duration ) GROUP BY ts ORDER BY ts",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
