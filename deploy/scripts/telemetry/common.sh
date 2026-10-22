@@ -10,6 +10,8 @@ ZO_ORG="default"
 ZO_STREAM="${ZO_STREAM:-syrinx}"
 # opensource | o2-enterprise — mirrors https://github.com/openobserve/openobserve/blob/main/downloadO2.sh
 O2_RELEASE_TYPE="${O2_RELEASE_TYPE:-opensource}"
+# Days OpenObserve keeps logs, traces and metrics before deleting them.
+O2_RETENTION_DAYS="${O2_RETENTION_DAYS:-30}"
 
 O2_USER="openobserve"
 O2_DATA_DIR="/var/lib/openobserve"
@@ -156,6 +158,7 @@ telemetry_persist_env() {
         printf "O2_VERSION=%q\n" "${O2_VERSION:-0.91.5}"
         printf "OTELCOL_VERSION=%q\n" "${OTELCOL_VERSION:-0.120.0}"
         printf "O2_RELEASE_TYPE=%q\n" "${O2_RELEASE_TYPE:-opensource}"
+        printf "O2_RETENTION_DAYS=%q\n" "${O2_RETENTION_DAYS:-30}"
         printf "O2_INSTALL_MODE=%q\n" "${O2_INSTALL_MODE:-binary}"
         printf "TELEMETRY_DOMAIN=%q\n" "${TELEMETRY_DOMAIN:-}"
         printf "CF_TOKEN=%q\n" "${CF_TOKEN:-}"
@@ -181,6 +184,7 @@ ZO_DATA_DIR=$O2_DATA_DIR
 ZO_HTTP_ADDR=0.0.0.0
 ZO_HTTP_PORT=5080
 ZO_GRPC_PORT=5081
+ZO_COMPACT_DATA_RETENTION_DAYS=$O2_RETENTION_DAYS
 EOF
     chmod 600 "$O2_ENV_FILE"
 }
