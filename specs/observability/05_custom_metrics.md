@@ -59,7 +59,7 @@ stream as host metrics today.
 | `syrinx.reed.holders` | Histogram | Whenever holder count changes for a reed | value = `allocation_count` |
 | `syrinx.reed.coverage_percent` | Histogram | Same hook as holders | value = 0–100 |
 | `syrinx.ws.messages` | Counter | Every WS frame handled (see 5.4) | `ws.direction` (`in` \| `out`), `ws.message.type` |
-| `syrinx.relay.event` | Counter | Every `pending_events` row created/fulfilled/deleted | `relay.lifecycle`, `event.kind` |
+| `syrinx.relay.pending` | UpDownCounter | +1 when a `pending_events` row is created, −1 when it's deleted | `event.kind` |
 | `syrinx.federation.relay` | Counter | Every federation HTTP call, either side (relay legs, proxied reads, follows, key fetches, connect) | `federation.direction`, `peer.server_id`, `federation.leg`, `ok` (2xx) |
 | `syrinx.federation.lifecycle` | Counter | Invitation created/revoked/redeemed, attempt approved/rejected, disconnect requested/confirmed/cancelled, purge | `event`, `peer.server_id` (empty when not yet known), `admin.id` |
 | `syrinx.federation.delivery.backlog` | Gauge | Each retry of behind peer streams | `peer.server_id` — value = author streams behind |
@@ -119,14 +119,15 @@ publish; `syrinx.echoes.targeted` counts echoes indexed on this server's reeds.
 “4 or more” on the attribute to cap cardinality from pathological tag spam.
 Never emit individual tag names.
 
-**Relay lifecycle:** `syrinx.relay.event` records one sample per
-`pending_events` row transition — `created` when a relay request is
-registered, `fulfilled` when a `RELAY_RESPONSE` is actually delivered for it,
-`deleted` when it's removed without ever recording a `fulfilled` (a
-cancellation, a `DATA_ACK`/`DATA_INVALID` cleanup, or the requester going
-offline). Created running persistently above fulfilled plus deleted means
-requests are leaking. Correlating a single request's stages belongs in logs,
-not on a metric label.
+**Relay lag:** `syrinx.relay.pending` is the number of open
+`pending_events` rows: +1 when a relay request is created, −1 whenever its
+row goes, for any reason (answered and acked, cancelled, no holder left,
+requester offline, peer forgotten). Rows that would otherwise vanish by
+cascade (presence or profile subscription removed) are deleted explicitly
+first, so every removal is counted. It resets with the process, as the
+table does at boot. A floor that keeps rising means requests are leaking.
+Correlating a single request's stages belongs in logs, not on a metric
+label.
 
 `syrinx.federation.relay` is the same idea for cross-server traffic: one
 sample per federation relay HTTP leg, either a peer calling one of this
@@ -229,9 +230,9 @@ point is what happened in that 10 s export, not a running total. Charts use
 whatever the label mix. Cumulative export doesn't work here: a series'
 first point is already its first event, so `increase()` reports 0 for it,
 and on a small instance most series (every per-user one) have only one
-event. Gauges and `syrinx.ws.connections` (an up-down counter) stay
-cumulative and are charted as-is. Histogram percentiles sum bucket deltas
-the same way: `histogram_quantile(q, sum by (le) (sum_over_time(m_bucket[5m])))`.
+event. Gauges and the up-down counters (`syrinx.ws.connections`,
+`syrinx.relay.pending`) stay cumulative and are charted as-is. Histogram
+percentiles sum bucket deltas the same way: `histogram_quantile(q, sum by (le) (sum_over_time(m_bucket[5m])))`.
 
 Example questions this unlocks:
 
@@ -255,7 +256,7 @@ Example questions this unlocks:
 - Admin key misuse: `sum(syrinx_admin_requests_refused)` by `actor_id`,
   `reason`.
 - Flag pressure on an author: `sum(syrinx_flags_created)` by `author_id`.
-- Relay leaks: `syrinx_relay_event` `created` vs `fulfilled` + `deleted`.
+- Relay lag: `sum(syrinx_relay_pending)` by `event_kind`.
 - Federation traffic by peer: `syrinx_federation_relay` by
   `peer_server_id`, `federation_direction`, `federation_leg`.
 - Federation error rate: `syrinx_federation_relay{ok="false"}`.

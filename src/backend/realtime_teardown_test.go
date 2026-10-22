@@ -89,7 +89,7 @@ func TestDisconnectCancelsForeignRelayRequests(t *testing.T) {
 
 	rs.teardownUser(ctx, viewer)
 	rs.peerCalls.Wait()
-	if err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
+	if _, err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
 	}
 
@@ -164,7 +164,7 @@ func TestEvictStalePresenceSparesRefreshedRow(t *testing.T) {
 	if _, err := rs.db.RecordPongs(ctx, []string{viewer}); err != nil {
 		t.Fatalf("RecordPongs: %v", err)
 	}
-	gone, err := rs.db.EvictStalePresence(ctx, viewer, realtimePresenceTTL)
+	gone, _, err := rs.db.EvictStalePresence(ctx, viewer, realtimePresenceTTL)
 	if err != nil {
 		t.Fatalf("EvictStalePresence: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestRecordPongsReportsMissingRow(t *testing.T) {
 	if err := rs.db.MarkUserOnline(ctx, other); err != nil {
 		t.Fatalf("MarkUserOnline: %v", err)
 	}
-	if err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
+	if _, err := rs.db.MarkUserOffline(ctx, viewer); err != nil {
 		t.Fatalf("MarkUserOffline: %v", err)
 	}
 	live, err := rs.db.RecordPongs(ctx, []string{viewer, other})
