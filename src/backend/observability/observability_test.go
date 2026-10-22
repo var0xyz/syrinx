@@ -2,6 +2,9 @@ package observability
 
 import (
 	"testing"
+
+	metricsdk "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // No host configured: Setup must succeed without touching the network,
@@ -31,5 +34,26 @@ func TestSetupUnreachableHostErrors(t *testing.T) {
 	_, err := Setup("10.255.255.1", "4317")
 	if err == nil {
 		t.Fatal("Setup() with an unreachable host returned nil error, want a readiness error")
+	}
+}
+
+// Counters and histograms go out as deltas; anything holding a current
+// value (gauges, up-down counters, observables) stays cumulative.
+func TestDeltaCountsAndHistograms(t *testing.T) {
+	t.Parallel()
+
+	cases := map[metricsdk.InstrumentKind]metricdata.Temporality{
+		metricsdk.InstrumentKindCounter:                 metricdata.DeltaTemporality,
+		metricsdk.InstrumentKindHistogram:               metricdata.DeltaTemporality,
+		metricsdk.InstrumentKindUpDownCounter:           metricdata.CumulativeTemporality,
+		metricsdk.InstrumentKindGauge:                   metricdata.CumulativeTemporality,
+		metricsdk.InstrumentKindObservableCounter:       metricdata.CumulativeTemporality,
+		metricsdk.InstrumentKindObservableUpDownCounter: metricdata.CumulativeTemporality,
+		metricsdk.InstrumentKindObservableGauge:         metricdata.CumulativeTemporality,
+	}
+	for kind, want := range cases {
+		if got := deltaCountsAndHistograms(kind); got != want {
+			t.Errorf("deltaCountsAndHistograms(%v) = %v, want %v", kind, got, want)
+		}
 	}
 }

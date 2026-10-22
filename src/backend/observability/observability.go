@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	metricsdk "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
@@ -101,6 +102,7 @@ func Setup(host, port string) (*Manager, error) {
 		context.Background(),
 		otlpmetrichttp.WithInsecure(),
 		otlpmetrichttp.WithEndpoint(httpEndpoint),
+		otlpmetrichttp.WithTemporalitySelector(deltaCountsAndHistograms),
 	)
 	if err != nil {
 		return &Manager{}, fmt.Errorf("build metrics exporter: %w", err)
@@ -141,6 +143,17 @@ func Setup(host, port string) (*Manager, error) {
 		tracerProvider: tracerProvider,
 		meterProvider:  meterProvider,
 	}, nil
+}
+
+// deltaCountsAndHistograms exports counters and histograms as per-interval
+// deltas, so a series' first event counts; gauges and up-down counters
+// stay cumulative.
+func deltaCountsAndHistograms(kind metricsdk.InstrumentKind) metricdata.Temporality {
+	switch kind {
+	case metricsdk.InstrumentKindCounter, metricsdk.InstrumentKindHistogram:
+		return metricdata.DeltaTemporality
+	}
+	return metricdata.CumulativeTemporality
 }
 
 // OpenDB opens the DB connection, instrumented with otelsql query spans only
