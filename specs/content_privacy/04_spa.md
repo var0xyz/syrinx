@@ -2,8 +2,8 @@
 
 ## Status
 
-Partial — relay encrypt/decrypt and tag-claim verification implemented;
-mention-inbox consumption not yet wired (see [03](03_mention_inbox.md)).
+Implemented — relay encrypt/decrypt, tag-claim verification and
+mention-inbox consumption (see [03](03_mention_inbox.md)).
 
 ## Depends on
 

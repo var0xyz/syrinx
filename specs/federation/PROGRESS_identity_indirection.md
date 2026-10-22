@@ -1,5 +1,9 @@
 # Progress tracker — `identities` indirection refactor
 
+**Status: Complete.** Historical record. The type landed as `identityID`
+(`src/backend/identity_id.go`), and the packages it mentions were folded
+into root ([`depackaging/`](../depackaging/README.md)).
+
 Companion to [`ANALYSIS_identity_indirection.md`](ANALYSIS_identity_indirection.md)
 (the design rationale — read that first for *why*). This doc tracks *what's
 actually landed* vs. *what's still outstanding*, so work can resume cold in a
@@ -919,7 +923,7 @@ trusting stale line numbers below.
 1. ~~`db.go`: identities table, FK repoint, view~~ — **DONE** (this doc).
 
 2. **Define `IdentityID` type** (blocks everything below — do this first).
-   **Not started.** Locked decision (see table above): a distinct Go type,
+   **Done** (`identityID`, `identity_id.go`). Locked decision (see table above): a distinct Go type,
    not a bare `string`, for the canonical `"userID@serverID"` form —
    compiler-enforced so a bare userID can never be silently passed where
    an FK'd column needs the canonical form. Design constraints to satisfy:

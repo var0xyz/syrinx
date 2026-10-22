@@ -41,7 +41,7 @@ server was refused with **422** rather than half-enforced.
 
 | #  | Title                                               | Status   |
 |----|-----------------------------------------------------|----------|
-| 00 | Design, trust model, locked decisions               | Proposed |
+| 00 | Design, trust model, locked decisions               | Implemented |
 | 01 | `user_blocks` schema, canonical payload, countersign | Implemented |
 | 02 | Block / unblock / list API and immediate effects    | Implemented |
 | 03 | 403 + certificate on every read path                | Implemented |

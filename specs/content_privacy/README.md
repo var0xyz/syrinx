@@ -14,7 +14,7 @@ server relays ciphertext blindly.
 | [01](01_signreed_contentless.md) | `POST /reeds` drops `content`; claimed `tags`/`mentions` | 00 | Implemented |
 | [02](02_relay_encryption.md) | `RELAY_REQUEST`/`RELAY_RESPONSE` carry ciphertext; `RELAY_ERROR` | 00 | Implemented |
 | [03](03_mention_inbox.md) | Mentioned-user pull inbox (`reed_mentions`, cursor fetch, removal) | 01 | Implemented |
-| [04](04_spa.md) | SPA: encrypt/decrypt, claim extraction, tag-claim verify | 01, 02 | Partial |
+| [04](04_spa.md) | SPA: encrypt/decrypt, claim extraction, tag-claim verify | 01, 02 | Implemented |
 | [05](05_content_rejected_reasons.md) | `ContentRejectedData.reason` and the standardized set | — | Implemented |
 | [06](06_event_id_at_root.md) | Event id moves to the message root (`id`, not nested `data.event_id`) | 02 | Implemented |
 | [07](07_verified_request_reed_content.md) | `requestReedContent()` resolves a decrypted+verified reed, not the raw payload | 06 | Implemented |
@@ -33,8 +33,6 @@ server relays ciphertext blindly.
 
 ## Status
 
-**Implemented** on the server and for the core SPA relay flow (encrypt on
-`RELAY_REQUEST`, decrypt + verify on delivery, tag-claim check on pipe
-delivery). The mentioned-user's client-side inbox consumption (polling
-`GET /mentions`, fetching + verifying each entry) is not yet wired up —
-the server endpoints and storage exist; see [03](03_mention_inbox.md).
+**Implemented**, server and SPA: encrypt on `RELAY_REQUEST`, decrypt +
+verify on delivery, tag-claim check on pipe delivery, and client-verified
+mentions (see [03](03_mention_inbox.md)).

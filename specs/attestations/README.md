@@ -4,8 +4,8 @@ This directory is the **user attestation** feature proposal set. Numbered
 files below are independently reviewable implementation steps. Land them in
 order unless a step's "Depends on" says otherwise.
 
-**Status: 00–07 implemented.** [08](08_federation.md) (federated reads) is
-proposed, not built.
+**Status: 00–09 implemented**, including [08](08_federation.md) (federated
+delivery and reads).
 
 ## Motivation
 

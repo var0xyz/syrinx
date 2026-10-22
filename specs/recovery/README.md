@@ -372,7 +372,8 @@ questions by that server timestamp — never the submitter's.
 **Partial / proposed** — still open in normal operation:
 
 - None — revocation handling ([09](../09_revocation_fanout.md)) is
-  Implemented (on-demand check, not fanout), and per-user notifications
+  superseded by pushed revocations
+  ([`key_revocation_events/`](../key_revocation_events/README.md)), and per-user notifications
   (proposal 11) are superseded by [`notifications/`](../notifications/README.md), not
   required by recovery (see Deferred below).
 

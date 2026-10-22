@@ -2,8 +2,9 @@
 
 ## Status
 
-Server implemented. Client-side consumption (poll + fetch + verify) not
-yet wired up.
+Implemented. The client verifies each mention on delivery (`MENTION` push
+and reconnect catch-up, `lib/services/mentionsSync.ts`) and reports a
+false claim back.
 
 ## Depends on
 
