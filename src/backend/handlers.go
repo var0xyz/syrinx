@@ -1557,32 +1557,25 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	// supplied by the caller. Then verify.
 	//
 	// The client signs with the currently-active key (users.active_key_id).
-	fingerprint, err := h.services.db.GetActiveKeyFingerprint(r.Context(), userID)
-	if err != nil || fingerprint == "" {
-		log.Error().Str("userID", userID).Err(err).Msg("Error loading active key fingerprint")
-		internalServerError(w)
-		return
-	}
-	userPayload := buildUserIdentityPayload(username, fingerprint, bio)
-
-	userSigArmor := userSignature
-	pubKey, err := h.services.db.GetPublicKey(r.Context(), fingerprint)
+	pubKey, err := h.services.db.GetActiveKey(r.Context(), userID)
 	if err != nil {
 		log.Error().
 			Str("userID", userID).
-			Str("fingerprint", fingerprint).
-			Err(err).Msg("Error loading user public key")
+			Err(err).Msg("Error loading active public key")
 		internalServerError(w)
 		return
 	}
 	if pubKey == nil {
 		log.Error().
 			Str("userID", userID).
-			Str("fingerprint", fingerprint).
 			Msg("Active public key not found for user")
 		internalServerError(w)
 		return
 	}
+	fingerprint := pubKey.ID
+	userPayload := buildUserIdentityPayload(username, fingerprint, bio)
+
+	userSigArmor := userSignature
 	// Refuse to accept a new identity record signed by a revoked key.
 	//
 	// The middleware already rejects revoked-key request signatures, but
@@ -1661,14 +1654,12 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updated, err := h.services.db.GetUserProfile(r.Context(), userID)
-	if err != nil || updated == nil {
-		log.Error().
-			Str("userID", userID).
-			Err(err).Msg("Error reloading updated user")
-		internalServerError(w)
-		return
-	}
+	// Everything just written is in hand, so no reload.
+	updated := *currentUser
+	updated.Username = username
+	updated.Bio = bio
+	updated.UserSignature = UserSignature{ID: fingerprint, Armor: userSignature}
+	updated.ServerSignature = profileSignature
 
 	h.broadcastChan <- realtimeBroadcastMessage{
 		Type:   realtimeUserUpdate,
@@ -1684,7 +1675,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Msg("Signed identity record updated")
 
 	h.metrics.UserUpdated(r.Context(), currentUser.Username != username)
-	writeResponse(w, http.StatusOK, pbUser(updated))
+	writeResponse(w, http.StatusOK, pbUser(&updated))
 }
 
 func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
