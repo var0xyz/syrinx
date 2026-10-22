@@ -165,6 +165,9 @@ type Recorder interface {
 
 	FederationLifecycle(ctx context.Context, event, peerServerID, adminID string)
 	FederationDeliveryBacklog(ctx context.Context, peerServerID string, items int)
+	// FederationPending moves the count of relay requests open across a
+	// border: out = we wait on the peer, in = the peer waits on us.
+	FederationPending(ctx context.Context, direction Direction, peerServerID string, delta int64)
 }
 
 // Noop is an inert Recorder.
@@ -227,6 +230,7 @@ func (Noop) UserSearch(context.Context, bool)                                   
 func (Noop) CryptoOperation(context.Context, string, string, bool, time.Duration)      {}
 func (Noop) FederationLifecycle(context.Context, string, string, string)               {}
 func (Noop) FederationDeliveryBacklog(context.Context, string, int)                    {}
+func (Noop) FederationPending(context.Context, Direction, string, int64)               {}
 
 // TagCountAttr buckets tag counts for metric attributes (exact 0–3, then 4+).
 func TagCountAttr(n int) int {

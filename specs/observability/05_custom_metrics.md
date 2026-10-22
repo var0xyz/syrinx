@@ -62,6 +62,7 @@ stream as host metrics today.
 | `syrinx.relay.pending` | UpDownCounter | +1 when a `pending_events` row is created, −1 when it's deleted | `event.kind` |
 | `syrinx.federation.relay` | Counter | Every federation HTTP call, either side (relay legs, proxied reads, follows, key fetches, connect) | `federation.direction`, `peer.server_id`, `federation.leg`, `ok` (2xx) |
 | `syrinx.federation.lifecycle` | Counter | Invitation created/revoked/redeemed, attempt approved/rejected, disconnect requested/confirmed/cancelled, purge | `event`, `peer.server_id` (empty when not yet known), `admin.id` |
+| `syrinx.federation.pending` | UpDownCounter | +1 when a relay request crosses to a peer (`out`) or arrives from one (`in`), −1 when its `pending_events` row is deleted | `federation.direction`, `peer.server_id` |
 | `syrinx.federation.delivery.backlog` | Gauge | Each retry of behind peer streams | `peer.server_id` — value = author streams behind |
 | `syrinx.keys.fetch_errors` | Counter | Client-reported `KEY_FETCH_ERROR` | `reporter.id`, `target.id`, `key.id` |
 | `syrinx.keys.revoked_used` | Counter | Client-reported `REVOKED_KEY_USED` | `reporter.id`, `target.id`, `key.id` |
@@ -128,6 +129,12 @@ first, so every removal is counted. It resets with the process, as the
 table does at boot. A floor that keeps rising means requests are leaking.
 Correlating a single request's stages belongs in logs, not on a metric
 label.
+
+**Federation lag:** `syrinx.federation.pending` is the part of the relay
+lag that crosses a border: `out` counts `foreign_pending_events` rows (we
+wait on that peer), `in` counts `foreign_relay_requests` rows (that peer
+waits on us). Both hang off a `pending_events` row, so every delete
+returns the peer and direction of its children and counts them down too.
 
 `syrinx.federation.relay` is the same idea for cross-server traffic: one
 sample per federation relay HTTP leg, either a peer calling one of this
@@ -231,8 +238,9 @@ whatever the label mix. Cumulative export doesn't work here: a series'
 first point is already its first event, so `increase()` reports 0 for it,
 and on a small instance most series (every per-user one) have only one
 event. Gauges and the up-down counters (`syrinx.ws.connections`,
-`syrinx.relay.pending`) stay cumulative and are charted as-is. Histogram
-percentiles sum bucket deltas the same way: `histogram_quantile(q, sum by (le) (sum_over_time(m_bucket[5m])))`.
+`syrinx.relay.pending`, `syrinx.federation.pending`) stay cumulative and
+are charted as-is. Histogram percentiles sum bucket deltas the same way:
+`histogram_quantile(q, sum by (le) (sum_over_time(m_bucket[5m])))`.
 
 Example questions this unlocks:
 
@@ -257,6 +265,8 @@ Example questions this unlocks:
   `reason`.
 - Flag pressure on an author: `sum(syrinx_flags_created)` by `author_id`.
 - Relay lag: `sum(syrinx_relay_pending)` by `event_kind`.
+- Federation lag: `sum(syrinx_federation_pending)` by
+  `federation_direction`, `peer_server_id`.
 - Federation traffic by peer: `syrinx_federation_relay` by
   `peer_server_id`, `federation_direction`, `federation_leg`.
 - Federation error rate: `syrinx_federation_relay{ok="false"}`.

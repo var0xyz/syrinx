@@ -126,8 +126,9 @@ func TestForgetPeerReportsLocalViewers(t *testing.T) {
 	if len(viewers) != 1 || viewers[0] != viewer {
 		t.Fatalf("viewers = %v, want [%s]", viewers, viewer)
 	}
-	if len(deleted) != 1 || deleted[0] != "REQUEST_REED" {
-		t.Fatalf("deleted = %v, want the peer's one relay request", deleted)
+	want := deletedPendingEvent{EventName: "REQUEST_REED", RequestingPeer: teardownPeerID}
+	if len(deleted) != 1 || deleted[0] != want {
+		t.Fatalf("deleted = %+v, want [%+v]", deleted, want)
 	}
 
 	// The lost-connection message names the peer even once it's revoked.
