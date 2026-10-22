@@ -149,20 +149,17 @@ How that's enforced:
 - **The app's request log has no address, user agent or query string**: the WebSocket handshake's query carries the device ID. Log lines name users by ID, never by username.
 - **nginx keeps no access log**, and its error log only records critical errors.
 
-The nginx changes take effect on `./deploy/syrinx.sh setup`, the collector's on `setup` or `update`.
+What remains:
 
-What remains, and why the telemetry host still needs care:
-
-- Logs and the abuse and admin metrics carry user, reed and key IDs, and some name two users: block refusals (who an author refused), flags and rejected content (reporter and author), and log lines for follows, blocks and vouches. Together they can map parts of the community's social graph.
-- A user ID isn't an IP, but anyone who also sees the community or the database can match it to an account.
 - nginx's critical-error lines name the client address: `127.0.0.1` behind the Cloudflare Tunnel, but the visitor's real IP in `mtls` mode.
 - In `cloudflare` mode Cloudflare sees every visitor's IP; that's outside Syrinx's control.
 
 Keeping it safe:
 
 - Keep the collector on your LAN. Its OTLP ports have no authentication, so the telemetry host's firewall opens them only to the LAN ranges you configure.
-- If you expose the OpenObserve UI through a Cloudflare Tunnel, put a Cloudflare Access policy in front of the login page.
-- Back up, retain and delete telemetry with the same care as the database.
+- If you expose the OpenObserve UI through a Cloudflare Tunnel, put a Cloudflare Access policy in front.
+  - Add a GeoIP rule to block all traffic from outside your country IP range.
+- Telemetry is deleted after 30 days (`O2_RETENTION_DAYS` in the telemetry host's `telemetry.env`; applied by `./deploy/telemetry.sh setup`). Back up and delete it with the same care as the database.
 
 ## Security hygiene
 

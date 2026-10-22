@@ -162,6 +162,10 @@ You'll be prompted for:
   (`192.168.0.0/16 10.0.0.0/8 172.16.0.0/12`); narrow this to your actual
   subnet if you want to be stricter.
 
+Logs, traces and metrics are kept for **30 days** and then deleted
+(`ZO_COMPACT_DATA_RETENTION_DAYS` in `openobserve.env`). Set
+`O2_RETENTION_DAYS` in `telemetry.env` and re-run setup to change it.
+
 Answers persist to `telemetry.env` (mode 600). The generated OpenObserve
 login is printed once at the end of `setup.sh`/`update.sh` — by default the
 **password is hidden** in that output (`Login: admin@... / (hidden — rerun
