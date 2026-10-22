@@ -5,6 +5,7 @@
   import { recordBackupEvent } from '$lib/services/backupMetrics';
   import ExportDataModal from '$lib/components/ExportDataModal.svelte';
   import Auth from '$lib/components/Auth.svelte';
+  import { keyBackupReason, markKeyBackedUp } from '$lib/services/keyBackup';
 
   $: user = $page.data?.user;
 
@@ -15,6 +16,8 @@
    * localStorage so a user who already backed up (e.g. navigated back to
    * /backup manually) isn't blocked again. */
   let backedUp = typeof localStorage !== 'undefined' && !!localStorage.getItem('lastKeyBackupAt');
+  // After a key rotation rather than a signup: the new key needs backing up.
+  const rotated = typeof localStorage !== 'undefined' && keyBackupReason() === 'rotation';
 
   async function backupKeys(password) {
     backingUp = true;
@@ -26,7 +29,7 @@
 
       if (saved) {
         notificationStore.success('Keys backed up successfully');
-        localStorage.setItem('lastKeyBackupAt', String(payload.timestamp));
+        markKeyBackedUp(payload.timestamp);
         backedUp = true;
         void recordBackupEvent('identity');
       }
@@ -45,8 +48,13 @@
   <div class="container">
     <div class="card">
       <div class="welcome-header">
-        <h1>🎉 Welcome!</h1>
-        <p class="subtitle">Your account has been successfully created.</p>
+        {#if rotated}
+          <h1>🔑 New key</h1>
+          <p class="subtitle">Your old key was revoked and a new one is now active.</p>
+        {:else}
+          <h1>🎉 Welcome!</h1>
+          <p class="subtitle">Your account has been successfully created.</p>
+        {/if}
       </div>
 
       <div class="success-steps">
@@ -54,10 +62,17 @@
           <div class="step-icon">{backedUp ? '✅' : '🔐'}</div>
           <div class="step-content">
             <h3>Back Up Your Keys</h3>
-            <p>
-              A unique pair of encryption keys was generated. They are like your password — if you
-              lose them, you lose access to your account. Back them up before continuing.
-            </p>
+            {#if rotated}
+              <p>
+                No backup holds your new key yet. Without one, losing this device means losing
+                your account. Back it up before continuing.
+              </p>
+            {:else}
+              <p>
+                A unique pair of encryption keys was generated. They are like your password — if you
+                lose them, you lose access to your account. Back them up before continuing.
+              </p>
+            {/if}
             {#if !backedUp}
               <button
                 class="btn btn-primary"
@@ -75,15 +90,20 @@
         <div class="step" class:success-step={backedUp}>
           <div class="step-icon">{backedUp ? '✅' : '⏳'}</div>
           <div class="step-content">
-            <h3>App Ready to Use!</h3>
-            <p>Once your keys are backed up, you're all set to start posting and connecting with others!</p>
+            {#if rotated}
+              <h3>All Set</h3>
+              <p>Once your new key is backed up, you can keep using the app as before.</p>
+            {:else}
+              <h3>App Ready to Use!</h3>
+              <p>Once your keys are backed up, you're all set to start posting and connecting with others!</p>
+            {/if}
           </div>
         </div>
       </div>
     </div>
     <div class="action-buttons">
-      <a href="/reeds" class="btn btn-primary" class:disabled={!backedUp} aria-disabled={!backedUp}>
-        Start Posting!
+      <a href={rotated ? '/account' : '/reeds'} class="btn btn-primary" class:disabled={!backedUp} aria-disabled={!backedUp}>
+        {rotated ? 'Back to Account' : 'Start Posting!'}
       </a>
     </div>
   </div>

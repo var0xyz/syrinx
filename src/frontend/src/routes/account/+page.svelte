@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
 
   import { authService } from '$lib/services/auth';
+  import { markKeyBackedUp, requireKeyBackup } from '$lib/services/keyBackup';
   import { apiService } from '$lib/services/api';
   import { cryptoService } from '$lib/services/crypto';
   import { buildUserRevocationPayload } from '$lib/services/signing';
@@ -250,6 +251,9 @@
         isPendingRevocation = false;
         await loadKeyInfo();
         notificationStore.success('Key revoked and new key generated successfully');
+        // No backup holds the new key yet: back it up before anything else.
+        requireKeyBackup('rotation');
+        void goto('/backup');
 
         // Best-effort: fetch the now-revoked old key's updated record and
         // the server-countersigned revocation proof for local caching.
@@ -364,7 +368,7 @@
 
       if (saved) {
         notificationStore.success('Keys backed up successfully');
-        localStorage.setItem('lastKeyBackupAt', String(payload.timestamp));
+        markKeyBackedUp(payload.timestamp);
         lastKeyBackupAt = payload.timestamp;
         void recordBackupEvent('identity');
       }

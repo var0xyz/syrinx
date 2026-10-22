@@ -2,6 +2,7 @@ import { writable } from 'svelte/store';
 import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
 import { authService } from '$lib/services/auth';
+import { requireKeyBackup } from '$lib/services/keyBackup';
 import { requestSigner } from '$lib/services/request-signer';
 import { privateKeyRepository } from '$lib/repositories/privateKey';
 import { publicKeyRepository } from '$lib/repositories/publicKey';
@@ -75,6 +76,8 @@ export const pendingRevocationRepository = {
         await privateKeyRepository.setRevoked(record.keyId);
         authService.setActiveKey(record.newKeyId);
         await requestSigner.initializeWorker(record.newKeyId);
+        // No backup holds the new key yet; the next signed-in page is /backup.
+        requireKeyBackup('rotation');
 
         await publicKeyRepository.put(newPublicKey);
 
