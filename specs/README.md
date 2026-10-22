@@ -51,6 +51,7 @@ Each table below has a **Status** column per step. Values:
 | Admin actions         | Implemented | —                                                      |
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
+| High availability     | Proposed    | 00–13                                                  |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -452,6 +453,32 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 | 01  | Extract `performSignup` / `performPublish` into reusable services | Proposed |
 | 02  | Playwright driver: virtual users, scenario mix, config            | Proposed |
 | 03  | Publish → delivery fanout-latency correlation                     | Proposed |
+
+## High availability (single replica or several)
+
+See [`ha/`](ha/README.md). One switch, `REPLICA_MODE=single|ha`. Single
+mode keeps sockets in the app and drops coordination it doesn't need
+(including today's per-user heartbeat writes). HA puts every client
+socket in a gateway on the load-balancer Pi, in front of several app Pis
+sharing a Postgres Pi, so a replica can crash or be updated without users
+reconnecting. No bus, no Redis.
+
+| #   | Title                                                       | Status   |
+| --- | ----------------------------------------------------------- | -------- |
+| 00  | Design, inventory, locked decisions                         | Proposed |
+| 01  | `REPLICA_MODE` + `REPLICA_ID`; drop the Postgres bus        | Proposed |
+| 02  | Serialize schema and server-identity init                   | Proposed |
+| 03  | Socket liveness in memory; no per-user heartbeat writes     | Proposed |
+| 04  | Sockets behind a connection-holder interface                | Proposed |
+| 05  | The gateway: handshake, routing, internal protocol          | Proposed |
+| 06  | Losing a replica: reassign users, re-queue relay requests   | Proposed |
+| 07  | Realtime reset on gateway restart; Postgres crash detection | Proposed |
+| 08  | In-process locks and cron jobs made replica-safe            | Proposed |
+| 09  | LB host: nginx, gateway, SPA, draining                      | Proposed |
+| 10  | Database host                                               | Proposed |
+| 11  | Deploy scripts: topology, per-role setup, rolling update    | Proposed |
+| 12  | Gateway and per-replica telemetry                           | Proposed |
+| 13  | Local HA dev setup and failure tests                        | Proposed |
 
 ## Parallelism
 
