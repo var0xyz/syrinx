@@ -2973,23 +2973,38 @@ func (rs *realtimeService) createProfileSubscriptionEvent(ctx context.Context, e
 	return nil
 }
 
-// recordPendingDeleted records a "deleted" sample per removed pending event.
-func (rs *realtimeService) recordPendingDeleted(ctx context.Context, eventNames []string) {
-	for _, name := range eventNames {
-		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, name)
+// recordPendingDeleted counts each removed pending event out of the relay
+// lag, and out of the federation lag when it was open with a peer.
+func (rs *realtimeService) recordPendingDeleted(ctx context.Context, deleted []deletedPendingEvent) {
+	for _, d := range deleted {
+		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, d.EventName)
+		if d.AwaitedPeer != "" {
+			rs.metrics.FederationPending(ctx, metrics.DirectionOut, d.AwaitedPeer, -1)
+		}
+		if d.RequestingPeer != "" {
+			rs.metrics.FederationPending(ctx, metrics.DirectionIn, d.RequestingPeer, -1)
+		}
 	}
 }
 
-// deletePendingEvent wraps db.DeletePendingEvent, recording a "deleted"
-// sample only when a row was actually removed.
+// deletePendingEvent wraps db.DeletePendingEvent, recording the removal
+// only when a row was actually removed.
 func (rs *realtimeService) deletePendingEvent(ctx context.Context, eventID string) error {
-	eventName, err := rs.db.DeletePendingEvent(ctx, eventID)
+	deleted, err := rs.db.DeletePendingEvent(ctx, eventID)
 	if err != nil {
 		return err
 	}
-	if eventName != "" {
-		rs.metrics.RelayEvent(ctx, metrics.RelayEventDeleted, eventName)
+	rs.recordPendingDeleted(ctx, deleted)
+	return nil
+}
+
+// createForeignPendingEvent wraps db.CreateForeignPendingEvent, counting
+// the request as open with homeServerID.
+func (rs *realtimeService) createForeignPendingEvent(ctx context.Context, eventID, homeServerID, peerEventID string) error {
+	if err := rs.db.CreateForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
+		return err
 	}
+	rs.metrics.FederationPending(ctx, metrics.DirectionOut, homeServerID, 1)
 	return nil
 }
 
@@ -3153,7 +3168,7 @@ func (rs *realtimeService) tryPeerFallback(ctx context.Context, reedID, requeste
 		if result != realtimeForeignRequestOK {
 			continue
 		}
-		if err := rs.db.CreateForeignPendingEvent(ctx, eventID, peerServerID, peerEventID); err != nil {
+		if err := rs.createForeignPendingEvent(ctx, eventID, peerServerID, peerEventID); err != nil {
 			log.Error().Err(err).Msg("Failed to record foreign pending event for peer fallback")
 			continue
 		}
@@ -3161,7 +3176,7 @@ func (rs *realtimeService) tryPeerFallback(ctx context.Context, reedID, requeste
 	}
 
 	if acceptedPeerServerID != "" {
-		if err := rs.db.CreateForeignPendingEvent(ctx, eventID, acceptedPeerServerID, acceptedPeerEventID); err != nil {
+		if err := rs.createForeignPendingEvent(ctx, eventID, acceptedPeerServerID, acceptedPeerEventID); err != nil {
 			log.Error().Err(err).Msg("Failed to record foreign pending event for peer fallback")
 		} else {
 			return eventID, true
@@ -3346,7 +3361,7 @@ func (rs *realtimeService) crossToHomeServer(ctx context.Context, eventID, reque
 	if result != realtimeForeignRequestOK {
 		return result, nil
 	}
-	if err := rs.db.CreateForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
+	if err := rs.createForeignPendingEvent(ctx, eventID, homeServerID, peerEventID); err != nil {
 		log.Error().Err(err).Msg("Failed to record foreign pending event mapping")
 		return result, err
 	}
@@ -3506,6 +3521,7 @@ func (rs *realtimeService) recordForeignRelayRequest(ctx context.Context, eventI
 		}
 		return err
 	}
+	rs.metrics.FederationPending(ctx, metrics.DirectionIn, requestingServerID, 1)
 	return nil
 }
 

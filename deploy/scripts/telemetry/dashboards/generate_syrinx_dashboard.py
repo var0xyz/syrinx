@@ -279,6 +279,7 @@ REED_HOLDERS = metric_stream("syrinx.reed.holders")
 REED_COVERAGE = metric_stream("syrinx.reed.coverage_percent")
 WS_MESSAGES = metric_stream("syrinx.ws.messages")
 RELAY_PENDING = metric_stream("syrinx.relay.pending")
+FEDERATION_PENDING = metric_stream("syrinx.federation.pending")
 FEDERATION_RELAY = metric_stream("syrinx.federation.relay")
 FEDERATION_BACKLOG = metric_stream("syrinx.federation.delivery.backlog")
 FEDERATION_LIFECYCLE = metric_stream("syrinx.federation.lifecycle")
@@ -1172,6 +1173,35 @@ relay = [
         description="Open relay events split by event.kind",
     ),
     promql_panel(
+        pid="syrinx_federation_lag",
+        title="Federation lag",
+        queries=[
+            (f'sum({FEDERATION_PENDING}{{federation_direction="out"}})',
+             "waiting on peers", FEDERATION_PENDING),
+            (f'sum({FEDERATION_PENDING}{{federation_direction="in"}})',
+             "peers waiting on us", FEDERATION_PENDING),
+        ],
+        layout=layout(0, 14, 96, 14, 102),
+        description=(
+            "Relay requests open across a server border "
+            "(syrinx.federation.pending): ones we sent a peer and it hasn't "
+            "answered, and ones a peer sent us that we haven't answered. "
+            "Part of the relay event lag."
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_federation_lag_by_peer",
+        title="Federation lag by peer",
+        queries=[
+            (f'sum by (peer_server_id) ({FEDERATION_PENDING}{{federation_direction="out"}})',
+             "{peer_server_id} (we wait)", FEDERATION_PENDING),
+            (f'sum by (peer_server_id) ({FEDERATION_PENDING}{{federation_direction="in"}})',
+             "{peer_server_id} (waits on us)", FEDERATION_PENDING),
+        ],
+        layout=layout(96, 14, 96, 14, 103),
+        description="Federation lag split by peer; peer.server_id is this server's DB id for it",
+    ),
+    promql_panel(
         pid="syrinx_federation_relay_volume",
         title="Federation relay traffic",
         queries=[
@@ -1179,7 +1209,7 @@ relay = [
             promql_labeled(FEDERATION_RELAY, "federation_direction", "in", "in (from peers)"),
             promql_labeled(FEDERATION_RELAY, "federation_direction", "out", "out (to peers)"),
         ],
-        layout=layout(0, 14, 96, 14, 64),
+        layout=layout(0, 28, 96, 14, 64),
         description="Every federation relay leg handled or called, either direction",
     ),
     promql_panel(
@@ -1188,7 +1218,7 @@ relay = [
         queries=[
             promql_labeled(FEDERATION_RELAY, "ok", "false", "errors"),
         ],
-        layout=layout(96, 14, 96, 14, 65),
+        layout=layout(96, 28, 96, 14, 65),
         description="ok=false: non-2xx response either handling or calling a peer leg",
     ),
     top_table(
@@ -1198,7 +1228,7 @@ relay = [
         labels=["peer_server_id", "federation_direction", "federation_leg", "ok"],
         keys=[("peer_server_id", "Peer server"), ("federation_direction", "Direction"),
               ("federation_leg", "Leg")],
-        layout=layout(0, 28, 192, 16, 66),
+        layout=layout(0, 42, 192, 16, 66),
         description=(
             "How much relay traffic each foreign server is generating (in) or "
             "receiving from us (out), broken down by leg. peer.server_id is "

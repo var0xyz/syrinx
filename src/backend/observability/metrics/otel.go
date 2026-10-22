@@ -51,6 +51,7 @@ type OTEL struct {
 	wsHandshakeRejected    metric.Int64Counter
 	wsConnections          metric.Int64UpDownCounter
 	relayPending           metric.Int64UpDownCounter
+	federationPending      metric.Int64UpDownCounter
 	wsSessions             metric.Int64Counter
 	signupRejected         metric.Int64Counter
 	usernameChecks         metric.Int64Counter
@@ -156,6 +157,11 @@ func New(m metric.Meter) *OTEL {
 		logFailure("syrinx.relay.pending", err)
 	} else {
 		r.relayPending = c
+	}
+	if c, err := m.Int64UpDownCounter("syrinx.federation.pending"); err != nil {
+		logFailure("syrinx.federation.pending", err)
+	} else {
+		r.federationPending = c
 	}
 	r.wsSessions = counter("syrinx.ws.sessions")
 	r.signupRejected = counter("syrinx.signup.rejected")
@@ -551,6 +557,17 @@ func (r *OTEL) FederationLifecycle(ctx context.Context, event, peerServerID, adm
 		str("peer.server_id", peerServerID),
 		str("admin.id", adminID),
 	)
+}
+
+// FederationPending moves the count of relay requests open with a peer.
+func (r *OTEL) FederationPending(ctx context.Context, direction Direction, peerServerID string, delta int64) {
+	if r.federationPending == nil {
+		return
+	}
+	r.federationPending.Add(ctx, delta, metric.WithAttributes(
+		str("federation.direction", string(direction)),
+		str("peer.server_id", peerServerID),
+	))
 }
 
 // FederationDeliveryBacklog reports how many author streams to a peer are

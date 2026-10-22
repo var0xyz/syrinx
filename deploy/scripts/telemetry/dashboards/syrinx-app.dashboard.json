@@ -5001,6 +5001,156 @@
           }
         },
         {
+          "id": "syrinx_federation_lag",
+          "type": "line",
+          "title": "Federation lag",
+          "description": "Relay requests open across a server border (syrinx.federation.pending): ones we sent a peer and it hasn't answered, and ones a peer sent us that we haven't answered. Part of the relay event lag.",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(syrinx_federation_pending{federation_direction=\"out\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "waiting on peers",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(syrinx_federation_pending{federation_direction=\"in\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "peers waiting on us",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 102
+          }
+        },
+        {
+          "id": "syrinx_federation_lag_by_peer",
+          "type": "line",
+          "title": "Federation lag by peer",
+          "description": "Federation lag split by peer; peer.server_id is this server's DB id for it",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (peer_server_id) (syrinx_federation_pending{federation_direction=\"out\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{peer_server_id} (we wait)",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum by (peer_server_id) (syrinx_federation_pending{federation_direction=\"in\"})",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_federation_pending",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{peer_server_id} (waits on us)",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 103
+          }
+        },
+        {
           "id": "syrinx_federation_relay_volume",
           "type": "line",
           "title": "Federation relay traffic",
@@ -5092,7 +5242,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 14,
+            "y": 28,
             "w": 96,
             "h": 14,
             "i": 64
@@ -5144,7 +5294,7 @@
           ],
           "layout": {
             "x": 96,
-            "y": 14,
+            "y": 28,
             "w": 96,
             "h": 14,
             "i": 65
@@ -5257,7 +5407,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 28,
+            "y": 42,
             "w": 192,
             "h": 16,
             "i": 66

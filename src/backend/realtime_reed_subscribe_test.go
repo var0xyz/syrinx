@@ -17,6 +17,8 @@ const reedSubTestServerID = "testserver"
 func ensureReedSubSchema(db *sql.DB) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS reed_subscriptions CASCADE`,
+		`DROP TABLE IF EXISTS foreign_pending_events CASCADE`,
+		`DROP TABLE IF EXISTS foreign_relay_requests CASCADE`,
 		`DROP TABLE IF EXISTS pending_events CASCADE`,
 		`DROP TABLE IF EXISTS online_users CASCADE`,
 		`DROP TABLE IF EXISTS reed_identities CASCADE`,
@@ -41,6 +43,14 @@ func ensureReedSubSchema(db *sql.DB) error {
 			event_id VARCHAR(255) PRIMARY KEY,
 			requester_user_id VARCHAR(255) REFERENCES online_users(user_id) ON DELETE CASCADE,
 			event_name VARCHAR(255) NOT NULL
+		)`,
+		`CREATE UNLOGGED TABLE foreign_pending_events (
+			event_id VARCHAR(255) PRIMARY KEY REFERENCES pending_events(event_id) ON DELETE CASCADE,
+			home_server_id VARCHAR(16) NOT NULL
+		)`,
+		`CREATE UNLOGGED TABLE foreign_relay_requests (
+			event_id VARCHAR(255) PRIMARY KEY REFERENCES pending_events(event_id) ON DELETE CASCADE,
+			requesting_server_id VARCHAR(16) NOT NULL
 		)`,
 		`CREATE UNLOGGED TABLE reed_subscriptions (
 			subscription_id VARCHAR(255) PRIMARY KEY,
