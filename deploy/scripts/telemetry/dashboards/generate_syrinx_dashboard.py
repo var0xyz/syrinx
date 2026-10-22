@@ -326,6 +326,9 @@ SIGNUP_REASONS = [
 HTTP = "span_kind = '2'"
 DB = "db_system = 'postgresql'"
 CRYPTO = "operation_name LIKE 'crypto.%'"
+# Real SQL statements: otelsql also traces rows iteration and connection
+# resets, which would double-count queries and time.
+DB_STATEMENT = "operation_name IN ('sql.conn.query', 'sql.conn.exec')"
 PEER_IN = f"{HTTP} AND peer_server_id IS NOT NULL AND peer_server_id != ''"
 PEER_OUT = "operation_name = 'federation.out'"
 DB_NESTED = (
@@ -807,8 +810,8 @@ database = [
             f"count(*) AS requests FROM ( "
             f"SELECT h.http_route, h.trace_id, count(d.span_id) AS db_queries "
             f"FROM syrinx h INNER JOIN syrinx d ON h.trace_id = d.trace_id "
-            f"AND d.db_system = 'postgresql' "
-            f"WHERE {HTTP} AND h.http_route IS NOT NULL "
+            f"AND d.{DB_STATEMENT} "
+            f"WHERE h.{HTTP} AND h.http_route IS NOT NULL "
             f"GROUP BY h.http_route, h.trace_id ) "
             f"GROUP BY http_route ORDER BY avg_queries DESC LIMIT 25"
         ),
@@ -836,7 +839,7 @@ database = [
             f"SELECT h._timestamp, h.duration / 1000.0 AS http_ms, "
             f"coalesce(sum(d.duration), 0) / 1000.0 AS db_ms "
             f"FROM syrinx h LEFT JOIN syrinx d ON h.trace_id = d.trace_id "
-            f"AND d.db_system = 'postgresql' WHERE {HTTP} "
+            f"AND d.{DB_STATEMENT} WHERE h.{HTTP} "
             f"GROUP BY h.trace_id, h._timestamp, h.duration ) "
             f"GROUP BY ts ORDER BY ts"
         ),
