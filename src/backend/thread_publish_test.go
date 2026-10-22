@@ -6,9 +6,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
+	"sync"
 	"testing"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
 
@@ -218,5 +221,31 @@ func TestThreadPublish_MentionsOncePerThread(t *testing.T) {
 	mentioned, err := db.GetReedMentions(ctx, ids[0])
 	if err != nil || len(mentioned) != 1 {
 		t.Fatalf("head mentions = %v (%v), want bob once", mentioned, err)
+	}
+}
+
+// tagRecorder keeps the tag count of every ReedPublished call.
+type tagRecorder struct {
+	metrics.Noop
+	mu     sync.Mutex
+	counts []int
+}
+
+func (r *tagRecorder) ReedPublished(_ context.Context, p metrics.ReedPublishedAttrs) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.counts = append(r.counts, p.TagCount)
+}
+
+// The metric counts the author's tags, not just those with live pipes.
+func TestThreadPublish_CountsTagsBeforePipeFilter(t *testing.T) {
+	f := newThreadFixture(t)
+	rec := &tagRecorder{}
+	f.h.SetMetrics(rec)
+	f.h.SetPipeTagFilter(func([]string) []string { return nil })
+	f.seedThread(t, [][]string{{"a", "b"}, {"b", "B"}, nil}, [][]string{nil, nil, nil})
+
+	if want := []int{2, 1, 0}; !slices.Equal(rec.counts, want) {
+		t.Fatalf("tag counts = %v, want %v", rec.counts, want)
 	}
 }

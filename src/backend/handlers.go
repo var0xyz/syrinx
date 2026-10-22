@@ -2192,6 +2192,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tags := normalizeClaimedTags(claimedTags)
+	tagCount := len(tags)
 	if h.filterPipeTags != nil {
 		tags = h.filterPipeTags(tags)
 	}
@@ -2288,7 +2289,7 @@ func (h *Handlers) SignReed(w http.ResponseWriter, r *http.Request) {
 	}
 	h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
 		Kind:     reedKind,
-		TagCount: len(tags),
+		TagCount: tagCount,
 	})
 	if activeUsers, err := getActiveUsers(r.Context(), h.services.db.db); err == nil {
 		h.metrics.ReedCoverage(r.Context(), 1, coveragePercent(1, activeUsers))
@@ -2395,6 +2396,8 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 	}
 	threadID := reedIDs[0]
 
+	// Claimed tags per part, counted before the pipe filter drops any.
+	tagCounts := make([]int, len(req.Reeds))
 	for i, part := range req.Reeds {
 		mentions, err := h.resolveMentionClaims(r.Context(), part.Mentions, userID)
 		if errors.Is(err, errMentionTargetNotFound) {
@@ -2407,6 +2410,7 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		tags := normalizeClaimedTags(part.Tags)
+		tagCounts[i] = len(tags)
 		if h.filterPipeTags != nil {
 			tags = h.filterPipeTags(tags)
 		}
@@ -2494,10 +2498,10 @@ func (h *Handlers) CreateThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, part := range parts {
+	for _, n := range tagCounts {
 		h.metrics.ReedPublished(r.Context(), metrics.ReedPublishedAttrs{
 			Kind:     metrics.ReedKindThread,
-			TagCount: len(part.Tags),
+			TagCount: n,
 		})
 	}
 	h.metrics.ThreadPublished(r.Context(), len(parts))
