@@ -3395,6 +3395,346 @@
       "name": "Reeds",
       "panels": [
         {
+          "id": "syrinx_stat_reeds_published",
+          "type": "metric",
+          "title": "Reeds published",
+          "description": "New reeds in the window, thread parts included; deletions are counted separately",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_reeds_published",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Reeds published",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 38,
+            "h": 6,
+            "i": 104
+          }
+        },
+        {
+          "id": "syrinx_stat_reeds_deleted",
+          "type": "metric",
+          "title": "Reeds deleted",
+          "description": "Reed removal certs in the window (not replays)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_reeds_deleted",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Reeds deleted",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 38,
+            "y": 0,
+            "w": 38,
+            "h": 6,
+            "i": 105
+          }
+        },
+        {
+          "id": "syrinx_stat_reeds_tags",
+          "type": "metric",
+          "title": "Tags used",
+          "description": "Tags on reeds published in the window, counted per use",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_reeds_tags",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_reeds_tags",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Tags used",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 76,
+            "y": 0,
+            "w": 38,
+            "h": 6,
+            "i": 106
+          }
+        },
+        {
+          "id": "syrinx_stat_reeds_rejected",
+          "type": "metric",
+          "title": "Rejections",
+          "description": "Reeds and threads clients refused to store in the window",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_content_rejected WHERE store_name IN ('reeds', 'threads')",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_content_rejected",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Rejections",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 114,
+            "y": 0,
+            "w": 39,
+            "h": 6,
+            "i": 107
+          }
+        },
+        {
+          "id": "syrinx_stat_threads",
+          "type": "metric",
+          "title": "Threads published",
+          "description": "New threads in the window (not replays)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_threads_published",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_threads_published",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Threads published",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 153,
+            "y": 0,
+            "w": 39,
+            "h": 6,
+            "i": 108
+          }
+        },
+        {
           "id": "syrinx_reeds_published",
           "type": "line",
           "title": "Publishes by kind",
@@ -3532,7 +3872,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 0,
+            "y": 6,
             "w": 96,
             "h": 14,
             "i": 40
@@ -3607,7 +3947,7 @@
           ],
           "layout": {
             "x": 96,
-            "y": 0,
+            "y": 6,
             "w": 96,
             "h": 14,
             "i": 41
@@ -3659,7 +3999,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 14,
+            "y": 20,
             "w": 48,
             "h": 14,
             "i": 42
@@ -3711,7 +4051,7 @@
           ],
           "layout": {
             "x": 48,
-            "y": 14,
+            "y": 20,
             "w": 48,
             "h": 14,
             "i": 43
@@ -3720,8 +4060,8 @@
         {
           "id": "syrinx_reeds_tags",
           "type": "line",
-          "title": "Publishes with tags",
-          "description": "Tag count bucketed 0\u20133 exact, 4 = four or more (never tag text)",
+          "title": "Tags used",
+          "description": "Tags on published reeds, counted per use (never tag text)",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -3738,11 +4078,11 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum(sum_over_time(syrinx_reeds_published{tags_has=\"true\"}[5m]))",
+              "query": "sum(sum_over_time(syrinx_reeds_tags[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
-                "stream": "syrinx_reeds_published",
+                "stream": "syrinx_reeds_tags",
                 "stream_type": "metrics",
                 "x": [],
                 "y": [],
@@ -3755,53 +4095,7 @@
                 }
               },
               "config": {
-                "promql_legend": "with tags",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "sum(sum_over_time(syrinx_reeds_published{tags_has=\"false\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reeds_published",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "no tags",
-                "layer_type": "scatter",
-                "weight_fixed": 1.0
-              }
-            },
-            {
-              "query": "sum(sum_over_time(syrinx_reeds_published{tags_count=\"4\"}[5m]))",
-              "vrlFunctionQuery": null,
-              "customQuery": true,
-              "fields": {
-                "stream": "syrinx_reeds_published",
-                "stream_type": "metrics",
-                "x": [],
-                "y": [],
-                "z": [],
-                "breakdown": [],
-                "filter": {
-                  "filterType": "group",
-                  "logicalOperator": "AND",
-                  "conditions": []
-                }
-              },
-              "config": {
-                "promql_legend": "4+ tags",
+                "promql_legend": "tags",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }
@@ -3809,7 +4103,7 @@
           ],
           "layout": {
             "x": 96,
-            "y": 14,
+            "y": 20,
             "w": 96,
             "h": 14,
             "i": 44
@@ -3930,7 +4224,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 28,
+            "y": 34,
             "w": 192,
             "h": 14,
             "i": 47
@@ -4005,7 +4299,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 42,
+            "y": 48,
             "w": 96,
             "h": 14,
             "i": 48
@@ -4103,7 +4397,7 @@
           ],
           "layout": {
             "x": 96,
-            "y": 42,
+            "y": 48,
             "w": 96,
             "h": 14,
             "i": 49

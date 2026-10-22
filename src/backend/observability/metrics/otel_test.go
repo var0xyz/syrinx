@@ -145,3 +145,32 @@ func TestOTELThreadPublished(t *testing.T) {
 		t.Errorf("thread.size count = %d sum = %d, want 1 and 5", count, sum)
 	}
 }
+
+// syrinx.reeds.tags adds each publish's exact tag count, past the 4+ bucket.
+func TestOTELReedTags(t *testing.T) {
+	t.Parallel()
+	reader := sdkmetric.NewManualReader()
+	r := New(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)).Meter(scope))
+
+	r.ReedPublished(context.Background(), ReedPublishedAttrs{Kind: ReedKindPlain, TagCount: 6})
+	r.ReedPublished(context.Background(), ReedPublishedAttrs{Kind: ReedKindPlain, TagCount: 2})
+	r.ReedPublished(context.Background(), ReedPublishedAttrs{Kind: ReedKindPlain})
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatal(err)
+	}
+	var total int64
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if s, ok := m.Data.(metricdata.Sum[int64]); ok && m.Name == "syrinx.reeds.tags" {
+				for _, dp := range s.DataPoints {
+					total += dp.Value
+				}
+			}
+		}
+	}
+	if total != 8 {
+		t.Errorf("reeds.tags = %d, want 8", total)
+	}
+}
