@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (tip publish rule **accepted**: Approach B — server sends tip id).
+Implemented (tip publish rule **accepted**: Approach B — server sends tip id).
 
 ## Depends on
 

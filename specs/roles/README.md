@@ -31,7 +31,7 @@ federation builds on roles + `serverID`
 
 | Step | Status |
 |------|--------|
-| 00 | Proposed (design locked) |
+| 00 | Implemented (design locked) |
 | 01 | **Implemented** |
 | 02 | **Implemented** |
 | 03 | **Implemented** |

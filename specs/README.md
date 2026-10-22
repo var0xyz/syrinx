@@ -45,10 +45,12 @@ Each table below has a **Status** column per step. Values:
 | Avatars               | Deferred    | 00–05                                                  |
 | Likes                 | Implemented | —                                                      |
 | Invites               | In progress | 06 (00–05 implemented)                                 |
-| Content privacy       | In progress | 04 (mention-inbox client consumption)                  |
+| Content privacy       | Implemented | —                                                      |
 | Eviction              | Implemented | —                                                      |
 | Blocking              | Implemented | —                                                      |
 | Admin actions         | Implemented | —                                                      |
+| Attestations          | Implemented | —                                                      |
+| RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -151,7 +153,7 @@ nothing they signed is touched, and unblocking restores nothing.
 
 | #   | Title                                                | Status   |
 | --- | ---------------------------------------------------- | -------- |
-| 00  | Design, trust model, locked decisions                | Proposed |
+| 00  | Design, trust model, locked decisions                | Implemented |
 | 01  | `user_blocks` schema, canonical payload, countersign | Implemented |
 | 02  | Block / unblock / list API and immediate effects     | Implemented |
 | 03  | 403 + certificate on every read path                 | Implemented |
@@ -198,7 +200,7 @@ admins may invite other admins. Prerequisite for federation operator actions.
 
 | #   | Title                                      | Status      |
 | --- | ------------------------------------------ | ----------- |
-| 00  | Design + locked model                      | Proposed    |
+| 00  | Design + locked model                      | Implemented |
 | 01  | `users.role` column + code helpers         | Implemented |
 | 02  | Admin-only admin invites (create + signup) | Implemented |
 | 03  | Role on profile countersignature           | Implemented |
@@ -283,7 +285,7 @@ receives reed content, even transiently; relay is end-to-end encrypted.
 | 01  | `SignReed` drops content; claimed `tags`/`mentions`               | Implemented |
 | 02  | Encrypted relay (`RELAY_REQUEST`/`RELAY_RESPONSE`, `RELAY_ERROR`) | Implemented |
 | 03  | Mentioned-user pull inbox                                         | Implemented |
-| 04  | SPA: encrypt/decrypt, tag-claim verify                            | Partial     |
+| 04  | SPA: encrypt/decrypt, tag-claim verify                            | Implemented |
 | 05  | `ContentRejectedData.reason`                                      | Implemented |
 | 06  | Event id moves to the message root (`id`)                         | Implemented |
 | 07  | `requestReedContent()` resolves a verified reed                   | Implemented |
@@ -417,6 +419,7 @@ client-side (never server-side, which would reintroduce H1).
 | 05  | Trust roots and depth-1 reachability        | Implemented |
 | 06  | SPA: QR exchange, key compare, vouch        | Implemented |
 | 07  | SPA: vouch list, marks, key-change warnings | Implemented |
+| 08  | Federated vouch delivery and reads          | Implemented |
 | 09  | Verification window: vouch while code shows | Implemented |
 
 ## Observability (request + DB query tracing + business metrics)
@@ -478,7 +481,7 @@ existing `API_HOST` dev-proxy — no signing/WS-framing code is reimplemented.
 - **Signature storage steps** are deferred relative to deletion and are
   **blank slate** (no migration / dual-write / client compat); within
   `signatures/`, follow that directory's depends-on column (00→06, 08;
-  07 cancelled; 09 proposed after wire). Steps 03–06 may parallel after 02. Deletion may keep
+  07 cancelled; 09 implemented). Steps 03–06 may parallel after 02. Deletion may keep
   inlined columns until signatures 06.
 - **Account recovery** ([`account_recovery/`](account_recovery/README.md))
   is independent of server `RECOVERY_MODE` steps; it extends the unified
