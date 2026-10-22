@@ -233,6 +233,25 @@ def top_table(*, pid: str, title: str, stream: str, labels: list[str],
     )
 
 
+def metric_tile(*, pid: str, title: str, stream: str, layout: dict,
+                description: str, where: str = "") -> dict:
+    """Events in the dashboard's time range: each point is a delta, so the
+    sum of the values is the total."""
+    cond = f" WHERE {where}" if where else ""
+    return sql_panel(
+        pid=pid,
+        title=title,
+        ptype="metric",
+        sql=f"SELECT sum(value) AS total FROM {stream}{cond}",
+        layout=layout,
+        x=[],
+        y=[axis(title, "total")],
+        stream=stream,
+        stream_type="metrics",
+        description=description,
+    )
+
+
 def promql_labeled_queries(
     metric: str, attr: str, pairs: list[tuple[str, str]]
 ) -> list[tuple[str, str, str]]:
@@ -270,6 +289,7 @@ USERS_DELETED = metric_stream("syrinx.users.deleted")
 USERS_BACKUP = metric_stream("syrinx.users.backup")
 KEYS_REVOKED = metric_stream("syrinx.keys.revoked")
 REEDS_PUBLISHED = metric_stream("syrinx.reeds.published")
+REEDS_TAGS = metric_stream("syrinx.reeds.tags")
 REEDS_DELETED = metric_stream("syrinx.reeds.deleted")
 THREADS_PUBLISHED = metric_stream("syrinx.threads.published")
 THREAD_SIZE = metric_stream("syrinx.thread.size")
@@ -929,6 +949,42 @@ users = [
 ]
 
 reeds = [
+    metric_tile(
+        pid="syrinx_stat_reeds_published",
+        title="Reeds published",
+        stream=REEDS_PUBLISHED,
+        layout=layout(0, 0, 38, 6, 104),
+        description="New reeds in the window, thread parts included; deletions are counted separately",
+    ),
+    metric_tile(
+        pid="syrinx_stat_reeds_deleted",
+        title="Reeds deleted",
+        stream=REEDS_DELETED,
+        layout=layout(38, 0, 38, 6, 105),
+        description="Reed removal certs in the window (not replays)",
+    ),
+    metric_tile(
+        pid="syrinx_stat_reeds_tags",
+        title="Tags used",
+        stream=REEDS_TAGS,
+        layout=layout(76, 0, 38, 6, 106),
+        description="Tags on reeds published in the window, counted per use",
+    ),
+    metric_tile(
+        pid="syrinx_stat_reeds_rejected",
+        title="Rejections",
+        stream=CONTENT_REJECTED,
+        where="store_name IN ('reeds', 'threads')",
+        layout=layout(114, 0, 39, 6, 107),
+        description="Reeds and threads clients refused to store in the window",
+    ),
+    metric_tile(
+        pid="syrinx_stat_threads",
+        title="Threads published",
+        stream=THREADS_PUBLISHED,
+        layout=layout(153, 0, 39, 6, 108),
+        description="New threads in the window (not replays)",
+    ),
     promql_panel(
         pid="syrinx_reeds_published",
         title="Publishes by kind",
@@ -945,7 +1001,7 @@ reeds = [
                 ],
             ),
         ],
-        layout=layout(0, 0, 96, 14, 40),
+        layout=layout(0, 6, 96, 14, 40),
         description="Successful SignReed creates (not replays), split by reed.kind",
     ),
     promql_panel(
@@ -960,7 +1016,7 @@ reeds = [
                 REEDS_PUBLISHED,
             ),
         ],
-        layout=layout(96, 0, 96, 14, 41),
+        layout=layout(96, 6, 96, 14, 41),
         description=(
             "Chorus echoes count towards the original reed; self echoes are users "
             "echoing their own reed, which don't"
@@ -970,7 +1026,7 @@ reeds = [
         pid="syrinx_reeds_deleted",
         title="Reed deletions",
         queries=[promql_total(REEDS_DELETED, "deleted")],
-        layout=layout(0, 14, 48, 14, 42),
+        layout=layout(0, 20, 48, 14, 42),
         description=(
             "Successful reed removal certs (not replays). "
             "No Data = no deletions in the selected window."
@@ -986,7 +1042,7 @@ reeds = [
                 CONTENT_REJECTED,
             ),
         ],
-        layout=layout(48, 14, 48, 14, 43),
+        layout=layout(48, 20, 48, 14, 43),
         description=(
             "Reeds and threads clients refused to store: bad signatures, tampering, "
             "over-limit content, unknown or revoked keys, false tag claims"
@@ -994,14 +1050,10 @@ reeds = [
     ),
     promql_panel(
         pid="syrinx_reeds_tags",
-        title="Publishes with tags",
-        queries=[
-            promql_labeled(REEDS_PUBLISHED, "tags_has", "true", "with tags"),
-            promql_labeled(REEDS_PUBLISHED, "tags_has", "false", "no tags"),
-            promql_labeled(REEDS_PUBLISHED, "tags_count", "4", "4+ tags"),
-        ],
-        layout=layout(96, 14, 96, 14, 44),
-        description="Tag count bucketed 0–3 exact, 4 = four or more (never tag text)",
+        title="Tags used",
+        queries=[promql_total(REEDS_TAGS, "tags")],
+        layout=layout(96, 20, 96, 14, 44),
+        description="Tags on published reeds, counted per use (never tag text)",
     ),
     promql_panel(
         pid="syrinx_reed_holders_coverage",
@@ -1013,7 +1065,7 @@ reeds = [
             ),
             histogram_quantile_query(REED_COVERAGE, 0.5, "coverage % p50"),
         ],
-        layout=layout(0, 28, 192, 14, 47),
+        layout=layout(0, 34, 192, 14, 47),
         description=(
             "holders and coverage % are the same event (ReedCoverage records both "
             "together — coverage % = holders / active users) so they're merged here. "
@@ -1027,7 +1079,7 @@ reeds = [
             promql_total(THREADS_PUBLISHED, "threads"),
             promql_labeled(REEDS_PUBLISHED, "reed_kind", "thread", "thread parts"),
         ],
-        layout=layout(0, 42, 96, 14, 48),
+        layout=layout(0, 48, 96, 14, 48),
         description=(
             "Successful CreateThread calls (not replays), next to the reeds they "
             "contain (syrinx.reeds.published with reed.kind=thread)."
@@ -1038,7 +1090,7 @@ reeds = [
         title="Thread size (parts) — p50/p90/p99",
         ptype="area",
         queries=histogram_percentile_bands(THREAD_SIZE),
-        layout=layout(96, 42, 96, 14, 49),
+        layout=layout(96, 48, 96, 14, 49),
         description=(
             "Parts per thread at publish, from OTLP histogram buckets. "
             "Threads cap at 30 parts."

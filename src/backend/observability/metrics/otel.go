@@ -17,6 +17,7 @@ type OTEL struct {
 	usersDeleted         metric.Int64Counter
 	usersUpdated         metric.Int64Counter
 	reedsPublished       metric.Int64Counter
+	reedsTags            metric.Int64Counter
 	reedsDeleted         metric.Int64Counter
 	threadsPublished     metric.Int64Counter
 	threadSize           metric.Int64Histogram
@@ -116,6 +117,7 @@ func New(m metric.Meter) *OTEL {
 	r.usersDeleted = counter("syrinx.users.deleted")
 	r.usersUpdated = counter("syrinx.users.updated")
 	r.reedsPublished = counter("syrinx.reeds.published")
+	r.reedsTags = counter("syrinx.reeds.tags")
 	r.reedsDeleted = counter("syrinx.reeds.deleted")
 	r.threadsPublished = counter("syrinx.threads.published")
 	r.threadSize = histogram("syrinx.thread.size")
@@ -247,6 +249,10 @@ func (r *OTEL) ReedPublished(ctx context.Context, p ReedPublishedAttrs) {
 		attribute.Bool("tags.has", tagCount > 0),
 		attribute.Int("tags.count", tagCount),
 	)
+	// Exact, unlike the bucketed tags.count attribute.
+	if p.TagCount > 0 {
+		addN(ctx, r.reedsTags, int64(p.TagCount), str("reed.kind", string(p.Kind)))
+	}
 }
 
 func (r *OTEL) ReedDeleted(ctx context.Context) {

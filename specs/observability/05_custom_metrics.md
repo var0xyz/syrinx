@@ -50,6 +50,7 @@ stream as host metrics today.
 | `syrinx.users.deleted` | Counter | Account removal: `DeleteMe` (new cert) or an approved kick | `removal.kind` (`self` \| `kick`), `note.has` (bool; never the note text) |
 | `syrinx.users.updated` | Counter | Successful `UpdateUser` | `renamed` (bool) |
 | `syrinx.reeds.published` | Counter | Successful `SignReed` (new reed, not replay), and once per part of a new thread | `reed.kind` (`plain` \| `echo` \| `reply` \| `thread`), `tags.has`, `tags.count` (0–4+) |
+| `syrinx.reeds.tags` | Counter | Same hook as `syrinx.reeds.published`, when the reed has tags | value = exact tag count; `reed.kind` |
 | `syrinx.reeds.deleted` | Counter | Successful reed removal (new cert) | — |
 | `syrinx.threads.published` | Counter | Successful `CreateThread` (new thread, not replay) | — |
 | `syrinx.thread.size` | Histogram | Same hook as `syrinx.threads.published` | value = number of parts |
@@ -118,7 +119,8 @@ publish; `syrinx.echoes.targeted` counts echoes indexed on this server's reeds.
 
 **Tag bucketing on publish:** store exact `tags.count` when ≤ 3; use `4` as
 “4 or more” on the attribute to cap cardinality from pathological tag spam.
-Never emit individual tag names.
+`syrinx.reeds.tags` carries the exact count as the counter value, which
+adds no cardinality. Never emit individual tag names.
 
 **Relay lag:** `syrinx.relay.pending` is the number of open
 `pending_events` rows: +1 when a relay request is created, −1 whenever its
