@@ -20,7 +20,7 @@ delivery).
 | 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | Proposed    |
 | 04 | Signed peer records in `/server/info`                                 | Proposed    |
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Proposed    |
-| 06 | Delivery: `503` suspends; receive-side fixes                          | Proposed    |
+| 06 | Delivery: `503` suspends; receive-side fixes                          | In progress |
 | 07 | Recovery reports servers, then users, then reeds, local and foreign   | Proposed    |
 | 08 | Username collision certificate                                        | Proposed    |
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | In progress |
