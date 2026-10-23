@@ -3803,6 +3803,17 @@ func (h *Handlers) IssueChallenge(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, http.StatusOK, &pb.ChallengeResponse{Challenge: nonce})
 }
 
+// sampleRecoveryState reports how many users are recorded, unclaimed and
+// mid-import, so operators see when claims stop coming in.
+func (h *Handlers) sampleRecoveryState(ctx context.Context) {
+	recorded, unclaimed, ongoing, err := h.services.db.RecoveryCounts(ctx)
+	if err != nil {
+		h.services.log.GetLogger(ctx).Warn().Err(err).Msg("Could not count recovery state")
+		return
+	}
+	h.metrics.ServerRecoveryState(ctx, recorded, unclaimed, ongoing)
+}
+
 // refuseRemovedAccount answers 410 for a removed or kicked account, which
 // recovery must never bring back, and reports whether it did.
 func (h *Handlers) refuseRemovedAccount(w http.ResponseWriter, r *http.Request, userID string) bool {
@@ -3820,8 +3831,11 @@ func (h *Handlers) refuseRemovedAccount(w http.ResponseWriter, r *http.Request, 
 
 // ClaimIdentity handles POST /api/recovery/identity/claim.
 func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
-	userID, ok := "", false
-	defer func() { h.metrics.ServerRecovery(r.Context(), "claim", ok) }()
+	userID, ok, first := "", false, false
+	defer func() {
+		h.metrics.ServerRecoveryClaim(r.Context(), ok, first)
+		h.sampleRecoveryState(r.Context())
+	}()
 	req, err := readRecoveryClaim(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -3879,6 +3893,7 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 	if res.Created {
 		h.metrics.UserCreated(r.Context(), metrics.SignupModeImport)
 	}
+	first = res.Created || res.WasUnclaimed
 
 	h.wakeRecoveryRecords(r, req.Profile.ID)
 	req.Profile.ActiveKeyFingerprint = active.Key.Fingerprint
@@ -3895,7 +3910,10 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recorded := false
-	defer func() { h.metrics.ServerRecovery(r.Context(), "peer_identity", recorded) }()
+	defer func() {
+		h.metrics.ServerRecovery(r.Context(), "peer_identity", recorded)
+		h.sampleRecoveryState(r.Context())
+	}()
 	req, err := readRecoveryPeerIdentity(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "Invalid request body")
@@ -4114,6 +4132,7 @@ func (h *Handlers) CompleteImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.metrics.ServerRecovery(r.Context(), "complete", true)
+	h.sampleRecoveryState(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

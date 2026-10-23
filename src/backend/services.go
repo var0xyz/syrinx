@@ -179,6 +179,17 @@ func (s *DataService) InsertUnclaimed(ctx context.Context, serverID, userID stri
 	return err
 }
 
+// RecoveryCounts returns how many users are recorded here, how many were
+// never claimed by their owner, and how many are mid-import.
+func (s *DataService) RecoveryCounts(ctx context.Context) (recorded, unclaimed, ongoing int, err error) {
+	err = s.db.QueryRowContext(ctx, `
+		SELECT (SELECT COUNT(*) FROM users WHERE server_signature_id IS NOT NULL),
+		       (SELECT COUNT(*) FROM unclaimed_accounts),
+		       (SELECT COUNT(*) FROM ongoing_recoveries)
+	`).Scan(&recorded, &unclaimed, &ongoing)
+	return recorded, unclaimed, ongoing, err
+}
+
 // DeleteUnclaimed removes a user from the unclaimed gauge (e.g. after own claim).
 func (s *DataService) DeleteUnclaimed(ctx context.Context, serverID, userID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, canonicalID(serverID, userID))
@@ -6995,6 +7006,9 @@ const maxRecoveryFollowingBatch = 100
 // recoverySaveIdentityResult describes what a save did to the users row.
 type recoverySaveIdentityResult struct {
 	Created bool
+	// WasUnclaimed is true when a claim took the account out of
+	// unclaimed_accounts: it had been recorded from someone's cache.
+	WasUnclaimed bool
 	Updated bool // profile columns written (create or newer-wins)
 	// Rejected is true when profile.Username collided with an existing
 	// holder whose server_signed_at was newer or equal — the incoming
@@ -7092,8 +7106,14 @@ func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile r
 		}
 		return res, nil
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, selfIdentity); err != nil {
+	unclaimed, err := tx.ExecContext(ctx, `DELETE FROM unclaimed_accounts WHERE user_id = $1`, selfIdentity)
+	if err != nil {
 		return nil, err
+	}
+	if n, err := unclaimed.RowsAffected(); err != nil {
+		return nil, err
+	} else if n > 0 {
+		res.WasUnclaimed = true
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO ongoing_recoveries (user_id) VALUES ($1)

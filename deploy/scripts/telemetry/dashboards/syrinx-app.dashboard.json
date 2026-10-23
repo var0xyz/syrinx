@@ -3387,6 +3387,202 @@
             "h": 14,
             "i": 37
           }
+        },
+        {
+          "id": "syrinx_recovery_claims",
+          "type": "line",
+          "title": "Recovery claims",
+          "description": "Accounts coming back to a rebuilt server. Once first claims stay at zero for a few days, most of the community is back: time to open signups",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"claim\",ok=\"true\",first=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "first claims",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"claim\",ok=\"true\",first=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "repeat claims",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"claim\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 42,
+            "w": 96,
+            "h": 14,
+            "i": 109
+          }
+        },
+        {
+          "id": "syrinx_recovery_state",
+          "type": "line",
+          "title": "Recovered accounts",
+          "description": "Accounts recorded here, those recorded only from someone else's cache and never claimed by their owner, and those still reporting back",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "max(syrinx_server_recovery_users)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_users",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "recorded",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "max(syrinx_server_recovery_unclaimed)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_unclaimed",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "never claimed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "max(syrinx_server_recovery_ongoing)",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_ongoing",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "mid-import",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 42,
+            "w": 96,
+            "h": 14,
+            "i": 110
+          }
         }
       ]
     },
