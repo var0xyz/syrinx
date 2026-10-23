@@ -659,8 +659,11 @@ type UserInfo struct {
 	ProfileTimestamp uint32   `protobuf:"varint,6,opt,name=profile_timestamp,json=profileTimestamp,proto3" json:"profile_timestamp,omitempty"`
 	PinnedReedIds    []string `protobuf:"bytes,7,rep,name=pinned_reed_ids,json=pinnedReedIDs,proto3" json:"pinned_reed_ids,omitempty"`
 	VouchIds         []string `protobuf:"bytes,8,rep,name=vouch_ids,json=vouchIDs,proto3" json:"vouch_ids,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Recorded only from another user's cache: its owner hasn't come back
+	// to this server yet.
+	Unclaimed     bool `protobuf:"varint,9,opt,name=unclaimed,proto3" json:"unclaimed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UserInfo) Reset() {
@@ -747,6 +750,13 @@ func (x *UserInfo) GetVouchIds() []string {
 		return x.VouchIds
 	}
 	return nil
+}
+
+func (x *UserInfo) GetUnclaimed() bool {
+	if x != nil {
+		return x.Unclaimed
+	}
+	return false
 }
 
 // PUT /users/me: a full replacement of the user-authored fields.
@@ -2124,7 +2134,7 @@ const file_identity_proto_rawDesc = "" +
 	"\x0euser_signature\x18\x06 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
 	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12*\n" +
 	"\x06invite\x18\b \x01(\v2\x12.syrinx.UserInviteR\x06invite\x12 \n" +
-	"\vpermissions\x18\t \x03(\tR\vpermissions\"\xbd\x02\n" +
+	"\vpermissions\x18\t \x03(\tR\vpermissions\"\xdb\x02\n" +
 	"\bUserInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\rfirst_reed_id\x18\x02 \x01(\tH\x00R\vfirstReedId\x88\x01\x01\x12'\n" +
@@ -2133,7 +2143,8 @@ const file_identity_proto_rawDesc = "" +
 	"\ractive_key_id\x18\x05 \x01(\tR\vactiveKeyID\x12+\n" +
 	"\x11profile_timestamp\x18\x06 \x01(\rR\x10profileTimestamp\x12&\n" +
 	"\x0fpinned_reed_ids\x18\a \x03(\tR\rpinnedReedIDs\x12\x1b\n" +
-	"\tvouch_ids\x18\b \x03(\tR\bvouchIDsB\x10\n" +
+	"\tvouch_ids\x18\b \x03(\tR\bvouchIDs\x12\x1c\n" +
+	"\tunclaimed\x18\t \x01(\bR\tunclaimedB\x10\n" +
 	"\x0e_first_reed_id\"h\n" +
 	"\x11UpdateUserRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x10\n" +

@@ -727,7 +727,8 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		           WHERE ufl.user_id = u.id
 		             AND NOT EXISTS (
 		                 SELECT 1 FROM account_removals ar WHERE ar.user_id = ufl.following_user_id
-		             ))
+		             )),
+		       EXISTS (SELECT 1 FROM unclaimed_accounts ua WHERE ua.user_id = u.id)
 		FROM users u
 		JOIN server_signatures ss ON ss.id = u.server_signature_id
 		WHERE u.id = $1
@@ -738,6 +739,7 @@ func (s *DataService) GetUserInfo(ctx context.Context, userID string) (*UserInfo
 		&firstReedID,
 		&info.FollowersCount,
 		&info.FollowingCount,
+		&info.Unclaimed,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {

@@ -1237,6 +1237,14 @@ func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "Cannot follow yourself")
 		return
 	}
+	// An account only recorded from someone's cache waits for its owner.
+	if unclaimed, err := h.services.db.IsUnclaimed(r.Context(), userID); err != nil {
+		internalServerError(w)
+		return
+	} else if unclaimed {
+		writeError(w, http.StatusConflict, "This account's owner hasn't come back to this server yet")
+		return
+	}
 
 	if _, isPeer := r.Context().Value(peerServerIDKey).(string); isPeer {
 		h.upsertRemoteIdentity(r.Context(), log, followerID)

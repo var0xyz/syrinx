@@ -23,7 +23,7 @@ delivery).
 | 06 | Delivery: `503` suspends; receive-side fixes                          | Implemented |
 | 07 | Recovery reports servers, then users, then reeds, local and foreign   | In progress |
 | 08 | Username collision certificate                                        | Proposed    |
-| 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | In progress |
+| 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | Implemented |
 | 10 | Recovery metrics and dashboard                                        | Implemented |
 | 11 | Refuse removed accounts                                               | Implemented |
 | 12 | Keys-only restore of a recorded account                               | Implemented |
