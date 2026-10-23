@@ -46,7 +46,7 @@ func TestSaveRecoveryFollowing_WaitsForConcurrentTargetRecovery(t *testing.T) {
 	defer tx.Rollback()
 	signedAt := time.Now().UTC().Truncate(time.Second)
 	profile := testRecoveryProfile("target", "target", signedAt)
-	if _, err := upsertRecoveryIdentity(ctx, tx, "test", profile, testRecoveryFlatKey("target", signedAt)); err != nil {
+	if _, err := upsertRecoveryIdentity(ctx, tx, "test", testSigner(new([][]byte)), profile, testRecoveryFlatKey("target", signedAt)); err != nil {
 		t.Fatalf("upsertRecoveryIdentity: %v", err)
 	}
 	if err := drainRecoveryPendingFollows(ctx, tx, identityID(target)); err != nil {

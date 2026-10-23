@@ -31,6 +31,17 @@ type User struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 	Invite          *Invite         `json:"invite"`
 	Permissions     []string        `json:"permissions"`
+	// Set when Username is empty because an older claim to it won.
+	UsernameCollision *UsernameCollision `json:"usernameCollision"`
+}
+
+// UsernameCollision is the server's certificate that LoserID lost Username
+// to WinnerID; its profile signatures still cover Username.
+type UsernameCollision struct {
+	Username        string
+	WinnerID        string
+	LoserID         string
+	ServerSignature ServerSignature
 }
 
 // UserInfo is the unsigned, frequently changing view of a user
@@ -1443,6 +1454,16 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
+	// A username a recovered account with an older claim took from this
+	// user, countersigned.
+	createUsernameCollisionsTable := `
+	CREATE TABLE IF NOT EXISTS username_collisions (
+		loser_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
+		username VARCHAR(255) NOT NULL,
+		winner_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
+	);`
+
 	// Single-use claim challenges; the cleanup job deletes expired ones.
 	createRecoveryChallengesTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS recovery_challenges (
@@ -1868,6 +1889,7 @@ func InitDB(db *sql.DB) error {
 
 		// Recovery
 		createUnclaimedAccountsTable,
+		createUsernameCollisionsTable,
 
 		createOngoingRecoveriesTable,
 

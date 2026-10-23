@@ -406,6 +406,19 @@ func buildPeerRecordPayload(serverID, peerID, name, keyID, baseURL, frontendURL,
 	})
 }
 
+// buildUsernameCollisionPayload returns the bytes this server countersigns
+// when loserID loses username to winnerID. Mirrored in signing.ts.
+func buildUsernameCollisionPayload(serverID, username, winnerID, loserID string, signedAt time.Time) []byte {
+	return canonicalJSON(signedFields{
+		"type":     "username-collision",
+		"serverID": serverID,
+		"username": username,
+		"winnerID": winnerID,
+		"loserID":  loserID,
+		"signedAt": signedTime(signedAt),
+	})
+}
+
 // identityTypeAccount is the `type` of an account removal certificate.
 const identityTypeAccount = "account"
 

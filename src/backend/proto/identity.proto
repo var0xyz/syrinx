@@ -90,6 +90,17 @@ message User {
   UserInvite invite = 8;
   // An admin's permissions, sorted; root holds every one without listing them.
   repeated string permissions = 9;
+  // Why username is empty: an older claim to it won. The profile's
+  // signatures cover the username this names.
+  UsernameCollision username_collision = 10;
+}
+
+// The server's certificate that loser_id lost username to winner_id.
+message UsernameCollision {
+  string username = 1;
+  string winner_id = 2;
+  string loser_id = 3;
+  ServerSignature server_signature = 4;
 }
 
 // The unsigned, frequently changing view of a user (GET /users/{id}/info).

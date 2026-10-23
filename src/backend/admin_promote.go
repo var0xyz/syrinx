@@ -46,9 +46,10 @@ func (h *Handlers) recountersignProfileTx(ctx context.Context, tx *sql.Tx, userI
 	var memberSince time.Time
 	var oldServerSigID sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `
-		SELECT u.username, COALESCE(u.bio, ''), u.created_at, COALESCE(u.invite_id, ''),
+		SELECT COALESCE(u.username, uc.username), COALESCE(u.bio, ''), u.created_at, COALESCE(u.invite_id, ''),
 			us.public_key_id, us.signature, u.server_signature_id
 		FROM users u JOIN user_signatures us ON us.id = u.user_signature_id
+		LEFT JOIN username_collisions uc ON uc.loser_id = u.id
 		WHERE u.id = $1
 	`, userID).Scan(&username, &bio, &memberSince, &inviteID, &keyID, &userSignature, &oldServerSigID); err != nil {
 		return fmt.Errorf("load profile: %w", err)

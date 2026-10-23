@@ -3893,14 +3893,14 @@ func (h *Handlers) ClaimIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := saveOwnIdentity(r.Context(), h.services.db.db, serverID, req.Profile, keys, deviceID)
+	res, err := saveOwnIdentity(r.Context(), h.services.db.db, serverID, h.signerFor(r.Context()), req.Profile, keys, deviceID)
 	if err != nil {
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", userID).Msg("Recovery claim failed")
 		internalServerError(w)
 		return
 	}
 	if res.Rejected {
-		writeError(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		writeError(w, http.StatusConflict, "This user ID belongs to another account on this server")
 		return
 	}
 	if res.Created {
@@ -3949,14 +3949,14 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := savePeerIdentity(r.Context(), h.services.db.db, serverID, req.Profile, keys)
+	res, err := savePeerIdentity(r.Context(), h.services.db.db, serverID, h.signerFor(r.Context()), req.Profile, keys)
 	if err != nil {
 		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", req.Profile.ID).Msg("Recovery peer identity failed")
 		internalServerError(w)
 		return
 	}
 	if res.Rejected {
-		writeError(w, http.StatusConflict, "Username is already held by a more recently signed identity on this server")
+		writeError(w, http.StatusConflict, "This user ID belongs to another account on this server")
 		return
 	}
 	if res.Created {

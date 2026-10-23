@@ -82,6 +82,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_signature_id INT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS server_signature_id INT`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_id VARCHAR(255)`,
+		`CREATE TABLE IF NOT EXISTS username_collisions (loser_id VARCHAR(255) PRIMARY KEY)`,
 		`CREATE OR REPLACE FUNCTION invite_creator(invite_id TEXT) RETURNS TEXT AS $$
 			SELECT left(invite_id, length(invite_id) - strpos(reverse(invite_id), '/'))
 		$$ LANGUAGE sql IMMUTABLE`,

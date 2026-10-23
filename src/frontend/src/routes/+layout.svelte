@@ -54,6 +54,8 @@
   import { setBlockedReporter, setSuspendedReporter } from '$lib/services/api';
   import { receiveSuspension, suspension } from '$lib/services/suspension';
   import SuspendedScreen from '$lib/components/SuspendedScreen.svelte';
+  import { checkOwnUsername, lostUsername } from '$lib/services/usernameCollision';
+  import UsernameCollisionGate from '$lib/components/UsernameCollisionGate.svelte';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
   import { verifyAndStoreAdminMention, verifyAndStoreMention } from '$lib/services/mentionsSync';
@@ -108,6 +110,7 @@
     }
     refreshServerInfo();
     if (!authService.isLoggedIn()) return;
+    void checkOwnUsername();
     authService.getCurrentUser().then((currentUser) => {
       if (!currentUser) return;
       followingRepository.syncPending();
@@ -154,6 +157,7 @@
     initializePWA();
     stopReconnect = onReconnect(syncAfterReconnect);
     refreshServerInfo();
+    void checkOwnUsername();
     enforceImportGate(window.location.pathname);
 
     if (!wsHandlersRegistered) {
@@ -459,6 +463,8 @@
   />
 {:else if $suspension}
   <SuspendedScreen request={$suspension} />
+{:else if $lostUsername !== null}
+  <UsernameCollisionGate username={$lostUsername} />
 {:else}
 <div class="app-shell">
   <UpdateAvailableIndicator />
