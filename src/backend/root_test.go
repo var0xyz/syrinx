@@ -11,7 +11,7 @@ import (
 func TestRequireRootUser_RecoveryModeSkips(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
-	cfg := AppConfig{RecoveryMode: true}
+	cfg := AppConfig{RecoveryMode: string(recoveryModeLockdown)}
 	if err := requireRootUser(cfg, svc); err != nil {
 		t.Fatalf("recovery mode should skip: %v", err)
 	}
@@ -20,7 +20,7 @@ func TestRequireRootUser_RecoveryModeSkips(t *testing.T) {
 func TestRequireRootUser_MissingRootFails(t *testing.T) {
 	db := openSignupTestDB(t)
 	svc := NewDataService(db, "test")
-	cfg := AppConfig{RecoveryMode: false}
+	cfg := AppConfig{RecoveryMode: string(recoveryModeOff)}
 	if err := requireRootUser(cfg, svc); err == nil {
 		t.Fatal("expected error when root row missing")
 	}
@@ -33,7 +33,7 @@ func TestRequireRootUser_PresentRootOK(t *testing.T) {
 	if _, err := svc.Signup(context.Background(), signupInput(rootUserID, "root", nil)); err != nil {
 		t.Fatal(err)
 	}
-	cfg := AppConfig{RecoveryMode: false}
+	cfg := AppConfig{RecoveryMode: string(recoveryModeOff)}
 	if err := requireRootUser(cfg, svc); err != nil {
 		t.Fatalf("expected ok when root exists: %v", err)
 	}

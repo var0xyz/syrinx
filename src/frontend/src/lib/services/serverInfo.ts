@@ -1,5 +1,5 @@
 import { derived, writable } from 'svelte/store';
-import type { FederatedServer, ServerInfo, SignupMode } from '$lib/types/server';
+import type { FederatedServer, RecoveryMode, ServerInfo, SignupMode } from '$lib/types/server';
 import type { PublicKey } from '$lib/types/api';
 import { create } from '@bufbuild/protobuf';
 import { PublicKeySchema } from '$lib/proto/identity_pb';
@@ -42,7 +42,7 @@ export const signupMode = derived(
 
 export const isRecoveryMode = derived(
   serverInfo,
-  ($info) => $info?.recoveryMode === true
+  ($info) => $info?.recoveryMode === 'lockdown' || $info?.recoveryMode === 'operational'
 );
 
 /** Device is online but GET /api/server/info failed. */
@@ -57,6 +57,10 @@ export const hasServerIdMismatch = derived(
   serverIdMismatch,
   ($mismatch) => $mismatch !== null
 );
+
+function normalizeRecoveryMode(value: unknown): RecoveryMode {
+  return value === 'lockdown' || value === 'operational' ? value : 'off';
+}
 
 function normalizeSignupMode(value: unknown): SignupMode {
   if (value === 'open' || value === 'invite' || value === 'closed') {
@@ -147,7 +151,7 @@ export async function refreshServerInfo(updateServerKey = true): Promise<ServerI
     const info: ServerInfo = {
       id: data.id,
       name: data.name,
-      recoveryMode: !!data.recoveryMode,
+      recoveryMode: normalizeRecoveryMode(data.recoveryMode),
       signupMode: normalizeSignupMode(data.signupMode),
       maxInvitesPerUser: normalizeMaxInvites(data.maxInvitesPerUser),
       serverKeyId: typeof data.serverKeyId === 'string' ? data.serverKeyId : '',

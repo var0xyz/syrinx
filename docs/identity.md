@@ -16,7 +16,7 @@ Operators set `SIGNUP_MODE`:
 | `invite` | Valid invite required                 |
 | `closed` | Signup and username checks return 403 |
 
-`SIGNUP_MODE` is overridden whenever **`RECOVERY_MODE`** is on: signup and username checks always return 403, no matter the mode, and the SPA hides the Sign Up CTA and refuses to render the signup form (even via a direct invite link). This closes a username-sniping window — while the server is rebuilding its users table, a live signup could otherwise grab a name a returning peer hasn't reclaimed yet. Booting with `RECOVERY_MODE` on and a non-`closed` `SIGNUP_MODE` logs a startup warning since the mode is inert until recovery ends.
+`SIGNUP_MODE` is overridden while **`RECOVERY_MODE`** is `lockdown` or `operational`: signup and username checks always return 403, no matter the mode, and the SPA hides the Sign Up CTA and refuses to render the signup form (even via a direct invite link). This closes a username-sniping window — while the server is rebuilding its users table, a live signup could otherwise grab a name a returning peer hasn't reclaimed yet. Booting that way with a non-`closed` `SIGNUP_MODE` logs a startup warning since the mode is inert until recovery ends.
 
 `MAX_INVITES_PER_USER` caps how many invites a user may mint (`-1` / unset = infinite). `/api/server/info` exposes mode, recovery state, and quota so the SPA can hide Sign Up and disable minting without guessing.
 
@@ -50,7 +50,7 @@ Syrinx uses three names internally; as a user you only need the decision table:
 |----------------|------|--------------|-------------------|
 | New device, same healthy server, **keys only** | Identity export `syrinx-….sxi.gpg` (Backup Keys) | Account exists | **Account recovery** |
 | New device, same healthy server, **full backup** | Full export `syrinx-….sxb.gpg` | Account `complete` | **Import** (restore) |
-| Community DB was wiped; server in rebuild | Full export `syrinx-….sxb.gpg` | `RECOVERY_MODE` / ongoing | **Server recovery** |
+| Community DB was wiped; server rebuilt | Full export `syrinx-….sxb.gpg` | unclaimed / unknown / ongoing | **Server recovery** |
 
 This is **not** “switching servers” in the abstract. Moving to another hostname only works if that instance **recognizes your account** (import) or is **explicitly rebuilding** from a wiped database (server recovery). Keys alone never work when the server does not know the account.
 
@@ -75,10 +75,10 @@ Use when you have a **full encrypted backup** and the server still knows your ac
 
 ### Server recovery (DB rebuild)
 
-Use when the **operator wiped or rebuilt the server database** and turned on **`RECOVERY_MODE`**.
+Use when the **operator wiped or rebuilt the server database**. Recovery is always available, during the rebuild and after it, for any account the server has no claim for.
 
 - **Same file as import:** full `syrinx-….sxb.gpg` (you need countersigned profile and nested key evidence in the backup).
-- **What happens:** after decrypt, status says unknown or ongoing **and** recovery mode is on → backup written locally → **`/recovery`** → claim identity, report peers, reeds, follows, complete. The client reports signed evidence **to** the server; the server is reconstructing its library from the community.
+- **What happens:** after decrypt, status says unclaimed, unknown or ongoing → backup written locally → **`/recovery`** → claim identity, report peers, reeds, follows, complete. The client reports signed evidence **to** the server; the server is reconstructing its library from the community.
 - **Import gate:** until recovery completes, normal API use is blocked (server + client mirror) so half-restored sessions cannot post as if finished.
 
 Keys-only (`.sxi.gpg`) **cannot** drive server recovery—you need the full backup’s countersigned identity nest.
@@ -94,16 +94,14 @@ flowchart TD
   probe["POST /users/status"]
   importOk["Import only\nwrite backup → app"]
   recFlow["Server recovery\n/recovery report-back"]
-  fail["Error: need full backup\nor recovery-mode server"]
 
   entry --> keys
   entry --> full
   keys --> acctRec
   full --> probe
   probe -->|complete| importOk
-  probe -->|unknown + RECOVERY_MODE| recFlow
+  probe -->|unclaimed or unknown| recFlow
   probe -->|ongoing| recFlow
-  probe -->|unknown, normal server| fail
 ```
 
 ## Unified restore (full backup branch)
@@ -129,7 +127,7 @@ When an instance must be rebuilt:
 1. Stand up a new empty database, on the same domain or a new one—say, after a seizure. The server's identity is its key, not its domain.
 2. Ensure the **server key passphrase** is available (keychain or env)—same passphrase that wrapped keys in the backup bundle.
 3. Run **`ops import-identity`** on the encrypted identity bundle (`.sxi.gpg`). Bundle password decrypts the file; server passphrase unwraps keys. Restores `serverID`, name, and key history.
-4. Start the server with **`RECOVERY_MODE`**. Without a prior successful identity import, boot should refuse.
+4. Start the server with **`RECOVERY_MODE=lockdown`**, then `operational`, then `off` (see [Operators](/operators)). Without a prior successful identity import, boot should refuse.
 
 ### Clients
 
@@ -157,7 +155,7 @@ Every signed record is checked as it was when first accepted, and one that names
 
 A few things don't come back, by design: invites (an account still shows who invited it, but pending invites are lost), pending admin requests, flag dismissals (their flags come back open), ripples, and federation peers, which only the server held. Mailbox messages stay on the devices that received them. A removed reed comes back as its removal certificate alone, since no device keeps its content.
 
-Operators end the window by turning `RECOVERY_MODE` off when the community has reported in sufficiently. If the domain changed, federation with peer servers has to be re-established.
+Operators open signups by turning `RECOVERY_MODE` off when the community has reported in sufficiently; recovery itself stays available for anyone who comes back later. If the domain changed, federation with peer servers has to be re-established.
 
 Members can do their part even when the old domain is gone: the app is offline-first and keeps running from the device's cache, so they open it there, export a full backup, and import it under the new domain.
 

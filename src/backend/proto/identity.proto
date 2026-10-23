@@ -10,7 +10,8 @@ option go_package = "github.com/var0xyz/syrinx/proto";
 message ServerInfo {
   string id = 1;
   string name = 2;
-  bool recovery_mode = 3;
+  // RECOVERY_MODE: off, lockdown or operational.
+  string recovery_mode = 3;
   string signup_mode = 4;
   // -1 = unlimited.
   int32 max_invites_per_user = 5;

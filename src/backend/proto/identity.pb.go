@@ -23,11 +23,12 @@ const (
 
 // GET /server/info.
 type ServerInfo struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	Id           string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name         string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	RecoveryMode bool                   `protobuf:"varint,3,opt,name=recovery_mode,json=recoveryMode,proto3" json:"recovery_mode,omitempty"`
-	SignupMode   string                 `protobuf:"bytes,4,opt,name=signup_mode,json=signupMode,proto3" json:"signup_mode,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// RECOVERY_MODE: off, lockdown or operational.
+	RecoveryMode string `protobuf:"bytes,3,opt,name=recovery_mode,json=recoveryMode,proto3" json:"recovery_mode,omitempty"`
+	SignupMode   string `protobuf:"bytes,4,opt,name=signup_mode,json=signupMode,proto3" json:"signup_mode,omitempty"`
 	// -1 = unlimited.
 	MaxInvitesPerUser int32 `protobuf:"varint,5,opt,name=max_invites_per_user,json=maxInvitesPerUser,proto3" json:"max_invites_per_user,omitempty"`
 	// This server's current signing key id (fingerprint@serverID).
@@ -81,11 +82,11 @@ func (x *ServerInfo) GetName() string {
 	return ""
 }
 
-func (x *ServerInfo) GetRecoveryMode() bool {
+func (x *ServerInfo) GetRecoveryMode() string {
 	if x != nil {
 		return x.RecoveryMode
 	}
-	return false
+	return ""
 }
 
 func (x *ServerInfo) GetSignupMode() string {
@@ -2019,7 +2020,7 @@ const file_identity_proto_rawDesc = "" +
 	"ServerInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12#\n" +
-	"\rrecovery_mode\x18\x03 \x01(\bR\frecoveryMode\x12\x1f\n" +
+	"\rrecovery_mode\x18\x03 \x01(\tR\frecoveryMode\x12\x1f\n" +
 	"\vsignup_mode\x18\x04 \x01(\tR\n" +
 	"signupMode\x12/\n" +
 	"\x14max_invites_per_user\x18\x05 \x01(\x05R\x11maxInvitesPerUser\x12\"\n" +

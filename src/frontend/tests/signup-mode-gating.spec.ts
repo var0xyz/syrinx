@@ -8,7 +8,7 @@ const PROTOBUF = 'application/x-protobuf';
 async function mockServerInfo(
   page,
   signupMode: 'open' | 'invite' | 'closed',
-  recoveryMode = false
+  recoveryMode: 'off' | 'lockdown' | 'operational' = 'off'
 ) {
   await page.route('**/api/server/info', async (route) => {
     await route.fulfill({
@@ -65,21 +65,21 @@ test.describe('Signup mode gating', () => {
   });
 
   test('recovery mode hides Sign Up on home even when open', async ({ page }) => {
-    await mockServerInfo(page, 'open', true);
+    await mockServerInfo(page, 'open', 'lockdown');
     await page.goto('/welcome');
     await expect(page.locator('a.btn', { hasText: 'Already a user' })).toBeVisible();
     await expect(page.locator('a.btn', { hasText: 'Sign Up' })).toHaveCount(0);
   });
 
   test('recovery mode blocks /preamble even when open', async ({ page }) => {
-    await mockServerInfo(page, 'open', true);
+    await mockServerInfo(page, 'open', 'lockdown');
     await page.goto('/preamble');
     await expect(page.locator('text=This server is rebuilding')).toBeVisible();
     await expect(page.locator('a', { hasText: 'I Understand, Continue to Sign Up' })).toHaveCount(0);
   });
 
   test('recovery mode blocks /signup even with a valid invite link', async ({ page }) => {
-    await mockServerInfo(page, 'open', true);
+    await mockServerInfo(page, 'open', 'lockdown');
     await page.route('**/api/invites/check**', async (route) => {
       await route.fulfill({
         status: 200,

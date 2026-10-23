@@ -135,7 +135,7 @@ func TestCheckUsername_InviteModeRequiresValidInvite(t *testing.T) {
 // username at all — regardless of how permissive SIGNUP_MODE is.
 func TestCheckUsername_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 	db := openSignupTestDB(t)
-	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: true})
+	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: string(recoveryModeLockdown)})
 
 	rr := postCheckUsername(t, h, &pb.CheckUsernameRequest{Username: "bob"})
 	if rr.Code != http.StatusForbidden {
@@ -150,7 +150,7 @@ func TestCheckUsername_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 // for the actual signup endpoint.
 func TestSignup_RecoveryModeBlocksEvenWhenOpen(t *testing.T) {
 	db := openSignupTestDB(t)
-	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: true})
+	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: string(recoveryModeLockdown)})
 
 	rr := postSignup(t, h, &pb.SignupRequest{Username: "bob"})
 	if rr.Code != http.StatusForbidden {

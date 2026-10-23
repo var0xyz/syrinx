@@ -83,7 +83,7 @@ Config comes from the process environment (`tooxie/env`, `env.MustAssert`),
 **not** a loaded `.env` file — copy `.env.example` to `.env` and `source` it (or
 `make env`). Key vars: `DB_*`, `SERVER_NAME` (required, non-empty),
 `ALLOWED_ORIGIN`, `PORT`, `SERVER_KEY_PASSPHRASE` (optional; else keychain /
-prompt), `RECOVERY_MODE`, `SIGNUP_MODE` (`open|invite|closed`),
+prompt), `RECOVERY_MODE` (`off|lockdown|operational`), `SIGNUP_MODE` (`open|invite|closed`),
 `MAX_INVITES_PER_USER` (`>=1`, or `-1`/unset = unlimited).
 
 SPA (from `src/frontend/`):
@@ -159,10 +159,12 @@ same-named root file instead:
   `validateProfileRole` (was package `roles`).
 - `secret.go` — server-key passphrase resolver (env → keychain → prompt →
   auto-gen; was package `secret`).
-- `recovery.go` — server-side DB-reconstruction (`RECOVERY_MODE`) wire types
-  and verification logic (bundle export/import, nested key chains); store
-  logic lives in `services.go`, handlers in `handlers.go`. Registered
-  **only** when `RECOVERY_MODE` is on (was package `recovery`).
+- `recovery.go` — server-side DB-reconstruction wire types and verification
+  logic (bundle export/import, nested key chains); store logic lives in
+  `services.go`, handlers in `handlers.go`. Recovery routes are **always**
+  registered: a user the server hasn't seen claimed may recover whenever
+  they show up. `RECOVERY_MODE` (`off|lockdown|operational`) only decides
+  signups (closed unless `off`) and peers (`503` in `lockdown`).
 - `realtime.go` — WebSocket service: connection manager, auth, dispatch/relay
   logic, message types; ~75 DB query methods live in `services.go` as
   `DataService` methods (was package `realtime`). Wire is **binary protobuf

@@ -19,7 +19,7 @@ delivery).
 | 02 | Refuse to boot without a current identity backup                     | Implemented |
 | 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | Implemented |
 | 04 | Signed peer records in `/server/info`                                 | Proposed    |
-| 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Proposed    |
+| 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                          | In progress |
 | 07 | Recovery reports servers, then users, then reeds, local and foreign   | Proposed    |
 | 08 | Username collision certificate                                        | Proposed    |

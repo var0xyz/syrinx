@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { get } from 'svelte/store';
   import { apiService } from '$lib/services/api';
   import { recoveryProfileOf } from '$lib/services/recoveryProfile';
   import { authService } from '$lib/services/auth';
@@ -34,7 +33,6 @@
   } from '$lib/services/recoveryRun';
   import { ensureRecoveryProgress } from '$lib/services/recoveryProgress';
   import { discardFailedImport, redirectForRestoreState } from '$lib/services/restoreFlow';
-  import { isRecoveryMode, serverInfoLoading } from '$lib/services/serverInfo';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
   type ImportMode = 'backup' | 'identity';
@@ -203,7 +201,6 @@
         throw new Error(probe.error);
       }
 
-      const recoveryMode = !get(serverInfoLoading) && get(isRecoveryMode);
       const localRecovery = isRecoveryInProgress();
 
       if (probe.httpStatus === 200 && probe.status === 'complete') {
@@ -228,15 +225,11 @@
         return;
       }
 
+      // Recovery is always available: an account the server hasn't seen
+      // claimed reports back whenever its owner shows up.
       const needsRecovery =
-        (probe.httpStatus === 404 && probe.status === 'unknown' && recoveryMode) ||
+        (probe.httpStatus === 404 && (probe.status === 'unknown' || probe.status === 'unclaimed')) ||
         (probe.httpStatus === 409 && probe.status === 'ongoing');
-
-      if (probe.httpStatus === 404 && probe.status === 'unknown' && !recoveryMode) {
-        throw new Error(
-          'This account is not recognized on this server.'
-        );
-      }
 
       if (needsRecovery) {
         startImportRun();

@@ -117,7 +117,7 @@ Commands:
       Calls InitDB (full schema), prompts for bundle password (or reads it
       from stdin, as export-identity does), resolves the
       server key passphrase (not in the bundle), then writes identity.
-      Reminds you to start the server with RECOVERY_MODE.
+      Reminds you to start the server with RECOVERY_MODE=lockdown.
 
   rotate-passphrase
       Re-wrap private_keys under a new server key passphrase, update the
@@ -319,8 +319,7 @@ func runImportIdentity(infile string) error {
 	}
 
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Next: start the server with RECOVERY_MODE enabled.")
-	fmt.Fprintln(os.Stderr, "Do not boot in normal mode until recovery is complete — that would mint a new identity.")
+	fmt.Fprintln(os.Stderr, "Next: start the server with RECOVERY_MODE=lockdown, then operational, then off.")
 
 	if err := maybeDeleteBundle(infile); err != nil {
 		return err

@@ -12,10 +12,43 @@ import {
   isRecoveryComplete,
   isRecoveryInProgress,
   resumeRecoveryRun,
+  startRecoveryRun,
 } from './recoveryRun';
+import { apiService } from './api';
+import { ensureRecoveryProgress } from './recoveryProgress';
+import { recoveryProfileOf } from './recoveryProfile';
 
 function navigate(path: string): void {
   void import('$app/navigation').then(({ goto }) => goto(path));
+}
+
+let probedThisSession = false;
+
+/** A signed-in device whose account this server has no claim for (it was
+ * rebuilt) recovers in place from what it holds. Asks once per session;
+ * true when it sent the user to /recovery. */
+export async function recoverInPlaceIfNeeded(): Promise<boolean> {
+  if (probedThisSession || !authService.isLoggedIn()) return false;
+  probedThisSession = true;
+  const user = await authService.getCurrentUser();
+  if (!user) return false;
+  let probe;
+  try {
+    probe = await apiService.probeUserStatus(recoveryProfileOf(user));
+  } catch {
+    return false;
+  }
+  const unclaimed = probe.httpStatus === 404 && (probe.status === 'unknown' || probe.status === 'unclaimed');
+  const ongoing = probe.httpStatus === 409 && probe.status === 'ongoing';
+  if (!unclaimed && !ongoing) return false;
+  if (ongoing) {
+    resumeRecoveryRun();
+  } else {
+    startRecoveryRun();
+  }
+  await ensureRecoveryProgress();
+  navigate('/recovery');
+  return true;
 }
 
 /** Import finished and recovery started but not completed — SPA import-gated. */

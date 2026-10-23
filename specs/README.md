@@ -52,7 +52,7 @@ Each table below has a **Status** column per step. Values:
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
-| Recovery, operational | In progress | 04–08, 10, 12–13 (01–03, 11 done; 06, 09 underway) |
+| Recovery, operational | In progress | 04, 06–10, 12–13 (01–03, 05, 11 done; 06, 09 underway) |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -499,7 +499,7 @@ refused. Follows become certificates either end can report back.
 | 02 | Refuse to boot without a current identity backup              | Implemented |
 | 03 | `servers` / `server_mesh` / `server_self`                     | Implemented |
 | 04 | Signed peer records in `/server/info`                         | Proposed    |
-| 05 | Recovery always available; `RECOVERY_MODE` modes              | Proposed    |
+| 05 | Recovery always available; `RECOVERY_MODE` modes              | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                  | In progress |
 | 07 | Recovery reports servers, users, reeds, local and foreign     | Proposed    |
 | 08 | Username collision certificate                                | Proposed    |
