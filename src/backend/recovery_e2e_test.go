@@ -911,3 +911,30 @@ func TestRecoveryE2E_RecordsWaitForWhatTheyName(t *testing.T) {
 		t.Errorf("pending_recovery_records = %s, want 0 once everything they name is back", n[0])
 	}
 }
+
+// A keys-only restore of an account recorded from someone's cache claims it.
+func TestKeysOnlyRestoreClaimsAnUnclaimedAccount(t *testing.T) {
+	a := newE2EServer(t, newTestDatabase(t, InitDB), false)
+	bob := a.signup(t, "bob")
+	if _, err := a.db.Exec(`INSERT INTO unclaimed_accounts (user_id) VALUES ($1)`, bob.id); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	a.h.AccountRecoveryChallenge(rr, httptest.NewRequest(http.MethodGet, "/api/account-recovery/challenge", nil))
+	var ch pb.ChallengeResponse
+	decodeProto(t, rr.Body.Bytes(), &ch)
+	sig, err := a.h.services.crypto.sign(context.Background(), ch.GetChallenge(), bob.kp.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := protoRequest(http.MethodPost, "/api/account-recovery/bootstrap", &pb.AccountRecoveryBootstrapRequest{
+		Challenge: ch.GetChallenge(), UserId: bob.id, KeyId: bob.keyID, Signature: sig,
+	})
+	req.Header.Set("X-Syrinx-Device-Id", bob.deviceID)
+	rr = httptest.NewRecorder()
+	a.h.BootstrapAccountRecovery(rr, req)
+	expectStatus(t, "bootstrap", rr, http.StatusOK)
+	if unclaimed, err := a.h.services.db.IsUnclaimed(context.Background(), bob.id); err != nil || unclaimed {
+		t.Fatalf("still unclaimed = %v (%v)", unclaimed, err)
+	}
+}

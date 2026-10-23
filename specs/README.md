@@ -52,7 +52,7 @@ Each table below has a **Status** column per step. Values:
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
-| Recovery, operational | In progress | 07–10, 12–13 (01–06, 11 done; 09 underway)             |
+| Recovery, operational | In progress | 08, 10, 13 (01–06, 11, 12 done; 07, 09 underway)       |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -506,7 +506,7 @@ refused. Follows become certificates either end can report back.
 | 09 | SPA: import decides; unclaimed profiles; drop `/logout`       | In progress |
 | 10 | Recovery metrics and dashboard                                | Proposed    |
 | 11 | Refuse removed accounts                                       | Implemented |
-| 12 | Keys-only restore of a recorded account                       | Proposed    |
+| 12 | Keys-only restore of a recorded account                       | Implemented |
 | 13 | Signed follows                                                | Proposed    |
 
 ## Parallelism

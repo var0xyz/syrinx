@@ -26,7 +26,7 @@ delivery).
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | In progress |
 | 10 | Recovery metrics and dashboard                                        | Proposed    |
 | 11 | Refuse removed accounts                                               | Implemented |
-| 12 | Keys-only restore of a recorded account                               | Proposed    |
+| 12 | Keys-only restore of a recorded account                               | Implemented |
 | 13 | Signed follows                                                        | Proposed    |
 
 ## What went wrong

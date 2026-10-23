@@ -3753,6 +3753,13 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	h.kickUserDevices(req.UserID)
+	// Its owner is back: an account recorded from someone's cache is now claimed.
+	if bare, serverID, ok := parseIdentityID(identityID(req.UserID)); ok {
+		if err := h.services.db.DeleteUnclaimed(r.Context(), serverID, bare); err != nil {
+			internalServerError(w)
+			return
+		}
+	}
 
 	following, err := h.services.db.ListUserFollowing(r.Context(), req.UserID)
 	if err != nil {
