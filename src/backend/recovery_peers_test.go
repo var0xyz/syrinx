@@ -37,10 +37,8 @@ func peeredWith(t *testing.T, a, b *e2eServer) *pb.FederatedServerInfo {
 	}
 	peerTestMesh(t, a.db, bID)
 
-	rr := httptest.NewRecorder()
-	a.h.GetServerInfo(rr, httptest.NewRequest(http.MethodGet, "/api/server/info", nil))
-	var info pb.ServerInfo
-	decodeProto(t, rr.Body.Bytes(), &info)
+	viewer := a.signup(t, "viewer")
+	info := a.serverInfo(t, viewer)
 	if len(info.GetFederation()) != 1 || info.GetFederation()[0].GetKeyArmor() == "" {
 		t.Fatalf("a's peer records = %+v", info.GetFederation())
 	}
@@ -139,13 +137,9 @@ func TestRecoveryRefusesARevokedPeersUsers(t *testing.T) {
 	if err := a.h.services.db.RevokeFederationServer(ctx, bID, nil, "gone", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	rr := httptest.NewRecorder()
-	a.h.GetServerInfo(rr, httptest.NewRequest(http.MethodGet, "/api/server/info", nil))
-	var info pb.ServerInfo
-	decodeProto(t, rr.Body.Bytes(), &info)
-	revoked := info.GetFederation()[0]
-
 	alice := a.signup(t, "alice")
+	revoked := a.serverInfo(t, alice).GetFederation()[0]
+
 	aliceSnap := a.snapshot(t, alice.id)
 	bob := b.signup(t, "bob")
 	bobSnap := b.snapshot(t, bob.id)
@@ -158,4 +152,19 @@ func TestRecoveryRefusesARevokedPeersUsers(t *testing.T) {
 	}
 	msg := &pb.PeerIdentityRequest{Profile: spaRecoveryProfile(bobSnap.profile), Key: spaKeyNest(t, bobSnap)}
 	expectStatus(t, "bob", a2.authed(t, alice, http.MethodPost, "/api/recovery/identity", msg, nil, a2.h.ReportPeerIdentity), http.StatusUnprocessableEntity)
+}
+
+// serverInfo fetches /server/info as u, signed, or anonymously when u is nil.
+func (s *e2eServer) serverInfo(t *testing.T, u *e2eUser) *pb.ServerInfo {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/server/info", nil)
+	if u != nil {
+		_, _, fp, _ := parseKeyFingerprint(identityID(u.keyID))
+		req = signedRequest(t, s.h, http.MethodGet, "/api/server/info", u.id, fp, u.kp.PrivateKey, nil)
+	}
+	rr := httptest.NewRecorder()
+	s.h.GetServerInfo(rr, req)
+	var info pb.ServerInfo
+	decodeProto(t, rr.Body.Bytes(), &info)
+	return &info
 }

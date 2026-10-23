@@ -71,6 +71,7 @@ on) showed:
 | Restoring a backup | The user's own encrypted export is trusted as-is. Only the server verifies signatures. |
 | Recovery availability | Always on. `RECOVERY_MODE` only controls signups and peers. A user the server hasn't seen claimed reports back whenever they show up. |
 | Peer records | One record per peer, countersigned by the server and re-signed whenever it changes. Clients keep the version they last saw and report it back; when reports disagree, the newest `signedAt` is kept, revoked or not: a connection can be deleted and re-established. |
+| Who sees peers | Only signed-in users. `/server/info` adds `federation` to a request signed by an active key and leaves it empty otherwise. |
 | Handshake rows | `federation_invitation` and `federation_attempt` exist only while a handshake runs. Established: deleted, logs with them. Rejected or canceled invitations are kept. None of it is reconstructed. |
 | Report order | Own claim, then servers, then users, then reeds, then follows and records. |
 | Peer content in recovery | Verified against the peer's server key the client reports, checked against the signed peer record. A key the client doesn't hold, such as one the peer rotated away, is fetched from the peer and verified like any rotated key: a rotation doesn't invalidate earlier signatures. |
@@ -176,7 +177,11 @@ revoked record.
 ## 04 — Signed peer records in `/server/info`
 
 `ServerInfo.federation` lists every peer, revoked and disconnected included,
-each with a record this server countersigns:
+each with a record this server countersigns. It is filled only when the
+request is signed by a signed-in user (an active, unrevoked key of a
+non-removed account); an anonymous request gets the rest of
+`/server/info` and an empty `federation`. The SPA signs the fetch whenever
+it has an active key. Same endpoint, no separate route:
 
 ```
 serverID, peerID, name, keyID, baseURL, frontendURL,
