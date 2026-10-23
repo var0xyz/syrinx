@@ -14,9 +14,11 @@ const (
 	recoveryUserStatusComplete = "complete"
 	recoveryUserStatusUnknown  = "unknown"
 	recoveryUserStatusOngoing  = "ongoing"
+	// Recorded from another user's cache, never claimed by its owner.
+	recoveryUserStatusUnclaimed = "unclaimed"
 )
 
-// errRecoveryNoIdentityFound is returned when RECOVERY_MODE is on but no
+// errRecoveryNoIdentityFound is returned when RECOVERY_MODE isn't off but no
 // self server row exists (operator must run ops import-identity first).
 var errRecoveryNoIdentityFound = fmt.Errorf(
 	"RECOVERY_MODE requires a restored server identity; run: ops import-identity <path-to-bundle>",

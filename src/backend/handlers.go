@@ -285,7 +285,7 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("Signup request received")
 	reject := func(reason string) { h.metrics.SignupRejected(r.Context(), h.cfg.SignupMode, reason) }
 
-	if h.cfg.RecoveryMode {
+	if recoveryMode(h.cfg.RecoveryMode).recovering() {
 		reject("recovery_mode")
 		writeError(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
 		return
@@ -615,7 +615,7 @@ func (h *Handlers) CheckUsername(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 	log.Info().Msg("CheckUsername request received")
 
-	if h.cfg.RecoveryMode {
+	if recoveryMode(h.cfg.RecoveryMode).recovering() {
 		writeError(w, http.StatusForbidden, "Signups are closed while this server is in recovery mode")
 		return
 	}
@@ -772,15 +772,14 @@ func (h *Handlers) UserStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Peer-seeded only (in unclaimed_accounts) → unknown. Implies a users
-	// row exists; no need to read users yet.
+	// Recorded only from another user's cache: its owner reports the rest.
 	unclaimed, err := h.services.db.IsUnclaimed(r.Context(), profile.ID)
 	if err != nil {
 		internalServerError(w)
 		return
 	}
 	if unclaimed {
-		writeResponse(w, http.StatusNotFound, &pb.UserStatusResponse{Status: recoveryUserStatusUnknown})
+		writeResponse(w, http.StatusNotFound, &pb.UserStatusResponse{Status: recoveryUserStatusUnclaimed})
 		return
 	}
 

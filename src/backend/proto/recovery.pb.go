@@ -329,7 +329,8 @@ func (x *RecoveryProfile) GetPermissions() []string {
 	return nil
 }
 
-// POST /users/status: complete, unknown or ongoing, also on 404 and 409.
+// POST /users/status: complete (200), ongoing (409), or unclaimed or
+// unknown (404), both of which mean: run recovery.
 type UserStatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`

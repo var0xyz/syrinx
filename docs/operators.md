@@ -58,9 +58,9 @@ Copy from [`.env.example`](https://github.com/var0xyz/syrinx/blob/main/.env.exam
 | `API_BASE_URL` | This server's own public URL, used for federation |
 | `ALLOWED_ORIGIN` | Required. SPA origin, also this server's frontend URL: peers send their users here, and `ops import-identity` needs it too |
 | `SERVER_KEY_PASSPHRASE` | Optional; if unset, interactive boot uses OS keychain (auto-generate or prompt) |
-| `SIGNUP_MODE` | `open` \| `invite` \| `closed`; ignored while `RECOVERY_MODE=true` (signups always blocked then) |
+| `SIGNUP_MODE` | `open` \| `invite` \| `closed`; ignored unless `RECOVERY_MODE=off` (signups always blocked while recovering) |
 | `MAX_INVITES_PER_USER` | Cap (`-1` / unset = infinite) |
-| `RECOVERY_MODE` | `true` only during community rebuild after identity import; overrides `SIGNUP_MODE` to block all signups |
+| `RECOVERY_MODE` | `off` (default) \| `lockdown` \| `operational`. While rebuilding after an identity import: `lockdown` allows only recovery and tells peers to wait, `operational` resumes normal use and federation, still without signups |
 | `ROOT_KEY_EXPORT_PASSPHRASE` | First boot only: mints the root operator identity, writes its export and exits; unset it afterwards |
 
 Prefer the **OS keychain** for the server-key passphrase on single-host deploys. Use the env var when multiple replicas must unwrap the same key without a shared keychain.
@@ -93,7 +93,7 @@ echo "$PASSPHRASE" | ops import-identity bundle.sxi.gpg
 make import-identity FILE=/path/to/bundle.sxi.gpg
 ```
 
-Then start with `RECOVERY_MODE=true`. Boot without a prior successful import should fail closed.
+Then start with `RECOVERY_MODE=lockdown`. Boot without a prior successful import should fail closed.
 
 Rotate the server-key passphrase with the ops CLI when needed; keychain entries update when not using the env override.
 
@@ -104,11 +104,13 @@ Replace the server signing key itself with `ops rotate-key ["reason"]`, adding `
 1. New machine, empty Postgres, `.env` with the same logical `SERVER_NAME` as appropriate. The domain may change (say, after a seizure): point `ALLOWED_ORIGIN` and `API_BASE_URL` at the new one. The server's identity is its key, not its domain.
 2. Make server-key passphrase available (keychain or `SERVER_KEY_PASSPHRASE`).
 3. `make import-identity FILE=…`
-4. Start API with `RECOVERY_MODE=true`.
-5. Tell the community: restore from backup in the app; the client will claim and report automatically when status says recovery is needed.
-6. Watch unclaimed / ongoing recovery signals in logs; wait until enough peers have completed.
-7. Set `RECOVERY_MODE=false` and restart when ending the window.
+4. Start API with `RECOVERY_MODE=lockdown`: only recovery is allowed, and peers are told to wait (`503`) and keep what they owe us.
+5. Tell the community: restore from backup in the app; the client claims and reports automatically when the server doesn't know its account. A device that is still signed in does this on its own.
+6. Once the first members, ideally an admin, are back, restart with `RECOVERY_MODE=operational`: normal use resumes and peers deliver what they held, but signups stay closed.
+7. Watch unclaimed / ongoing recovery signals; when claims stop coming in, restart with `RECOVERY_MODE=off` to open signups.
 8. If the domain changed, re-establish federation with your peers.
+
+Recovery stays available after that: anyone the server has no claim for can still restore, at any time. **Older users always win**: a returning user from before the wipe takes their username from anyone who signed up after the database was rebuilt, however long ago, and on the rare user ID collision the newer account is deleted. Opening signups early, or switching recovery back on months later, is what exposes newer users to that.
 
 Details of claim, peer report, reed/follow upload, and the import gate are documented under [Identity, invites & recovery](/identity).
 

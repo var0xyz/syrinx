@@ -46,7 +46,7 @@ type identityPrivateKeyItem struct {
 // maybeExportRootKey mints root when ROOT_KEY_EXPORT_PASSPHRASE is set.
 // Returns exit=true after writing .sxi.gpg; otherwise normal startup continues.
 func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *cryptoService, signingKey *ServerSigningKey) (exit bool, err error) {
-	if cfg.RecoveryMode {
+	if recoveryMode(cfg.RecoveryMode).recovering() {
 		return false, nil
 	}
 
@@ -79,10 +79,10 @@ func maybeExportRootKey(cfg AppConfig, db *DataService, cryptoSvc *cryptoService
 }
 
 // requireRootUser refuses normal startup when the reserved root row is missing.
-// RECOVERY_MODE may run with an empty users table until clients report evidence;
-// the one-shot mint path (maybeExportRootKey) runs before this check.
+// A recovering server may run with an empty users table until clients report
+// evidence; the one-shot mint path (maybeExportRootKey) runs before this check.
 func requireRootUser(cfg AppConfig, db *DataService) error {
-	if cfg.RecoveryMode {
+	if recoveryMode(cfg.RecoveryMode).recovering() {
 		return nil
 	}
 	// Same reasoning as maybeExportRootKey above.

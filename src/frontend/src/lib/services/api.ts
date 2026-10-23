@@ -137,7 +137,7 @@ export type RefusalDetail =
 /** A failed request: status and, when the server sent one, the detail. */
 export type ApiError = Error & { status?: number; detail?: RefusalDetail; networkError?: boolean; tampered?: boolean };
 
-export type UserStatus = 'complete' | 'unknown' | 'ongoing';
+export type UserStatus = 'complete' | 'unknown' | 'unclaimed' | 'ongoing';
 
 export type UserStatusProbeResult = {
   httpStatus: number;
@@ -447,7 +447,7 @@ export const apiService = {
     if (res.status === 200 || res.status === 404 || res.status === 409) {
       try {
         const { status } = await readMessage(res, UserStatusResponseSchema);
-        if (status === 'complete' || status === 'unknown' || status === 'ongoing') {
+        if (status === 'complete' || status === 'unknown' || status === 'unclaimed' || status === 'ongoing') {
           return { httpStatus: res.status, status };
         }
       } catch {

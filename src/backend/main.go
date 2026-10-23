@@ -49,7 +49,8 @@ type AppConfig struct {
 
 	ServerKeyPassphrase string `env:"name='SERVER_KEY_PASSPHRASE'"`
 
-	RecoveryMode      bool   `env:"optional,default='false',name='RECOVERY_MODE'"`
+	// off, or lockdown/operational while rebuilding from users' devices.
+	RecoveryMode      string `env:"optional,default='off',values='off,lockdown,operational',name='RECOVERY_MODE'"`
 	SignupMode        string `env:"optional,default='invite',values='open,invite,closed',name='SIGNUP_MODE'"`
 	MaxInvitesPerUser int    `env:"optional,default='-1',name='MAX_INVITES_PER_USER'"`
 
@@ -82,13 +83,9 @@ func main() {
 		l.Panicf("[ERR] invalid MAX_INVITES_PER_USER %d: must be >= 1, or -1 for unlimited", cfg.MaxInvitesPerUser)
 	}
 
-	// RECOVERY_MODE always wins: Signup and CheckUsername refuse all
-	// requests while it's on, regardless of SIGNUP_MODE, to stop username
-	// sniping against not-yet-reclaimed identities. A non-closed SIGNUP_MODE
-	// is therefore inert here — warn so the operator doesn't mistake it for
-	// "signups are open" and gets surprised once recovery ends.
-	if cfg.RecoveryMode && inviteSignupMode(cfg.SignupMode) != signupModeClosed {
-		l.Printf("[WARN] RECOVERY_MODE is on with SIGNUP_MODE=%q: signups are blocked entirely until recovery mode is turned off, regardless of SIGNUP_MODE", cfg.SignupMode)
+	// Signups stay closed while recovering, whatever SIGNUP_MODE says.
+	if recoveryMode(cfg.RecoveryMode).recovering() && inviteSignupMode(cfg.SignupMode) != signupModeClosed {
+		l.Printf("[WARN] RECOVERY_MODE=%s with SIGNUP_MODE=%q: signups are blocked until RECOVERY_MODE is off", cfg.RecoveryMode, cfg.SignupMode)
 	}
 
 	// ServerName cannot be empty. There's no max though, but please be
@@ -165,7 +162,7 @@ func main() {
 	log.Info().Msg("[OK] Services initialized successfully")
 
 	log.Debug().Msg("Initializing server identity...")
-	if err := dataService.InitServer(context.Background(), cfg.RecoveryMode, string(cfg.APIBaseURL), frontendURLFromOrigin(cfg.AllowedOrigin)); err != nil {
+	if err := dataService.InitServer(context.Background(), recoveryMode(cfg.RecoveryMode).recovering(), string(cfg.APIBaseURL), frontendURLFromOrigin(cfg.AllowedOrigin)); err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to initialize server identity")
 	}
 
@@ -263,12 +260,15 @@ func main() {
 
 	// Realtime state survives a process crash, so a fresh boot starts from
 	// nothing and tells every peer to do the same with anything tied to us.
+	// In lockdown peers are refused, so they hear nothing until it ends.
 	if cfg.ClearPresenceOnBoot {
 		if err := dataService.ClearRealtimeState(context.Background()); err != nil {
 			log.Fatal().Err(err).Msg("[ERR] Failed to clear stale realtime state")
 		}
 		log.Info().Msg("[OK] Stale realtime state cleared")
-		go h.notifyPeersOfRealtimeReset(realtimeResetBoot)
+		if recoveryMode(cfg.RecoveryMode) != recoveryModeLockdown {
+			go h.notifyPeersOfRealtimeReset(realtimeResetBoot)
+		}
 	}
 
 	log.Debug().Msg("Setting up router...")
@@ -285,18 +285,20 @@ func main() {
 	api.Use(loggingMiddleware)
 	api.Use(h.CORSMiddleware(cfg.AllowedOrigin))
 	api.Use(h.responseSignerMiddleware(signingKey.Armor))
+	if recoveryMode(cfg.RecoveryMode) == recoveryModeLockdown {
+		api.Use(lockdownPeersMiddleware("/api", dataService.GetServerID()))
+	}
 	api.Use(h.serverKeyProofMiddleware("/api"))
 	api.Use(h.signatureAuthMiddleware("/api"))
-	if cfg.RecoveryMode {
-		rtService.SetOngoingCheck(func(userID string) (bool, error) {
-			// userID arrives already in "userID@serverID" form (see
-			// authenticateWebSocket), and IsOngoing expects that same
-			// composed form — pass through unmodified, same as the
-			// import-gate middleware registration below.
-			return dataService.IsOngoing(context.Background(), userID)
-		})
-		api.Use(recoveryImportGateMiddleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
-	}
+	// Recovery is always available, so a user mid-import is always gated.
+	rtService.SetOngoingCheck(func(userID string) (bool, error) {
+		// userID arrives already in "userID@serverID" form (see
+		// authenticateWebSocket), and IsOngoing expects that same
+		// composed form — pass through unmodified, same as the
+		// import-gate middleware registration below.
+		return dataService.IsOngoing(context.Background(), userID)
+	})
+	api.Use(recoveryImportGateMiddleware(userIDKey, func(ctx context.Context, userID string) (bool, error) { return dataService.IsOngoing(ctx, userID) }))
 	api.Use(h.deviceMiddleware())
 
 	api.HandleFunc("/server/info", h.GetServerInfo).Methods("GET")
@@ -624,15 +626,14 @@ func main() {
 	// never resolved there.
 	router.PathPrefix("/").Handler(spaHandler("../frontend/build"))
 
-	if cfg.RecoveryMode {
-		log.Debug().Msg("Initializing recovery mode...")
+	// Recovery is always available: a user this server hasn't seen claimed
+	// can restore whenever they come back.
+	{
 		unclaimedCount, err := dataService.CountUnclaimed(context.Background())
 		if err != nil {
 			log.Warn().Err(err).Msg("[WARN] Could not count unclaimed accounts")
-		} else {
-			if unclaimedCount > 0 {
-				log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
-			}
+		} else if unclaimedCount > 0 {
+			log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
 		}
 		api.HandleFunc("/recovery/identity/claim", h.IssueChallenge).Methods(http.MethodGet)
 		api.HandleFunc("/recovery/identity/claim", h.ClaimIdentity).Methods(http.MethodPost)
@@ -649,7 +650,6 @@ func main() {
 		api.HandleFunc("/recovery/pins", h.noop).Methods(http.MethodOptions)
 		api.HandleFunc("/recovery/complete", h.CompleteImport).Methods(http.MethodPost)
 		api.HandleFunc("/recovery/complete", h.noop).Methods(http.MethodOptions)
-		log.Info().Msg("[OK] Recovery mode initialized successfully")
 	}
 
 	// Unmatched /api/* must not fall through to the SPA catch-all (which

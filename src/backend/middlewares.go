@@ -778,3 +778,41 @@ func (h *Handlers) responseSignerMiddleware(signingKeyArmor string) func(http.Ha
 		})
 	}
 }
+
+// recoveryMode is RECOVERY_MODE. Recovery itself is always available; the
+// mode decides signups and peers while the server is being rebuilt.
+type recoveryMode string
+
+const (
+	recoveryModeOff         recoveryMode = "off"
+	recoveryModeLockdown    recoveryMode = "lockdown"
+	recoveryModeOperational recoveryMode = "operational"
+)
+
+// recoveringHeader marks a 503 as lockdown, not an overloaded or
+// unreachable server: only that one suspends delivery to the peer.
+const recoveringHeader = "X-Syrinx-Recovering"
+
+// recovering is true in lockdown and operational: signups stay closed.
+func (m recoveryMode) recovering() bool {
+	return m == recoveryModeLockdown || m == recoveryModeOperational
+}
+
+// lockdownPeersMiddleware answers 503 to every peer: a handshake callback,
+// or a request signed with another server's key. It runs before peer auth,
+// whose 401 for a peer not known yet the peer would treat as final.
+func lockdownPeersMiddleware(prefix, selfServerID string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			keyID := r.Header.Get("X-Syrinx-Public-Key-Id")
+			_, serverID, isServerKey := parseIdentityID(identityID(keyID))
+			isServerKey = isServerKey && !strings.Contains(keyID, "/")
+			if strings.HasPrefix(r.URL.Path, prefix+"/federation/connect/") || (isServerKey && serverID != selfServerID) {
+				w.Header().Set(recoveringHeader, string(recoveryModeLockdown))
+				writeError(w, http.StatusServiceUnavailable, "This server is recovering")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

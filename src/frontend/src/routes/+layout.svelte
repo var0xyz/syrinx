@@ -26,7 +26,7 @@
   import ServerKeyGate from '$lib/components/ServerKeyGate.svelte';
   import { authService } from '$lib/services/auth';
   import { ensureDeviceId } from '$lib/services/deviceId';
-  import { enforceImportGate } from '$lib/services/restoreFlow';
+  import { enforceImportGate, recoverInPlaceIfNeeded } from '$lib/services/restoreFlow';
   import { serverConnection, ServerEvent, SILENT_SOCKET_MS } from '$lib/services/serverConnection';
   import { create } from '@bufbuild/protobuf';
   import { ThreadRemovalSchema } from '$lib/proto/common_pb';
@@ -408,6 +408,7 @@
 
     // Check authentication status for header. Mid-recovery has local identity
     // but is not a finished session — do not connect or treat as logged in.
+    if (await recoverInPlaceIfNeeded()) return;
     if (authService.isLoggedIn()) {
       user = await authService.getCurrentUser();
 

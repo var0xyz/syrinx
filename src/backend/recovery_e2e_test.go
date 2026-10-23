@@ -42,7 +42,11 @@ func newE2EServer(t *testing.T, db *sql.DB, recoveryMode bool) *e2eServer {
 		t.Fatalf("InitServerKey: %v", err)
 	}
 	services := &Services{db: ds, crypto: cryptoSvc, log: NewLoggingService()}
-	cfg := AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: recoveryMode, MaxInvitesPerUser: maxInvitesUnlimited}
+	mode := recoveryModeOff
+	if recoveryMode {
+		mode = recoveryModeLockdown
+	}
+	cfg := AppConfig{ServerName: "test", SignupMode: "open", RecoveryMode: string(mode), MaxInvitesPerUser: maxInvitesUnlimited}
 	return &e2eServer{
 		h:  NewHandlers(services, cfg, make(chan realtimeBroadcastMessage, 256), *key),
 		db: db,
@@ -281,6 +285,23 @@ func TestRecoveryE2E_RemovedAccountRefused(t *testing.T) {
 
 	expectStatus(t, "probe", a.probe(t, snap), http.StatusGone)
 	expectStatus(t, "claim", a.claimRequest(t, gina, snap), http.StatusGone)
+}
+
+// An account recorded only from another user's cache is unclaimed: the
+// probe tells its owner to recover, not restore.
+func TestRecoveryE2E_ProbeUnclaimed(t *testing.T) {
+	a := newE2EServer(t, newTestDatabase(t, InitDB), false)
+	bob := a.signup(t, "bob")
+	snap := a.snapshot(t, bob.id)
+	if _, err := a.db.Exec(`INSERT INTO unclaimed_accounts (user_id) VALUES ($1)`, bob.id); err != nil {
+		t.Fatal(err)
+	}
+	rr := a.probe(t, snap)
+	var got pb.UserStatusResponse
+	decodeProto(t, rr.Body.Bytes(), &got)
+	if rr.Code != http.StatusNotFound || got.GetStatus() != recoveryUserStatusUnclaimed {
+		t.Fatalf("probe = %d %q, want 404 unclaimed", rr.Code, got.GetStatus())
+	}
 }
 
 func TestRecoveryE2E_ClaimOwnIdentity(t *testing.T) {

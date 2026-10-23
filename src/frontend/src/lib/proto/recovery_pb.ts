@@ -176,7 +176,8 @@ export const RecoveryProfileSchema: GenMessage<RecoveryProfile> = /*@__PURE__*/
   messageDesc(file_recovery, 3);
 
 /**
- * POST /users/status: complete, unknown or ongoing, also on 404 and 409.
+ * POST /users/status: complete (200), ongoing (409), or unclaimed or
+ * unknown (404), both of which mean: run recovery.
  *
  * @generated from message syrinx.UserStatusResponse
  */
