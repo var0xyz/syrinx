@@ -54,6 +54,10 @@ func main() {
 		if err := runExportIdentity(outfile); err != nil {
 			fail(err)
 		}
+	case "check-identity-backup":
+		if err := runCheckIdentityBackup(); err != nil {
+			fail(err)
+		}
 	case "import-identity":
 		if len(os.Args) < 3 {
 			fail(fmt.Errorf("usage: ops import-identity <infile>"))
@@ -99,12 +103,19 @@ func usage() {
 Commands:
   export-identity [outfile]
       Export the server identity (ID + full signing-key history) as an
-      OpenPGP-encrypted file. Prompts for a bundle password (never stored).
+      OpenPGP-encrypted file. Prompts for a bundle password (never stored),
+      or reads it as one line from stdin when stdin isn't a terminal.
       Default outfile: syrinx-<serverID>-<YYYYMMDDTHHMMSSZ>.sxi.gpg
+
+  check-identity-backup
+      Exit non-zero, saying why, when the server would refuse to start
+      because its identity was never exported, or not since its newest
+      signing key was created.
 
   import-identity <infile>
       Restore identity from an encrypted bundle before first server boot.
-      Calls InitDB (full schema), prompts for bundle password, resolves the
+      Calls InitDB (full schema), prompts for bundle password (or reads it
+      from stdin, as export-identity does), resolves the
       server key passphrase (not in the bundle), then writes identity.
       Reminds you to start the server with RECOVERY_MODE.
 
@@ -181,6 +192,11 @@ func runExportIdentity(outfile string) error {
 		return err
 	}
 	defer db.Close()
+	// The export is recorded in server_self, which a schema older than the
+	// installed binary may not have yet.
+	if err := InitDB(db); err != nil {
+		return fmt.Errorf("InitDB: %w", err)
+	}
 
 	exportedAt := time.Now().UTC().Truncate(time.Second)
 	bundle, err := exportFromDB(context.Background(), db, exportedAt)
@@ -216,6 +232,27 @@ func runExportIdentity(outfile string) error {
 
 	fmt.Printf("Wrote encrypted identity bundle to %s\n", outfile)
 	fmt.Printf("Recorded identity_backup_at=%s\n", bundle.ExportedAt.Format(time.RFC3339))
+	return nil
+}
+
+func runCheckIdentityBackup() error {
+	cfg := loadOpsConfig()
+	db, err := openDB(cfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if err := InitDB(db); err != nil {
+		return fmt.Errorf("InitDB: %w", err)
+	}
+	msg, err := staleIdentityBackupMessage(context.Background(), db)
+	if err != nil {
+		return err
+	}
+	if msg != "" {
+		return errors.New(msg)
+	}
+	fmt.Println("Identity backup is current.")
 	return nil
 }
 
@@ -454,20 +491,28 @@ func runMailboxSend(userID, message string) error {
 	return nil
 }
 
+// promptBundlePassword prompts on a terminal, and otherwise reads one line
+// from stdin, as in: echo "$PASSPHRASE" | ops import-identity bundle.sxi.gpg
 func promptBundlePassword() (string, error) {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return "", fmt.Errorf("stdin is not a TTY; cannot prompt for bundle password")
+	var pw string
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Fprint(os.Stderr, "Enter bundle password: ")
+		a, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return "", err
+		}
+		pw = string(a)
+	} else {
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("read bundle password from stdin: %w", err)
+		}
+		pw = strings.TrimRight(line, "\r\n")
 	}
-	fmt.Fprint(os.Stderr, "Enter bundle password: ")
-	a, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
-	if err != nil {
-		return "", err
-	}
-	if string(a) == "" {
+	if pw == "" {
 		return "", fmt.Errorf("bundle password must not be empty")
 	}
-	pw := string(a)
 	if msg := passwordStrengthWarning(pw); msg != "" {
 		fmt.Fprintf(os.Stderr, "warning: %s — accepting anyway\n", msg)
 	}

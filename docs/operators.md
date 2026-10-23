@@ -78,6 +78,15 @@ make export-identity
 
 You get an encrypted bundle (`.sxi.gpg`). Protect the **bundle password** (password manager). It is **not** stored in the keychain. The **server-key passphrase** still unwraps key armor inside; keep that too.
 
+**The server refuses to start until its identity is exported**, and again after a new signing key (`ops rotate-key`) until it's exported once more. `ops check-identity-backup` says whether it would. The deploy scripts check on every `setup` and `update` and, when needed, export the bundle with a generated password next to the root credentials; fetch both with `deploy/scripts/syrinx/cp-root-creds.sh`, store them apart, and delete them from the host.
+
+Without a terminal, `ops` reads the bundle password as one line from stdin, never from an environment variable:
+
+```bash
+echo "$PASSPHRASE" | ops export-identity bundle.sxi.gpg
+echo "$PASSPHRASE" | ops import-identity bundle.sxi.gpg
+```
+
 ### Import (new host / empty DB)
 
 ```bash

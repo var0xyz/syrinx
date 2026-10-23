@@ -203,10 +203,11 @@ func main() {
 	}
 	log.Info().Str("userID", rootUserID).Msg("[OK] Root user present")
 
+	// The identity is the one thing recovery can't rebuild from users.
 	if msg, err := staleIdentityBackupMessage(context.Background(), db); err != nil {
-		log.Warn().Err(err).Msg("[WARN] Could not check identity backup freshness")
+		log.Fatal().Err(err).Msg("[ERR] Could not check the identity backup")
 	} else if msg != "" {
-		log.Warn().Msg("[WARN] " + msg)
+		log.Fatal().Msg("[ERR] " + msg)
 	}
 	log.Info().Msg("[OK] Server identity initialized successfully")
 

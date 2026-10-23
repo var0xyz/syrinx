@@ -35,6 +35,8 @@ A_SERVER_KEY_PASSPHRASE="federation-dev-instance-a-pass"
 B_SERVER_KEY_PASSPHRASE="federation-dev-instance-b-pass"
 A_ROOT_EXPORT_PASSPHRASE="aaa"
 B_ROOT_EXPORT_PASSPHRASE="bbb"
+A_IDENTITY_PASSPHRASE="federation-dev-identity-a"
+B_IDENTITY_PASSPHRASE="federation-dev-identity-b"
 
 cmd="${1:-up}"
 
@@ -149,6 +151,18 @@ mint_root_if_needed() {
 mint_root_if_needed "A" "$A_DB_NAME" "$A_ENV" "$A_ROOT_EXPORT_PASSPHRASE"
 mint_root_if_needed "B" "$B_DB_NAME" "$B_ENV" "$B_ROOT_EXPORT_PASSPHRASE"
 
+# 4a. The server won't start until its identity is exported. Export it on
+# every run, so a key minted since the last export is covered too.
+export_identity() {
+  local label="$1" env_block="$2" pass="$3"
+  local out="$ROOT_DIR/scripts/syrinx-$(echo "$label" | tr '[:upper:]' '[:lower:]')-identity.sxi.gpg"
+  ( cd "$ROOT_DIR/src/backend" && eval "$env_block"; echo "$pass" | ../../bin/syrinx-ops export-identity "$out" ) >/dev/null
+  echo "[$label] identity exported: $out"
+}
+
+export_identity "A" "$A_ENV" "$A_IDENTITY_PASSPHRASE"
+export_identity "B" "$B_ENV" "$B_IDENTITY_PASSPHRASE"
+
 # 4b. Print each instance's server public key — ServerKeyGate needs it
 # pasted in out-of-band before the SPA can reach either instance's API.
 print_key() {
@@ -184,6 +198,11 @@ Root identity bundles (if minted this run) are in scripts/syrinx-a-1-*.sxi.gpg
 and scripts/syrinx-b-1-*.sxi.gpg — import each into its respective SPA via
 /import using the matching export passphrase
 (A: ${A_ROOT_EXPORT_PASSPHRASE}, B: ${B_ROOT_EXPORT_PASSPHRASE}).
+
+Identity bundles (scripts/syrinx-a-identity.sxi.gpg, scripts/syrinx-b-identity.sxi.gpg),
+to restore with: echo "<passphrase>" | ./bin/syrinx-ops import-identity <bundle>
+  A: ${A_IDENTITY_PASSPHRASE}
+  B: ${B_IDENTITY_PASSPHRASE}
 
 Server key passphrases (unwrap each instance's signing key):
   A: ${A_SERVER_KEY_PASSPHRASE}

@@ -16,8 +16,8 @@ delivery).
 | #  | Step                                                                  | Status      |
 |----|-----------------------------------------------------------------------|-------------|
 | 01 | Backup restore writes records as-is                                   | Implemented |
-| 02 | Refuse to boot without a current identity backup                     | Proposed    |
-| 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | Proposed    |
+| 02 | Refuse to boot without a current identity backup                     | Implemented |
+| 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | In progress |
 | 04 | Signed peer records in `/server/info`                                 | Proposed    |
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Proposed    |
 | 06 | Delivery: `503` suspends; receive-side fixes                          | In progress |
@@ -122,6 +122,12 @@ echo "$PASSPHRASE" | syrinx-ops import-identity ./bundle.sxi.gpg
 ```
 
 On a terminal it prompts as today. `federation-dev-up.sh` exports this way.
+
+The deploy scripts build and install the `ops` binary too. On every
+`setup` and `update`, after the root bootstrap, `ops check-identity-backup`
+decides whether to export; when it does, the bundle and a generated
+password go next to the root credentials, and `cp-root-creds.sh` fetches
+both.
 
 ## 03 — `servers` / `server_mesh` / `server_self`
 

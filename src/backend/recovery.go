@@ -224,35 +224,32 @@ func parseBundleJSON(data []byte) (*recoveryBundle, error) {
 	return &b, nil
 }
 
-// setIdentityBackupAt records a successful export time on the self server row.
-func setIdentityBackupAt(ctx context.Context, db *sql.DB, at time.Time) error {
-	at = at.UTC().Truncate(time.Second)
-	res, err := db.ExecContext(ctx, `UPDATE servers SET identity_backup_at = $1 WHERE self = TRUE`, at)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return fmt.Errorf("no self server row to update")
-	}
-	return nil
+// sqlExecer is a *sql.DB or a *sql.Tx.
+type sqlExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// staleIdentityBackupMessage returns a non-empty warning when the self
-// identity has never been backed up, or the backup is older than the newest
-// private key. Empty string means no warning.
+// setIdentityBackupAt records a successful export time.
+func setIdentityBackupAt(ctx context.Context, db sqlExecer, at time.Time) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE server_self SET identity_backup_at = $1
+	`, at.UTC().Truncate(time.Second))
+	return err
+}
+
+// staleIdentityBackupMessage explains why the server must not start: the
+// identity was never exported, or not since its newest signing key was
+// created. Empty when the backup is current.
 func staleIdentityBackupMessage(ctx context.Context, db *sql.DB) (string, error) {
 	var serverID string
 	var backupAt sql.NullTime
 	var newestKey sql.NullTime
 
 	err := db.QueryRowContext(ctx, `
-		SELECT s.id, s.identity_backup_at,
-			(SELECT MAX(created_at) FROM private_keys)
+		SELECT s.id, ss.identity_backup_at,
+			(SELECT date_trunc('second', MAX(created_at)) FROM private_keys)
 		FROM servers s
+		LEFT JOIN server_self ss ON ss.server_id = s.id
 		WHERE s.self = TRUE
 	`).Scan(&serverID, &backupAt, &newestKey)
 	if err == sql.ErrNoRows {
@@ -425,12 +422,17 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 		}
 	}
 
-	backupAt := b.ExportedAt.UTC().Truncate(time.Second)
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, signing_key, identity_backup_at, frontend_url)
-		VALUES ($1, $2, TRUE, $3, $4, $5)
-	`, b.ServerID, b.ServerName, b.SigningKeyID, backupAt, frontendURL); err != nil {
+		INSERT INTO servers (id, name, self, signing_key, frontend_url)
+		VALUES ($1, $2, TRUE, $3, $4)
+	`, b.ServerID, b.ServerName, b.SigningKeyID, frontendURL); err != nil {
 		return 0, fmt.Errorf("insert self server: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO server_self (server_id) VALUES ($1)`, b.ServerID); err != nil {
+		return 0, fmt.Errorf("insert server_self: %w", err)
+	}
+	if err := setIdentityBackupAt(ctx, tx, b.ExportedAt); err != nil {
+		return 0, fmt.Errorf("record identity backup: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

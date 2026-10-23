@@ -230,8 +230,18 @@ func (s *DataService) InitServer(ctx context.Context, recoveryMode bool, baseURL
 		if err != nil {
 			return err
 		}
-		_, err = s.db.ExecContext(ctx, `INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ($1, $2, TRUE, $3, $4)`, id, s.serverName, baseURL, frontendURL)
+		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if _, err := tx.ExecContext(ctx, `INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ($1, $2, TRUE, $3, $4)`, id, s.serverName, baseURL, frontendURL); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO server_self (server_id) VALUES ($1)`, id); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
 			return err
 		}
 		s.serverID = id

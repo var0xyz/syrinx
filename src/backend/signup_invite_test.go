@@ -31,6 +31,11 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			frontend_url TEXT NOT NULL,
 			connected BOOLEAN NOT NULL DEFAULT FALSE
 		)`,
+		`CREATE TABLE IF NOT EXISTS server_self (
+			server_id VARCHAR(16) NOT NULL UNIQUE REFERENCES servers(id),
+			identity_backup_at TIMESTAMP,
+			first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS user_signatures (
 			id SERIAL PRIMARY KEY,
 			public_key_id VARCHAR(255) NOT NULL,
