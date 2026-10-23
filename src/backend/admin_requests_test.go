@@ -95,6 +95,7 @@ func (f *adminFixture) revoke(t *testing.T, name string, perm string) {
 func (f *adminFixture) setInvitedBy(t *testing.T, inviter, invitee string) {
 	t.Helper()
 	var sigID int64
+	seedTestKey(t, f.db, "k")
 	if err := f.db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ('k', 's') RETURNING id`).Scan(&sigID); err != nil {
 		t.Fatal(err)
 	}

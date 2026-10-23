@@ -121,8 +121,8 @@ type adminDecision struct {
 	Signature UserSignature
 }
 
-// Key is the wire shape of a public key — a local user's or this server's
-// own (peer servers' keys are never stored; foreign ids proxy live instead).
+// Key is the wire shape of a public key: a user's or a server's, local or
+// a peer's.
 // Revoked is computed on read; Predecessor is the replaced key's id (rotation only).
 type Key struct {
 	ID              string          `json:"id"`
@@ -322,17 +322,9 @@ func InitDB(db *sql.DB) error {
 		first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Normalized attestation rows. public_key_id/private_key_id are not
-	// FK'd to public_keys/private_keys (historical/rotated/peer keys — a
-	// signature can reference a key id that's since superseded or not
-	// stored locally at all, e.g. a cached peer server's countersignature).
-	createUserSignaturesTable := `
-	CREATE TABLE IF NOT EXISTS user_signatures (
-		id SERIAL PRIMARY KEY,
-		public_key_id VARCHAR(255) NOT NULL,
-		signature TEXT NOT NULL
-	);`
-
+	// Normalized server attestation rows. private_key_id is not FK'd: our
+	// own key's public_keys row is countersigned by that key, so neither row
+	// could be inserted first.
 	createServerSignaturesTable := `
 	CREATE TABLE IF NOT EXISTS server_signatures (
 		id SERIAL PRIMARY KEY,
@@ -386,6 +378,14 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_public_keys_owner
 		ON public_keys(owner) WHERE owner IS NOT NULL;
 	`
+
+	// Normalized user attestation rows.
+	createUserSignaturesTable := `
+	CREATE TABLE IF NOT EXISTS user_signatures (
+		id SERIAL PRIMARY KEY,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
+		signature TEXT NOT NULL
+	);`
 
 	// A row's existence means the server key is revoked, in favour of its
 	// successor. Both keys sign the revocation; compromised means the revoked
@@ -1728,7 +1728,6 @@ func InitDB(db *sql.DB) error {
 		createServersIndexes,
 		createServerSelfTable,
 
-		createUserSignaturesTable,
 		createServerSignaturesTable,
 		createServerMeshTable,
 
@@ -1739,6 +1738,7 @@ func InitDB(db *sql.DB) error {
 
 		createPublicKeysTable,
 		createPublicKeyIndexes,
+		createUserSignaturesTable,
 		createPrivateKeyRevocationsTable,
 
 		createAdminRequestsTable,

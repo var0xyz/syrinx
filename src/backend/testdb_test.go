@@ -110,3 +110,16 @@ func peerTestMesh(t testing.TB, db *sql.DB, serverID string) {
 		t.Fatalf("peer %s: %v", serverID, err)
 	}
 }
+
+// seedTestKey stores a placeholder public key under id, so fixture
+// signatures naming it satisfy their foreign key.
+func seedTestKey(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	if _, err := db.Exec(`
+		WITH ss AS (INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id)
+		INSERT INTO public_keys (id, armor, server_signature_id) SELECT $1, 'armor', id FROM ss
+		ON CONFLICT (id) DO NOTHING
+	`, id); err != nil {
+		t.Fatalf("seed key %s: %v", id, err)
+	}
+}

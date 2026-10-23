@@ -27,9 +27,6 @@ func seedReedStatsServer(t *testing.T, db *sql.DB, serverID string) (userSigID, 
 	if _, err := db.Exec(`INSERT INTO private_keys (id, armor) VALUES ($1, 'armor')`, pubKeyID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, "sig1").Scan(&userSigID); err != nil {
-		t.Fatal(err)
-	}
 	if err := db.QueryRow(`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ($1, 'sig', NOW()) RETURNING id`, "sfp1").Scan(&serverSigID); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +35,9 @@ func seedReedStatsServer(t *testing.T, db *sql.DB, serverID string) (userSigID, 
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`INSERT INTO public_keys (id, armor, server_signature_id) VALUES ($1, 'pubarmor', $2)`, pubKeyID, pkServerSigID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ($1, 'sig') RETURNING id`, pubKeyID).Scan(&userSigID); err != nil {
 		t.Fatal(err)
 	}
 	return userSigID, serverSigID, pubKeyID

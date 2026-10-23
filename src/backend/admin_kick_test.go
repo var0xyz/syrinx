@@ -34,6 +34,7 @@ func (f *adminFixture) kick(t *testing.T, targets ...string) *adminRequest {
 func (f *adminFixture) unclaimedInvite(t *testing.T, inviter string) string {
 	t.Helper()
 	var sigID int64
+	seedTestKey(t, f.db, "k")
 	if err := f.db.QueryRow(`INSERT INTO user_signatures (public_key_id, signature) VALUES ('k', 's') RETURNING id`).Scan(&sigID); err != nil {
 		t.Fatal(err)
 	}

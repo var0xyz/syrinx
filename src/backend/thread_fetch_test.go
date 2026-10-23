@@ -90,6 +90,7 @@ func TestThreadFetch_UnknownThread(t *testing.T) {
 	ds := f.h.services.db
 	rs := newRealtimeService(ds, newCryptoService(), "")
 	plain := f.ids(t, 1)[0]
+	seedTestKey(t, ds.db, "k")
 	if _, err := ds.CreateReed(ctx, createReedParams{
 		ReedID: plain, UserID: f.author, UserKeyID: "k", UserSignature: "s",
 		ServerFingerprint: "f", ServerSignature: "s",
