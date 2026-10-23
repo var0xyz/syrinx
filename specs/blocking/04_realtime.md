@@ -29,7 +29,7 @@ The block is a resource; what gets delivered is an event about it. The
 blocked user's client is owed at most one event per pair, the latest:
 
 ```sql
-CREATE TABLE IF NOT EXISTS user_block_events (
+CREATE TABLE IF NOT EXISTS block_event_queue (
   user_id         VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
   blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
   kind            VARCHAR(8)   NOT NULL CHECK (kind IN ('block', 'unblock')),
@@ -44,8 +44,9 @@ CREATE TABLE IF NOT EXISTS user_block_events (
   never drops the lift that replaced it.
 - Once acked, nothing is sent again, which is what lets an evicted
   certificate stay evicted.
-- The same helper owes the event to the blocked user's home server instead
-  when they are on a peer ([05](05_federation.md)).
+- The same row is owed to the blocked user's home server instead when they
+  are on a peer ([05](05_federation.md)); which one is read from the
+  blocked user's identity.
 
 A lift is owed even when the block it lifts never reached the client: the
 client can't be told which blocks it holds without delivery state on the

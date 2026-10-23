@@ -712,8 +712,7 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Encrypted server->user mailbox messages. No plaintext columns — the
-	// row's mere existence is the undelivered-message record; it is
-	// deleted once the client ACKs receipt.
+	// row's mere existence is the undelivered-message record.
 	createUserMailboxTable := `
 	CREATE TABLE IF NOT EXISTS user_mailbox (
 		id VARCHAR(255) PRIMARY KEY,
@@ -745,20 +744,23 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked_user
 		ON user_blocks (blocked_user_id);`
 
-	// The block or lift a foreign blocked user's home server is owed for
-	// each pair, at most one, deleted once the peer accepts.
-	createBlockPeerNoticesTable := `
-	CREATE TABLE IF NOT EXISTS block_peer_notices (
-		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+	// The block or lift each pair's blocked user is owed, at most one: their
+	// client when they are local, their home server otherwise.
+	createBlockEventQueueTable := `
+	CREATE TABLE IF NOT EXISTS block_event_queue (
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		kind VARCHAR(8) NOT NULL CHECK (kind IN ('block', 'unblock')),
 
-		PRIMARY KEY (server_id, user_id, blocked_user_id)
+		PRIMARY KEY (user_id, blocked_user_id)
 	);`
 
-	// A removal of one of our users each peer holding their content is owed,
-	// deleted once the peer accepts.
+	createBlockEventQueueIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_block_event_queue_blocked
+		ON block_event_queue (blocked_user_id);
+	`
+
+	// A removal of one of our users each peer holding their content is owed.
 	createAccountRemovalPeerNoticesTable := `
 	CREATE TABLE IF NOT EXISTS account_removal_peer_notices (
 		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
@@ -767,21 +769,8 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (server_id, user_id)
 	);`
 
-	// The block or lift a local blocked user's client is owed for each
-	// pair, at most one, replaced by a later one and deleted on ack.
-	createUserBlockEventsTable := `
-	CREATE TABLE IF NOT EXISTS user_block_events (
-		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		kind VARCHAR(8) NOT NULL CHECK (kind IN ('block', 'unblock')),
-
-		PRIMARY KEY (user_id, blocked_user_id)
-	);
-	CREATE INDEX IF NOT EXISTS idx_user_block_events_blocked
-		ON user_block_events (blocked_user_id);`
-
 	// Signed like certificates, one row per currently-liked (liker, reed)
-	// pair; unliking hard-deletes the row. reed_id FKs to reed_identities,
+	// pair. reed_id FKs to reed_identities,
 	// not reeds, so a local user's like on a FOREIGN reed is represented here too.
 	createReedsLikedTable := `
 	CREATE TABLE IF NOT EXISTS reeds_liked (
@@ -1074,7 +1063,7 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// tags are normalized hashtag names extracted at SignReed for pipe
-	// fanout at PUBLISH_READY (pipes 01). Empty until claim deletes the row.
+	// fanout at PUBLISH_READY.
 	createPendingFanoutTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS pending_fanout (
 		reed_id VARCHAR(255) PRIMARY KEY REFERENCES reeds(id) ON DELETE CASCADE,
@@ -1378,8 +1367,8 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// The user keys each local user has cached, foreign ones included (cached
-	// once verified). A revoked key still allocated is owed a KEY_REVOKED,
-	// deleted on ack; revoked flags a foreign key revoked by its home's notice.
+	// once verified). A revoked key still allocated is owed a KEY_REVOKED;
+	// revoked flags a foreign key revoked by its home's notice.
 	createPublicKeyAllocationsTable := `
 	CREATE TABLE IF NOT EXISTS public_key_allocations (
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1498,7 +1487,7 @@ func InitDB(db *sql.DB) error {
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 	);`
 
-	// Single-use claim challenges; the cleanup job deletes expired ones.
+	// Single-use claim challenges.
 	createRecoveryChallengesTable := `
 	CREATE UNLOGGED TABLE IF NOT EXISTS recovery_challenges (
 		nonce VARCHAR(64) PRIMARY KEY,
@@ -1633,7 +1622,7 @@ func InitDB(db *sql.DB) error {
 	`
 
 	// federation_invitation lives while the handshake runs: new ->
-	// accepted/canceled; approval deletes it. fingerprint/public_key_armor
+	// accepted/canceled. fingerprint/public_key_armor
 	// are the peer's unverified key, promoted into public_keys on approval.
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
@@ -1653,9 +1642,8 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// One row per handshake attempt against a peer, while it is pending or
-	// once rejected. Approval deletes it, and its invitation, with their
-	// logs: the server_mesh row takes over. invitation_id is set on the
-	// INITIATOR side only.
+	// once rejected; on approval the server_mesh row takes over.
+	// invitation_id is set on the INITIATOR side only.
 	createFederationAttemptTable := `
 	CREATE TABLE IF NOT EXISTS federation_attempt (
 		id VARCHAR(255) PRIMARY KEY,
@@ -1800,8 +1788,8 @@ func InitDB(db *sql.DB) error {
 
 		createUserBlocksTable,
 		createUserBlocksIndexes,
-		createUserBlockEventsTable,
-		createBlockPeerNoticesTable,
+		createBlockEventQueueTable,
+		createBlockEventQueueIndexes,
 		createAccountRemovalPeerNoticesTable,
 
 		createUserVouchesTable,

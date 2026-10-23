@@ -197,7 +197,7 @@ func TestBlockingARemoteUserOwesItsServerUntilAccepted(t *testing.T) {
 		t.Fatalf("block remote user: status %d %s", rr.Code, rr.Body.String())
 	}
 	owed := func() int {
-		return f.count(t, `SELECT COUNT(*) FROM block_peer_notices WHERE server_id = $1`, peerID)
+		return f.count(t, `SELECT COUNT(*) FROM block_event_queue n JOIN identities i ON i.id = n.blocked_user_id WHERE i.server_id = $1`, peerID)
 	}
 	f.h.sendOwedBlockNotices(peerID)
 	if owed() != 1 {

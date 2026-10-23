@@ -466,7 +466,7 @@ above, including with records reported before what they name.
 `flag_dismissals` (their flags come back open), `ripples`, `user_mailbox`
 (devices keep what they received), federation (`servers` peer rows and
 everything keyed on them), and delivery queues still owed (`pending_*`,
-`block_peer_notices`, `user_block_events`). A removed reed keeps only its
+`block_event_queue`). A removed reed keeps only its
 removal: no device holds its `reeds` row. `reeds.published_at` comes back
 as the signing time.
 
