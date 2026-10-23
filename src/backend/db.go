@@ -286,7 +286,11 @@ func InitDB(db *sql.DB) error {
 		disconnect_reason TEXT,
 		-- Set by the peer's shutdown notice, cleared by its boot notice.
 		down_at TIMESTAMP,
-		purged_at TIMESTAMP
+		purged_at TIMESTAMP,
+		-- The record we last countersigned for this peer, and what it covered,
+		-- so it is signed again only when that changes.
+		record_signature_id INT REFERENCES server_signatures(id),
+		record_fields TEXT
 	);`
 
 	createServersIndexes := `
@@ -1694,11 +1698,11 @@ func InitDB(db *sql.DB) error {
 	queries := []string{
 		createServersTable,
 		createServersIndexes,
-		createServerMeshTable,
 		createServerSelfTable,
 
 		createUserSignaturesTable,
 		createServerSignaturesTable,
+		createServerMeshTable,
 
 		createIdentitiesTable,
 		createIdentitiesIndexes,

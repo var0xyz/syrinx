@@ -10375,17 +10375,20 @@ const peerStreamSQL = `
 		WHERE r.published_at IS NOT NULL
 	)`
 
-// ListFederatedServers lists peers approved on both sides that have not
-// been disconnected, by name. A pending disconnect or a shutdown keeps a
-// peer listed: it is still trusted.
+// ListFederatedServers lists every peer, revoked ones included, by name,
+// with the record last countersigned for it.
 func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.id, s.name, COALESCE(s.key_id, ''), COALESCE(m.approved_at, s.created_at, CURRENT_TIMESTAMP),
-		       s.frontend_url
+		       COALESCE(s.base_url, ''), s.frontend_url,
+		       m.revoked_at IS NOT NULL, m.purged_at IS NOT NULL,
+		       m.connected AND m.revoked_at IS NULL AND m.peer_approved_at IS NOT NULL,
+		       COALESCE(pk.armor, ''), COALESCE(m.record_fields, ''),
+		       COALESCE(ss.private_key_id, ''), COALESCE(ss.signature, ''), ss.signed_at
 		FROM servers s
 		JOIN server_mesh m ON m.server_id = s.id
-		WHERE m.connected = TRUE AND m.revoked_at IS NULL
-		  AND m.peer_approved_at IS NOT NULL
+		LEFT JOIN public_keys pk ON pk.id = s.key_id
+		LEFT JOIN server_signatures ss ON ss.id = m.record_signature_id
 		ORDER BY s.name
 	`)
 	if err != nil {
@@ -10396,12 +10399,49 @@ func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServ
 	servers := []FederatedServerInfo{}
 	for rows.Next() {
 		var srv FederatedServerInfo
-		if err := rows.Scan(&srv.ID, &srv.Name, &srv.KeyID, &srv.CreatedAt, &srv.FrontendURL); err != nil {
+		var signedAt sql.NullTime
+		if err := rows.Scan(&srv.ID, &srv.Name, &srv.KeyID, &srv.CreatedAt, &srv.BaseURL, &srv.FrontendURL,
+			&srv.Revoked, &srv.Purged, &srv.Established, &srv.KeyArmor, &srv.RecordFields,
+			&srv.Record.ID, &srv.Record.Armor, &signedAt); err != nil {
 			return nil, err
+		}
+		if signedAt.Valid {
+			srv.Record.SignedAt = signedAt.Time.UTC()
 		}
 		servers = append(servers, srv)
 	}
 	return servers, rows.Err()
+}
+
+// SetPeerRecord stores the record just countersigned for serverID and what
+// it covers, dropping the one it replaces.
+func (s *DataService) SetPeerRecord(ctx context.Context, serverID, fields string, sig ServerSignature) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	sigID, err := insertServerSignature(ctx, tx, sig.ID, sig.Armor, sig.SignedAt)
+	if err != nil {
+		return err
+	}
+	var old sql.NullInt64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT record_signature_id FROM server_mesh WHERE server_id = $1 FOR UPDATE
+	`, serverID).Scan(&old); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE server_mesh SET record_signature_id = $2, record_fields = $3 WHERE server_id = $1
+	`, serverID, sigID, fields); err != nil {
+		return err
+	}
+	if old.Valid {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM server_signatures WHERE id = $1`, old.Int64); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListDeliveryPeers returns connected peers that have not announced a

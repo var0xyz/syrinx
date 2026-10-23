@@ -21,12 +21,27 @@ message ServerInfo {
 }
 
 // One established peer, for picking which server a verification link opens on.
+// A peer, revoked ones included, with the record this server countersigned
+// for it. Devices keep the newest record per peer and report it back when
+// the server is rebuilt.
 message FederatedServerInfo {
   string id = 1;
   string name = 2;
   string key_id = 3;
+  // When this server approved the peer. Not signed.
   uint32 created_at = 4;
   string frontend_url = 5;
+  string base_url = 6;
+  // connected or revoked.
+  string status = 7;
+  // Approved on both sides. Not signed: a hint for picking where a
+  // verification link opens.
+  bool established = 8;
+  // Countersignature over the record: id, name, key_id, base_url,
+  // frontend_url, status and its own signed_at.
+  ServerSignature server_signature = 9;
+  // The peer's server key, accepted only if its fingerprint is key_id's.
+  string key_armor = 10;
 }
 
 // GET /users/id: a fresh user id and this server's signature over it.

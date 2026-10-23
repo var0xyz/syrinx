@@ -191,13 +191,13 @@ export async function refreshServerInfo(updateServerKey = true): Promise<ServerI
   }
 }
 
-/** Keeps the local list of peers in step with what /server/info reports.
+/** Keeps the local peer records in step with what /server/info reports.
  * Malformed entries are dropped rather than failing the whole refresh. */
 async function storeFederatedServers(federation: FederatedServer[]): Promise<void> {
   const servers = federation.filter((e) => e.id !== '' && e.frontendUrl !== '');
   try {
     const { federatedServersRepository } = await import('$lib/repositories/federatedServers');
-    await federatedServersRepository.replaceAll(servers);
+    await federatedServersRepository.mergeNewer(servers);
   } catch (error) {
     console.error('serverInfo: failed to store federated servers', error);
   }
