@@ -7,7 +7,8 @@ import type * as api from '$lib/types/api';
 export function recoveryProfileOf(user: api.User): MessageInitShape<typeof RecoveryProfileSchema> {
   return {
     id: user.id,
-    username: user.username,
+    // The name the signatures cover, even one lost to an older claim.
+    username: user.username || user.usernameCollision?.username || '',
     role: user.role,
     memberSince: user.memberSince,
     bio: user.bio,

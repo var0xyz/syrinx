@@ -76,7 +76,7 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 		)`,
 		`CREATE TABLE users (
 			id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
-			username VARCHAR(255) UNIQUE NOT NULL,
+			username VARCHAR(255) UNIQUE,
 			role VARCHAR(16) NOT NULL DEFAULT 'user'
 				CHECK (role IN ('root', 'admin', 'user')),
 			bio TEXT,

@@ -46,7 +46,7 @@
     role = user?.role ?? '';
   }
 
-  $: displayName = resolvedUsername ?? userID;
+  $: displayName = resolvedUsername || userID;
   $: atPrefix = at ? (displayName !== userID ? '@' : '~') : '';
   $: isAdmin = isRoot(userID);
   $: isSheriff = !isAdmin && role === 'admin';

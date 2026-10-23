@@ -189,6 +189,25 @@ export function buildServerKeyRevocationPayload(
   });
 }
 
+/** Mirror of buildUsernameCollisionPayload in identity.go: the server's
+ * record that loserID lost username to winnerID. */
+export function buildUsernameCollisionPayload(
+  serverID: string,
+  username: string,
+  winnerID: string,
+  loserID: string,
+  signedAt: string
+): string {
+  return canonicalJSON({
+    type: 'username-collision',
+    serverID,
+    username,
+    winnerID,
+    loserID,
+    signedAt,
+  });
+}
+
 /** Mirror of buildPeerRecordPayload in identity.go: what a server countersigns
  * about one of its peers. */
 export function buildPeerRecordPayload(

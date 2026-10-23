@@ -22,7 +22,7 @@ delivery).
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                          | Implemented |
 | 07 | Recovery reports servers, then users, then reeds, local and foreign   | In progress |
-| 08 | Username collision certificate                                        | Proposed    |
+| 08 | Username collision certificate                                        | Implemented |
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | Implemented |
 | 10 | Recovery metrics and dashboard                                        | Implemented |
 | 11 | Refuse removed accounts                                               | Implemented |
@@ -330,12 +330,26 @@ The loser keeps their identity and everything attached to it. Their
 the column allows it) and the server signs a certificate:
 
 ```
-username, winnerID, winnerSignedAt, loserID, loserSignedAt, signedAt
+username, winnerID, loserID, signedAt
 ```
 
-It is returned with the loser's profile and pushed to them. Their client
-blocks every action until they sign a new profile with a new username
-through the normal update flow, which peers receive like any profile update.
+It is stored in `username_collisions` and returned with the loser's profile
+(`User.username_collision`). The loser's profile signatures still cover the
+lost username, so verifiers check the certificate (signed by the profile's
+home server, `loserID` equal to the profile's ID) and verify the profile
+against the username it names. A recovery report of the loser's profile
+sends that username back too.
+
+If the winner's account is deleted later (a recovered claim for its user
+ID replaces it), the loser gets the username back, unless someone else
+holds it by then.
+
+The loser's client checks its own profile at boot and on every reconnect
+instead of waiting for a push. While it is lost, the app shows only a rename
+screen until they sign a new profile with a new username through the normal
+update flow, which peers receive like any profile update. The update deletes
+the certificate. The comparison uses `first_boot_at` truncated to the
+second, like every signed timestamp.
 
 This replaces `claimRecoveryUsername`'s cascade `DELETE FROM identities` and
 the claim's `409`, both of which lose a legitimate account (a stale cached
@@ -345,7 +359,9 @@ its owner).
 A claim or peer report for a user ID that a signup took after
 `first_boot_at`, with a different key, deletes the newer identity and
 restores the reported one. IDs are 8 base62 characters, so this should be
-rare.
+rare. "A different key" means none of the reported keys is on record for
+that ID. If the account on record predates `first_boot_at`, the report is
+refused with `409` instead.
 
 Mention, search and display paths handle a missing username.
 

@@ -4,7 +4,7 @@
 
 User ids are **random and server-scoped**—not guessable counters. Profiles, keys, and related records are **user-signed** and **server-countersigned** so peers can verify both authorship and “this instance witnessed it.”
 
-Username collisions during recovery are resolved by newest server-signed timestamp; the older record is dropped, since the server can't sign a new name for someone else.
+Username collisions during recovery go to the older user: a record from before the database was rebuilt beats one from after it, and between two older records the newest server-signed one wins. The loser keeps their account. The server signs a certificate that they lost the name, their profile shows no username until they pick a new one, and the app asks for that before anything else.
 
 ## Signup modes
 

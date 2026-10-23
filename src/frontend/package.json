@@ -16,6 +16,7 @@
     "test:vouch-payload": "node --experimental-strip-types scripts/test-vouch-payload.mjs",
     "test:server-key-payload": "node --experimental-strip-types scripts/test-server-key-payload.mjs",
     "test:peer-record-payload": "node --experimental-strip-types scripts/test-peer-record-payload.mjs",
+    "test:username-collision-payload": "node --experimental-strip-types scripts/test-username-collision-payload.mjs",
     "test:realtime-auth-payload": "node --experimental-strip-types scripts/test-realtime-auth-payload.mjs",
     "test:thread-payload": "node --experimental-strip-types scripts/test-thread-payload.mjs",
     "test:thread-bundle": "node --experimental-strip-types scripts/test-thread-bundle.mjs",

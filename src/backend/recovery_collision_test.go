@@ -4,16 +4,19 @@ package main
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 )
 
 // ensureRecoveryCollisionSchema extends the signup-test schema with the
 // tables saveOwnIdentity/savePeerIdentity touch: network_stats (coverage
-// counter), unclaimed_accounts, ongoing_recoveries, pending_follows, and
-// user_devices (own-claim device binding).
+// counter), unclaimed_accounts, ongoing_recoveries, pending_follows,
+// user_devices (own-claim device binding), username_collisions, and
+// the self server row server_self points at.
 func ensureRecoveryCollisionSchema(db *sql.DB) error {
 	stmts := []string{
+		`DROP TABLE IF EXISTS username_collisions CASCADE`,
 		`DROP TABLE IF EXISTS user_devices CASCADE`,
 		`DROP TABLE IF EXISTS pending_follows CASCADE`,
 		`DROP TABLE IF EXISTS ongoing_recoveries CASCADE`,
@@ -41,6 +44,14 @@ func ensureRecoveryCollisionSchema(db *sql.DB) error {
 			following_user_id VARCHAR(255) NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (follower_user_id, following_user_id)
+		)`,
+		`INSERT INTO servers (id, name, self, frontend_url) VALUES ('test', 'test', TRUE, 'https://test.example')`,
+		`INSERT INTO server_self (server_id) VALUES ('test')`,
+		`CREATE TABLE username_collisions (
+			loser_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
+			username VARCHAR(255) NOT NULL,
+			winner_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
 		)`,
 		`CREATE TABLE user_devices (
 			user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -108,117 +119,222 @@ func testRecoveryFlatKey(userID string, createdAt time.Time) []recoveryFlatKey {
 	}}
 }
 
-// TestSaveOwnIdentity_UsernameCollision_IncomingLoses guards against a
-// regression to the old rename-in-place behavior: when a claim's username
-// collides with an existing holder whose server_signed_at is newer or
-// equal, the claim must be rejected wholesale (no row written, no keys,
-// no unclaimed/ongoing/follow bookkeeping) rather than stored under a
-// renamed username that no longer matches what the claimant signed.
-func TestSaveOwnIdentity_UsernameCollision_IncomingLoses(t *testing.T) {
-	db := openRecoveryCollisionTestDB(t)
-	ctx := t.Context()
-
-	holderSignedAt := time.Now().UTC().Truncate(time.Second)
-	holder := testRecoveryProfile("holder1", "bob", holderSignedAt)
-	if _, err := savePeerIdentity(ctx, db, "test", holder, testRecoveryFlatKey("holder1", holderSignedAt)); err != nil {
-		t.Fatalf("seed holder: %v", err)
-	}
-
-	olderSignedAt := holderSignedAt.Add(-time.Hour)
-	claimant := testRecoveryProfile("claimant1", "bob", olderSignedAt)
-	res, err := saveOwnIdentity(ctx, db, "test", claimant, testRecoveryFlatKey("claimant1", olderSignedAt), "")
-	if err != nil {
-		t.Fatalf("saveOwnIdentity: %v", err)
-	}
-	if !res.Rejected {
-		t.Fatalf("expected Rejected=true, got %+v", res)
-	}
-
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = $1`, "claimant1@test").Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("rejected claim must not create a row, found %d", count)
-	}
-
-	var holderUsername string
-	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, "holder1@test").Scan(&holderUsername); err != nil {
-		t.Fatal(err)
-	}
-	if holderUsername != "bob" {
-		t.Fatalf("holder must be untouched, got username=%q", holderUsername)
+// testSigner stands in for the server key: it records what it signed.
+func testSigner(signed *[][]byte) ledgerSigner {
+	return func(payload []byte, ts time.Time) (ServerSignature, error) {
+		*signed = append(*signed, payload)
+		return ServerSignature{ID: "server-key@test", Armor: "sig", SignedAt: ts}, nil
 	}
 }
 
-// TestSavePeerIdentity_UsernameCollision_IncomingWins verifies the "nuke
-// the loser" side: when the incoming report is newer, the existing holder
-// row is hard-deleted (cascading to its keys) rather than renamed, so no
-// stored profile ever carries a username its own signature doesn't match.
-func TestSavePeerIdentity_UsernameCollision_IncomingWins(t *testing.T) {
-	db := openRecoveryCollisionTestDB(t)
-	ctx := t.Context()
-
-	holderSignedAt := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
-	holder := testRecoveryProfile("holder2", "carol", holderSignedAt)
-	if _, err := savePeerIdentity(ctx, db, "test", holder, testRecoveryFlatKey("holder2", holderSignedAt)); err != nil {
-		t.Fatalf("seed holder: %v", err)
-	}
-
-	newerSignedAt := time.Now().UTC().Truncate(time.Second)
-	winner := testRecoveryProfile("winner2", "carol", newerSignedAt)
-	res, err := savePeerIdentity(ctx, db, "test", winner, testRecoveryFlatKey("winner2", newerSignedAt))
-	if err != nil {
-		t.Fatalf("savePeerIdentity: %v", err)
-	}
-	if res.Rejected || !res.Created {
-		t.Fatalf("expected winner to be created, got %+v", res)
-	}
-
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = $1`, "holder2@test").Scan(&count); err != nil {
+func setFirstBootAt(t *testing.T, db *sql.DB, at time.Time) {
+	t.Helper()
+	if _, err := db.Exec(`UPDATE server_self SET first_boot_at = $1`, at); err != nil {
 		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Fatalf("collision loser must be hard-deleted, found %d rows", count)
-	}
-
-	var keyCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM public_keys WHERE owner = $1`, "holder2@test").Scan(&keyCount); err != nil {
-		t.Fatal(err)
-	}
-	if keyCount != 0 {
-		t.Fatalf("collision loser's keys must cascade-delete, found %d", keyCount)
-	}
-
-	var winnerUsername string
-	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, "winner2@test").Scan(&winnerUsername); err != nil {
-		t.Fatal(err)
-	}
-	if winnerUsername != "carol" {
-		t.Fatalf("winner must keep its signed username, got %q", winnerUsername)
 	}
 }
 
-// TestSaveOwnIdentity_UsernameCollision_TieGoesToHolder covers the
-// equal-timestamp edge: !incoming.After(holder) means the holder wins ties,
-// matching the existing newest-wins comparator used elsewhere in recovery.
-func TestSaveOwnIdentity_UsernameCollision_TieGoesToHolder(t *testing.T) {
+// usernameOf is userID's stored username, "" when NULL.
+func usernameOf(t *testing.T, db *sql.DB, userID string) string {
+	t.Helper()
+	var name sql.NullString
+	if err := db.QueryRow(`SELECT username FROM users WHERE id = $1`, userID).Scan(&name); err != nil {
+		t.Fatalf("username of %s: %v", userID, err)
+	}
+	return name.String
+}
+
+// collisionOf is the user loserID lost a username to, "" when none.
+func collisionOf(t *testing.T, db *sql.DB, loserID string) (username, winnerID string) {
+	t.Helper()
+	err := db.QueryRow(`SELECT username, winner_id FROM username_collisions WHERE loser_id = $1`, loserID).Scan(&username, &winnerID)
+	if err != nil && err != sql.ErrNoRows {
+		t.Fatal(err)
+	}
+	return username, winnerID
+}
+
+// A user from before the wipe takes their username back from someone who
+// signed up after it, however long the newer user held it.
+func TestRecoveryUsername_PreWipeBeatsNewer(t *testing.T) {
 	db := openRecoveryCollisionTestDB(t)
 	ctx := t.Context()
+	var signed [][]byte
+	sign := testSigner(&signed)
+	boot := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	setFirstBootAt(t, db, boot)
 
-	tie := time.Now().UTC().Truncate(time.Second)
+	newer := testRecoveryProfile("newer1", "bob", boot.Add(time.Hour))
+	if _, err := savePeerIdentity(ctx, db, "test", sign, newer, testRecoveryFlatKey("newer1", boot.Add(time.Hour))); err != nil {
+		t.Fatalf("seed newer holder: %v", err)
+	}
+	old := testRecoveryProfile("old1", "bob", boot.Add(-time.Hour))
+	res, err := saveOwnIdentity(ctx, db, "test", sign, old, testRecoveryFlatKey("old1", boot.Add(-time.Hour)), "")
+	if err != nil || res.Rejected || !res.Created {
+		t.Fatalf("claim = %+v (%v)", res, err)
+	}
+
+	if got := usernameOf(t, db, "old1@test"); got != "bob" {
+		t.Fatalf("pre-wipe user's username = %q", got)
+	}
+	if got := usernameOf(t, db, "newer1@test"); got != "" {
+		t.Fatalf("newer user keeps username %q", got)
+	}
+	if name, winner := collisionOf(t, db, "newer1@test"); name != "bob" || winner != "old1@test" {
+		t.Fatalf("collision = %q won by %q", name, winner)
+	}
+	if len(signed) != 1 || !strings.Contains(string(signed[0]), `"type":"username-collision"`) {
+		t.Fatalf("signed %q", signed)
+	}
+}
+
+// Between two records from before the wipe the newest wins; the older one
+// is kept, without a username.
+func TestRecoveryUsername_NewestPreWipeWins(t *testing.T) {
+	db := openRecoveryCollisionTestDB(t)
+	ctx := t.Context()
+	var signed [][]byte
+	sign := testSigner(&signed)
+	boot := time.Now().UTC().Truncate(time.Second)
+	setFirstBootAt(t, db, boot)
+
+	holder := testRecoveryProfile("holder2", "carol", boot.Add(-time.Hour))
+	if _, err := savePeerIdentity(ctx, db, "test", sign, holder, testRecoveryFlatKey("holder2", boot.Add(-time.Hour))); err != nil {
+		t.Fatalf("seed holder: %v", err)
+	}
+	stale := testRecoveryProfile("stale2", "carol", boot.Add(-2*time.Hour))
+	res, err := saveOwnIdentity(ctx, db, "test", sign, stale, testRecoveryFlatKey("stale2", boot.Add(-2*time.Hour)), "")
+	if err != nil || res.Rejected || !res.Created {
+		t.Fatalf("claim = %+v (%v)", res, err)
+	}
+
+	if got := usernameOf(t, db, "holder2@test"); got != "carol" {
+		t.Fatalf("newest record lost its username: %q", got)
+	}
+	if got := usernameOf(t, db, "stale2@test"); got != "" {
+		t.Fatalf("older record took username %q", got)
+	}
+	if name, winner := collisionOf(t, db, "stale2@test"); name != "carol" || winner != "holder2@test" {
+		t.Fatalf("collision = %q won by %q", name, winner)
+	}
+	var keys int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM public_keys WHERE owner = $1`, "stale2@test").Scan(&keys); err != nil || keys != 1 {
+		t.Fatalf("loser's keys = %d (%v)", keys, err)
+	}
+}
+
+// Equal timestamps leave the name with its holder.
+func TestRecoveryUsername_TieGoesToHolder(t *testing.T) {
+	db := openRecoveryCollisionTestDB(t)
+	ctx := t.Context()
+	var signed [][]byte
+	sign := testSigner(&signed)
+	tie := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+
 	holder := testRecoveryProfile("holder3", "dave", tie)
-	if _, err := savePeerIdentity(ctx, db, "test", holder, testRecoveryFlatKey("holder3", tie)); err != nil {
+	if _, err := savePeerIdentity(ctx, db, "test", sign, holder, testRecoveryFlatKey("holder3", tie)); err != nil {
 		t.Fatalf("seed holder: %v", err)
 	}
-
 	claimant := testRecoveryProfile("claimant3", "dave", tie)
-	res, err := saveOwnIdentity(ctx, db, "test", claimant, testRecoveryFlatKey("claimant3", tie), "")
-	if err != nil {
-		t.Fatalf("saveOwnIdentity: %v", err)
+	if _, err := saveOwnIdentity(ctx, db, "test", sign, claimant, testRecoveryFlatKey("claimant3", tie), ""); err != nil {
+		t.Fatalf("claim: %v", err)
 	}
-	if !res.Rejected {
-		t.Fatalf("expected tie to reject the incoming claim, got %+v", res)
+	if usernameOf(t, db, "holder3@test") != "dave" || usernameOf(t, db, "claimant3@test") != "" {
+		t.Fatal("tie moved the username")
+	}
+}
+
+// A claim for an ID a signup took after the wipe, with another key,
+// replaces that newer account.
+func TestRecoveryUserID_PreWipeReplacesNewer(t *testing.T) {
+	db := openRecoveryCollisionTestDB(t)
+	ctx := t.Context()
+	var signed [][]byte
+	sign := testSigner(&signed)
+	boot := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	setFirstBootAt(t, db, boot)
+
+	newer := testRecoveryProfile("same4", "erin", boot.Add(time.Hour))
+	newerKeys := testRecoveryFlatKey("same4", boot.Add(time.Hour))
+	newerKeys[0].Key.Fingerprint += "-newer"
+	newer.UserSignature.KeyID = newerKeys[0].Key.Fingerprint
+	if _, err := savePeerIdentity(ctx, db, "test", sign, newer, newerKeys); err != nil {
+		t.Fatalf("seed newer account: %v", err)
+	}
+
+	old := testRecoveryProfile("same4", "frank", boot.Add(-time.Hour))
+	res, err := saveOwnIdentity(ctx, db, "test", sign, old, testRecoveryFlatKey("same4", boot.Add(-time.Hour)), "")
+	if err != nil || res.Rejected || !res.Created {
+		t.Fatalf("claim = %+v (%v)", res, err)
+	}
+	if got := usernameOf(t, db, "same4@test"); got != "frank" {
+		t.Fatalf("username = %q", got)
+	}
+	var keys int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM public_keys WHERE owner = $1 AND id = $2`, "same4@test", newerKeys[0].Key.Fingerprint).Scan(&keys); err != nil || keys != 0 {
+		t.Fatalf("newer account's key kept: %d (%v)", keys, err)
+	}
+}
+
+// An ID held from before the wipe by another key is refused.
+func TestRecoveryUserID_PreWipeHolderKept(t *testing.T) {
+	db := openRecoveryCollisionTestDB(t)
+	ctx := t.Context()
+	var signed [][]byte
+	sign := testSigner(&signed)
+	at := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	setFirstBootAt(t, db, at.Add(time.Minute))
+
+	holder := testRecoveryProfile("same5", "gina", at)
+	if _, err := savePeerIdentity(ctx, db, "test", sign, holder, testRecoveryFlatKey("same5", at)); err != nil {
+		t.Fatalf("seed holder: %v", err)
+	}
+	other := testRecoveryProfile("same5", "hank", at.Add(time.Second))
+	otherKeys := testRecoveryFlatKey("same5", at.Add(time.Second))
+	otherKeys[0].Key.Fingerprint += "-other"
+	res, err := saveOwnIdentity(ctx, db, "test", sign, other, otherKeys, "")
+	if err != nil || !res.Rejected {
+		t.Fatalf("claim = %+v (%v)", res, err)
+	}
+	if got := usernameOf(t, db, "same5@test"); got != "gina" {
+		t.Fatalf("username = %q", got)
+	}
+}
+
+// When a recovered claim deletes the newer account that won a username,
+// the user who lost it gets it back.
+func TestRecoveryUserID_ReplacedWinnerReturnsUsername(t *testing.T) {
+	db := openRecoveryCollisionTestDB(t)
+	ctx := t.Context()
+	var signed [][]byte
+	sign := testSigner(&signed)
+	boot := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	setFirstBootAt(t, db, boot)
+
+	loser := testRecoveryProfile("loser6", "ivy", boot.Add(time.Hour))
+	if _, err := savePeerIdentity(ctx, db, "test", sign, loser, testRecoveryFlatKey("loser6", boot.Add(time.Hour))); err != nil {
+		t.Fatalf("seed loser: %v", err)
+	}
+	winner := testRecoveryProfile("same6", "ivy", boot.Add(2*time.Hour))
+	winnerKeys := testRecoveryFlatKey("same6", boot.Add(2*time.Hour))
+	winnerKeys[0].Key.Fingerprint += "-newer"
+	winner.UserSignature.KeyID = winnerKeys[0].Key.Fingerprint
+	if _, err := savePeerIdentity(ctx, db, "test", sign, winner, winnerKeys); err != nil {
+		t.Fatalf("seed winner: %v", err)
+	}
+	if name, _ := collisionOf(t, db, "loser6@test"); name != "ivy" {
+		t.Fatalf("loser's collision = %q", name)
+	}
+
+	old := testRecoveryProfile("same6", "jack", boot.Add(-time.Hour))
+	res, err := saveOwnIdentity(ctx, db, "test", sign, old, testRecoveryFlatKey("same6", boot.Add(-time.Hour)), "")
+	if err != nil || res.Rejected || !res.Created {
+		t.Fatalf("claim = %+v (%v)", res, err)
+	}
+	if got := usernameOf(t, db, "loser6@test"); got != "ivy" {
+		t.Fatalf("loser's username = %q", got)
+	}
+	if name, _ := collisionOf(t, db, "loser6@test"); name != "" {
+		t.Fatalf("collision kept: %q", name)
 	}
 }

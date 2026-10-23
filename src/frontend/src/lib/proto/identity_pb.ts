@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file identity.proto.
  */
 export const file_identity: GenFile = /*@__PURE__*/
-  fileDesc("Cg5pZGVudGl0eS5wcm90bxIGc3lyaW54IrgBCgpTZXJ2ZXJJbmZvEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFQoNcmVjb3ZlcnlfbW9kZRgDIAEoCRITCgtzaWdudXBfbW9kZRgEIAEoCRIcChRtYXhfaW52aXRlc19wZXJfdXNlchgFIAEoBRIVCg1zZXJ2ZXJfa2V5X2lkGAYgASgJEi8KCmZlZGVyYXRpb24YByADKAsyGy5zeXJpbnguRmVkZXJhdGVkU2VydmVySW5mbyLmAQoTRmVkZXJhdGVkU2VydmVySW5mbxIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBmtleV9pZBgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgNEhQKDGZyb250ZW5kX3VybBgFIAEoCRIQCghiYXNlX3VybBgGIAEoCRIOCgZzdGF0dXMYByABKAkSEwoLZXN0YWJsaXNoZWQYCCABKAgSMQoQc2VydmVyX3NpZ25hdHVyZRgJIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSEQoJa2V5X2FybW9yGAogASgJIlEKDlVzZXJJRFJlc3BvbnNlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIRCglzaWduYXR1cmUYAiABKAkSEwoLZmluZ2VycHJpbnQYAyABKAkiXAoUQ2hlY2tVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSGwoJaW52aXRlX2lkGAIgASgJUghpbnZpdGVJRBIVCg1pbnZpdGVfc2VjcmV0GAMgASgJIokCCg1TaWdudXBSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJEhIKCnB1YmxpY19rZXkYAiABKAkSEQoJc2lnbmF0dXJlGAMgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAQgASgJEhcKB3VzZXJfaWQYBSABKAlSBnVzZXJJRBIqChF1c2VyX2lkX3NpZ25hdHVyZRgGIAEoCVIPdXNlcklEU2lnbmF0dXJlEi4KE3VzZXJfaWRfZmluZ2VycHJpbnQYByABKAlSEXVzZXJJREZpbmdlcnByaW50EhsKCWludml0ZV9pZBgIIAEoCVIIaW52aXRlSUQSFQoNaW52aXRlX3NlY3JldBgJIAEoCSJDCgpVc2VySW52aXRlEgoKAmlkGAEgASgJEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgDIAEoCSLwAQoEVXNlchIKCgJpZBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEgsKA2JpbxgEIAEoCRIUCgxtZW1iZXJfc2luY2UYBSABKA0SLQoOdXNlcl9zaWduYXR1cmUYBiABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAcgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZRIiCgZpbnZpdGUYCCABKAsyEi5zeXJpbnguVXNlckludml0ZRITCgtwZXJtaXNzaW9ucxgJIAMoCSKNAgoIVXNlckluZm8SCgoCaWQYASABKAkSGgoNZmlyc3RfcmVlZF9pZBgCIAEoCUgAiAEBEhcKD2ZvbGxvd2Vyc19jb3VudBgDIAEoBRIXCg9mb2xsb3dpbmdfY291bnQYBCABKAUSIgoNYWN0aXZlX2tleV9pZBgFIAEoCVILYWN0aXZlS2V5SUQSGQoRcHJvZmlsZV90aW1lc3RhbXAYBiABKA0SJgoPcGlubmVkX3JlZWRfaWRzGAcgAygJUg1waW5uZWRSZWVkSURzEhsKCXZvdWNoX2lkcxgIIAMoCVIIdm91Y2hJRHMSEQoJdW5jbGFpbWVkGAkgASgIQhAKDl9maXJzdF9yZWVkX2lkIkoKEVVwZGF0ZVVzZXJSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJEgsKA2JpbxgCIAEoCRIWCg51c2VyX3NpZ25hdHVyZRgDIAEoCSI3ChREZWxldGVBY2NvdW50UmVxdWVzdBIRCglzaWduYXR1cmUYASABKAkSDAoEbm90ZRgCIAEoCSJFChBVc2VyU2VhcmNoUmVzdWx0EgoKAmlkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEhMKC3NlcnZlcl9uYW1lGAMgASgJImQKElVzZXJTZWFyY2hSZXNwb25zZRInCgV1c2VycxgBIAMoCzIYLnN5cmlueC5Vc2VyU2VhcmNoUmVzdWx0EhAKCGhhc19tb3JlGAIgASgIEhMKC25leHRfY3Vyc29yGAMgASgJIjAKDUZvbGxvd1JlcXVlc3QSHwoLZm9sbG93ZXJfaWQYASABKAlSCmZvbGxvd2VySUQiPgoORm9sbG93TGlzdFVzZXISFwoHdXNlcl9pZBgBIAEoCVIGdXNlcklEEhMKC2ZvbGxvd2VkX2F0GAIgASgNIk0KEkZvbGxvd0xpc3RSZXNwb25zZRIlCgV1c2VycxgBIAMoCzIWLnN5cmlueC5Gb2xsb3dMaXN0VXNlchIQCghoYXNfbW9yZRgCIAEoCCLqAQoJUHVibGljS2V5EgoKAmlkGAEgASgJEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBINCgVhcm1vchgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgNEg8KB3Jldm9rZWQYBSABKAgSGAoLcHJlZGVjZXNzb3IYBiABKAlIAIgBARIxChBzZXJ2ZXJfc2lnbmF0dXJlGAcgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZRISCgpyZXZva2VkX2F0GAggASgNEhMKC2NvbXByb21pc2VkGAkgASgIQg4KDF9wcmVkZWNlc3NvciLbAQoTQWRkUHVibGljS2V5UmVxdWVzdBIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySUQSEgoKcHVibGljX2tleRgCIAEoCRIfChdyZXZva2VkX2tleV9maW5nZXJwcmludBgDIAEoCRIdChVyZXZva2VkX2tleV9zaWduYXR1cmUYBCABKAkSGQoRbmV3X2tleV9zaWduYXR1cmUYBSABKAkSGQoRcmV2b2NhdGlvbl9yZWFzb24YBiABKAkSIQoZcmV2b2NhdGlvbl91c2VyX3NpZ25hdHVyZRgHIAEoCSLEAQoTU2VydmVyS2V5UmV2b2NhdGlvbhIbCglzZXJ2ZXJfaWQYASABKAlSCHNlcnZlcklEEhUKBmtleV9pZBgCIAEoCVIFa2V5SUQSEQoJc3VjY2Vzc29yGAMgASgJEhMKC2NvbXByb21pc2VkGAQgASgIEg4KBnJlYXNvbhgFIAEoCRIRCglzaWduZWRfYXQYBiABKA0SEQoJc2lnbmF0dXJlGAcgASgJEhsKE3N1Y2Nlc3Nvcl9zaWduYXR1cmUYCCABKAkifwoVS2V5UmV2b2NhdGlvblJlc3BvbnNlEikKBHVzZXIYASABKAsyGS5zeXJpbnguS2V5UmV2b2NhdGlvbkNlcnRIABItCgZzZXJ2ZXIYAiABKAsyGy5zeXJpbnguU2VydmVyS2V5UmV2b2NhdGlvbkgAQgwKCnJldm9jYXRpb24iIwoTUmVjb3JkQmFja3VwUmVxdWVzdBIMCgRraW5kGAEgASgJIicKEkJpbmREZXZpY2VSZXNwb25zZRIRCglkZXZpY2VfaWQYASABKAkiNgoMQmxvY2tSZXF1ZXN0EhEKCXNpZ25hdHVyZRgBIAEoCRITCgtmaW5nZXJwcmludBgCIAEoCSI2ChFCbG9ja0xpc3RSZXNwb25zZRIhCgZibG9ja3MYASADKAsyES5zeXJpbnguQmxvY2tDZXJ0IswCCgVWb3VjaBIKCgJpZBgBIAEoCRImCg92b3VjaGVyX3VzZXJfaWQYAiABKAlSDXZvdWNoZXJVc2VySUQSJAoOdm91Y2hlcl9rZXlfaWQYAyABKAlSDHZvdWNoZXJLZXlJRBImCg9zdWJqZWN0X3VzZXJfaWQYBCABKAlSDXN1YmplY3RVc2VySUQSJAoOc3ViamVjdF9rZXlfaWQYBSABKAlSDHN1YmplY3RLZXlJRBIMCgRub3RlGAYgASgJEi0KDnVzZXJfc2lnbmF0dXJlGAcgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgIIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSKwoKd2l0aGRyYXdhbBgJIAEoCzIXLnN5cmlueC5Wb3VjaFdpdGhkcmF3YWwicwoPVm91Y2hXaXRoZHJhd2FsEi0KDnVzZXJfc2lnbmF0dXJlGAEgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgCIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiSAoRVm91Y2hMaXN0UmVzcG9uc2USHgoHdm91Y2hlcxgBIAMoCzINLnN5cmlueC5Wb3VjaBITCgtuZXh0X2N1cnNvchgCIAEoCSKgAQoSQ3JlYXRlVm91Y2hSZXF1ZXN0EiQKDnN1YmplY3Rfa2V5X2lkGAEgASgJUgxzdWJqZWN0S2V5SUQSJAoOdm91Y2hlcl9rZXlfaWQYAiABKAlSDHZvdWNoZXJLZXlJRBIRCglzaWduYXR1cmUYAyABKAkSDAoEbm90ZRgEIAEoCRIdCgp2b3VjaGVyX2lkGAUgASgJUgl2b3VjaGVySUQibgoUV2l0aGRyYXdWb3VjaFJlcXVlc3QSJAoOdm91Y2hlcl9rZXlfaWQYASABKAlSDHZvdWNoZXJLZXlJRBIRCglzaWduYXR1cmUYAiABKAkSHQoKdm91Y2hlcl9pZBgDIAEoCVIJdm91Y2hlcklEQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common]);
+  fileDesc("Cg5pZGVudGl0eS5wcm90bxIGc3lyaW54IrgBCgpTZXJ2ZXJJbmZvEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSFQoNcmVjb3ZlcnlfbW9kZRgDIAEoCRITCgtzaWdudXBfbW9kZRgEIAEoCRIcChRtYXhfaW52aXRlc19wZXJfdXNlchgFIAEoBRIVCg1zZXJ2ZXJfa2V5X2lkGAYgASgJEi8KCmZlZGVyYXRpb24YByADKAsyGy5zeXJpbnguRmVkZXJhdGVkU2VydmVySW5mbyLmAQoTRmVkZXJhdGVkU2VydmVySW5mbxIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBmtleV9pZBgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgNEhQKDGZyb250ZW5kX3VybBgFIAEoCRIQCghiYXNlX3VybBgGIAEoCRIOCgZzdGF0dXMYByABKAkSEwoLZXN0YWJsaXNoZWQYCCABKAgSMQoQc2VydmVyX3NpZ25hdHVyZRgJIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSEQoJa2V5X2FybW9yGAogASgJIlEKDlVzZXJJRFJlc3BvbnNlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIRCglzaWduYXR1cmUYAiABKAkSEwoLZmluZ2VycHJpbnQYAyABKAkiXAoUQ2hlY2tVc2VybmFtZVJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSGwoJaW52aXRlX2lkGAIgASgJUghpbnZpdGVJRBIVCg1pbnZpdGVfc2VjcmV0GAMgASgJIokCCg1TaWdudXBSZXF1ZXN0EhAKCHVzZXJuYW1lGAEgASgJEhIKCnB1YmxpY19rZXkYAiABKAkSEQoJc2lnbmF0dXJlGAMgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAQgASgJEhcKB3VzZXJfaWQYBSABKAlSBnVzZXJJRBIqChF1c2VyX2lkX3NpZ25hdHVyZRgGIAEoCVIPdXNlcklEU2lnbmF0dXJlEi4KE3VzZXJfaWRfZmluZ2VycHJpbnQYByABKAlSEXVzZXJJREZpbmdlcnByaW50EhsKCWludml0ZV9pZBgIIAEoCVIIaW52aXRlSUQSFQoNaW52aXRlX3NlY3JldBgJIAEoCSJDCgpVc2VySW52aXRlEgoKAmlkGAEgASgJEhcKB3VzZXJfaWQYAiABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgDIAEoCSKnAgoEVXNlchIKCgJpZBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEgsKA2JpbxgEIAEoCRIUCgxtZW1iZXJfc2luY2UYBSABKA0SLQoOdXNlcl9zaWduYXR1cmUYBiABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAcgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZRIiCgZpbnZpdGUYCCABKAsyEi5zeXJpbnguVXNlckludml0ZRITCgtwZXJtaXNzaW9ucxgJIAMoCRI1ChJ1c2VybmFtZV9jb2xsaXNpb24YCiABKAsyGS5zeXJpbnguVXNlcm5hbWVDb2xsaXNpb24ifQoRVXNlcm5hbWVDb2xsaXNpb24SEAoIdXNlcm5hbWUYASABKAkSEQoJd2lubmVyX2lkGAIgASgJEhAKCGxvc2VyX2lkGAMgASgJEjEKEHNlcnZlcl9zaWduYXR1cmUYBCABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIo0CCghVc2VySW5mbxIKCgJpZBgBIAEoCRIaCg1maXJzdF9yZWVkX2lkGAIgASgJSACIAQESFwoPZm9sbG93ZXJzX2NvdW50GAMgASgFEhcKD2ZvbGxvd2luZ19jb3VudBgEIAEoBRIiCg1hY3RpdmVfa2V5X2lkGAUgASgJUgthY3RpdmVLZXlJRBIZChFwcm9maWxlX3RpbWVzdGFtcBgGIAEoDRImCg9waW5uZWRfcmVlZF9pZHMYByADKAlSDXBpbm5lZFJlZWRJRHMSGwoJdm91Y2hfaWRzGAggAygJUgh2b3VjaElEcxIRCgl1bmNsYWltZWQYCSABKAhCEAoOX2ZpcnN0X3JlZWRfaWQiSgoRVXBkYXRlVXNlclJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSCwoDYmlvGAIgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAMgASgJIjcKFERlbGV0ZUFjY291bnRSZXF1ZXN0EhEKCXNpZ25hdHVyZRgBIAEoCRIMCgRub3RlGAIgASgJIkUKEFVzZXJTZWFyY2hSZXN1bHQSCgoCaWQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSEwoLc2VydmVyX25hbWUYAyABKAkiZAoSVXNlclNlYXJjaFJlc3BvbnNlEicKBXVzZXJzGAEgAygLMhguc3lyaW54LlVzZXJTZWFyY2hSZXN1bHQSEAoIaGFzX21vcmUYAiABKAgSEwoLbmV4dF9jdXJzb3IYAyABKAkiMAoNRm9sbG93UmVxdWVzdBIfCgtmb2xsb3dlcl9pZBgBIAEoCVIKZm9sbG93ZXJJRCI+Cg5Gb2xsb3dMaXN0VXNlchIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySUQSEwoLZm9sbG93ZWRfYXQYAiABKA0iTQoSRm9sbG93TGlzdFJlc3BvbnNlEiUKBXVzZXJzGAEgAygLMhYuc3lyaW54LkZvbGxvd0xpc3RVc2VyEhAKCGhhc19tb3JlGAIgASgIIuoBCglQdWJsaWNLZXkSCgoCaWQYASABKAkSFwoHdXNlcl9pZBgCIAEoCVIGdXNlcklEEg0KBWFybW9yGAMgASgJEhIKCmNyZWF0ZWRfYXQYBCABKA0SDwoHcmV2b2tlZBgFIAEoCBIYCgtwcmVkZWNlc3NvchgGIAEoCUgAiAEBEjEKEHNlcnZlcl9zaWduYXR1cmUYByABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlEhIKCnJldm9rZWRfYXQYCCABKA0SEwoLY29tcHJvbWlzZWQYCSABKAhCDgoMX3ByZWRlY2Vzc29yItsBChNBZGRQdWJsaWNLZXlSZXF1ZXN0EhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBISCgpwdWJsaWNfa2V5GAIgASgJEh8KF3Jldm9rZWRfa2V5X2ZpbmdlcnByaW50GAMgASgJEh0KFXJldm9rZWRfa2V5X3NpZ25hdHVyZRgEIAEoCRIZChFuZXdfa2V5X3NpZ25hdHVyZRgFIAEoCRIZChFyZXZvY2F0aW9uX3JlYXNvbhgGIAEoCRIhChlyZXZvY2F0aW9uX3VzZXJfc2lnbmF0dXJlGAcgASgJIsQBChNTZXJ2ZXJLZXlSZXZvY2F0aW9uEhsKCXNlcnZlcl9pZBgBIAEoCVIIc2VydmVySUQSFQoGa2V5X2lkGAIgASgJUgVrZXlJRBIRCglzdWNjZXNzb3IYAyABKAkSEwoLY29tcHJvbWlzZWQYBCABKAgSDgoGcmVhc29uGAUgASgJEhEKCXNpZ25lZF9hdBgGIAEoDRIRCglzaWduYXR1cmUYByABKAkSGwoTc3VjY2Vzc29yX3NpZ25hdHVyZRgIIAEoCSJ/ChVLZXlSZXZvY2F0aW9uUmVzcG9uc2USKQoEdXNlchgBIAEoCzIZLnN5cmlueC5LZXlSZXZvY2F0aW9uQ2VydEgAEi0KBnNlcnZlchgCIAEoCzIbLnN5cmlueC5TZXJ2ZXJLZXlSZXZvY2F0aW9uSABCDAoKcmV2b2NhdGlvbiIjChNSZWNvcmRCYWNrdXBSZXF1ZXN0EgwKBGtpbmQYASABKAkiJwoSQmluZERldmljZVJlc3BvbnNlEhEKCWRldmljZV9pZBgBIAEoCSI2CgxCbG9ja1JlcXVlc3QSEQoJc2lnbmF0dXJlGAEgASgJEhMKC2ZpbmdlcnByaW50GAIgASgJIjYKEUJsb2NrTGlzdFJlc3BvbnNlEiEKBmJsb2NrcxgBIAMoCzIRLnN5cmlueC5CbG9ja0NlcnQizAIKBVZvdWNoEgoKAmlkGAEgASgJEiYKD3ZvdWNoZXJfdXNlcl9pZBgCIAEoCVINdm91Y2hlclVzZXJJRBIkCg52b3VjaGVyX2tleV9pZBgDIAEoCVIMdm91Y2hlcktleUlEEiYKD3N1YmplY3RfdXNlcl9pZBgEIAEoCVINc3ViamVjdFVzZXJJRBIkCg5zdWJqZWN0X2tleV9pZBgFIAEoCVIMc3ViamVjdEtleUlEEgwKBG5vdGUYBiABKAkSLQoOdXNlcl9zaWduYXR1cmUYByABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAggASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZRIrCgp3aXRoZHJhd2FsGAkgASgLMhcuc3lyaW54LlZvdWNoV2l0aGRyYXdhbCJzCg9Wb3VjaFdpdGhkcmF3YWwSLQoOdXNlcl9zaWduYXR1cmUYASABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAIgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZSJIChFWb3VjaExpc3RSZXNwb25zZRIeCgd2b3VjaGVzGAEgAygLMg0uc3lyaW54LlZvdWNoEhMKC25leHRfY3Vyc29yGAIgASgJIqABChJDcmVhdGVWb3VjaFJlcXVlc3QSJAoOc3ViamVjdF9rZXlfaWQYASABKAlSDHN1YmplY3RLZXlJRBIkCg52b3VjaGVyX2tleV9pZBgCIAEoCVIMdm91Y2hlcktleUlEEhEKCXNpZ25hdHVyZRgDIAEoCRIMCgRub3RlGAQgASgJEh0KCnZvdWNoZXJfaWQYBSABKAlSCXZvdWNoZXJJRCJuChRXaXRoZHJhd1ZvdWNoUmVxdWVzdBIkCg52b3VjaGVyX2tleV9pZBgBIAEoCVIMdm91Y2hlcktleUlEEhEKCXNpZ25hdHVyZRgCIAEoCRIdCgp2b3VjaGVyX2lkGAMgASgJUgl2b3VjaGVySURCIVofZ2l0aHViLmNvbS92YXIweHl6L3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
 
 /**
  * GET /server/info.
@@ -345,6 +345,14 @@ export type User = Message<"syrinx.User"> & {
    * @generated from field: repeated string permissions = 9;
    */
   permissions: string[];
+
+  /**
+   * Why username is empty: an older claim to it won. The profile's
+   * signatures cover the username this names.
+   *
+   * @generated from field: syrinx.UsernameCollision username_collision = 10;
+   */
+  usernameCollision?: UsernameCollision | undefined;
 };
 
 /**
@@ -353,6 +361,40 @@ export type User = Message<"syrinx.User"> & {
  */
 export const UserSchema: GenMessage<User> = /*@__PURE__*/
   messageDesc(file_identity, 6);
+
+/**
+ * The server's certificate that loser_id lost username to winner_id.
+ *
+ * @generated from message syrinx.UsernameCollision
+ */
+export type UsernameCollision = Message<"syrinx.UsernameCollision"> & {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string winner_id = 2;
+   */
+  winnerId: string;
+
+  /**
+   * @generated from field: string loser_id = 3;
+   */
+  loserId: string;
+
+  /**
+   * @generated from field: syrinx.ServerSignature server_signature = 4;
+   */
+  serverSignature?: ServerSignature | undefined;
+};
+
+/**
+ * Describes the message syrinx.UsernameCollision.
+ * Use `create(UsernameCollisionSchema)` to create a new message.
+ */
+export const UsernameCollisionSchema: GenMessage<UsernameCollision> = /*@__PURE__*/
+  messageDesc(file_identity, 7);
 
 /**
  * The unsigned, frequently changing view of a user (GET /users/{id}/info).
@@ -418,7 +460,7 @@ export type UserInfo = Message<"syrinx.UserInfo"> & {
  * Use `create(UserInfoSchema)` to create a new message.
  */
 export const UserInfoSchema: GenMessage<UserInfo> = /*@__PURE__*/
-  messageDesc(file_identity, 7);
+  messageDesc(file_identity, 8);
 
 /**
  * PUT /users/me: a full replacement of the user-authored fields.
@@ -447,7 +489,7 @@ export type UpdateUserRequest = Message<"syrinx.UpdateUserRequest"> & {
  * Use `create(UpdateUserRequestSchema)` to create a new message.
  */
 export const UpdateUserRequestSchema: GenMessage<UpdateUserRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 8);
+  messageDesc(file_identity, 9);
 
 /**
  * DELETE /users/me.
@@ -471,7 +513,7 @@ export type DeleteAccountRequest = Message<"syrinx.DeleteAccountRequest"> & {
  * Use `create(DeleteAccountRequestSchema)` to create a new message.
  */
 export const DeleteAccountRequestSchema: GenMessage<DeleteAccountRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 9);
+  messageDesc(file_identity, 10);
 
 /**
  * @generated from message syrinx.UserSearchResult
@@ -498,7 +540,7 @@ export type UserSearchResult = Message<"syrinx.UserSearchResult"> & {
  * Use `create(UserSearchResultSchema)` to create a new message.
  */
 export const UserSearchResultSchema: GenMessage<UserSearchResult> = /*@__PURE__*/
-  messageDesc(file_identity, 10);
+  messageDesc(file_identity, 11);
 
 /**
  * @generated from message syrinx.UserSearchResponse
@@ -525,7 +567,7 @@ export type UserSearchResponse = Message<"syrinx.UserSearchResponse"> & {
  * Use `create(UserSearchResponseSchema)` to create a new message.
  */
 export const UserSearchResponseSchema: GenMessage<UserSearchResponse> = /*@__PURE__*/
-  messageDesc(file_identity, 11);
+  messageDesc(file_identity, 12);
 
 /**
  * POST/DELETE /users/{id}/follow. follower_id is read only when a peer
@@ -545,7 +587,7 @@ export type FollowRequest = Message<"syrinx.FollowRequest"> & {
  * Use `create(FollowRequestSchema)` to create a new message.
  */
 export const FollowRequestSchema: GenMessage<FollowRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 12);
+  messageDesc(file_identity, 13);
 
 /**
  * @generated from message syrinx.FollowListUser
@@ -567,7 +609,7 @@ export type FollowListUser = Message<"syrinx.FollowListUser"> & {
  * Use `create(FollowListUserSchema)` to create a new message.
  */
 export const FollowListUserSchema: GenMessage<FollowListUser> = /*@__PURE__*/
-  messageDesc(file_identity, 13);
+  messageDesc(file_identity, 14);
 
 /**
  * @generated from message syrinx.FollowListResponse
@@ -589,7 +631,7 @@ export type FollowListResponse = Message<"syrinx.FollowListResponse"> & {
  * Use `create(FollowListResponseSchema)` to create a new message.
  */
 export const FollowListResponseSchema: GenMessage<FollowListResponse> = /*@__PURE__*/
-  messageDesc(file_identity, 14);
+  messageDesc(file_identity, 15);
 
 /**
  * A distributed user or server public key.
@@ -652,7 +694,7 @@ export type PublicKey = Message<"syrinx.PublicKey"> & {
  * Use `create(PublicKeySchema)` to create a new message.
  */
 export const PublicKeySchema: GenMessage<PublicKey> = /*@__PURE__*/
-  messageDesc(file_identity, 15);
+  messageDesc(file_identity, 16);
 
 /**
  * POST /keys: revokes the predecessor key and registers the new one.
@@ -701,7 +743,7 @@ export type AddPublicKeyRequest = Message<"syrinx.AddPublicKeyRequest"> & {
  * Use `create(AddPublicKeyRequestSchema)` to create a new message.
  */
 export const AddPublicKeyRequestSchema: GenMessage<AddPublicKeyRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 16);
+  messageDesc(file_identity, 17);
 
 /**
  * A server key's retirement in favour of its successor, signed by both.
@@ -755,7 +797,7 @@ export type ServerKeyRevocation = Message<"syrinx.ServerKeyRevocation"> & {
  * Use `create(ServerKeyRevocationSchema)` to create a new message.
  */
 export const ServerKeyRevocationSchema: GenMessage<ServerKeyRevocation> = /*@__PURE__*/
-  messageDesc(file_identity, 17);
+  messageDesc(file_identity, 18);
 
 /**
  * GET /keys/{id}/revocation: a user key's or a server key's revocation.
@@ -786,7 +828,7 @@ export type KeyRevocationResponse = Message<"syrinx.KeyRevocationResponse"> & {
  * Use `create(KeyRevocationResponseSchema)` to create a new message.
  */
 export const KeyRevocationResponseSchema: GenMessage<KeyRevocationResponse> = /*@__PURE__*/
-  messageDesc(file_identity, 18);
+  messageDesc(file_identity, 19);
 
 /**
  * POST /users/me/backup.
@@ -805,7 +847,7 @@ export type RecordBackupRequest = Message<"syrinx.RecordBackupRequest"> & {
  * Use `create(RecordBackupRequestSchema)` to create a new message.
  */
 export const RecordBackupRequestSchema: GenMessage<RecordBackupRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 19);
+  messageDesc(file_identity, 20);
 
 /**
  * POST /users/device: the device id now bound.
@@ -824,7 +866,7 @@ export type BindDeviceResponse = Message<"syrinx.BindDeviceResponse"> & {
  * Use `create(BindDeviceResponseSchema)` to create a new message.
  */
 export const BindDeviceResponseSchema: GenMessage<BindDeviceResponse> = /*@__PURE__*/
-  messageDesc(file_identity, 20);
+  messageDesc(file_identity, 21);
 
 /**
  * POST /users/{id}/block.
@@ -848,7 +890,7 @@ export type BlockRequest = Message<"syrinx.BlockRequest"> & {
  * Use `create(BlockRequestSchema)` to create a new message.
  */
 export const BlockRequestSchema: GenMessage<BlockRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 21);
+  messageDesc(file_identity, 22);
 
 /**
  * @generated from message syrinx.BlockListResponse
@@ -865,7 +907,7 @@ export type BlockListResponse = Message<"syrinx.BlockListResponse"> & {
  * Use `create(BlockListResponseSchema)` to create a new message.
  */
 export const BlockListResponseSchema: GenMessage<BlockListResponse> = /*@__PURE__*/
-  messageDesc(file_identity, 22);
+  messageDesc(file_identity, 23);
 
 /**
  * A signed vouch: one user attesting they compared fingerprints and the
@@ -927,7 +969,7 @@ export type Vouch = Message<"syrinx.Vouch"> & {
  * Use `create(VouchSchema)` to create a new message.
  */
 export const VouchSchema: GenMessage<Vouch> = /*@__PURE__*/
-  messageDesc(file_identity, 23);
+  messageDesc(file_identity, 24);
 
 /**
  * @generated from message syrinx.VouchWithdrawal
@@ -949,7 +991,7 @@ export type VouchWithdrawal = Message<"syrinx.VouchWithdrawal"> & {
  * Use `create(VouchWithdrawalSchema)` to create a new message.
  */
 export const VouchWithdrawalSchema: GenMessage<VouchWithdrawal> = /*@__PURE__*/
-  messageDesc(file_identity, 24);
+  messageDesc(file_identity, 25);
 
 /**
  * @generated from message syrinx.VouchListResponse
@@ -971,7 +1013,7 @@ export type VouchListResponse = Message<"syrinx.VouchListResponse"> & {
  * Use `create(VouchListResponseSchema)` to create a new message.
  */
 export const VouchListResponseSchema: GenMessage<VouchListResponse> = /*@__PURE__*/
-  messageDesc(file_identity, 25);
+  messageDesc(file_identity, 26);
 
 /**
  * POST /vouches. voucher_id is read only when a peer relays the request.
@@ -1010,7 +1052,7 @@ export type CreateVouchRequest = Message<"syrinx.CreateVouchRequest"> & {
  * Use `create(CreateVouchRequestSchema)` to create a new message.
  */
 export const CreateVouchRequestSchema: GenMessage<CreateVouchRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 26);
+  messageDesc(file_identity, 27);
 
 /**
  * DELETE /vouches/{subjectKeyID}.
@@ -1039,5 +1081,5 @@ export type WithdrawVouchRequest = Message<"syrinx.WithdrawVouchRequest"> & {
  * Use `create(WithdrawVouchRequestSchema)` to create a new message.
  */
 export const WithdrawVouchRequestSchema: GenMessage<WithdrawVouchRequest> = /*@__PURE__*/
-  messageDesc(file_identity, 27);
+  messageDesc(file_identity, 28);
 

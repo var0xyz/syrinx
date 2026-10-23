@@ -52,7 +52,7 @@ Each table below has a **Status** column per step. Values:
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
-| Recovery, operational | In progress | 08, 13 (01–06, 09–12 done; 07 underway)                |
+| Recovery, operational | In progress | 13 (01–06, 08–12 done; 07 underway)                    |
 
 **Already done:** Coverage, Deletion, Eviction, Signature storage, Publish
 ready, Conversations, Recovery feature, and all prerequisites 01–10 (11 is
@@ -502,7 +502,7 @@ refused. Follows become certificates either end can report back.
 | 05 | Recovery always available; `RECOVERY_MODE` modes              | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                  | Implemented |
 | 07 | Recovery reports servers, users, reeds, local and foreign     | In progress |
-| 08 | Username collision certificate                                | Proposed    |
+| 08 | Username collision certificate                                | Implemented |
 | 09 | SPA: import decides; unclaimed profiles; drop `/logout`       | Implemented |
 | 10 | Recovery metrics and dashboard                                | Implemented |
 | 11 | Refuse removed accounts                                       | Implemented |

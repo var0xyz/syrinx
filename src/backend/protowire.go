@@ -117,6 +117,14 @@ func pbUser(u *User) *pb.User {
 	if u.Invite != nil {
 		out.Invite = &pb.UserInvite{Id: u.Invite.ID, UserId: u.Invite.UserID, Username: u.Invite.Username}
 	}
+	if c := u.UsernameCollision; c != nil {
+		out.UsernameCollision = &pb.UsernameCollision{
+			Username:        c.Username,
+			WinnerId:        c.WinnerID,
+			LoserId:         c.LoserID,
+			ServerSignature: pbServerSignature(c.ServerSignature),
+		}
+	}
 	return out
 }
 

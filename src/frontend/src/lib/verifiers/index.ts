@@ -49,6 +49,7 @@ import {
   buildAccountKickServerPayload,
   buildAdminRevocationServerPayload,
   buildPeerRecordPayload,
+  buildUsernameCollisionPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -355,9 +356,37 @@ export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promis
   return true;
 }
 
+/** The username a profile's signatures cover: its own, or the one it lost
+ * to an older claim, per its home server's signed record. Null if neither. */
+export async function signedUsername(user: api.User): Promise<string | null> {
+  if (user.username) return user.username;
+  const c = user.usernameCollision;
+  if (!c?.serverSignature?.signedAt || !user.serverSignature || c.loserId !== user.id) return null;
+  const { serverID } = splitServerSignatureId(c.serverSignature.id);
+  if (!serverID || serverID !== splitServerSignatureId(user.serverSignature.id).serverID) return null;
+  const payload = buildUsernameCollisionPayload(
+    serverID,
+    c.username,
+    c.winnerId,
+    c.loserId,
+    signedAtHeader(c.serverSignature.signedAt)
+  );
+  const result = await verify(c.serverSignature, payload);
+  if (result.ok === false) {
+    console.error('[signedUsername] collision record failed', user.id, result);
+    return null;
+  }
+  return c.username;
+}
+
 export async function verifyUser(user: api.User): Promise<boolean> {
   if (!user?.userSignature?.armor || !user.userSignature?.id || !user.serverSignature) {
     console.error('[verifyUser] missing signatures', user?.id);
+    return false;
+  }
+  const username = await signedUsername(user);
+  if (username === null) {
+    console.error('[verifyUser] no username to verify', user.id);
     return false;
   }
   if (user.role !== 'root' && user.role !== 'admin' && user.role !== 'user') {
@@ -372,7 +401,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   }
 
   const userPayload = buildUserIdentityPayload(
-    user.username,
+    username,
     user.userSignature.id,
     user.bio ?? ''
   );
@@ -388,7 +417,7 @@ export async function verifyUser(user: api.User): Promise<boolean> {
   );
   const serverPayload = buildProfilePayload(
     user.id,
-    user.username,
+    username,
     user.userSignature.id,
     profileServerID,
     profileServerFingerprint,

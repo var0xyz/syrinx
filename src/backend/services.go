@@ -642,7 +642,7 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	var inviteID, inviterID, inviterUsername sql.NullString
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT u.id, u.username, u.role, u.bio, u.created_at,
+		SELECT u.id, COALESCE(u.username, ''), u.role, u.bio, u.created_at,
 		       u.user_signature_id, u.server_signature_id,
 		       u.invite_id, inv.id, inv.username,
 		       ARRAY(SELECT permission FROM user_permissions WHERE user_id = u.id ORDER BY permission)
@@ -691,7 +691,33 @@ func (s *DataService) GetUserProfile(ctx context.Context, userID string) (*User,
 	}
 	user.ServerSignature = serverSig
 
+	if user.Username == "" {
+		if user.UsernameCollision, err = s.getUsernameCollision(ctx, user.ID); err != nil {
+			return nil, err
+		}
+	}
 	return &user, nil
+}
+
+// getUsernameCollision returns the record of the username userID lost, or
+// nil when it lost none.
+func (s *DataService) getUsernameCollision(ctx context.Context, userID string) (*UsernameCollision, error) {
+	c := UsernameCollision{LoserID: userID}
+	var sigID int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT username, winner_id, server_signature_id
+		FROM username_collisions WHERE loser_id = $1
+	`, userID).Scan(&c.Username, &c.WinnerID, &sigID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if c.ServerSignature, err = getServerSignatureWire(ctx, s.db, sigID); err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
 // GetUserInfo returns unsigned, mutable hints for a user plus the
@@ -918,6 +944,10 @@ func (s *DataService) UpdateUser(ctx context.Context, in UpdateUserInput) error 
 		DELETE FROM server_signatures WHERE id = $2
 	`, oldUserSignatureID, oldServerSignatureID); err != nil {
 		return fmt.Errorf("delete superseded profile signatures: %w", err)
+	}
+	// A new username settles a collision this user lost.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM username_collisions WHERE loser_id = $1`, selfIdentity); err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -7012,15 +7042,10 @@ type recoverySaveIdentityResult struct {
 	// unclaimed_accounts: it had been recorded from someone's cache.
 	WasUnclaimed bool
 	Updated bool // profile columns written (create or newer-wins)
-	// Rejected is true when profile.Username collided with an existing
-	// holder whose server_signed_at was newer or equal — the incoming
-	// submission was discarded, nothing was written.
+	// Rejected is true when the user ID belongs to another account on
+	// record from before this database: nothing was written.
 	Rejected bool
 }
-
-// errRecoveryUsernameCollisionLoss signals that the incoming profile lost a
-// username collision and must not be persisted.
-var errRecoveryUsernameCollisionLoss = fmt.Errorf("incoming profile lost username collision")
 
 // Every subject handled by the recovery save/reed/follow functions below
 // (profile.ID, follow targets, reed authors/reporters) is a bare userID
@@ -7089,7 +7114,7 @@ func (s *DataService) ClaimRealtimeAuthNonce(ctx context.Context, nonce string, 
 
 // saveOwnIdentity upserts a verified own-claim identity + nest. Clears
 // unclaimed_accounts and records the user in ongoing_recoveries.
-func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile recoveryProfile, flat []recoveryFlatKey, deviceID string) (*recoverySaveIdentityResult, error) {
+func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, sign ledgerSigner, profile recoveryProfile, flat []recoveryFlatKey, deviceID string) (*recoverySaveIdentityResult, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -7098,7 +7123,7 @@ func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile r
 
 	selfIdentity := identityID(profile.ID)
 
-	res, err := upsertRecoveryIdentity(ctx, tx, serverID, profile, flat)
+	res, err := upsertRecoveryIdentity(ctx, tx, serverID, sign, profile, flat)
 	if err != nil {
 		return nil, err
 	}
@@ -7140,7 +7165,7 @@ func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, profile r
 // savePeerIdentity upserts a verified peer-reported identity + nest.
 // Newly created rows are inserted into unclaimed_accounts; already-claimed
 // accounts are never re-marked unclaimed.
-func savePeerIdentity(ctx context.Context, db *sql.DB, serverID string, profile recoveryProfile, flat []recoveryFlatKey) (*recoverySaveIdentityResult, error) {
+func savePeerIdentity(ctx context.Context, db *sql.DB, serverID string, sign ledgerSigner, profile recoveryProfile, flat []recoveryFlatKey) (*recoverySaveIdentityResult, error) {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -7149,7 +7174,7 @@ func savePeerIdentity(ctx context.Context, db *sql.DB, serverID string, profile 
 
 	selfIdentity := identityID(profile.ID)
 
-	res, err := upsertRecoveryIdentity(ctx, tx, serverID, profile, flat)
+	res, err := upsertRecoveryIdentity(ctx, tx, serverID, sign, profile, flat)
 	if err != nil {
 		return nil, err
 	}
@@ -7176,7 +7201,7 @@ func savePeerIdentity(ctx context.Context, db *sql.DB, serverID string, profile 
 	return res, nil
 }
 
-func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, profile recoveryProfile, flat []recoveryFlatKey) (*recoverySaveIdentityResult, error) {
+func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, sign ledgerSigner, profile recoveryProfile, flat []recoveryFlatKey) (*recoverySaveIdentityResult, error) {
 	if len(flat) == 0 {
 		return nil, fmt.Errorf("empty key nest")
 	}
@@ -7202,6 +7227,18 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 		WHERE i.id = $1
 		FOR UPDATE OF i
 	`, selfIdentity).Scan(&existingSignedAt)
+	if err == nil && existingSignedAt.Valid {
+		mine, deleted, takeErr := takeRecoveryUserID(ctx, tx, selfIdentity, flat)
+		if takeErr != nil {
+			return nil, takeErr
+		}
+		if !mine {
+			return &recoverySaveIdentityResult{Rejected: true}, nil
+		}
+		if deleted {
+			err = sql.ErrNoRows
+		}
+	}
 
 	created := false
 	updated := false
@@ -7226,10 +7263,7 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 		if err := insertRecoveryKeys(ctx, tx, selfIdentity, flat); err != nil {
 			return nil, err
 		}
-		if err := insertRecoveryUser(ctx, tx, serverID, profile, activeFP, incomingSignedAt); err != nil {
-			if errors.Is(err, errRecoveryUsernameCollisionLoss) {
-				return &recoverySaveIdentityResult{Rejected: true}, nil
-			}
+		if err := insertRecoveryUser(ctx, tx, serverID, sign, profile, activeFP, incomingSignedAt); err != nil {
 			return nil, err
 		}
 		created = true
@@ -7240,11 +7274,8 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 		if err := insertRecoveryKeys(ctx, tx, selfIdentity, flat); err != nil {
 			return nil, err
 		}
-		wrote, err := updateRecoveryUserIfNewer(ctx, tx, selfIdentity, profile, activeFP, existingSignedAt.Time, incomingSignedAt)
+		wrote, err := updateRecoveryUserIfNewer(ctx, tx, sign, selfIdentity, profile, activeFP, existingSignedAt.Time, incomingSignedAt)
 		if err != nil {
-			if errors.Is(err, errRecoveryUsernameCollisionLoss) {
-				return &recoverySaveIdentityResult{Rejected: true}, nil
-			}
 			return nil, err
 		}
 		updated = wrote
@@ -7259,10 +7290,10 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, pr
 // insertRecoveryUser inserts the users row (its satellite identities row is
 // already minted by the caller). active_key_id references a public_keys
 // row inserted by the caller's insertRecoveryKeys call, before this runs.
-func insertRecoveryUser(ctx context.Context, tx *sql.Tx, serverID string, profile recoveryProfile, activeFP string, signedAt time.Time) error {
+func insertRecoveryUser(ctx context.Context, tx *sql.Tx, serverID string, sign ledgerSigner, profile recoveryProfile, activeFP string, signedAt time.Time) error {
 	selfIdentity := identityID(profile.ID)
 
-	username, err := claimRecoveryUsername(ctx, tx, selfIdentity, profile.Username, signedAt)
+	username, err := claimRecoveryUsername(ctx, tx, sign, selfIdentity, profile.Username, signedAt)
 	if err != nil {
 		return err
 	}
@@ -7312,6 +7343,7 @@ func insertRecoveryUser(ctx context.Context, tx *sql.Tx, serverID string, profil
 func updateRecoveryUserIfNewer(
 	ctx context.Context,
 	tx *sql.Tx,
+	sign ledgerSigner,
 	selfIdentity identityID,
 	profile recoveryProfile,
 	activeFP string,
@@ -7324,7 +7356,7 @@ func updateRecoveryUserIfNewer(
 	if err := validateProfilePermissions(profile.Role, profile.Permissions); err != nil {
 		return false, err
 	}
-	username, err := claimRecoveryUsername(ctx, tx, selfIdentity, profile.Username, incomingSignedAt)
+	username, err := claimRecoveryUsername(ctx, tx, sign, selfIdentity, profile.Username, incomingSignedAt)
 	if err != nil {
 		return false, err
 	}
@@ -7464,56 +7496,125 @@ func recoveryPredecessorKeyID(flat []recoveryFlatKey, i int) string {
 	return flat[i-1].Key.Fingerprint
 }
 
-// claimRecoveryUsername resolves a username collision by deleting whichever
-// side has the older (or equal) server_signed_at. If the incoming profile
-// loses, the existing holder is left untouched and
-// errRecoveryUsernameCollisionLoss is returned — callers must abort the
-// whole upsert without writing anything. If the incoming profile wins (or
-// there is no collision), the holder row (if any) is hard-deleted — ON
-// DELETE CASCADE removes its keys, signatures, and recovery/social
-// bookkeeping — and username is returned unchanged for the caller to store.
-func claimRecoveryUsername(ctx context.Context, tx *sql.Tx, selfIdentity identityID, username string, signedAt time.Time) (string, error) {
-	var holderIdentityID string
-	var holderSignedAt time.Time
-	// users.id IS identities.id directly now, so both the self-exclusion
-	// comparison and the selected holder id must use that form — comparing
-	// bare here would make "u.id <> $2" always-true, wrongly treating a
-	// same-identity re-report as a collision.
+// claimRecoveryUsername settles who holds username: a profile signed before
+// first_boot_at beats one after it, otherwise the newest wins. The loser
+// keeps their account with a NULL username and a signed collision record.
+func claimRecoveryUsername(ctx context.Context, tx *sql.Tx, sign ledgerSigner, selfIdentity identityID, username string, signedAt time.Time) (sql.NullString, error) {
+	claimed := sql.NullString{String: username, Valid: true}
+	var holderID string
+	var holderSignedAt, firstBootAt time.Time
 	err := tx.QueryRowContext(ctx, `
-		SELECT u.id, ss.signed_at
+		SELECT u.id, ss.signed_at, (SELECT date_trunc('second', first_boot_at) FROM server_self)
 		FROM users u
 		JOIN server_signatures ss ON ss.id = u.server_signature_id
 		WHERE LOWER(u.username) = LOWER($1) AND u.id <> $2
 		FOR UPDATE OF u
-	`, username, selfIdentity).Scan(&holderIdentityID, &holderSignedAt)
+	`, username, selfIdentity).Scan(&holderID, &holderSignedAt, &firstBootAt)
 	if err == sql.ErrNoRows {
-		return username, nil
+		_, err := tx.ExecContext(ctx, `DELETE FROM username_collisions WHERE loser_id = $1`, selfIdentity)
+		return claimed, err
 	}
 	if err != nil {
-		return "", err
+		return sql.NullString{}, err
 	}
 
-	holderWins := !signedAt.After(holderSignedAt)
-	if holderWins {
-		return "", errRecoveryUsernameCollisionLoss
+	incomingBefore, holderBefore := signedAt.Before(firstBootAt), holderSignedAt.Before(firstBootAt)
+	incomingWins := incomingBefore && !holderBefore || incomingBefore == holderBefore && signedAt.After(holderSignedAt)
+	if !incomingWins {
+		if err := recordUsernameCollision(ctx, tx, sign, username, holderID, string(selfIdentity)); err != nil {
+			return sql.NullString{}, err
+		}
+		return sql.NullString{}, nil
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET username = NULL WHERE id = $1`, holderID); err != nil {
+		return sql.NullString{}, fmt.Errorf("drop username of %s: %w", holderID, err)
+	}
+	if err := recordUsernameCollision(ctx, tx, sign, username, string(selfIdentity), holderID); err != nil {
+		return sql.NullString{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM username_collisions WHERE loser_id = $1`, selfIdentity); err != nil {
+		return sql.NullString{}, err
+	}
+	return claimed, nil
+}
 
-	// Incoming wins: the holder is a different, older, provably-signed
-	// identity — not a duplicate of the incoming one. Deleting it is
-	// destructive by design: a renamed-in-place row would carry a username
-	// that no longer matches what its owner signed, permanently breaking
-	// verification instead.
-	//
-	// Deletes FROM identities, not FROM users: identities is the actual FK
-	// root, so ON DELETE CASCADE removes the satellite users row and
-	// everything else (keys, signatures, recovery/social bookkeeping) in one shot.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM identities WHERE id = $1`, holderIdentityID); err != nil {
-		return "", fmt.Errorf("delete username collision loser %s: %w", holderIdentityID, err)
+// recordUsernameCollision countersigns and stores that loserID lost
+// username to winnerID, replacing any earlier record for loserID.
+func recordUsernameCollision(ctx context.Context, tx *sql.Tx, sign ledgerSigner, username, winnerID, loserID string) error {
+	now := time.Now().UTC().Truncate(time.Second)
+	serverID := identityID(loserID).ServerID()
+	sig, err := sign(buildUsernameCollisionPayload(serverID, username, winnerID, loserID, now), now)
+	if err != nil {
+		return fmt.Errorf("sign username collision: %w", err)
 	}
-	if err := bumpActiveUsers(ctx, tx, -1); err != nil {
-		return "", err
+	sigID, err := insertServerSignature(ctx, tx, sig.ID, sig.Armor, now)
+	if err != nil {
+		return err
 	}
-	return username, nil
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO username_collisions (loser_id, username, winner_id, server_signature_id)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (loser_id) DO UPDATE SET
+			username = EXCLUDED.username, winner_id = EXCLUDED.winner_id,
+			server_signature_id = EXCLUDED.server_signature_id
+	`, loserID, username, winnerID, sigID)
+	return err
+}
+
+// takeRecoveryUserID reports whether a recovered nest may write to the
+// account on record under its ID. One sharing no key with it is another
+// account: deleted if it signed up after first_boot_at, else kept.
+func takeRecoveryUserID(ctx context.Context, tx *sql.Tx, selfIdentity identityID, flat []recoveryFlatKey) (mine, deleted bool, err error) {
+	keyIDs := make([]string, len(flat))
+	for i, fk := range flat {
+		keyIDs[i] = fk.Key.Fingerprint
+	}
+	var hasKeys, shared, newer bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM public_keys WHERE owner = $1),
+		       EXISTS(SELECT 1 FROM public_keys WHERE owner = $1 AND id = ANY($2)),
+		       (SELECT u.created_at >= date_trunc('second', s.first_boot_at) FROM users u, server_self s WHERE u.id = $1)
+	`, selfIdentity, pq.Array(keyIDs)).Scan(&hasKeys, &shared, &newer); err != nil {
+		return false, false, err
+	}
+	if !hasKeys || shared {
+		return true, false, nil
+	}
+	if !newer {
+		return false, false, nil
+	}
+	if err := returnCollidedUsernames(ctx, tx, selfIdentity); err != nil {
+		return false, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM identities WHERE id = $1`, selfIdentity); err != nil {
+		return false, false, fmt.Errorf("delete newer holder of %s: %w", selfIdentity, err)
+	}
+	return true, true, bumpActiveUsers(ctx, tx, -1)
+}
+
+// returnCollidedUsernames gives the users who lost a username to winnerID
+// that name back, one per name, when nobody else holds it by now.
+func returnCollidedUsernames(ctx context.Context, tx *sql.Tx, winnerID identityID) error {
+	if _, err := tx.ExecContext(ctx, `UPDATE users SET username = NULL WHERE id = $1`, winnerID); err != nil {
+		return fmt.Errorf("drop username of %s: %w", winnerID, err)
+	}
+	_, err := tx.ExecContext(ctx, `
+		UPDATE users u SET username = back.username
+		FROM (
+			SELECT DISTINCT ON (LOWER(uc.username)) uc.loser_id, uc.username
+			FROM username_collisions uc
+			JOIN users l ON l.id = uc.loser_id
+			JOIN server_signatures ss ON ss.id = l.server_signature_id
+			WHERE uc.winner_id = $1
+			  AND NOT EXISTS (SELECT 1 FROM users o WHERE LOWER(o.username) = LOWER(uc.username))
+			ORDER BY LOWER(uc.username), ss.signed_at DESC
+		) back
+		WHERE u.id = back.loser_id
+	`, winnerID)
+	if err != nil {
+		return fmt.Errorf("return usernames lost to %s: %w", winnerID, err)
+	}
+	return nil
 }
 
 func nullIfEmptyString(s string) interface{} {
