@@ -130,6 +130,7 @@ func pbUserInfo(i *UserInfo) *pb.UserInfo {
 		ProfileTimestamp: unixOrZero(i.ProfileTimestamp),
 		PinnedReedIds:    i.PinnedReedIDs,
 		VouchIds:         i.VouchIDs,
+		Unclaimed:        i.Unclaimed,
 	}
 }
 

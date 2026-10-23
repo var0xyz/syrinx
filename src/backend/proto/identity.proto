@@ -104,6 +104,9 @@ message UserInfo {
   uint32 profile_timestamp = 6;
   repeated string pinned_reed_ids = 7 [json_name = "pinnedReedIDs"];
   repeated string vouch_ids = 8 [json_name = "vouchIDs"];
+  // Recorded only from another user's cache: its owner hasn't come back
+  // to this server yet.
+  bool unclaimed = 9;
 }
 
 // PUT /users/me: a full replacement of the user-authored fields.

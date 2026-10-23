@@ -46,6 +46,8 @@ type UserInfo struct {
 	FollowingCount   int       `json:"followingCount"`
 	ActiveKeyID      string    `json:"activeKeyID"`
 	ProfileTimestamp time.Time `json:"profileTimestamp"`
+	// Recorded only from another user's cache, never claimed by its owner.
+	Unclaimed bool `json:"unclaimed"`
 
 	// TODO: In the future we need to make pinned reeds part of the user profile,
 	// so that in case of recovery the pinned reeds are not lost. Not critical

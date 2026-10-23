@@ -138,6 +138,9 @@
     followingCount = user?.followingCount ?? 0;
   }
 
+  // Recorded from someone's cache only: follows wait until the owner claims it.
+  $: unclaimed = !isOwner && !!user?.unclaimed;
+
   // Re-sync follow button when the profile identity or server-known follow
   // state changes (e.g. client-side nav). Do not depend on `following`
   // itself or a local Follow/Unfollow would be overwritten by a stale prop.
@@ -274,14 +277,22 @@
           Invited by <Username userID={user.invite.userId} username={user.invite.username} at fire={false} />
         </p>
       {/if}
-      <div class="follow-stats">
-        <button type="button" class="follow-stat" on:click={() => openFollowList('following')}>
-          <strong>{followingCount}</strong> Following
-        </button>
-        <button type="button" class="follow-stat" on:click={() => openFollowList('followers')}>
-          <strong>{followersCount}</strong> {followersCount === 1 ? 'Follower' : 'Followers'}
-        </button>
-      </div>
+      {#if unclaimed}
+        <p class="unclaimed-notice">This account's owner hasn't come back to this server yet.</p>
+        <div class="follow-stats">
+          <span class="follow-stat"><strong>0</strong> Following</span>
+          <span class="follow-stat"><strong>0</strong> Followers</span>
+        </div>
+      {:else}
+        <div class="follow-stats">
+          <button type="button" class="follow-stat" on:click={() => openFollowList('following')}>
+            <strong>{followingCount}</strong> Following
+          </button>
+          <button type="button" class="follow-stat" on:click={() => openFollowList('followers')}>
+            <strong>{followersCount}</strong> {followersCount === 1 ? 'Follower' : 'Followers'}
+          </button>
+        </div>
+      {/if}
     </div>
   </div>
   {#if user?.bio}
@@ -308,9 +319,11 @@
     </div>
   {:else}
     <div class="profile-actions" class:with-admin={showAdmin}>
-      <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
-        {following ? 'Unfollow' : 'Follow'}
-      </button>
+      {#if !unclaimed}
+        <button class="action-btn" class:primary={!following} class:secondary={following} on:click={toggleFollow}>
+          {following ? 'Unfollow' : 'Follow'}
+        </button>
+      {/if}
       {#if user?.id}
         <BlockButton userID={user.id} username={user.username} />
       {/if}
@@ -473,6 +486,12 @@
 
   .id-row .user-info {
     overflow-wrap: anywhere;
+  }
+
+  .unclaimed-notice {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.85rem;
   }
 
   .user-info {
