@@ -7,6 +7,8 @@ import { isOnline } from './pwa';
 import { serverKeyProofHeader, getTrustedServerKey } from './serverKeyTrust';
 import { formatServerKeyId } from '$lib/utils/identityRef';
 import { readServerInfo } from './api';
+import { authService } from './auth';
+import { requestSigner } from './request-signer';
 
 export const serverInfo = writable<ServerInfo | null>(null);
 export const serverInfoLoading = writable(true);
@@ -110,6 +112,19 @@ function normalizeMaxInvites(value: unknown): number {
   return -1;
 }
 
+/** Signed when logged in, so the reply lists this server's peers; an
+ * anonymous reply leaves them out. */
+async function serverInfoRequest(): Promise<RequestInit> {
+  const init: RequestInit = { headers: serverKeyProofHeader() };
+  if (!authService.getActiveKeyId()) return init;
+  try {
+    return await requestSigner.signRequest('/api/server/info', init);
+  } catch (error) {
+    console.warn('serverInfo: fetching unsigned, signing failed:', error);
+    return init;
+  }
+}
+
 export async function refreshServerInfo(updateServerKey = true): Promise<ServerInfo | null> {
   if (!navigator.onLine) {
     serverUnreachable.set(false);
@@ -124,7 +139,7 @@ export async function refreshServerInfo(updateServerKey = true): Promise<ServerI
     // offline-first means the app finishes booting either way, background
     // work included.
     const response = await fetch('/api/server/info', {
-      headers: serverKeyProofHeader(),
+      ...(await serverInfoRequest()),
       signal: AbortSignal.timeout(8000),
     });
 

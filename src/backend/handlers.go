@@ -177,12 +177,17 @@ func (h *Handlers) noop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
-	// The SPA can't boot without this endpoint, so a failed peer lookup
-	// degrades to an empty list rather than an error.
-	federation, err := h.services.db.ListFederatedServers(r.Context())
-	if err != nil {
-		h.services.log.GetLogger(r.Context()).Error().Err(err).Msg("Failed to list federated servers for server info")
-		federation = []FederatedServerInfo{}
+	// Peers are listed for signed-in members only: who this server federates
+	// with, and who it dropped, isn't public. The SPA can't boot without this
+	// endpoint, so a failed peer lookup degrades to an empty list.
+	federation := []FederatedServerInfo{}
+	if h.signedInUser(r) != "" {
+		var err error
+		federation, err = h.services.db.ListFederatedServers(r.Context())
+		if err != nil {
+			h.services.log.GetLogger(r.Context()).Error().Err(err).Msg("Failed to list federated servers for server info")
+			federation = []FederatedServerInfo{}
+		}
 	}
 	info := &pb.ServerInfo{
 		Id:                h.services.db.GetServerID(),

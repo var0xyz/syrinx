@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -71,12 +69,13 @@ func TestServerInfoSignsPeerRecords(t *testing.T) {
 	}
 	peerTestMesh(t, a.db, peerID)
 
+	if anon := a.serverInfo(t, nil); len(anon.GetFederation()) != 0 {
+		t.Fatalf("anonymous server info lists peers: %+v", anon.GetFederation())
+	}
+	viewer := a.signup(t, "viewer")
 	fetch := func() *pb.FederatedServerInfo {
 		t.Helper()
-		rr := httptest.NewRecorder()
-		a.h.GetServerInfo(rr, httptest.NewRequest(http.MethodGet, "/api/server/info", nil))
-		var info pb.ServerInfo
-		decodeProto(t, rr.Body.Bytes(), &info)
+		info := a.serverInfo(t, viewer)
 		if len(info.GetFederation()) != 1 {
 			t.Fatalf("federation = %+v", info.GetFederation())
 		}

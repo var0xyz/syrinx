@@ -672,6 +672,31 @@ func (h *Handlers) buildCanonicalRequestString(r *http.Request) string {
 
 // validateTimestamp validates the timestamp for replay protection
 // Accepts timestamps within ±5 minutes of current time
+// signedInUser returns who signed a request to an unauthenticated path, or
+// "" when it carries no valid, current signature by a member's key. Nothing
+// is refused: the request is then just anonymous.
+func (h *Handlers) signedInUser(r *http.Request) string {
+	keyID := r.Header.Get("X-Syrinx-Public-Key-Id")
+	signature := r.Header.Get("X-Syrinx-Signature")
+	if keyID == "" || signature == "" || r.Header.Get("X-Syrinx-Signature-Scope") != "body" {
+		return ""
+	}
+	if h.validateTimestamp(r.Header.Get("X-Syrinx-Timestamp")) != nil {
+		return ""
+	}
+	key, err := h.services.db.GetPublicKey(r.Context(), keyID)
+	if err != nil || key == nil || key.UserID == "" || key.Revoked || key.Restricted {
+		return ""
+	}
+	if removed, err := h.services.db.HasAccountRemoval(r.Context(), key.UserID); err != nil || removed {
+		return ""
+	}
+	if h.verifyRequestSignature(r, signature, key.Armor) != nil {
+		return ""
+	}
+	return key.UserID
+}
+
 func (h *Handlers) validateTimestamp(timestampStr string) error {
 	return h.services.crypto.validateTimestamp(timestampStr)
 }
