@@ -129,7 +129,7 @@
         <li>
           <span class="name"><Username userID={rep.reporterId} color="var(--primary)" /></span>{#if server}<span class="server">({server})</span>{/if}
           {#if rep.note}<span class="note">“{rep.note}”</span>{/if}
-          <span class="report-when">{formatRelativeTime(fromUnix(rep.createdAt) ?? new Date())}</span>
+          <span class="report-when">{formatRelativeTime(fromUnix(rep.serverSignature?.signedAt ?? 0) ?? new Date())}</span>
         </li>
       {/each}
     </ul>

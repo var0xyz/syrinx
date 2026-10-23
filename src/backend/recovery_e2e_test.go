@@ -663,8 +663,9 @@ var recoveryRestoredTables = map[string]string{
 		JOIN server_signatures ss ON ss.id = r.server_signature_id`,
 	"admin_request_targets": `SELECT request_id, user_id, dropped FROM admin_request_targets`,
 	"admin_request_content": `SELECT request_id, body FROM admin_request_content`,
-	"reed_flags": `SELECT f.reed_id, f.author_id, f.reporter_id, f.note, f.public_key_id, us.signature, f.created_at
-		FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id`,
+	"reed_flags": `SELECT f.reed_id, f.author_id, f.reporter_id, f.note, f.public_key_id, us.signature, ss.signature, f.created_at
+		FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id
+		JOIN server_signatures ss ON ss.id = f.server_signature_id`,
 	"pinned_reeds":   `SELECT user_id, reed_id FROM pinned_reeds`,
 	"user_following": `SELECT user_id, following_user_id FROM user_following`,
 	"user_followers": `SELECT user_id, follower_user_id FROM user_followers`,

@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -30,15 +29,19 @@ func (f *adminFixture) localReed(t *testing.T, author string) string {
 // flag has reporter sign and post a flag on reedID.
 func (f *adminFixture) flag(t *testing.T, reporter, reedID, note string) int {
 	t.Helper()
-	createdAt := time.Now().UTC().Truncate(time.Second)
-	payload := buildReedFlagPayload(reedID, f.ids[reporter], f.keyID(reporter), note, createdAt)
+	return f.postFlag(t, reporter, reedID, note).Code
+}
+
+func (f *adminFixture) postFlag(t *testing.T, reporter, reedID, note string) *httptest.ResponseRecorder {
+	t.Helper()
+	payload := buildReedFlagPayload(reedID, f.ids[reporter], f.keyID(reporter), note)
 	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.keys[reporter].PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg := &pb.ReedFlag{ReedId: reedID, ReporterId: f.ids[reporter], Note: note, CreatedAt: unixOrZero(createdAt),
+	msg := &pb.ReedFlag{ReedId: reedID, ReporterId: f.ids[reporter], Note: note,
 		Signature: &pb.UserSignature{Id: f.keyID(reporter), Armor: sig}}
-	return f.serve(t, f.h.FlagReed, http.MethodPost, "/api/flags", reporter, msg, nil).Code
+	return f.serve(t, f.h.FlagReed, http.MethodPost, "/api/flags", reporter, msg, nil)
 }
 
 func (f *adminFixture) openFlags(t *testing.T, viewer string) *pb.FlaggedReedList {
@@ -90,6 +93,29 @@ func TestFlags_RefusedFlags(t *testing.T) {
 	}
 	if code := f.flag(t, "u1", f.ids["u2"]+"/missing", ""); code != http.StatusNotFound {
 		t.Errorf("flag on an unknown reed: %d, want 404", code)
+	}
+}
+
+func TestFlags_CountersignedOnArrival(t *testing.T) {
+	f := newAdminFixture(t)
+	reedID := f.localReed(t, "u2")
+	rr := f.postFlag(t, "u1", reedID, "Scam link")
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("flag: %d", rr.Code)
+	}
+	var got pb.ReedFlag
+	if err := proto.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	sig := serverSignatureFromPB(got.GetServerSignature())
+	payload := buildReedFlagServerPayload(reedID, f.ids["u1"], f.h.signingKey.Fingerprint, got.GetSignature().GetArmor(), sig.SignedAt)
+	if err := f.h.services.crypto.verifySignature(context.Background(), string(payload), sig.Armor, f.h.signingKey.Armor); err != nil {
+		t.Fatalf("countersignature: %v", err)
+	}
+
+	listed := f.openFlags(t, "a1").Reeds
+	if len(listed) != 1 || len(listed[0].Flags) != 1 || !proto.Equal(listed[0].Flags[0].GetServerSignature(), got.GetServerSignature()) {
+		t.Errorf("listed flags = %+v, want the countersigned flag", listed)
 	}
 }
 

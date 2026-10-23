@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 
 	pb "syrinx/proto"
 )
@@ -203,14 +204,18 @@ func (s *e2eServer) removeThread(t *testing.T, u *e2eUser, threadID string) {
 	expectStatus(t, "remove thread", s.authed(t, u, http.MethodDelete, "/api/threads/"+threadID, msg, vars, s.h.DeleteThread), http.StatusOK)
 }
 
-// flag flags reedID as u and returns the signed flag u's device keeps.
+// flag flags reedID as u and returns the countersigned flag u's device keeps.
 func (s *e2eServer) flag(t *testing.T, u *e2eUser, reedID string) *pb.ReedFlag {
 	t.Helper()
-	createdAt := time.Now().UTC().Truncate(time.Second)
-	msg := &pb.ReedFlag{ReedId: reedID, ReporterId: u.id, Note: "spam", CreatedAt: unixOrZero(createdAt),
-		Signature: &pb.UserSignature{Id: u.keyID, Armor: s.sign(t, u, buildReedFlagPayload(reedID, u.id, u.keyID, "spam", createdAt))}}
-	expectStatus(t, "flag", s.authed(t, u, http.MethodPost, "/api/flags", msg, nil, s.h.FlagReed), http.StatusNoContent)
-	return msg
+	msg := &pb.ReedFlag{ReedId: reedID, ReporterId: u.id, Note: "spam",
+		Signature: &pb.UserSignature{Id: u.keyID, Armor: s.sign(t, u, buildReedFlagPayload(reedID, u.id, u.keyID, "spam"))}}
+	rr := s.authed(t, u, http.MethodPost, "/api/flags", msg, nil, s.h.FlagReed)
+	expectStatus(t, "flag", rr, http.StatusCreated)
+	var countersigned pb.ReedFlag
+	if err := proto.Unmarshal(rr.Body.Bytes(), &countersigned); err != nil {
+		t.Fatal(err)
+	}
+	return &countersigned
 }
 
 func (s *e2eServer) pin(t *testing.T, u *e2eUser, reedID string) {

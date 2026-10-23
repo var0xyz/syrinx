@@ -829,13 +829,31 @@ const identityTypeReedFlag = "reed-flag"
 
 // buildReedFlagPayload returns the bytes a reporter signs to flag reedID,
 // so its home server can check a relayed flag itself.
-func buildReedFlagPayload(reedID, reporterID, keyID, note string, createdAt time.Time) []byte {
+func buildReedFlagPayload(reedID, reporterID, keyID, note string) []byte {
 	return canonicalJSON(signedFields{
 		"type":       identityTypeReedFlag,
 		"reedID":     reedID,
 		"reporterID": reporterID,
 		"keyID":      keyID,
 		"note":       note,
-		"createdAt":  signedTime(createdAt),
+	})
+}
+
+// buildReedFlagServerPayload returns the bytes the reed's home server
+// countersigns for a flag. signedAt is when the flag was raised.
+func buildReedFlagServerPayload(
+	reedID,
+	reporterID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeReedFlag,
+		"reedID":               reedID,
+		"reporterID":           reporterID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
 	})
 }

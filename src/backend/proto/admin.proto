@@ -37,13 +37,13 @@ message InviteTree {
 }
 
 // A member's signed flag on a reed. POST /api/flags and the peer relay
-// both carry it.
+// both carry it, and answer with it countersigned by the reed's server.
 message ReedFlag {
   string reed_id = 1 [json_name = "reedID"];
   string reporter_id = 2 [json_name = "reporterID"];
   string note = 3;
-  uint32 created_at = 4;
-  UserSignature signature = 5;
+  UserSignature signature = 4;
+  ServerSignature server_signature = 5;
 }
 
 // An admin closing a reed's open flags. dismissed_by is unset once their

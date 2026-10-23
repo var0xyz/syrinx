@@ -893,9 +893,10 @@ export const apiService = {
     );
   },
 
-  /** A signed flag; the server hands one on a remote reed to its home server. */
-  async flagReed(flag: MessageInitShape<typeof ReedFlagSchema>): Promise<void> {
-    await send('/flags', protoBody('POST', ReedFlagSchema, flag));
+  /** A signed flag, back countersigned; the server hands one on a remote
+   * reed to its home server. */
+  async flagReed(flag: MessageInitShape<typeof ReedFlagSchema>): Promise<api.ReedFlag> {
+    return request('/flags', protoBody('POST', ReedFlagSchema, flag), ReedFlagSchema);
   },
 
   async likeReed(reedId: string, signature: string, keyId: string): Promise<api.ReedLike> {
