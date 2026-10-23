@@ -3201,6 +3201,16 @@ func (s *DataService) QueueAccountRemovalNotices(ctx context.Context, userID str
 	return err
 }
 
+// GetOnlineKeyHolders returns the online local users holding a key of
+// userID's.
+func (s *DataService) GetOnlineKeyHolders(ctx context.Context, userID string) ([]string, error) {
+	return s.queryStrings(ctx, `
+		SELECT DISTINCT ou.user_id FROM online_users ou
+		JOIN public_key_allocations pka ON pka.user_id = ou.user_id
+		WHERE starts_with(pka.key_id, $1 || '/')
+	`, userID)
+}
+
 // AccountRemovalsOwedTo returns the users whose removal serverID hasn't
 // accepted yet.
 func (s *DataService) AccountRemovalsOwedTo(ctx context.Context, serverID string) ([]string, error) {
@@ -3258,36 +3268,9 @@ func (s *DataService) InsertForeignAccountRemoval(ctx context.Context, cert acco
 	return insertForeignAccountRemovalCert(ctx, s.db, cert)
 }
 
-// GetForeignHolderServersForAuthor returns distinct peer server IDs known
-// to hold a copy of any reed authored by userID — the set that needs to
-// hear about an account removal for that author.
-func (s *DataService) GetForeignHolderServersForAuthor(ctx context.Context, userID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT DISTINCT rsa.server_id
-		FROM reeds r
-		JOIN reed_server_allocations rsa ON rsa.reed_id = r.id
-		WHERE r.user_id = $1
-	`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var serverIDs []string
-	for rows.Next() {
-		var serverID string
-		if err := rows.Scan(&serverID); err != nil {
-			return nil, err
-		}
-		serverIDs = append(serverIDs, serverID)
-	}
-	return serverIDs, rows.Err()
-}
-
 // GetForeignHolderServersForReed returns distinct peer server IDs known to
 // hold a copy of reedID — the set that needs to hear about that reed's
-// removal. Unlike GetForeignHolderServersForAuthor (every reed by an
-// author), this is scoped to one reed.
+// removal.
 func (s *DataService) GetForeignHolderServersForReed(ctx context.Context, reedID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT server_id FROM reed_server_allocations WHERE reed_id = $1
@@ -9853,9 +9836,8 @@ func (s *DataService) GetMissingAccountRemovals(ctx context.Context, viewerUserI
 			SELECT 1 FROM user_following uf
 			WHERE uf.user_id = $1 AND uf.following_user_id = ar.user_id
 		) OR EXISTS (
-			SELECT 1 FROM reed_allocations ra
-			JOIN reeds r ON r.id = ra.reed_id
-			WHERE ra.holder_user_id = $1 AND r.user_id = ar.user_id
+			SELECT 1 FROM public_key_allocations pka
+			WHERE pka.user_id = $1 AND starts_with(pka.key_id, ar.user_id || '/')
 		)
 	`, selfIdentity)
 	if err != nil {
@@ -9923,6 +9905,12 @@ func (s *DataService) ClearPeerStateForRemovedAccount(ctx context.Context, viewe
 		if _, err := tx.ExecContext(ctx, s.q, s.a1, s.a2); err != nil {
 			return nil, err
 		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM public_key_allocations WHERE user_id = $1 AND starts_with(key_id, $2 || '/')
+	`, viewerIdentity, removedIdentity); err != nil {
+		return nil, err
 	}
 
 	rows, err := tx.QueryContext(ctx, `

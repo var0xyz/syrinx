@@ -215,7 +215,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
 			PRIMARY KEY (server_id, log_id)
 		)`,
-		// Minimal shape for GetForeignHolderServersForAuthor's join — no
+		// Minimal shape for GetForeignHolderServersForReed's join — no
 		// test here signs an actual reed, so the private-key-fingerprint
 		// FK from the real schema is omitted.
 		`CREATE TABLE IF NOT EXISTS reed_identities (
@@ -888,65 +888,6 @@ func TestFederationServerSelfRowProtected(t *testing.T) {
 	}
 	if !stillSelf {
 		t.Fatal("self server row's self flag was cleared")
-	}
-}
-
-// TestGetForeignHolderServersForAuthor verifies the account-removal
-// peer-discovery query finds every distinct peer holding a copy of any
-// reed by the given author, and nothing else (no follower/subscriber
-// involvement, no cross-author leakage).
-func TestGetForeignHolderServersForAuthor(t *testing.T) {
-	h, ds, _, _ := testFederationHandlers(t)
-	admin1 := seedFederationUser(t, ds, "admin1", "admin1", roleAdmin)
-	admin2 := seedFederationUser(t, ds, "admin2", "admin2", roleAdmin)
-	fixed := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	peerA := establishedPeer(t, h, ds, "inv-holder-a", admin1, admin2, false, fixed)
-	peerB := establishedPeer(t, h, ds, "inv-holder-b", admin1, admin2, false, fixed)
-
-	author := seedFederationUser(t, ds, "author1", "author1", roleUser)
-	other := seedFederationUser(t, ds, "author2", "author2", roleUser)
-
-	seedReed := func(reedID, userID string) {
-		if _, err := ds.db.Exec(
-			`INSERT INTO reed_identities (id, server_id) VALUES ($1, $2)`,
-			reedID, ds.serverID,
-		); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := ds.db.Exec(
-			`INSERT INTO reeds (id, user_id) VALUES ($1, $2)`,
-			reedID, userID,
-		); err != nil {
-			t.Fatal(err)
-		}
-	}
-	reed1 := author + "/reed1"
-	reed2 := author + "/reed2"
-	otherReed := other + "/reed1"
-	seedReed(reed1, author)
-	seedReed(reed2, author)
-	seedReed(otherReed, other)
-
-	seedHolder := func(reedID, serverID string) {
-		if _, err := ds.db.Exec(
-			`INSERT INTO reed_server_allocations (reed_id, server_id) VALUES ($1, $2)`,
-			reedID, serverID,
-		); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// peerA holds both of author's reeds (should dedupe to one entry);
-	// peerB holds only otherReed (must not appear for author's lookup).
-	seedHolder(reed1, peerA)
-	seedHolder(reed2, peerA)
-	seedHolder(otherReed, peerB)
-
-	got, err := ds.GetForeignHolderServersForAuthor(context.Background(), author)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0] != peerA {
-		t.Fatalf("got %v, want exactly [%s]", got, peerA)
 	}
 }
 

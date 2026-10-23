@@ -86,8 +86,11 @@ CREATE TABLE IF NOT EXISTS flag_dismissal_reporters (
 
 An account removal, the user's own or a kick, deletes their flags, and
 every dismissal left with none of its flags. A dismissal keeping others
-stays, with its signed list. A device told of the removal drops that
-reporter's flags with the rest of the account.
+stays, with its signed list. Every connected peer is told of a removal, and
+on each server every local user who follows the removed account or holds
+one of its keys: verifying a flag fetched the reporter's key, so every
+admin who kept it hears, including of a reporter with no reeds. The device
+drops that reporter's flags with the rest of the account.
 
 ## WebSocket
 
@@ -148,4 +151,6 @@ Each store reports its records like any other device store.
 - A remote reporter's flag waits for their key, then is restored.
 - A removed reporter's flags are deleted, and a dismissal left with none of
   its flags with them; one keeping others stays with its signed list.
+- A removal reaches a user who only holds the removed account's key, until
+  their device acks it.
 - Payload parity: Go goldens and `test:admin-payload`.

@@ -38,7 +38,8 @@ That raises the bar for an attacker who only owns the server: they need author k
 Account deletion is a signed certificate with an optional short note (≤140 characters).
 
 - Author flow is **online-only** (sign → DELETE → verify → wipe local session)—not a silent offline retry queue. Leaving an account should not “happen later by accident.”
-- Peers receive `ACCOUNT_REMOVED` (live and on sync catch-up) and **410** bodies typed as account.
+- Every connected peer server is told. On each server, every user who follows the account or holds one of its keys gets `ACCOUNT_REMOVED` (live and on sync catch-up); others get **410** bodies typed as account.
+- The account's flags are deleted, on the server and on admins' devices.
 - One account cert authorizes peers to drop **all** local reeds by that user id. Per-reed certs are not required for account teardown.
 - **Public keys remain** on server and devices—tombstones stay verifiable; goodbye notes can show on a gone profile.
 

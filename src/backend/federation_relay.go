@@ -1709,20 +1709,19 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// account-removal-notify: a removed user's own home server notifies every
-// peer known to hold a copy of that user's content — not followers or
-// subscribers, which are a peer-local concern resolved once it has the cert.
-
-// notifyForeignAccountRemovalToPeers owes every peer holding a copy of
-// removedUserID's content the removal, so each can store the cert and fan
-// it out to its own users, and sends it. A peer that doesn't accept it
-// gets it again on its boot notice or ours.
+// notifyForeignAccountRemovalToPeers owes every connected peer the
+// removal, so each can store the cert and fan it out to its own users, and
+// sends it. A peer that doesn't accept it gets it again on its boot notice.
 func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, removedUserID string, cert accountRemovalCert) {
 	log := h.services.log.GetLogger(ctx)
-	serverIDs, err := h.services.db.GetForeignHolderServersForAuthor(ctx, removedUserID)
+	peers, err := h.services.db.ListConnectedPeers(ctx)
 	if err != nil {
-		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to resolve holder servers for account removal notify")
+		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to list peers for account removal notify")
 		return
+	}
+	serverIDs := make([]string, len(peers))
+	for i, p := range peers {
+		serverIDs[i] = p.ID
 	}
 	if len(serverIDs) == 0 {
 		return
@@ -1796,11 +1795,9 @@ func (h *Handlers) notifyPeersOfOwedAccountRemovals() {
 	}
 }
 
-// AccountRemovalNotifyFromPeer: an established peer holding a copy of one
-// of its own users' content is telling us that user's account was
-// removed. Stores the cert (no local-account side effects — this user was
-// never ours) and fans it out to local followers/subscribers exactly like
-// a same-server removal would.
+// AccountRemovalNotifyFromPeer: a peer telling us one of its own users'
+// account was removed. Stores the cert, with no local-account side effects,
+// and fans it out like a removal of ours would.
 func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.Request) {
 	log := h.services.log.GetLogger(r.Context())
 
