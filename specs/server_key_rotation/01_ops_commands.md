@@ -46,14 +46,14 @@ hand. It refuses without a terminal; a blank answer cancels. Then it calls
    the first key is.
 3. Build the revocation and sign it with both keys.
 4. Store the successor, the revocation and `predecessor_id`; set the old key's
-   `revoked_at`; set `servers.signing_key` to the successor.
+   `revoked_at`; set `servers.key_id` to the successor.
 5. Append a `server-key` entry to the [ledger](../admin_actions/02_ledger.md),
    signed by the successor: `Server key {old} rotated to {new}`, with
    ` (compromised)` and `. Reason: {reason}` when given. It has no user: the
    operator who ran the command isn't a signer. The reason has no length
    limit. Members get it on their next catch-up, since the CLI can't push.
 
-Every ledger write re-reads `servers.signing_key` under the ledger lock and
+Every ledger write re-reads `servers.key_id` under the ledger lock and
 refuses to sign with any other key, so a server still running on the old key
 can't append past the rotation.
 

@@ -171,11 +171,12 @@ func TestNewerForeignBlockReplacesOlder(t *testing.T) {
 func (f blockFixture) peerOf(t *testing.T, peerID, baseURL string) {
 	t.Helper()
 	if _, err := f.db.Exec(`
-		INSERT INTO servers (id, name, self, base_url, frontend_url, connected)
-		VALUES ($1, $1, FALSE, $2, $2, TRUE)
+		INSERT INTO servers (id, name, self, base_url, frontend_url)
+		VALUES ($1, $1, FALSE, $2, $2)
 	`, peerID, baseURL); err != nil {
 		t.Fatal(err)
 	}
+	peerTestMesh(t, f.db, peerID)
 }
 
 func TestBlockingARemoteUserOwesItsServerUntilAccepted(t *testing.T) {

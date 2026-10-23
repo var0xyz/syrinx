@@ -20,11 +20,7 @@
   let isRoot = false;
   let loading = true;
   let server: api.FederationServer | null = null;
-  /** null when this server was the responder (no local invitation row). */
-  let invitation: api.FederationInvitation | null = null;
-  /** The (approved) attempt that produced this server — approved-by/dates. */
-  let attempt: api.FederationAttempt | null = null;
-  /** Plain text, attempt logs then server logs — rendered verbatim, never parsed. */
+  /** Plain text, rendered verbatim, never parsed. */
   let logsText = '';
 
   let requesting = false;
@@ -65,15 +61,11 @@
 
   async function refresh() {
     try {
-      const [servers, inv, att, serverLogs] = await Promise.all([
+      const [servers, serverLogs] = await Promise.all([
         apiService.listFederationServers(),
-        apiService.getFederationServerInvitation(serverId),
-        apiService.getFederationServerAttempt(serverId),
         apiService.getFederationServerLogs(serverId),
       ]);
       server = servers.find((s) => s.serverId === serverId) ?? null;
-      invitation = inv;
-      attempt = att;
       logsText = serverLogs;
     } catch (err) {
       console.error('[mesh/peer]', err);
@@ -204,24 +196,24 @@
           {#if server.frontendUrl}
             <p class="meta">Frontend {server.frontendUrl}</p>
           {/if}
-          {#if invitation}
+          {#if server.invitedBy}
             <p class="meta"
               >Invited by <Username
-                userID={invitation.createdBy}
+                userID={server.invitedBy}
                 class="meta-link"
                 at
                 fire={false}
-              /> {formatRelativeTime(fromUnix(invitation.createdAt))}</p
+              /> {#if server.invitedAt}{formatRelativeTime(fromUnix(server.invitedAt))}{/if}</p
             >
           {/if}
-          {#if attempt?.approvedBy}
+          {#if server.approvedBy}
             <p class="meta"
               >Approved by <Username
-                userID={attempt.approvedBy}
+                userID={server.approvedBy}
                 class="meta-link"
                 at
                 fire={false}
-              /> {#if attempt.approvedAt}{formatRelativeTime(fromUnix(attempt.approvedAt))}{/if}</p
+              /> {#if server.approvedAt}{formatRelativeTime(fromUnix(server.approvedAt))}{/if}</p
             >
           {/if}
           {#if server.revoked}

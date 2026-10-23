@@ -63,9 +63,10 @@ func newVouchRefFixture(t *testing.T) *vouchRefFixture {
 	f.peerKP = keyPair("peer")
 	f.peerKeyID = f.peerKP.Fingerprint + "@" + teardownPeerID
 	addKey(f.peerKeyID, "", f.peerKP.PublicKey)
-	if _, err := db.Exec(`UPDATE servers SET key_id = $1, connected = TRUE WHERE id = $2`, f.peerKeyID, teardownPeerID); err != nil {
+	if _, err := db.Exec(`UPDATE servers SET key_id = $1 WHERE id = $2`, f.peerKeyID, teardownPeerID); err != nil {
 		t.Fatalf("pin peer key: %v", err)
 	}
+	peerTestMesh(t, db, teardownPeerID)
 
 	subjectKP := keyPair("subject")
 	f.subject = string(canonicalID(teardownHomeID, "sam"))

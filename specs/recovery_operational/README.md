@@ -17,7 +17,7 @@ delivery).
 |----|-----------------------------------------------------------------------|-------------|
 | 01 | Backup restore writes records as-is                                   | Implemented |
 | 02 | Refuse to boot without a current identity backup                     | Implemented |
-| 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | In progress |
+| 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | Implemented |
 | 04 | Signed peer records in `/server/info`                                 | Proposed    |
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Proposed    |
 | 06 | Delivery: `503` suspends; receive-side fixes                          | In progress |
@@ -150,23 +150,28 @@ constant primary key, `one BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (one)`):
 | `identity_backup_at` | step 02 |
 | `first_boot_at` | set once, when the database is initialized: the first boot, or `ops import-identity` into an empty database (step 05) |
 
-`server_mesh` holds what a peering is, one row per peer:
-`server_id` (PK, references `servers`), `connected`, `peer_approved_at`,
-`peer_key_ack`, `revoked_at/by/reason`, `disconnect_requested_at/by`,
-`disconnect_reason`, `down_at`, `purged_at`.
-`federation_server_log` hangs off it.
+`server_mesh` holds what a peering is, one row per peer, from our approval
+on: `server_id` (PK, references `servers`), `connected`,
+`invited_by`/`invited_at` (when we sent the invitation),
+`approved_by`/`approved_at`, `peer_approved_at`, `peer_key_ack`,
+`revoked_at/by/reason`, `disconnect_requested_at/by`, `disconnect_reason`,
+`down_at`, `purged_at`. `federation_server_log` hangs off it. A peer's
+delivery streams start at `approved_at`.
 
-On establishment the invitation and attempt are deleted; the peer's key
-lives only in `public_keys`.
+Approving an attempt deletes it and, on the side that sent it, its
+invitation, with their log lines; who invited and when moves to
+`server_mesh`, so the peer page reads everything from the server record.
+The peer's key lives only in `public_keys`. Rejected attempts and
+canceled invitations are kept.
 
-Purging a revoked peer deletes its users and reeds but keeps its `servers`
-and `server_mesh` rows, marked `purged_at`, so its revoked record (step 04)
-stays published. `rejectKnownFederationPeer` checks `server_mesh` only: a
-peer is refused unless it is revoked and purged. A new connection with it
-replaces the revoked record.
-
-Callers of `signing_key`: `ledger_chain.go`, `recovery.go`,
-`server_key.go`, `ops.go`.
+Purging a revoked peer saves its `servers` record and revocation, deletes
+the `servers` row so every reference to it cascades as before (its users
+and reeds included), and puts the record back with `purged_at`, so its
+revoked record (step 04) stays published. `rejectKnownFederationPeer`
+refuses a server with a pending attempt, or with a `server_mesh` row that
+isn't both revoked and purged. A rejected attempt doesn't block a new
+one, and a purged peer may reuse its key. A new connection replaces the
+revoked record.
 
 ## 04 — Signed peer records in `/server/info`
 

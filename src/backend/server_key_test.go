@@ -180,7 +180,7 @@ func TestServerKeyRefusesRevokedCurrentKey(t *testing.T) {
 	}
 
 	// Keys exist but none is current: boot must not mint a fresh one.
-	if _, err := db.Exec(`UPDATE servers SET signing_key = NULL WHERE self = TRUE`); err != nil {
+	if _, err := db.Exec(`UPDATE servers SET key_id = NULL WHERE self = TRUE`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ds.InitServerKey(ctx, cryptoSvc, serverKeyTestPassphrase); err == nil {

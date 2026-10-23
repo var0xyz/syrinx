@@ -67,7 +67,6 @@
   }
 
   function statusLabel(status: api.FederationAttempt['status']) {
-    if (status === 'approved') return 'Approved';
     if (status === 'rejected') return 'Rejected';
     return 'Pending';
   }
@@ -139,16 +138,6 @@
         <p class="meta">Frontend {attempt.frontendUrl}</p>
         <p class="meta">Started {formatRelativeTime(fromUnix(attempt.createdAt))}</p>
 
-        {#if attempt.status === 'approved' && attempt.approvedBy}
-          <p class="meta"
-            >Approved by <Username
-              userID={attempt.approvedBy}
-              class="meta-link"
-              at
-              fire={false}
-            /> {#if attempt.approvedAt}· {formatRelativeTime(fromUnix(attempt.approvedAt))}{/if}</p
-          >
-        {/if}
         {#if attempt.status === 'rejected'}
           <p class="meta">
             {#if attempt.rejectedBy}

@@ -243,26 +243,41 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
-	// base_url/connected/key_id/revoked are federation fields, unset on the
-	// self row. signing_key and key_id are both soft references to
-	// public_keys(id) (not FK'd — servers is created before public_keys to
-	// satisfy identities' own FK on servers(id), a real three-way cycle:
-	// servers -> public_keys -> identities -> servers). signing_key is the
-	// canonical id of this server's own current signing key, shared by its
-	// private_keys row and its public_keys row alike. key_id is the peer's
-	// pinned signing key on a federated row — approving a handshake
-	// promotes the peer's key into public_keys (owner NULL) and points
-	// key_id at it, so the peer's real armor lives there like any other key.
+	// What a server is, ours (self) and every peer's. key_id is a soft
+	// reference to public_keys(id), not FK'd: servers is created before
+	// public_keys to satisfy identities' own FK on servers(id), a real
+	// three-way cycle. On our row it is our current signing key, shared by
+	// its private_keys and public_keys rows; on a peer's, the key pinned at
+	// approval. A peering's state lives in server_mesh.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
-		id VARCHAR(16) UNIQUE,
-		name VARCHAR(255) PRIMARY KEY,
+		id VARCHAR(16) PRIMARY KEY,
+		name VARCHAR(255) NOT NULL UNIQUE,
 		self BOOLEAN NOT NULL DEFAULT FALSE,
-		signing_key VARCHAR(255),
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		base_url TEXT,
-		connected BOOLEAN NOT NULL DEFAULT FALSE,
 		key_id VARCHAR(255),
+		base_url TEXT,
+		-- Where the server's users open links: ALLOWED_ORIGIN on our own row,
+		-- as the peer reports it on a peer's.
+		frontend_url TEXT NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	// One row per peer, from our approval on. A purge removes the peer's
+	// users and reeds but keeps this row and its revocation (purged_at).
+	createServerMeshTable := `
+	CREATE TABLE IF NOT EXISTS server_mesh (
+		server_id VARCHAR(16) PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+		connected BOOLEAN NOT NULL DEFAULT TRUE,
+		-- Who invited it and when, when we were the side that sent the invitation.
+		invited_by VARCHAR(255),
+		invited_at TIMESTAMP,
+		approved_by VARCHAR(255),
+		approved_at TIMESTAMP,
+		-- Set once the peer is seen to have approved us too.
+		peer_approved_at TIMESTAMP,
+		-- The key of ours this peer last accepted, so a rotation is announced
+		-- to each peer once.
+		peer_key_ack VARCHAR(255),
 		revoked_at TIMESTAMP,
 		revoked_by VARCHAR(255),
 		revoked_reason TEXT,
@@ -271,14 +286,7 @@ func InitDB(db *sql.DB) error {
 		disconnect_reason TEXT,
 		-- Set by the peer's shutdown notice, cleared by its boot notice.
 		down_at TIMESTAMP,
-		-- Where the server's users open links: ALLOWED_ORIGIN on our own row,
-		-- as the peer reports it on a peer's.
-		frontend_url TEXT NOT NULL,
-		-- Set once the peer is seen to have approved us too.
-		peer_approved_at TIMESTAMP,
-		-- The key of ours this peer last accepted, so a rotation is announced
-		-- to each peer once.
-		peer_key_ack VARCHAR(255)
+		purged_at TIMESTAMP
 	);`
 
 	createServersIndexes := `
@@ -1570,9 +1578,9 @@ func InitDB(db *sql.DB) error {
 		ON flag_dismissals(dismissed_at DESC, id DESC);
 	`
 
-	// federation_invitation covers the whole handshake lifecycle: new ->
-	// accepted/canceled, accepted -> approved/rejected, approved -> revoked.
-	// fingerprint/public_key_armor are the peer's unverified key, promoted into public_keys/servers only once approved.
+	// federation_invitation lives while the handshake runs: new ->
+	// accepted/canceled; approval deletes it. fingerprint/public_key_armor
+	// are the peer's unverified key, promoted into public_keys on approval.
 	createFederationInvitationTable := `
 	CREATE TABLE IF NOT EXISTS federation_invitation (
 		id VARCHAR(255) PRIMARY KEY,
@@ -1583,17 +1591,17 @@ func InitDB(db *sql.DB) error {
 		created_by VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		accepted_at TIMESTAMPTZ,
-		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
 		status VARCHAR(16) NOT NULL DEFAULT 'new'
-			CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
+			CHECK (status IN ('new', 'accepted', 'canceled')),
 		reviewed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		reviewed_at TIMESTAMPTZ,
 		connection_ciphertext TEXT
 	);`
 
-	// One row per handshake attempt against a peer, permanent (never
-	// deleted on approve/reject — it's the audit trail). server_id is set
-	// only once APPROVED; invitation_id is set on the INITIATOR side only.
+	// One row per handshake attempt against a peer, while it is pending or
+	// once rejected. Approval deletes it, and its invitation, with their
+	// logs: the server_mesh row takes over. invitation_id is set on the
+	// INITIATOR side only.
 	createFederationAttemptTable := `
 	CREATE TABLE IF NOT EXISTS federation_attempt (
 		id VARCHAR(255) PRIMARY KEY,
@@ -1603,13 +1611,10 @@ func InitDB(db *sql.DB) error {
 		frontend_url TEXT NOT NULL,
 		fingerprint VARCHAR(255) NOT NULL,
 		public_key_armor TEXT NOT NULL,
-		invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
-		server_id VARCHAR(16) REFERENCES servers(id) ON DELETE SET NULL,
+		invitation_id VARCHAR(255) REFERENCES federation_invitation(id) ON DELETE CASCADE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		status VARCHAR(16) NOT NULL DEFAULT 'pending'
-			CHECK (status IN ('pending', 'approved', 'rejected')),
-		approved_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
-		approved_at TIMESTAMPTZ,
+			CHECK (status IN ('pending', 'rejected')),
 		rejected_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		rejected_at TIMESTAMPTZ,
 		rejected_reason TEXT
@@ -1654,7 +1659,7 @@ func InitDB(db *sql.DB) error {
 	// pre-approval activity belongs in federation_attempt_log instead.
 	createFederationServerLogTable := `
 	CREATE TABLE IF NOT EXISTS federation_server_log (
-		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		server_id VARCHAR(16) NOT NULL REFERENCES server_mesh(server_id) ON DELETE CASCADE,
 		log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
 
 		PRIMARY KEY (server_id, log_id)
@@ -1679,6 +1684,7 @@ func InitDB(db *sql.DB) error {
 	queries := []string{
 		createServersTable,
 		createServersIndexes,
+		createServerMeshTable,
 		createServerSelfTable,
 
 		createUserSignaturesTable,

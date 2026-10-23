@@ -461,7 +461,7 @@ func runPrintKey() error {
 	err = db.QueryRowContext(context.Background(), `
 		SELECT pub.armor
 		FROM servers s
-		JOIN public_keys pub ON pub.id = s.signing_key
+		JOIN public_keys pub ON pub.id = s.key_id
 		WHERE s.self = TRUE
 	`).Scan(&publicArmor)
 	if err == sql.ErrNoRows {
