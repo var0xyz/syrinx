@@ -10,7 +10,7 @@ Implemented.
 
 ## One mechanism: re-pin on an unknown key
 
-Peers pin our key (`servers.key_id`) and refuse requests signed with any other
+Peers pin our key (`server_mesh.key_id`) and refuse requests signed with any other
 (`VerifyFederationPeer`). When an established peer signs a request with a key
 we haven't pinned, `authenticateAsPeer` calls `updatePeerKey` before refusing:
 
@@ -21,7 +21,7 @@ we haven't pinned, `authenticateAsPeer` calls `updatePeerKey` before refusing:
 2. Each revocation must verify with both keys, and each successor's armor must
    match its key ID.
 3. **No compromised revocation:** promote each successor into `public_keys`,
-   countersigned as at approval, and re-pin `servers.key_id` to the newest.
+   countersigned as at approval, and re-pin `server_mesh.key_id` to the newest.
    Then the request is checked again.
 4. **A compromised revocation:** clear the pin, so the peer is refused until an
    admin approves it again with its new key through the existing federation

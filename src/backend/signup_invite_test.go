@@ -24,13 +24,13 @@ func ensureSignupInviteSchema(db *sql.DB) error {
 			id VARCHAR(16) PRIMARY KEY,
 			name VARCHAR(255) NOT NULL UNIQUE,
 			self BOOLEAN NOT NULL DEFAULT FALSE,
-			key_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
 			frontend_url TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_self (
 			server_id VARCHAR(16) NOT NULL UNIQUE REFERENCES servers(id),
+			key_id VARCHAR(255),
 			identity_backup_at TIMESTAMP,
 			first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,

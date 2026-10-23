@@ -284,11 +284,11 @@ func (s *DataService) RestorePeer(ctx context.Context, p restoredPeer) error {
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, key_id, base_url, frontend_url)
-		VALUES ($1, $2, FALSE, $3, $4, $5)
-		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, key_id = EXCLUDED.key_id,
+		INSERT INTO servers (id, name, self, base_url, frontend_url)
+		VALUES ($1, $2, FALSE, $3, $4)
+		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
 			base_url = EXCLUDED.base_url, frontend_url = EXCLUDED.frontend_url
-	`, p.ID, p.Name, p.KeyID, p.BaseURL, p.FrontendURL); err != nil {
+	`, p.ID, p.Name, p.BaseURL, p.FrontendURL); err != nil {
 		return fmt.Errorf("restore peer server: %w", err)
 	}
 	var keyHeld bool
@@ -320,13 +320,13 @@ func (s *DataService) RestorePeer(ctx context.Context, p restoredPeer) error {
 		purgedAt = revokedAt
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO server_mesh (server_id, approved_at, peer_approved_at, revoked_at, purged_at, record_signature_id, record_fields)
-		VALUES ($1, CURRENT_TIMESTAMP, CASE WHEN $2::timestamp IS NULL THEN CURRENT_TIMESTAMP END, $2, $5, $3, $4)
-		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE,
+		INSERT INTO server_mesh (server_id, key_id, approved_at, peer_approved_at, revoked_at, purged_at, record_signature_id, record_fields)
+		VALUES ($1, $6, CURRENT_TIMESTAMP, CASE WHEN $2::timestamp IS NULL THEN CURRENT_TIMESTAMP END, $2, $5, $3, $4)
+		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE, key_id = EXCLUDED.key_id,
 			revoked_at = EXCLUDED.revoked_at, revoked_by = NULL, revoked_reason = NULL, purged_at = EXCLUDED.purged_at,
 			peer_approved_at = COALESCE(server_mesh.peer_approved_at, EXCLUDED.peer_approved_at),
 			record_signature_id = EXCLUDED.record_signature_id, record_fields = EXCLUDED.record_fields
-	`, p.ID, revokedAt, recordSigID, p.RecordFields, purgedAt); err != nil {
+	`, p.ID, revokedAt, recordSigID, p.RecordFields, purgedAt, p.KeyID); err != nil {
 		return fmt.Errorf("restore peering: %w", err)
 	}
 	if heldSigID.Valid {

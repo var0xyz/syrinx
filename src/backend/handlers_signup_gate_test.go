@@ -27,7 +27,9 @@ func newInviteModeHandlers(t *testing.T, db *sql.DB) *Handlers {
 // ledger writes check before they sign.
 func useTestSigningKey(t *testing.T, db *sql.DB, serverID, fingerprint string) {
 	t.Helper()
-	if _, err := db.Exec(`UPDATE servers SET key_id = $1 WHERE self = TRUE`, string(canonicalID(serverID, fingerprint))); err != nil {
+	keyID := string(canonicalID(serverID, fingerprint))
+	seedTestKey(t, db, keyID)
+	if _, err := db.Exec(`UPDATE server_self SET key_id = $1`, keyID); err != nil {
 		t.Fatal(err)
 	}
 }

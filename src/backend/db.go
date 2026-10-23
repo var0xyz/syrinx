@@ -256,18 +256,14 @@ func InitDB(db *sql.DB) error {
 	// /////// //
 	//   API   //
 	// /////// //
-	// What a server is, ours (self) and every peer's. key_id is a soft
-	// reference to public_keys(id), not FK'd: servers is created before
-	// public_keys to satisfy identities' own FK on servers(id), a real
-	// three-way cycle. On our row it is our current signing key, shared by
-	// its private_keys and public_keys rows; on a peer's, the key pinned at
-	// approval. A peering's state lives in server_mesh.
+	// What a server is, ours (self) and every peer's. A peering's state,
+	// the peer's pinned key included, lives in server_mesh; ours in
+	// server_self.
 	createServersTable := `
 	CREATE TABLE IF NOT EXISTS servers (
 		id VARCHAR(16) PRIMARY KEY,
 		name VARCHAR(255) NOT NULL UNIQUE,
 		self BOOLEAN NOT NULL DEFAULT FALSE,
-		key_id VARCHAR(255),
 		base_url TEXT,
 		-- Where the server's users open links: ALLOWED_ORIGIN on our own row,
 		-- as the peer reports it on a peer's.
@@ -280,6 +276,8 @@ func InitDB(db *sql.DB) error {
 	createServerMeshTable := `
 	CREATE TABLE IF NOT EXISTS server_mesh (
 		server_id VARCHAR(16) PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+		-- The peer's key, pinned at approval.
+		key_id VARCHAR(255) REFERENCES public_keys(id),
 		connected BOOLEAN NOT NULL DEFAULT TRUE,
 		-- Who invited it and when, when we were the side that sent the invitation.
 		invited_by VARCHAR(255),
@@ -317,6 +315,9 @@ func InitDB(db *sql.DB) error {
 	createServerSelfTable := `
 	CREATE TABLE IF NOT EXISTS server_self (
 		server_id VARCHAR(16) NOT NULL UNIQUE REFERENCES servers(id),
+		-- Our current signing key, shared by its private_keys and
+		-- public_keys rows.
+		key_id VARCHAR(255) REFERENCES public_keys(id),
 		-- The last ops export-identity, which carries every signing key.
 		identity_backup_at TIMESTAMP,
 		first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1726,10 +1727,8 @@ func InitDB(db *sql.DB) error {
 	queries := []string{
 		createServersTable,
 		createServersIndexes,
-		createServerSelfTable,
 
 		createServerSignaturesTable,
-		createServerMeshTable,
 
 		createIdentitiesTable,
 		createIdentitiesIndexes,
@@ -1739,6 +1738,8 @@ func InitDB(db *sql.DB) error {
 		createPublicKeysTable,
 		createPublicKeyIndexes,
 		createUserSignaturesTable,
+		createServerSelfTable,
+		createServerMeshTable,
 		createPrivateKeyRevocationsTable,
 
 		createAdminRequestsTable,

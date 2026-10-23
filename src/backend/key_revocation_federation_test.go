@@ -106,12 +106,13 @@ func (s signedKeyRevocation) peerHandlers(t *testing.T, fake *httptest.Server) (
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, self, base_url, frontend_url, key_id)
-		VALUES ($1, 'home.example', FALSE, $2, $2, $3)
-	`, revHomeServerID, fake.URL, s.serverKeyID); err != nil {
+		INSERT INTO servers (id, name, self, base_url, frontend_url)
+		VALUES ($1, 'home.example', FALSE, $2, $2)
+	`, revHomeServerID, fake.URL); err != nil {
 		t.Fatal(err)
 	}
 	peerTestMesh(t, db, revHomeServerID)
+	pinTestPeerKey(t, db, revHomeServerID, s.serverKeyID)
 	bobKP := signedUpUser(t, h, "bob", "bob")
 	return h, string(canonicalID(h.services.db.GetServerID(), "bob")), bobKP
 }

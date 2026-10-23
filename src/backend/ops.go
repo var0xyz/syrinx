@@ -459,9 +459,8 @@ func runPrintKey() error {
 	var publicArmor string
 	err = db.QueryRowContext(context.Background(), `
 		SELECT pub.armor
-		FROM servers s
-		JOIN public_keys pub ON pub.id = s.key_id
-		WHERE s.self = TRUE
+		FROM server_self ss
+		JOIN public_keys pub ON pub.id = ss.key_id
 	`).Scan(&publicArmor)
 	if err == sql.ErrNoRows {
 		return fmt.Errorf("no self server signing key found")

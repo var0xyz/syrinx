@@ -23,7 +23,8 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 	sourceDB := openRecoveryBundleTestDB(t)
 	ds := NewDataService(sourceDB, "test")
 	ds.setServerIDForTest("Ab3xY9pQ")
-	if _, err := sourceDB.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE, 'https://test.example')`); err != nil {
+	if _, err := sourceDB.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE, 'https://test.example');
+		INSERT INTO server_self (server_id) VALUES ('Ab3xY9pQ')`); err != nil {
 		t.Fatalf("seed self server: %v", err)
 	}
 

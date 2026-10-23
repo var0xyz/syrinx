@@ -117,10 +117,9 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 	var serverID, oldKeyID, oldEncrypted string
 	var revokedAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `
-		SELECT sv.id, pk.id, pk.armor, pk.revoked_at
-		FROM servers sv
-		JOIN private_keys pk ON pk.id = sv.key_id
-		WHERE sv.self = TRUE
+		SELECT ss.server_id, pk.id, pk.armor, pk.revoked_at
+		FROM server_self ss
+		JOIN private_keys pk ON pk.id = ss.key_id
 		FOR UPDATE
 	`).Scan(&serverID, &oldKeyID, &oldEncrypted, &revokedAt)
 	if err == sql.ErrNoRows {
@@ -169,7 +168,7 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 		return nil, fmt.Errorf("mark key revoked: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE servers SET key_id = $1 WHERE self = TRUE`, next.KeyID,
+		`UPDATE server_self SET key_id = $1`, next.KeyID,
 	); err != nil {
 		return nil, fmt.Errorf("set signing key: %w", err)
 	}
