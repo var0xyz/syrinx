@@ -635,6 +635,7 @@ func main() {
 		} else if unclaimedCount > 0 {
 			log.Warn().Msg(fmt.Sprintf("[OK] %d unclaimed accounts", unclaimedCount))
 		}
+		h.sampleRecoveryState(context.Background())
 		api.HandleFunc("/recovery/identity/claim", h.IssueChallenge).Methods(http.MethodGet)
 		api.HandleFunc("/recovery/identity/claim", h.ClaimIdentity).Methods(http.MethodPost)
 		api.HandleFunc("/recovery/identity/claim", h.noop).Methods(http.MethodOptions)

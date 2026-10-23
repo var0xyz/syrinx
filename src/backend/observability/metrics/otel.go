@@ -71,6 +71,9 @@ type OTEL struct {
 	devicesBound           metric.Int64Counter
 	accountRecovery        metric.Int64Counter
 	serverRecovery         metric.Int64Counter
+	recoveryRecorded       metric.Int64Gauge
+	recoveryUnclaimed      metric.Int64Gauge
+	recoveryOngoing        metric.Int64Gauge
 	mailbox                metric.Int64Counter
 	userSearches           metric.Int64Counter
 	federationLifecycle    metric.Int64Counter
@@ -183,6 +186,9 @@ func New(m metric.Meter) *OTEL {
 	r.devicesBound = counter("syrinx.devices.bound")
 	r.accountRecovery = counter("syrinx.account_recovery")
 	r.serverRecovery = counter("syrinx.server_recovery")
+	r.recoveryRecorded = gauge("syrinx.server_recovery.users")
+	r.recoveryUnclaimed = gauge("syrinx.server_recovery.unclaimed")
+	r.recoveryOngoing = gauge("syrinx.server_recovery.ongoing")
 	r.mailbox = counter("syrinx.mailbox")
 	r.userSearches = counter("syrinx.search.users")
 	r.federationLifecycle = counter("syrinx.federation.lifecycle")
@@ -543,6 +549,16 @@ func (r *OTEL) DeviceBound(ctx context.Context) {
 
 func (r *OTEL) AccountRecovery(ctx context.Context, stage string, ok bool, reason string) {
 	add(ctx, r.accountRecovery, str("stage", stage), attribute.Bool("ok", ok), str("reason", reason))
+}
+
+func (r *OTEL) ServerRecoveryClaim(ctx context.Context, ok, first bool) {
+	add(ctx, r.serverRecovery, str("stage", "claim"), attribute.Bool("ok", ok), attribute.Bool("first", first))
+}
+
+func (r *OTEL) ServerRecoveryState(ctx context.Context, recorded, unclaimed, ongoing int) {
+	set(ctx, r.recoveryRecorded, int64(recorded))
+	set(ctx, r.recoveryUnclaimed, int64(unclaimed))
+	set(ctx, r.recoveryOngoing, int64(ongoing))
 }
 
 func (r *OTEL) ServerRecovery(ctx context.Context, stage string, ok bool) {

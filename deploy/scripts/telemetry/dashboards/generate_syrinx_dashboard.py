@@ -288,6 +288,10 @@ USERS_CREATED = metric_stream("syrinx.users.created")
 USERS_DELETED = metric_stream("syrinx.users.deleted")
 USERS_BACKUP = metric_stream("syrinx.users.backup")
 KEYS_REVOKED = metric_stream("syrinx.keys.revoked")
+SERVER_RECOVERY = metric_stream("syrinx.server_recovery")
+RECOVERY_USERS = metric_stream("syrinx.server_recovery.users")
+RECOVERY_UNCLAIMED = metric_stream("syrinx.server_recovery.unclaimed")
+RECOVERY_ONGOING = metric_stream("syrinx.server_recovery.ongoing")
 REEDS_PUBLISHED = metric_stream("syrinx.reeds.published")
 REEDS_TAGS = metric_stream("syrinx.reeds.tags")
 REEDS_DELETED = metric_stream("syrinx.reeds.deleted")
@@ -944,6 +948,34 @@ users = [
         description=(
             "repeat=true when the user had already recorded at least one backup "
             "of the same kind (identity or full)"
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_recovery_claims",
+        title="Recovery claims",
+        queries=[
+            promql_filter(SERVER_RECOVERY, {"stage": "claim", "ok": "true", "first": "true"}, "first claims"),
+            promql_filter(SERVER_RECOVERY, {"stage": "claim", "ok": "true", "first": "false"}, "repeat claims"),
+            promql_filter(SERVER_RECOVERY, {"stage": "claim", "ok": "false"}, "failed"),
+        ],
+        layout=layout(0, 42, 96, 14, 109),
+        description=(
+            "Accounts coming back to a rebuilt server. Once first claims stay at "
+            "zero for a few days, most of the community is back: time to open signups"
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_recovery_state",
+        title="Recovered accounts",
+        queries=[
+            (f"max({RECOVERY_USERS})", "recorded", RECOVERY_USERS),
+            (f"max({RECOVERY_UNCLAIMED})", "never claimed", RECOVERY_UNCLAIMED),
+            (f"max({RECOVERY_ONGOING})", "mid-import", RECOVERY_ONGOING),
+        ],
+        layout=layout(96, 42, 96, 14, 110),
+        description=(
+            "Accounts recorded here, those recorded only from someone else's cache "
+            "and never claimed by their owner, and those still reporting back"
         ),
     ),
 ]

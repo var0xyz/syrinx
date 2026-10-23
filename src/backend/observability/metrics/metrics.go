@@ -158,6 +158,12 @@ type Recorder interface {
 	DeviceBound(ctx context.Context)
 	AccountRecovery(ctx context.Context, stage string, ok bool, reason string)
 	ServerRecovery(ctx context.Context, stage string, ok bool)
+	// ServerRecoveryClaim is the claim stage; first means the account came
+	// back with it, rather than being claimed again.
+	ServerRecoveryClaim(ctx context.Context, ok, first bool)
+	// ServerRecoveryState is how many users are recorded, how many of those
+	// were never claimed, and how many are mid-import.
+	ServerRecoveryState(ctx context.Context, recorded, unclaimed, ongoing int)
 	Mailbox(ctx context.Context, op Op, kind string)
 	UserSearch(ctx context.Context, remote bool)
 	// CryptoOperation times one OpenPGP sign or verify (op), by key algorithm.
@@ -225,6 +231,8 @@ func (Noop) VerificationWindow(context.Context, string)                         
 func (Noop) DeviceBound(context.Context)                                               {}
 func (Noop) AccountRecovery(context.Context, string, bool, string)                     {}
 func (Noop) ServerRecovery(context.Context, string, bool)                              {}
+func (Noop) ServerRecoveryClaim(context.Context, bool, bool)                           {}
+func (Noop) ServerRecoveryState(context.Context, int, int, int)                        {}
 func (Noop) Mailbox(context.Context, Op, string)                                       {}
 func (Noop) UserSearch(context.Context, bool)                                          {}
 func (Noop) CryptoOperation(context.Context, string, string, bool, time.Duration)      {}
