@@ -943,6 +943,7 @@ func (h *Handlers) OpenAdminRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Info().Str("requestID", req.ID).Str("action", req.Action).Str("requesterID", callerID).Msg("Admin request opened")
 	h.metrics.AdminRequestOpened(r.Context(), req.Action, callerID, role, len(req.Targets))
+	h.pushAdminRecord(r.Context(), adminRecord{Request: req})
 	writeResponse(w, http.StatusCreated, pbAdminRequest(req))
 }
 
@@ -1052,6 +1053,14 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "Request is no longer pending")
 		return
 	}
+	if before, err := h.openedBeforeRecovery(r.Context(), req); err != nil || before {
+		if before {
+			h.metrics.AdminRequestRefused(r.Context(), req.Action, callerID, metrics.AdminStageDecide, "opened_before_recovery")
+			err = errOpenedBeforeRecovery
+		}
+		h.writeAdminError(w, r, err, "Error loading first boot")
+		return
+	}
 	key, err := h.callerSigningKey(r.Context(), decision.Signature.ID, callerID)
 	if err != nil {
 		h.recordAdminRefusal(r.Context(), err, req.Action, callerID, metrics.AdminStageDecide)
@@ -1144,6 +1153,7 @@ func (h *Handlers) DecideAdminRequest(w http.ResponseWriter, r *http.Request) {
 		h.recordAdminExecuted(r.Context(), req, callerID, true)
 	}
 	log.Info().Str("requestID", req.ID).Str("decision", decision.Decision).Str("deciderID", callerID).Msg("Admin request closed")
+	h.pushAdminRecord(r.Context(), adminRecord{Request: req})
 	writeResponse(w, http.StatusOK, pbAdminRequest(req))
 }
 
@@ -1197,6 +1207,9 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 	if len(req.Targets) == 0 || len(req.remainingTargets()) > 0 {
 		return nil
 	}
+	if before, err := h.openedBeforeRecovery(ctx, req); err != nil || before {
+		return err
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	serverSig, err := h.countersign(ctx, buildAdminRequestServerPayload(req.ID, adminStateMoot, req.RequesterSignature.Armor,
 		"", h.services.db.GetServerID(), h.signingKey.Fingerprint, now), now)
@@ -1210,10 +1223,12 @@ func (h *Handlers) closeIfMoot(ctx context.Context, requestID string) error {
 			return err
 		}
 		closed = true
+		req = locked
 		return closeAdminRequestTx(ctx, tx, locked, adminStateMoot, nil, serverSig)
 	})
 	if err == nil && closed {
 		h.metrics.AdminRequestMoot(ctx, req.Action)
+		h.pushAdminRecord(ctx, adminRecord{Request: req})
 	}
 	return err
 }

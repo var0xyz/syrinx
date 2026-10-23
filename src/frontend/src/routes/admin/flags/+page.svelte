@@ -9,7 +9,8 @@
   import ModeSwitch from '$lib/components/ModeSwitch.svelte';
   import AdminActionsModal from '$lib/components/AdminActionsModal.svelte';
   import Username from '$lib/components/Username.svelte';
-  import { apiService } from '$lib/services/api';
+  import { adminRecordsChanged, dismissFlags, syncAdminRecords } from '$lib/services/admin';
+  import { flagsRepository, type FlagCase } from '$lib/repositories/flags';
   import { serverConnection } from '$lib/services/serverConnection';
   import { keepInHash } from '$lib/utils/hashMode';
   import { parseCanonicalId } from '$lib/utils/identityRef';
@@ -27,9 +28,12 @@
   let mode: 'pending' | 'dismissed' = $page.url.hash === '#dismissed' ? 'dismissed' : 'pending';
   $: keepInHash($page.url, mode === 'dismissed' ? '#dismissed' : '');
 
-  let flags: api.FlaggedReed[] = [];
-  let dismissed: api.FlaggedReed[] = [];
-  let dismissedCursor = '';
+  const PAGE = 50;
+  // Read from this device's copies, newest first; the sync keeps them current.
+  let flags: FlagCase[] = [];
+  let dismissed: FlagCase[] = [];
+  let morePending = false;
+  let moreDismissed = false;
   const MAX_DISMISS_REASON = 140;
   // One open dismissal form at a time.
   let dismissing: string | null = null;
@@ -46,26 +50,42 @@
 
   onMount(() => {
     if (!isAdmin) return;
-    void loadFlags().catch((err) => (loadError = err instanceof Error ? err.message : 'Could not load flags.'));
+    void syncAdminRecords();
   });
 
+  $: if (isAdmin) void $adminRecordsChanged, loadFlags().catch((err) => (loadError = err instanceof Error ? err.message : 'Could not load flags.'));
+
+  // Reloads as many cases as are shown, at least a page of each.
   async function loadFlags(): Promise<void> {
-    const [open, done] = await Promise.all([apiService.listFlags('open'), apiService.listFlags('dismissed')]);
-    flags = open.reeds;
-    dismissed = done.reeds;
-    dismissedCursor = done.nextCursor;
+    const [open, done] = await Promise.all([
+      flagsRepository.openCases(Math.max(flags.length, PAGE) + 1),
+      flagsRepository.dismissedCases(Math.max(dismissed.length, PAGE) + 1),
+    ]);
+    morePending = open.length > Math.max(flags.length, PAGE);
+    moreDismissed = done.length > Math.max(dismissed.length, PAGE);
+    flags = open.slice(0, Math.max(flags.length, PAGE));
+    dismissed = done.slice(0, Math.max(dismissed.length, PAGE));
     flagsLoaded = true;
     fetchContents([...flags, ...dismissed]);
   }
 
-  async function loadMoreDismissed(): Promise<void> {
-    const more = await apiService.listFlags('dismissed', dismissedCursor);
-    dismissed = [...dismissed, ...more.reeds];
-    dismissedCursor = more.nextCursor;
-    fetchContents(more.reeds);
+  async function loadMorePending(): Promise<void> {
+    const last = flags[flags.length - 1];
+    const latestAt = Math.max(...last.flags.map((f) => f.serverSignature?.signedAt ?? 0));
+    const more = await flagsRepository.openCases(PAGE + 1, { reedId: last.reedId, latestAt });
+    morePending = more.length > PAGE;
+    flags = [...flags, ...more.slice(0, PAGE)];
+    fetchContents(more);
   }
 
-  function fetchContents(reeds: api.FlaggedReed[]): void {
+  async function loadMoreDismissed(): Promise<void> {
+    const more = await flagsRepository.dismissedCases(PAGE + 1, dismissed[dismissed.length - 1].dismissal);
+    moreDismissed = more.length > PAGE;
+    dismissed = [...dismissed, ...more.slice(0, PAGE)];
+    fetchContents(more);
+  }
+
+  function fetchContents(reeds: FlagCase[]): void {
     for (const f of reeds) {
       if (f.reedId in contents) continue;
       contents = { ...contents, [f.reedId]: null };
@@ -82,16 +102,20 @@
     dismissError = '';
   }
 
-  async function submitDismiss(f: api.FlaggedReed): Promise<void> {
+  async function submitDismiss(f: FlagCase): Promise<void> {
     dismissSubmitting = true;
     dismissError = '';
     try {
-      const dismissal = await apiService.dismissFlags(f.reedId, dismissReason.trim());
-      flags = flags.filter((open) => open.reedId !== f.reedId);
-      dismissed = [{ ...f, dismissal }, ...dismissed];
+      await dismissFlags(f.reedId, dismissReason.trim(), f.flags);
       dismissing = null;
     } catch (err) {
-      dismissError = err instanceof Error ? err.message : 'Could not dismiss these flags.';
+      const message = err instanceof Error ? err.message : '';
+      if (message === 'flags-changed') {
+        dismissError = 'Someone flagged or dismissed this reed meanwhile. Review the flags and try again.';
+        void syncAdminRecords();
+      } else {
+        dismissError = message || 'Could not dismiss these flags.';
+      }
     } finally {
       dismissSubmitting = false;
     }
@@ -108,12 +132,13 @@
   }
 </script>
 
-{#snippet flagCard(f: api.FlaggedReed)}
+{#snippet flagCard(f: FlagCase)}
+  {@const reports = f.flags}
   <li class="flag">
     <div class="flag-head">
       <span class="author name"><Username userID={f.authorId} color="var(--primary)" /></span>
       <span class="report-count">
-        {f.flags.length} {f.flags.length === 1 ? 'flag' : 'flags'}
+        {reports.length} {reports.length === 1 ? 'flag' : 'flags'}
       </span>
     </div>
 
@@ -124,7 +149,7 @@
     {/if}
 
     <ul class="reports">
-      {#each f.flags as rep (rep.reporterId)}
+      {#each reports as rep (rep.reporterId)}
         {@const server = remoteServer(rep.reporterId)}
         <li>
           <span class="name"><Username userID={rep.reporterId} color="var(--primary)" /></span>{#if server}<span class="server">({server})</span>{/if}
@@ -143,7 +168,7 @@
         {:else}
           a removed account
         {/if}
-        · {formatRelativeTime(fromUnix(f.dismissal.dismissedAt) ?? new Date())}
+        · {formatRelativeTime(fromUnix(f.dismissal.serverSignature?.signedAt ?? 0) ?? new Date())}
       </p>
       <div class="flag-actions">
         <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
@@ -197,7 +222,7 @@
         {#if loadError}
           <p class="error" role="alert">{loadError}</p>
         {:else if !flagsLoaded}
-          <!-- Flags come from the server; nothing to show until then. -->
+          <!-- Nothing to show until this device's copies are read. -->
         {:else if mode === 'pending'}
           {#if flags.length === 0}
             <div class="empty-state">
@@ -209,6 +234,9 @@
                 {@render flagCard(f)}
               {/each}
             </ul>
+            {#if morePending}
+              <button class="btn secondary more" type="button" on:click={loadMorePending}>Load more</button>
+            {/if}
           {/if}
         {:else if dismissed.length === 0}
           <div class="empty-state">
@@ -220,7 +248,7 @@
               {@render flagCard(f)}
             {/each}
           </ul>
-          {#if dismissedCursor}
+          {#if moreDismissed}
             <button class="btn secondary more" type="button" on:click={loadMoreDismissed}>Load more</button>
           {/if}
         {/if}

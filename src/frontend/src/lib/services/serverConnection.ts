@@ -13,6 +13,7 @@ import {
 import { reedsService } from '$lib/repositories/reeds';
 import { startReedRequestDrainer } from './reedRequestDrainer';
 import { syncLedgerIfEmpty } from './ledger';
+import { syncAdminRecords } from './admin';
 import { setContentRejectedReporter } from './db';
 import { notificationStore } from '$lib/stores/notifications';
 import { decryptRelayPayload } from './relayDecrypt';
@@ -108,6 +109,7 @@ export enum ServerEvent {
   UserUnblocked        = 'USER_UNBLOCKED',
   Followed             = 'FOLLOWED',
   LedgerEntry          = 'LEDGER_ENTRY',
+  AdminRecord          = 'ADMIN_RECORD',
 }
 
 class ServerConnection {
@@ -737,6 +739,7 @@ class ServerConnection {
     this.sendMsg({ type: MessageType.SYNC_REQUEST, payload: { case: 'syncRequest', value: { requestId } } });
     startReedRequestDrainer();
     void syncLedgerIfEmpty();
+    void syncAdminRecords();
   }
 
   async subscribeProfile(userId: string): Promise<void> {

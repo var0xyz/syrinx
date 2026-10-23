@@ -99,6 +99,7 @@ const (
 	MessageType_ADMIN_MENTION            MessageType = 71
 	MessageType_FOLLOWED                 MessageType = 72
 	MessageType_FOLLOWED_ACK             MessageType = 73
+	MessageType_ADMIN_RECORD             MessageType = 74
 )
 
 // Enum value maps for MessageType.
@@ -178,6 +179,7 @@ var (
 		71: "ADMIN_MENTION",
 		72: "FOLLOWED",
 		73: "FOLLOWED_ACK",
+		74: "ADMIN_RECORD",
 	}
 	MessageType_value = map[string]int32{
 		"UNKNOWN":                  0,
@@ -254,6 +256,7 @@ var (
 		"ADMIN_MENTION":            71,
 		"FOLLOWED":                 72,
 		"FOLLOWED_ACK":             73,
+		"ADMIN_RECORD":             74,
 	}
 )
 
@@ -358,6 +361,7 @@ type WSMessage struct {
 	//	*WSMessage_LedgerEntry
 	//	*WSMessage_Followed
 	//	*WSMessage_FollowedAck
+	//	*WSMessage_AdminRecord
 	Payload       isWSMessage_Payload `protobuf_oneof:"payload"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -943,6 +947,15 @@ func (x *WSMessage) GetFollowedAck() *FollowedAckMessage {
 	return nil
 }
 
+func (x *WSMessage) GetAdminRecord() *AdminRecordMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*WSMessage_AdminRecord); ok {
+			return x.AdminRecord
+		}
+	}
+	return nil
+}
+
 type isWSMessage_Payload interface {
 	isWSMessage_Payload()
 }
@@ -1179,6 +1192,10 @@ type WSMessage_FollowedAck struct {
 	FollowedAck *FollowedAckMessage `protobuf:"bytes,61,opt,name=followed_ack,json=followedAck,proto3,oneof"`
 }
 
+type WSMessage_AdminRecord struct {
+	AdminRecord *AdminRecordMessage `protobuf:"bytes,62,opt,name=admin_record,json=adminRecord,proto3,oneof"`
+}
+
 func (*WSMessage_Ping) isWSMessage_Payload() {}
 
 func (*WSMessage_Pong) isWSMessage_Payload() {}
@@ -1294,6 +1311,8 @@ func (*WSMessage_LedgerEntry) isWSMessage_Payload() {}
 func (*WSMessage_Followed) isWSMessage_Payload() {}
 
 func (*WSMessage_FollowedAck) isWSMessage_Payload() {}
+
+func (*WSMessage_AdminRecord) isWSMessage_Payload() {}
 
 // Ping message
 type PingMessage struct {
@@ -4197,6 +4216,106 @@ func (x *LedgerEntryMessage) GetEntry() *LedgerEntry {
 	return nil
 }
 
+// An admin record as it changes, pushed to every connected admin and root
+// who may see it.
+type AdminRecordMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Record:
+	//
+	//	*AdminRecordMessage_Request
+	//	*AdminRecordMessage_Flag
+	//	*AdminRecordMessage_Dismissal
+	Record        isAdminRecordMessage_Record `protobuf_oneof:"record"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AdminRecordMessage) Reset() {
+	*x = AdminRecordMessage{}
+	mi := &file_websocket_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AdminRecordMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AdminRecordMessage) ProtoMessage() {}
+
+func (x *AdminRecordMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_websocket_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AdminRecordMessage.ProtoReflect.Descriptor instead.
+func (*AdminRecordMessage) Descriptor() ([]byte, []int) {
+	return file_websocket_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *AdminRecordMessage) GetRecord() isAdminRecordMessage_Record {
+	if x != nil {
+		return x.Record
+	}
+	return nil
+}
+
+func (x *AdminRecordMessage) GetRequest() *AdminRequest {
+	if x != nil {
+		if x, ok := x.Record.(*AdminRecordMessage_Request); ok {
+			return x.Request
+		}
+	}
+	return nil
+}
+
+func (x *AdminRecordMessage) GetFlag() *ReedFlag {
+	if x != nil {
+		if x, ok := x.Record.(*AdminRecordMessage_Flag); ok {
+			return x.Flag
+		}
+	}
+	return nil
+}
+
+func (x *AdminRecordMessage) GetDismissal() *FlagDismissal {
+	if x != nil {
+		if x, ok := x.Record.(*AdminRecordMessage_Dismissal); ok {
+			return x.Dismissal
+		}
+	}
+	return nil
+}
+
+type isAdminRecordMessage_Record interface {
+	isAdminRecordMessage_Record()
+}
+
+type AdminRecordMessage_Request struct {
+	Request *AdminRequest `protobuf:"bytes,1,opt,name=request,proto3,oneof"`
+}
+
+type AdminRecordMessage_Flag struct {
+	Flag *ReedFlag `protobuf:"bytes,2,opt,name=flag,proto3,oneof"`
+}
+
+type AdminRecordMessage_Dismissal struct {
+	Dismissal *FlagDismissal `protobuf:"bytes,3,opt,name=dismissal,proto3,oneof"`
+}
+
+func (*AdminRecordMessage_Request) isAdminRecordMessage_Record() {}
+
+func (*AdminRecordMessage_Flag) isAdminRecordMessage_Record() {}
+
+func (*AdminRecordMessage_Dismissal) isAdminRecordMessage_Record() {}
+
 // A follow or unfollow of the recipient, acked with FOLLOWED_ACK.
 type FollowedMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4207,7 +4326,7 @@ type FollowedMessage struct {
 
 func (x *FollowedMessage) Reset() {
 	*x = FollowedMessage{}
-	mi := &file_websocket_proto_msgTypes[57]
+	mi := &file_websocket_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4219,7 +4338,7 @@ func (x *FollowedMessage) String() string {
 func (*FollowedMessage) ProtoMessage() {}
 
 func (x *FollowedMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_websocket_proto_msgTypes[57]
+	mi := &file_websocket_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4232,7 +4351,7 @@ func (x *FollowedMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FollowedMessage.ProtoReflect.Descriptor instead.
 func (*FollowedMessage) Descriptor() ([]byte, []int) {
-	return file_websocket_proto_rawDescGZIP(), []int{57}
+	return file_websocket_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *FollowedMessage) GetCert() *FollowCert {
@@ -4252,7 +4371,7 @@ type FollowedAckMessage struct {
 
 func (x *FollowedAckMessage) Reset() {
 	*x = FollowedAckMessage{}
-	mi := &file_websocket_proto_msgTypes[58]
+	mi := &file_websocket_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4264,7 +4383,7 @@ func (x *FollowedAckMessage) String() string {
 func (*FollowedAckMessage) ProtoMessage() {}
 
 func (x *FollowedAckMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_websocket_proto_msgTypes[58]
+	mi := &file_websocket_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4277,7 +4396,7 @@ func (x *FollowedAckMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FollowedAckMessage.ProtoReflect.Descriptor instead.
 func (*FollowedAckMessage) Descriptor() ([]byte, []int) {
-	return file_websocket_proto_rawDescGZIP(), []int{58}
+	return file_websocket_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *FollowedAckMessage) GetFollowerId() string {
@@ -4298,7 +4417,7 @@ var File_websocket_proto protoreflect.FileDescriptor
 
 const file_websocket_proto_rawDesc = "" +
 	"\n" +
-	"\x0fwebsocket.proto\x12\x06syrinx\x1a\fcommon.proto\"\x89\x1f\n" +
+	"\x0fwebsocket.proto\x12\x06syrinx\x1a\fcommon.proto\x1a\vadmin.proto\"\xca\x1f\n" +
 	"\tWSMessage\x12'\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x13.syrinx.MessageTypeR\x04type\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x1b\n" +
@@ -4369,7 +4488,8 @@ const file_websocket_proto_rawDesc = "" +
 	"\x12user_unblocked_ack\x18: \x01(\v2\x1f.syrinx.UserUnblockedAckMessageH\x00R\x10userUnblockedAck\x12?\n" +
 	"\fledger_entry\x18; \x01(\v2\x1a.syrinx.LedgerEntryMessageH\x00R\vledgerEntry\x125\n" +
 	"\bfollowed\x18< \x01(\v2\x17.syrinx.FollowedMessageH\x00R\bfollowed\x12?\n" +
-	"\ffollowed_ack\x18= \x01(\v2\x1a.syrinx.FollowedAckMessageH\x00R\vfollowedAckB\t\n" +
+	"\ffollowed_ack\x18= \x01(\v2\x1a.syrinx.FollowedAckMessageH\x00R\vfollowedAck\x12?\n" +
+	"\fadmin_record\x18> \x01(\v2\x1a.syrinx.AdminRecordMessageH\x00R\vadminRecordB\t\n" +
 	"\apayload\"!\n" +
 	"\vPingMessage\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\tR\x04data\"!\n" +
@@ -4552,13 +4672,18 @@ const file_websocket_proto_rawDesc = "" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
 	"serverName\"?\n" +
 	"\x12LedgerEntryMessage\x12)\n" +
-	"\x05entry\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryR\x05entry\"9\n" +
+	"\x05entry\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryR\x05entry\"\xaf\x01\n" +
+	"\x12AdminRecordMessage\x120\n" +
+	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestH\x00R\arequest\x12&\n" +
+	"\x04flag\x18\x02 \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flag\x125\n" +
+	"\tdismissal\x18\x03 \x01(\v2\x15.syrinx.FlagDismissalH\x00R\tdismissalB\b\n" +
+	"\x06record\"9\n" +
 	"\x0fFollowedMessage\x12&\n" +
 	"\x04cert\x18\x01 \x01(\v2\x12.syrinx.FollowCertR\x04cert\"M\n" +
 	"\x12FollowedAckMessage\x12\x1f\n" +
 	"\vfollower_id\x18\x01 \x01(\tR\n" +
 	"followerID\x12\x16\n" +
-	"\x06follow\x18\x02 \x01(\bR\x06follow*\xe5\n" +
+	"\x06follow\x18\x02 \x01(\bR\x06follow*\xf7\n" +
 	"\n" +
 	"\vMessageType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\b\n" +
@@ -4640,7 +4765,8 @@ const file_websocket_proto_rawDesc = "" +
 	"\fLEDGER_ENTRY\x10F\x12\x11\n" +
 	"\rADMIN_MENTION\x10G\x12\f\n" +
 	"\bFOLLOWED\x10H\x12\x10\n" +
-	"\fFOLLOWED_ACK\x10IB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
+	"\fFOLLOWED_ACK\x10I\x12\x10\n" +
+	"\fADMIN_RECORD\x10JB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 
 var (
 	file_websocket_proto_rawDescOnce sync.Once
@@ -4655,7 +4781,7 @@ func file_websocket_proto_rawDescGZIP() []byte {
 }
 
 var file_websocket_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 59)
+var file_websocket_proto_msgTypes = make([]protoimpl.MessageInfo, 60)
 var file_websocket_proto_goTypes = []any{
 	(MessageType)(0),                     // 0: syrinx.MessageType
 	(*WSMessage)(nil),                    // 1: syrinx.WSMessage
@@ -4715,17 +4841,21 @@ var file_websocket_proto_goTypes = []any{
 	(*NewRippleMessage)(nil),             // 55: syrinx.NewRippleMessage
 	(*PeerServerLostMessage)(nil),        // 56: syrinx.PeerServerLostMessage
 	(*LedgerEntryMessage)(nil),           // 57: syrinx.LedgerEntryMessage
-	(*FollowedMessage)(nil),              // 58: syrinx.FollowedMessage
-	(*FollowedAckMessage)(nil),           // 59: syrinx.FollowedAckMessage
-	(*Ripple)(nil),                       // 60: syrinx.Ripple
-	(*ReedRemovalCert)(nil),              // 61: syrinx.ReedRemovalCert
-	(*KeyRevocationCert)(nil),            // 62: syrinx.KeyRevocationCert
-	(*ThreadRemovalCert)(nil),            // 63: syrinx.ThreadRemovalCert
-	(*ThreadRecord)(nil),                 // 64: syrinx.ThreadRecord
-	(*BlockCert)(nil),                    // 65: syrinx.BlockCert
-	(*AccountRemovalCert)(nil),           // 66: syrinx.AccountRemovalCert
-	(*LedgerEntry)(nil),                  // 67: syrinx.LedgerEntry
-	(*FollowCert)(nil),                   // 68: syrinx.FollowCert
+	(*AdminRecordMessage)(nil),           // 58: syrinx.AdminRecordMessage
+	(*FollowedMessage)(nil),              // 59: syrinx.FollowedMessage
+	(*FollowedAckMessage)(nil),           // 60: syrinx.FollowedAckMessage
+	(*Ripple)(nil),                       // 61: syrinx.Ripple
+	(*ReedRemovalCert)(nil),              // 62: syrinx.ReedRemovalCert
+	(*KeyRevocationCert)(nil),            // 63: syrinx.KeyRevocationCert
+	(*ThreadRemovalCert)(nil),            // 64: syrinx.ThreadRemovalCert
+	(*ThreadRecord)(nil),                 // 65: syrinx.ThreadRecord
+	(*BlockCert)(nil),                    // 66: syrinx.BlockCert
+	(*AccountRemovalCert)(nil),           // 67: syrinx.AccountRemovalCert
+	(*LedgerEntry)(nil),                  // 68: syrinx.LedgerEntry
+	(*AdminRequest)(nil),                 // 69: syrinx.AdminRequest
+	(*ReedFlag)(nil),                     // 70: syrinx.ReedFlag
+	(*FlagDismissal)(nil),                // 71: syrinx.FlagDismissal
+	(*FollowCert)(nil),                   // 72: syrinx.FollowCert
 }
 var file_websocket_proto_depIdxs = []int32{
 	0,  // 0: syrinx.WSMessage.type:type_name -> syrinx.MessageType
@@ -4785,23 +4915,27 @@ var file_websocket_proto_depIdxs = []int32{
 	51, // 54: syrinx.WSMessage.user_unblocked:type_name -> syrinx.UserUnblockedMessage
 	52, // 55: syrinx.WSMessage.user_unblocked_ack:type_name -> syrinx.UserUnblockedAckMessage
 	57, // 56: syrinx.WSMessage.ledger_entry:type_name -> syrinx.LedgerEntryMessage
-	58, // 57: syrinx.WSMessage.followed:type_name -> syrinx.FollowedMessage
-	59, // 58: syrinx.WSMessage.followed_ack:type_name -> syrinx.FollowedAckMessage
-	60, // 59: syrinx.RipplePostedMessage.ripple:type_name -> syrinx.Ripple
-	60, // 60: syrinx.RippleUpdatedMessage.ripple:type_name -> syrinx.Ripple
-	61, // 61: syrinx.ReedRemovedMessage.cert:type_name -> syrinx.ReedRemovalCert
-	62, // 62: syrinx.KeyRevokedMessage.revocation:type_name -> syrinx.KeyRevocationCert
-	63, // 63: syrinx.ThreadRemovedMessage.cert:type_name -> syrinx.ThreadRemovalCert
-	64, // 64: syrinx.ThreadRemovedMessage.record:type_name -> syrinx.ThreadRecord
-	65, // 65: syrinx.UserBlockedMessage.block:type_name -> syrinx.BlockCert
-	66, // 66: syrinx.AccountRemovedMessage.cert:type_name -> syrinx.AccountRemovalCert
-	67, // 67: syrinx.LedgerEntryMessage.entry:type_name -> syrinx.LedgerEntry
-	68, // 68: syrinx.FollowedMessage.cert:type_name -> syrinx.FollowCert
-	69, // [69:69] is the sub-list for method output_type
-	69, // [69:69] is the sub-list for method input_type
-	69, // [69:69] is the sub-list for extension type_name
-	69, // [69:69] is the sub-list for extension extendee
-	0,  // [0:69] is the sub-list for field type_name
+	59, // 57: syrinx.WSMessage.followed:type_name -> syrinx.FollowedMessage
+	60, // 58: syrinx.WSMessage.followed_ack:type_name -> syrinx.FollowedAckMessage
+	58, // 59: syrinx.WSMessage.admin_record:type_name -> syrinx.AdminRecordMessage
+	61, // 60: syrinx.RipplePostedMessage.ripple:type_name -> syrinx.Ripple
+	61, // 61: syrinx.RippleUpdatedMessage.ripple:type_name -> syrinx.Ripple
+	62, // 62: syrinx.ReedRemovedMessage.cert:type_name -> syrinx.ReedRemovalCert
+	63, // 63: syrinx.KeyRevokedMessage.revocation:type_name -> syrinx.KeyRevocationCert
+	64, // 64: syrinx.ThreadRemovedMessage.cert:type_name -> syrinx.ThreadRemovalCert
+	65, // 65: syrinx.ThreadRemovedMessage.record:type_name -> syrinx.ThreadRecord
+	66, // 66: syrinx.UserBlockedMessage.block:type_name -> syrinx.BlockCert
+	67, // 67: syrinx.AccountRemovedMessage.cert:type_name -> syrinx.AccountRemovalCert
+	68, // 68: syrinx.LedgerEntryMessage.entry:type_name -> syrinx.LedgerEntry
+	69, // 69: syrinx.AdminRecordMessage.request:type_name -> syrinx.AdminRequest
+	70, // 70: syrinx.AdminRecordMessage.flag:type_name -> syrinx.ReedFlag
+	71, // 71: syrinx.AdminRecordMessage.dismissal:type_name -> syrinx.FlagDismissal
+	72, // 72: syrinx.FollowedMessage.cert:type_name -> syrinx.FollowCert
+	73, // [73:73] is the sub-list for method output_type
+	73, // [73:73] is the sub-list for method input_type
+	73, // [73:73] is the sub-list for extension type_name
+	73, // [73:73] is the sub-list for extension extendee
+	0,  // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_websocket_proto_init() }
@@ -4810,6 +4944,7 @@ func file_websocket_proto_init() {
 		return
 	}
 	file_common_proto_init()
+	file_admin_proto_init()
 	file_websocket_proto_msgTypes[0].OneofWrappers = []any{
 		(*WSMessage_Ping)(nil),
 		(*WSMessage_Pong)(nil),
@@ -4869,6 +5004,12 @@ func file_websocket_proto_init() {
 		(*WSMessage_LedgerEntry)(nil),
 		(*WSMessage_Followed)(nil),
 		(*WSMessage_FollowedAck)(nil),
+		(*WSMessage_AdminRecord)(nil),
+	}
+	file_websocket_proto_msgTypes[57].OneofWrappers = []any{
+		(*AdminRecordMessage_Request)(nil),
+		(*AdminRecordMessage_Flag)(nil),
+		(*AdminRecordMessage_Dismissal)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -4876,7 +5017,7 @@ func file_websocket_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_websocket_proto_rawDesc), len(file_websocket_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   59,
+			NumMessages:   60,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

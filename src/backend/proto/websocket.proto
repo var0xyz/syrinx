@@ -3,6 +3,7 @@ syntax = "proto3";
 package syrinx;
 
 import "common.proto";
+import "admin.proto";
 
 option go_package = "github.com/var0xyz/syrinx/proto";
 
@@ -79,6 +80,7 @@ message WSMessage {
     LedgerEntryMessage ledger_entry = 59;
     FollowedMessage followed = 60;
     FollowedAckMessage followed_ack = 61;
+    AdminRecordMessage admin_record = 62;
   }
 }
 
@@ -159,6 +161,7 @@ enum MessageType {
   ADMIN_MENTION = 71;
   FOLLOWED = 72;
   FOLLOWED_ACK = 73;
+  ADMIN_RECORD = 74;
 }
 
 // Ping message
@@ -499,6 +502,16 @@ message PeerServerLostMessage {
 // A new ledger entry, pushed to every connected local member.
 message LedgerEntryMessage {
   LedgerEntry entry = 1;
+}
+
+// An admin record as it changes, pushed to every connected admin and root
+// who may see it.
+message AdminRecordMessage {
+  oneof record {
+    AdminRequest request = 1;
+    ReedFlag flag = 2;
+    FlagDismissal dismissal = 3;
+  }
 }
 
 // A follow or unfollow of the recipient, acked with FOLLOWED_ACK.

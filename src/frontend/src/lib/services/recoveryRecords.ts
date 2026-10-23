@@ -6,17 +6,17 @@ import type { RecoveryRecordSchema } from '$lib/proto/recovery_pb';
 import type * as api from '$lib/types/api';
 import { chainOrder, type LedgerRecord } from '$lib/repositories/ledger';
 import type { LikedReedRecord } from '$lib/repositories/likedReeds';
-import type { FlaggedReedRecord } from './flags';
-import { dbService } from './db';
+import type { StoredFlag } from '$lib/repositories/flags';
+import { dbService, type DbKey } from './db';
 
 type RecoveryRecord = MessageInitShape<typeof RecoveryRecordSchema>;
 
 /** Where one reported record lives on this device. */
-export type RecoveryRecordRef = { store: string; key: string | number };
+export type RecoveryRecordRef = { store: string; key: DbKey };
 
 type RecordSource<T> = {
   store: string;
-  key: (item: T) => string | number;
+  key: (item: T) => DbKey;
   /** The records in the order they're best reported in. */
   order?: (items: T[]) => T[];
   record: (item: T) => RecoveryRecord['record'] | null;
@@ -74,11 +74,14 @@ const SOURCES: RecordSource<unknown>[] = [
   // Follows from both ends: the server keeps the newest per pair.
   source<api.FollowCert>({ store: 'followCerts', key: (r) => r.followeeId, record: (r) => ({ case: 'follow', value: r }) }),
   source<api.FollowCert>({ store: 'followers', key: (r) => r.followerId, record: (r) => ({ case: 'follow', value: r }) }),
-  source<FlaggedReedRecord>({
+  // The viewer's own flags, and an admin's copy of everyone's; then the
+  // dismissals that closed some.
+  source<StoredFlag>({
     store: 'flaggedReeds',
-    key: (r) => r.reedID,
-    record: (r) => (r.flag ? { case: 'flag', value: r.flag } : null),
+    key: (r) => [r.reedId, r.reporterId],
+    record: (r) => (r.serverSignature ? { case: 'flag', value: r as api.ReedFlag } : null),
   }),
+  source<api.FlagDismissal>({ store: 'flagDismissals', key: (r) => r.id, record: (r) => ({ case: 'flagDismissal', value: r }) }),
 ];
 
 /** Every record this device holds, as refs, in reporting order. */

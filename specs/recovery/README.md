@@ -452,7 +452,8 @@ and is retried when that arrives:
 | account removal (`removedAccounts`) | `account_removals`, clearing the profile; a kick restores its request |
 | ledger entry (`ledger`)          | `ledger_entries`, `ledger_entry_targets`, ids kept |
 | closed admin request (`adminRequests`) | `admin_requests` with targets and content; `users.suspended_by`; rebind-bound keys' `restricted` |
-| flag (`flaggedReeds`)            | `reed_flags` |
+| flag (`flaggedReeds`: the user's own, and an admin's copy of everyone's) | `reed_flags` |
+| flag dismissal (an admin's `flagDismissals`) | `flag_dismissals`, `flag_dismissal_reporters` |
 
 Reply counts are recounted from the restored links, so the order reports
 arrive in doesn't matter; the other counters follow their triggers. Every
@@ -462,8 +463,11 @@ invited whom survives without the invite rows. `recovery_e2e_test.go`
 rebuilds a live database through the real handlers and diffs every table
 above, including with records reported before what they name.
 
-**Not reconstructed, by design:** `invites` and pending admin requests,
-`flag_dismissals` (their flags come back open), `ripples`, `user_mailbox`
+Admins' devices also report pending requests, which come back pending and
+can't be decided until a closed copy settles them or recovery mode is off;
+see [admin actions 12](../admin_actions/12_admin_records.md).
+
+**Not reconstructed, by design:** `invites`, `ripples`, `user_mailbox`
 (devices keep what they received), federation (`servers` peer rows and
 everything keyed on them), and delivery queues still owed (`pending_*`,
 `block_event_queue`). A removed reed keeps only its

@@ -89,7 +89,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 37;
+  private readonly version = 39;
   private readonly storeNames = [
     ['following',   'userId'     ],
     // The viewer's latest signed follow or unfollow per followee, and the
@@ -149,14 +149,16 @@ export class IndexedDbService implements DbService {
     // The server-signed ledger of admin actions, verified as a chain.
     ['ledger',             'id'],
 
-    // Closed admin requests, verified; open ones always come from the server.
+    // Every admin request an admin or root may see, verified: a closed copy
+    // replaces a pending one.
     ['adminRequests',      'id'],
 
     // A key minted on the lost-device page, waiting for admins to bind it.
     ['pendingRebind',      'userID'],
 
-    // Reeds the viewer flagged; a reed can be flagged once.
-    ['flaggedReeds',       'reedID'],
+    // An admin's derived index of reeds with open flags, by latest flag.
+    // Never verified or reported: it's rebuilt from the flags and dismissals.
+    ['flagOpenCases',      'reedId'],
   ];
 
   async init(): Promise<void> {
@@ -225,6 +227,25 @@ export class IndexedDbService implements DbService {
 
         for (const [storeName, keyPath, ...indexes] of this.storeNames) {
           ensureStore(storeName, keyPath, indexes);
+        }
+
+        // Flags as countersigned, one per reed and reporter: the viewer's own,
+        // and an admin's copy of everyone's. Dismissals reference the flags
+        // they closed by reporter. Both changed shape in v39.
+        if (event.oldVersion > 0 && event.oldVersion < 39) {
+          for (const storeName of ['flaggedReeds', 'reportedFlags', 'flagDismissals']) {
+            if (db.objectStoreNames.contains(storeName)) db.deleteObjectStore(storeName);
+          }
+        }
+        ensureStore('flaggedReeds', ['reedId', 'reporterId'], ['reedId', 'reporterId']);
+        ensureStore('flagDismissals', 'id', ['reedId']);
+        const pageIndexes: [string, string, string[]][] = [
+          ['flagDismissals', 'byTime', ['serverSignature.signedAt', 'id']],
+          ['flagOpenCases', 'byTime', ['latestAt', 'reedId']],
+        ];
+        for (const [storeName, indexName, keyPath] of pageIndexes) {
+          const store = tx.objectStore(storeName);
+          if (!store.indexNames.contains(indexName)) store.createIndex(indexName, keyPath, { unique: false });
         }
 
         // Reed ids are canonical (globally unique) as of v12 — dropped above.

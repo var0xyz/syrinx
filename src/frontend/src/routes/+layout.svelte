@@ -50,6 +50,7 @@
   import { applyKeyRevocation } from '$lib/services/keyRevocation';
   import { receiveBlock, receiveUnblock } from '$lib/services/blockedBy';
   import { receiveLedgerEntry } from '$lib/services/ledger';
+  import { storeAdminRecord, syncAdminRecords } from '$lib/services/admin';
   import { syncPendingBlocks } from '$lib/services/blocks';
   import { setBlockedReporter, setSuspendedReporter } from '$lib/services/api';
   import { receiveSuspension, suspension } from '$lib/services/suspension';
@@ -390,7 +391,14 @@
       if (data.cert) await receiveFollow(data.cert);
     });
     serverConnection.on(ServerEvent.LedgerEntry, async (data) => {
-      if (data.entry) await receiveLedgerEntry(data.entry);
+      if (!data.entry) return;
+      await receiveLedgerEntry(data.entry);
+      // A promotion, demotion or permission change may change what this
+      // device keeps of the admin records.
+      if (data.entry.targets.includes(localStorage.getItem('userId') ?? '')) void syncAdminRecords();
+    });
+    serverConnection.on(ServerEvent.AdminRecord, async (data) => {
+      await storeAdminRecord(data).catch((err) => console.error('Failed to store an admin record:', err));
     });
     setBlockedReporter((cert) => void receiveBlock(cert));
     setSuspendedReporter((cert) => void receiveSuspension(cert));

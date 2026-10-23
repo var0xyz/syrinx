@@ -229,6 +229,11 @@ Checked when a decision of `approve` or `reject` is submitted:
 `withdraw` is allowed only from the requester. A failed check returns 403
 with the rule that failed, and the request stays pending.
 
+While `RECOVERY_MODE` isn't `off`, every decision on a request opened before
+`first_boot_at` is refused with `409 {"error":"opened-before-recovery"}`: an
+admin's device may still hold a closed copy of it. See
+[12](12_admin_records.md).
+
 ## Execution
 
 On `approve`, inside one transaction:
