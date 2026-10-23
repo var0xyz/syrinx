@@ -14,9 +14,10 @@ import (
 // Only peers approved on both sides that haven't been disconnected are listed.
 func TestListFederatedServers(t *testing.T) {
 	db, rs, _ := newTeardownTestService(t)
+	seedTestKey(t, db, "fp@peer5678")
 	for _, stmt := range []string{
-		`UPDATE servers SET base_url = 'https://api.peer.example', frontend_url = 'https://peer.example', key_id = 'fp@peer5678' WHERE id = 'peer5678'`,
-		`UPDATE server_mesh SET connected = TRUE, peer_approved_at = NOW() WHERE server_id = 'peer5678'`,
+		`UPDATE servers SET base_url = 'https://api.peer.example', frontend_url = 'https://peer.example' WHERE id = 'peer5678'`,
+		`UPDATE server_mesh SET connected = TRUE, peer_approved_at = NOW(), key_id = 'fp@peer5678' WHERE server_id = 'peer5678'`,
 		`INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ('gone9012', 'gone', FALSE, 'https://gone.example', 'https://gone.example')`,
 		`INSERT INTO server_mesh (server_id, revoked_at, peer_approved_at) VALUES ('gone9012', NOW(), NOW())`,
 		`INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ('wait3456', 'waiting', FALSE, 'https://wait.example', 'https://wait.example')`,
@@ -64,10 +65,12 @@ func TestServerInfoSignsPeerRecords(t *testing.T) {
 	a := newE2EServer(t, newTestDatabase(t, InitDB), false)
 	ctx := context.Background()
 	const peerID = "peer5678"
-	if _, err := a.db.Exec(`INSERT INTO servers (id, name, base_url, frontend_url, key_id) VALUES ($1, 'Peer', 'https://api.peer.example', 'https://peer.example', 'fp@peer5678')`, peerID); err != nil {
+	if _, err := a.db.Exec(`INSERT INTO servers (id, name, base_url, frontend_url) VALUES ($1, 'Peer', 'https://api.peer.example', 'https://peer.example')`, peerID); err != nil {
 		t.Fatal(err)
 	}
 	peerTestMesh(t, a.db, peerID)
+	seedTestKey(t, a.db, "fp@peer5678")
+	pinTestPeerKey(t, a.db, peerID, "fp@peer5678")
 
 	if anon := a.serverInfo(t, nil); len(anon.GetFederation()) != 0 {
 		t.Fatalf("anonymous server info lists peers: %+v", anon.GetFederation())

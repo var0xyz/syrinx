@@ -25,9 +25,7 @@ func TestPurgeKeepsTheRevokedRecord(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO public_keys (id, armor, server_signature_id) VALUES ($1, 'armor', $2)`, keyID, sigID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE servers SET key_id = $1 WHERE id = $2`, keyID, teardownPeerID); err != nil {
-		t.Fatal(err)
-	}
+	pinTestPeerKey(t, db, teardownPeerID, keyID)
 	insertTeardownIdentity(t, db, string(canonicalID(teardownPeerID, "bob")), teardownPeerID)
 	peer := federationPeer{ServerID: teardownPeerID, ServerName: teardownPeerID, BaseURL: "https://peer.example", FrontendURL: "https://peer.example", Fingerprint: fp, PublicKeyArmor: "armor"}
 

@@ -32,10 +32,11 @@ func peeredWith(t *testing.T, a, b *e2eServer) *pb.FederatedServerInfo {
 	if _, err := a.db.Exec(`INSERT INTO public_keys (id, armor, server_signature_id) VALUES ($1, $2, $3)`, bKeyID, bKey.Armor, sigID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.db.Exec(`INSERT INTO servers (id, name, key_id, base_url, frontend_url) VALUES ($1, 'Bravo', $2, 'https://b.example', 'https://b.example')`, bID, bKeyID); err != nil {
+	if _, err := a.db.Exec(`INSERT INTO servers (id, name, base_url, frontend_url) VALUES ($1, 'Bravo', 'https://b.example', 'https://b.example')`, bID); err != nil {
 		t.Fatal(err)
 	}
 	peerTestMesh(t, a.db, bID)
+	pinTestPeerKey(t, a.db, bID, bKeyID)
 
 	viewer := a.signup(t, "viewer")
 	info := a.serverInfo(t, viewer)

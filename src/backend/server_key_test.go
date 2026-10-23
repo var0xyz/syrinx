@@ -19,7 +19,8 @@ func newServerKeyTestDB(t *testing.T) (*sql.DB, *DataService, *ServerSigningKey)
 	db := newTestDatabase(t, InitDB)
 	ds := NewDataService(db, "test")
 	ds.setServerIDForTest("Ab3xY9pQ")
-	if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE, 'https://test.example')`); err != nil {
+	if _, err := db.Exec(`INSERT INTO servers (id, name, self, frontend_url) VALUES ('Ab3xY9pQ', 'syrinx.example', TRUE, 'https://test.example');
+		INSERT INTO server_self (server_id) VALUES ('Ab3xY9pQ')`); err != nil {
 		t.Fatalf("seed self server: %v", err)
 	}
 	key, err := ds.InitServerKey(context.Background(), newCryptoService(), serverKeyTestPassphrase)
@@ -180,7 +181,7 @@ func TestServerKeyRefusesRevokedCurrentKey(t *testing.T) {
 	}
 
 	// Keys exist but none is current: boot must not mint a fresh one.
-	if _, err := db.Exec(`UPDATE servers SET key_id = NULL WHERE self = TRUE`); err != nil {
+	if _, err := db.Exec(`UPDATE server_self SET key_id = NULL`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ds.InitServerKey(ctx, cryptoSvc, serverKeyTestPassphrase); err == nil {

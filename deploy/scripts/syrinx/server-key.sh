@@ -14,8 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEY="$("$SCRIPT_DIR/psql.sh" -X -A -t -c "
     SELECT pk.armor
     FROM public_keys pk
-    JOIN servers s ON s.key_id = pk.id
-    WHERE s.self = TRUE
+    JOIN server_self ss ON ss.key_id = pk.id
 ")"
 
 if [ -z "$KEY" ]; then

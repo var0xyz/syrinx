@@ -32,16 +32,17 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			self BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
-			frontend_url TEXT NOT NULL,
-			key_id VARCHAR(255)
+			frontend_url TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_self (
 			server_id VARCHAR(255) NOT NULL UNIQUE REFERENCES servers(id),
+			key_id VARCHAR(255),
 			identity_backup_at TIMESTAMP,
 			first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_mesh (
 			server_id VARCHAR(255) PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+			key_id VARCHAR(255),
 			connected BOOLEAN NOT NULL DEFAULT TRUE,
 			invited_by VARCHAR(255),
 			invited_at TIMESTAMP,

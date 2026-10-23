@@ -117,9 +117,17 @@ func seedTestKey(t *testing.T, db *sql.DB, id string) {
 	t.Helper()
 	if _, err := db.Exec(`
 		WITH ss AS (INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id)
-		INSERT INTO public_keys (id, armor, server_signature_id) SELECT $1, 'armor', id FROM ss
+		INSERT INTO public_keys (id, armor, created_at, server_signature_id) SELECT $1, 'armor', NOW(), id FROM ss
 		ON CONFLICT (id) DO NOTHING
 	`, id); err != nil {
 		t.Fatalf("seed key %s: %v", id, err)
+	}
+}
+
+// pinTestPeerKey pins keyID as serverID's key on its server_mesh row.
+func pinTestPeerKey(t testing.TB, db *sql.DB, serverID, keyID string) {
+	t.Helper()
+	if _, err := db.Exec(`UPDATE server_mesh SET key_id = $1 WHERE server_id = $2`, keyID, serverID); err != nil {
+		t.Fatalf("pin %s: %v", serverID, err)
 	}
 }

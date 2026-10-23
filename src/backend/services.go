@@ -279,9 +279,8 @@ func (s *DataService) InitServerKey(ctx context.Context, cryptoSvc *cryptoServic
 	var createdAt, revokedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.id, pk.armor, pk.created_at, pk.revoked_at
-		FROM servers sv
-		LEFT JOIN private_keys pk ON pk.id = sv.key_id
-		WHERE sv.self = TRUE
+		FROM server_self ss
+		LEFT JOIN private_keys pk ON pk.id = ss.key_id
 	`).Scan(&keyID, &encryptedArmor, &createdAt, &revokedAt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query server signing key: %w", err)
@@ -356,7 +355,7 @@ func (s *DataService) mintFirstServerKey(ctx context.Context, cryptoSvc *cryptoS
 	if err := insertServerKeyTx(ctx, tx, k, ""); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE servers SET key_id = $1 WHERE self = TRUE`, k.KeyID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE server_self SET key_id = $1`, k.KeyID); err != nil {
 		return nil, fmt.Errorf("failed to set signing key: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -372,8 +371,7 @@ func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, err
 	err := s.db.QueryRowContext(ctx, `
 		SELECT pk.armor
 		FROM private_keys pk
-		JOIN servers s ON s.key_id = pk.id
-		WHERE s.self = TRUE
+		JOIN server_self ss ON ss.key_id = pk.id
 	`).Scan(&armor)
 	if err != nil {
 		return "", err
@@ -3785,7 +3783,7 @@ func (s *DataService) ListFederationServers(ctx context.Context) ([]federationSe
 // requests: serverID must be an established
 // (self=FALSE), non-revoked peer, and the caller's claimed fingerprint must
 // match the one pinned at approval (see ApproveFederationAttempt, which
-// points servers.key_id at the promoted public_keys row). On success also
+// points server_mesh.key_id at the promoted public_keys row). On success also
 // returns that row's armor, so callers can verify the request signature
 // without a live fetch to the peer. Returns ok=false — not an error — for
 // "not peered," "revoked," or "fingerprint doesn't match": callers should
@@ -3795,11 +3793,10 @@ func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, finger
 	var pinnedKeyID, keyArmor sql.NullString
 	var revokedAt sql.NullTime
 	err = s.db.QueryRowContext(ctx, `
-		SELECT sv.key_id, m.revoked_at, pk.armor
-		FROM servers sv
-		JOIN server_mesh m ON m.server_id = sv.id
-		LEFT JOIN public_keys pk ON pk.id = sv.key_id
-		WHERE sv.id = $1
+		SELECT m.key_id, m.revoked_at, pk.armor
+		FROM server_mesh m
+		LEFT JOIN public_keys pk ON pk.id = m.key_id
+		WHERE m.server_id = $1
 	`, serverID).Scan(&pinnedKeyID, &revokedAt, &keyArmor)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, "", nil
@@ -3910,10 +3907,10 @@ type PeerPin struct {
 func (s *DataService) GetPeerPin(ctx context.Context, peerServerID string) (*PeerPin, error) {
 	var pin PeerPin
 	err := s.db.QueryRowContext(ctx, `
-		SELECT sv.base_url, sv.key_id, pk.armor
+		SELECT sv.base_url, m.key_id, pk.armor
 		FROM servers sv
 		JOIN server_mesh m ON m.server_id = sv.id
-		JOIN public_keys pk ON pk.id = sv.key_id
+		JOIN public_keys pk ON pk.id = m.key_id
 		WHERE sv.id = $1 AND m.revoked_at IS NULL
 		  AND sv.base_url IS NOT NULL AND sv.base_url != ''
 	`, peerServerID).Scan(&pin.BaseURL, &pin.KeyID, &pin.Armor)
@@ -3966,7 +3963,7 @@ func (s *DataService) RepinPeerKey(
 		}
 	}
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE servers SET key_id = $2 WHERE id = $1 AND self = FALSE`, peerServerID, keys[len(keys)-1].ID,
+		`UPDATE server_mesh SET key_id = $2 WHERE server_id = $1`, peerServerID, keys[len(keys)-1].ID,
 	); err != nil {
 		return fmt.Errorf("re-pin peer: %w", err)
 	}
@@ -3977,7 +3974,7 @@ func (s *DataService) RepinPeerKey(
 // peer again with its new key.
 func (s *DataService) ClearPeerPin(ctx context.Context, peerServerID string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE servers SET key_id = NULL WHERE id = $1 AND self = FALSE`, peerServerID)
+		`UPDATE server_mesh SET key_id = NULL WHERE server_id = $1`, peerServerID)
 	return err
 }
 
@@ -4254,9 +4251,8 @@ func (s *DataService) GetFederationAttempt(ctx context.Context, attemptID string
 // into public_keys — owner NULL (not a local identity), countersigned by
 // this server the same way any other public_keys row is, binding "we
 // received and approved this exact key during a verified handshake."
-// Creates the peer's servers row, pointing key_id at the promoted key, and
-// its server_mesh row (connected from the start: approval is the
-// confirmation), then deletes the attempt and, on the initiator side, its
+// Creates the peer's servers row and its server_mesh row, pinning the
+// promoted key (connected from the start: approval is the confirmation), then deletes the attempt and, on the initiator side, its
 // invitation. callerIsRoot bypasses the different-admin check.
 func (s *DataService) ApproveFederationAttempt(
 	ctx context.Context,
@@ -4328,11 +4324,11 @@ func (s *DataService) ApproveFederationAttempt(
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, base_url, frontend_url, key_id, created_at)
-		VALUES ($1, $2, FALSE, $3, $4, $5, $6)
+		INSERT INTO servers (id, name, self, base_url, frontend_url, created_at)
+		VALUES ($1, $2, FALSE, $3, $4, $5)
 		ON CONFLICT (id) DO UPDATE SET base_url = EXCLUDED.base_url, frontend_url = EXCLUDED.frontend_url,
-			name = EXCLUDED.name, key_id = EXCLUDED.key_id
-	`, remoteServerID, remoteServerName, baseURL, frontendURL, keyID, approvedAt.UTC()); err != nil {
+			name = EXCLUDED.name
+	`, remoteServerID, remoteServerName, baseURL, frontendURL, approvedAt.UTC()); err != nil {
 		return "", false, fmt.Errorf("insert federation peer: %w", err)
 	}
 
@@ -4347,16 +4343,16 @@ func (s *DataService) ApproveFederationAttempt(
 	}
 	// A revoked and purged peer connecting again starts over.
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO server_mesh (server_id, invited_by, invited_at, approved_by, approved_at)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE,
+		INSERT INTO server_mesh (server_id, key_id, invited_by, invited_at, approved_by, approved_at)
+		VALUES ($1, $6, $2, $3, $4, $5)
+		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE, key_id = EXCLUDED.key_id,
 			invited_by = EXCLUDED.invited_by, invited_at = EXCLUDED.invited_at,
 			approved_by = EXCLUDED.approved_by, approved_at = EXCLUDED.approved_at,
 			peer_approved_at = NULL, peer_key_ack = NULL,
 			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL,
 			disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL,
 			down_at = NULL, purged_at = NULL
-	`, remoteServerID, invitedBy, invitedAt, approvedBy, approvedAt.UTC()); err != nil {
+	`, remoteServerID, invitedBy, invitedAt, approvedBy, approvedAt.UTC(), keyID); err != nil {
 		return "", false, fmt.Errorf("insert federation peering: %w", err)
 	}
 
@@ -4555,7 +4551,7 @@ func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string
 	var keyID, baseURL, revokedBy, revokedReason sql.NullString
 	var createdAt, revokedAt sql.NullTime
 	if err := tx.QueryRowContext(ctx, `
-		SELECT s.name, s.key_id, s.base_url, s.frontend_url, s.created_at,
+		SELECT s.name, m.key_id, s.base_url, s.frontend_url, s.created_at,
 			m.revoked_at, m.revoked_by, m.revoked_reason
 		FROM servers s
 		JOIN server_mesh m ON m.server_id = s.id
@@ -4580,15 +4576,15 @@ func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string
 		return fmt.Errorf("purge servers row: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, key_id, base_url, frontend_url, created_at)
-		VALUES ($1, $2, FALSE, $3, $4, $5, $6)
-	`, serverID, name, keyID, baseURL, frontendURL, createdAt); err != nil {
+		INSERT INTO servers (id, name, self, base_url, frontend_url, created_at)
+		VALUES ($1, $2, FALSE, $3, $4, $5)
+	`, serverID, name, baseURL, frontendURL, createdAt); err != nil {
 		return fmt.Errorf("restore server record: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO server_mesh (server_id, connected, revoked_at, revoked_by, revoked_reason, purged_at)
-		VALUES ($1, FALSE, $2, $3, $4, CURRENT_TIMESTAMP)
-	`, serverID, revokedAt, revokedBy, revokedReason); err != nil {
+		INSERT INTO server_mesh (server_id, key_id, connected, revoked_at, revoked_by, revoked_reason, purged_at)
+		VALUES ($1, $5, FALSE, $2, $3, $4, CURRENT_TIMESTAMP)
+	`, serverID, revokedAt, revokedBy, revokedReason, keyID); err != nil {
 		return fmt.Errorf("restore revocation: %w", err)
 	}
 
@@ -10219,7 +10215,7 @@ const peerStreamSQL = `
 // with the record last countersigned for it.
 func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.name, COALESCE(s.key_id, ''), COALESCE(m.approved_at, s.created_at, CURRENT_TIMESTAMP),
+		SELECT s.id, s.name, COALESCE(m.key_id, ''), COALESCE(m.approved_at, s.created_at, CURRENT_TIMESTAMP),
 		       COALESCE(s.base_url, ''), s.frontend_url,
 		       m.revoked_at IS NOT NULL, m.purged_at IS NOT NULL,
 		       m.connected AND m.revoked_at IS NULL AND m.peer_approved_at IS NOT NULL,
@@ -10227,7 +10223,7 @@ func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServ
 		       COALESCE(ss.private_key_id, ''), COALESCE(ss.signature, ''), ss.signed_at
 		FROM servers s
 		JOIN server_mesh m ON m.server_id = s.id
-		LEFT JOIN public_keys pk ON pk.id = s.key_id
+		LEFT JOIN public_keys pk ON pk.id = m.key_id
 		LEFT JOIN server_signatures ss ON ss.id = m.record_signature_id
 		ORDER BY s.name
 	`)
