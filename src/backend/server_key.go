@@ -20,8 +20,7 @@ type mintedServerKey struct {
 	PrivateArmor   string
 	EncryptedArmor string
 	PublicArmor    string
-	SelfSignature  string
-	SignedAt       time.Time
+	CreatedAt      time.Time
 }
 
 // serverKeyRevocation retires a server key in favour of its successor.
@@ -42,8 +41,8 @@ type successorKey struct {
 	Armor string `json:"armor"`
 }
 
-// mintServerKey generates a server key and countersigns its public half with
-// itself, the same payload shape as any user key's countersignature.
+// mintServerKey generates a server key. Nothing countersigns it: trust in
+// it comes from peers pinning it and from its predecessor's handoff.
 func mintServerKey(cryptoSvc *cryptoService, serverID, passphrase string) (*mintedServerKey, error) {
 	keyPair, err := cryptoSvc.createKeyPair(serverID, "", "")
 	if err != nil {
@@ -54,46 +53,31 @@ func mintServerKey(cryptoSvc *cryptoService, serverID, passphrase string) (*mint
 		return nil, fmt.Errorf("encrypt server private key: %w", err)
 	}
 
-	now := time.Now().UTC().Truncate(time.Second)
-	// The key has no owner, so its own ID stands in for the user ID header.
-	keyID := string(canonicalID(serverID, keyPair.Fingerprint))
-	payload := buildPublicKeyPayload(serverID, keyID, keyID, keyPair.Fingerprint, keyPair.PublicKey, now)
-	selfSig, err := cryptoSvc.sign(context.Background(), string(payload), keyPair.PrivateKey)
-	if err != nil {
-		return nil, fmt.Errorf("self-countersign server public key: %w", err)
-	}
-
 	return &mintedServerKey{
-		KeyID:          keyID,
+		KeyID:          string(canonicalID(serverID, keyPair.Fingerprint)),
 		Fingerprint:    keyPair.Fingerprint,
 		PrivateArmor:   keyPair.PrivateKey,
 		EncryptedArmor: encrypted,
 		PublicArmor:    keyPair.PublicKey,
-		SelfSignature:  selfSig,
-		SignedAt:       now,
+		CreatedAt:      time.Now().UTC().Truncate(time.Second),
 	}, nil
 }
 
-// insertServerKeyTx stores a minted key's private half, its public half and
-// its self-countersignature. predecessorKeyID is empty for the first key.
+// insertServerKeyTx stores a minted key's private and public halves.
+// predecessorKeyID is empty for the first key.
 func insertServerKeyTx(ctx context.Context, tx *sql.Tx, k *mintedServerKey, predecessorKeyID string) error {
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO private_keys (id, armor) VALUES ($1, $2)`,
-		k.KeyID, k.EncryptedArmor,
+		`INSERT INTO private_keys (id, armor, created_at) VALUES ($1, $2, $3)`,
+		k.KeyID, k.EncryptedArmor, k.CreatedAt,
 	); err != nil {
 		return fmt.Errorf("insert private key: %w", err)
 	}
 
-	serverSigID, err := insertRecoveryServerSignature(ctx, tx, k.KeyID, k.SelfSignature, k.SignedAt)
-	if err != nil {
-		return fmt.Errorf("insert server key self-signature: %w", err)
-	}
-
 	predecessor := sql.NullString{String: predecessorKeyID, Valid: predecessorKeyID != ""}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO public_keys (id, armor, server_signature_id, predecessor_id)
+		INSERT INTO public_keys (id, armor, created_at, predecessor_id)
 		VALUES ($1, $2, $3, $4)
-	`, k.KeyID, k.PublicArmor, serverSigID, predecessor); err != nil {
+	`, k.KeyID, k.PublicArmor, k.CreatedAt, predecessor); err != nil {
 		return fmt.Errorf("insert public key: %w", err)
 	}
 	return nil
@@ -146,7 +130,7 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 		Successor:   next.KeyID,
 		Compromised: compromised,
 		Reason:      reason,
-		SignedAt:    next.SignedAt,
+		SignedAt:    next.CreatedAt,
 	}
 	payload := string(buildServerKeyRevocationPayload(serverID, rev.KeyID, rev.Successor, rev.Compromised, rev.Reason, rev.SignedAt))
 	if rev.Signature, err = cryptoSvc.sign(ctx, payload, oldPrivate); err != nil {

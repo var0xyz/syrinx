@@ -118,7 +118,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 			armor TEXT NOT NULL,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+			server_signature_id INT UNIQUE REFERENCES server_signatures(id),
 			predecessor_id VARCHAR(255) REFERENCES public_keys(id),
 			restricted BOOLEAN NOT NULL DEFAULT FALSE
 		)`,

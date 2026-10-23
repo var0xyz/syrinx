@@ -305,7 +305,7 @@ func runImportIdentity(infile string) error {
 		return err
 	}
 
-	result, err := importIntoDB(context.Background(), db, cryptoSvc, passphrase.Value, frontendURL, bundle)
+	result, err := importIntoDB(context.Background(), db, frontendURL, bundle)
 	if err != nil {
 		return err
 	}

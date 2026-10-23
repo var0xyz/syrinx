@@ -361,15 +361,15 @@ func InitDB(db *sql.DB) error {
 	);`
 
 	// Unified public key storage — every key this server holds the public
-	// half of. owner FKs to identities for local users, NULL otherwise.
-	// predecessor_id points at the key this one replaced (rotation only).
+	// half of. owner is NULL for non-local keys, server_signature_id only for
+	// our own; predecessor_id is the key this one replaced.
 	createPublicKeysTable := `
 	CREATE TABLE IF NOT EXISTS public_keys (
 		id VARCHAR(255) PRIMARY KEY,
 		owner VARCHAR(255) REFERENCES identities(id) ON DELETE CASCADE,
 		armor TEXT NOT NULL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-		server_signature_id INT NOT NULL UNIQUE REFERENCES server_signatures(id),
+		server_signature_id INT UNIQUE REFERENCES server_signatures(id),
 		predecessor_id VARCHAR(255) REFERENCES public_keys(id),
 		-- Bound by an admin rebind: only good for rotating away from itself.
 		restricted BOOLEAN NOT NULL DEFAULT FALSE

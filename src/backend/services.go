@@ -363,7 +363,7 @@ func (s *DataService) mintFirstServerKey(ctx context.Context, cryptoSvc *cryptoS
 	}
 
 	log.Info().Str("fingerprint", k.Fingerprint).Msg("Generated first server signing key")
-	return &ServerSigningKey{Fingerprint: k.Fingerprint, Armor: k.PrivateArmor, CreatedAt: k.SignedAt}, nil
+	return &ServerSigningKey{Fingerprint: k.Fingerprint, Armor: k.PrivateArmor, CreatedAt: k.CreatedAt}, nil
 }
 
 func (s *DataService) GetServerSigningKeyArmor(ctx context.Context) (string, error) {
@@ -1079,7 +1079,7 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	var key Key
 	var owner sql.NullString
 	var revoked bool
-	var serverSignatureID int64
+	var serverSignatureID sql.NullInt64
 	var predID sql.NullString
 	var serverKeyRevokedAt sql.NullTime
 	var compromised sql.NullBool
@@ -1115,11 +1115,11 @@ func (s *DataService) GetPublicKey(ctx context.Context, id string) (*Key, error)
 	} else if ownerID, ownerServer, _, ok := parseKeyFingerprint(identityID(key.ID)); ok {
 		key.UserID = string(canonicalID(ownerServer, ownerID))
 	}
-	serverSig, err := getServerSignatureWire(ctx, s.db, serverSignatureID)
-	if err != nil {
-		return nil, err
+	if serverSignatureID.Valid {
+		if key.ServerSignature, err = getServerSignatureWire(ctx, s.db, serverSignatureID.Int64); err != nil {
+			return nil, err
+		}
 	}
-	key.ServerSignature = serverSig
 	key.Revoked = revoked
 	if serverKeyRevokedAt.Valid {
 		t := serverKeyRevokedAt.Time.UTC()

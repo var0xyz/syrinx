@@ -45,7 +45,7 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 	}
 
 	targetDB := openRecoveryBundleTestDB(t)
-	result, err := importIntoDB(context.Background(), targetDB, cryptoSvc, passphrase, "https://test.example", bundle)
+	result, err := importIntoDB(context.Background(), targetDB, "https://test.example", bundle)
 	if err != nil {
 		t.Fatalf("importIntoDB: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestRecoveryBundleRoundTrip(t *testing.T) {
 
 	// Re-importing the identical bundle must report recoveryImportAlreadyPresent,
 	// not a mismatch — this is the exact check that was broken.
-	result2, err := importIntoDB(context.Background(), sourceDB, cryptoSvc, passphrase, "https://test.example", bundle)
+	result2, err := importIntoDB(context.Background(), sourceDB, "https://test.example", bundle)
 	if err != nil {
 		t.Fatalf("importIntoDB (already present): %v", err)
 	}

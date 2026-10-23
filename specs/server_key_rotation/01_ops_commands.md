@@ -42,8 +42,8 @@ hand. It refuses without a terminal; a blank answer cancels. Then it calls
 `revokeServerKey`, in one transaction:
 
 1. Decrypt the current key with the server key passphrase.
-2. Mint the successor; countersign its public-key record with **itself**, as
-   the first key is.
+2. Mint the successor. Like the first key, nothing countersigns it: the
+   revocation, signed by both keys, is what hands trust over.
 3. Build the revocation and sign it with both keys.
 4. Store the successor, the revocation and `predecessor_id`; set the old key's
    `revoked_at`; set `server_self.key_id` to the successor.

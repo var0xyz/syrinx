@@ -330,12 +330,9 @@ func identityMatchesBundle(b *recoveryBundle, self recoveryExistingSelf, keys []
 }
 
 // importIntoDB restores identity from bundle into db. Caller must have run
-// InitDB and already validated every key decrypts under passphrase
-// (validateBundleDecrypt) — that same passphrase is used here to produce
-// a fresh self-countersignature for each restored public key, since the
-// original self-signature isn't part of the bundle. On mismatch with an
-// existing self identity, returns an error and writes nothing.
-func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, passphrase, frontendURL string, b *recoveryBundle) (recoveryImportResult, error) {
+// InitDB and validateBundleDecrypt. On mismatch with an existing self
+// identity, returns an error and writes nothing.
+func importIntoDB(ctx context.Context, db *sql.DB, frontendURL string, b *recoveryBundle) (recoveryImportResult, error) {
 	if err := validateBundleShape(b); err != nil {
 		return 0, err
 	}
@@ -376,8 +373,7 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 			revokedAt = k.RevokedAt.UTC()
 		}
 		keyID := k.ID
-		bareFP, _, ok := parseIdentityID(identityID(keyID))
-		if !ok {
+		if _, _, ok := parseIdentityID(identityID(keyID)); !ok {
 			return 0, fmt.Errorf("malformed bundle key id: %s", keyID)
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -387,25 +383,10 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 			return 0, fmt.Errorf("insert private_keys %s: %w", keyID, err)
 		}
 
-		plainPrivate, err := cryptoSvc.decryptPrivateKey(k.PrivateKeyArmor, passphrase)
-		if err != nil {
-			return 0, fmt.Errorf("decrypt private key %s: %w", keyID, err)
-		}
-		selfPayload := buildPublicKeyPayload(
-			b.ServerID, keyID, keyID, bareFP, k.PublicKeyArmor, k.CreatedAt.UTC(),
-		)
-		selfSigArmor, err := cryptoSvc.sign(ctx, string(selfPayload), plainPrivate)
-		if err != nil {
-			return 0, fmt.Errorf("self-countersign restored key %s: %w", keyID, err)
-		}
-		serverSignatureID, err := insertRecoveryServerSignature(ctx, tx, keyID, selfSigArmor, k.CreatedAt.UTC())
-		if err != nil {
-			return 0, fmt.Errorf("insert server signature for %s: %w", keyID, err)
-		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO public_keys (id, armor, created_at, server_signature_id)
-			VALUES ($1, $2, $3, $4)
-		`, keyID, k.PublicKeyArmor, k.CreatedAt.UTC(), serverSignatureID); err != nil {
+			INSERT INTO public_keys (id, armor, created_at)
+			VALUES ($1, $2, $3)
+		`, keyID, k.PublicKeyArmor, k.CreatedAt.UTC()); err != nil {
 			return 0, fmt.Errorf("insert public_keys %s: %w", keyID, err)
 		}
 	}
