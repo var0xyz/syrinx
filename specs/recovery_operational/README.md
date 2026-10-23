@@ -20,7 +20,7 @@ delivery).
 | 03 | `servers` / `server_mesh` / `server_self`; drop established handshakes | Implemented |
 | 04 | Signed peer records in `/server/info`                                 | Proposed    |
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Implemented |
-| 06 | Delivery: `503` suspends; receive-side fixes                          | In progress |
+| 06 | Delivery: `503` suspends; receive-side fixes                          | Implemented |
 | 07 | Recovery reports servers, then users, then reeds, local and foreign   | Proposed    |
 | 08 | Username collision certificate                                        | Proposed    |
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | In progress |
@@ -249,12 +249,14 @@ opening them early costs.
 
 ## 06 — Delivery
 
-**`503` suspends.** A sender that gets `503` from a peer sets that peer's
-`down_at` and stops: events keep being written, nothing is sent. The peer's
-boot notice clears it and delivers everything behind, as it already does
-for reed streams. Every other durable queue (block notices, account
-removals, key revocations) is also retried on a peer's boot notice, not
-only on the sender's own boot.
+**`503` suspends.** A sender that gets a `503` marked
+`X-Syrinx-Recovering: lockdown` from a peer sets that peer's `down_at` and
+stops: events keep being written, nothing is sent. Any other `503` (an
+overloaded or unreachable server) is an ordinary failure, retried as before.
+The peer's boot notice clears `down_at` and delivers everything behind: reed
+streams, block notices, key revocations and account removals. Account
+removals were fire-and-forget; they now wait in `account_removal_peer_notices`
+like block notices until the peer accepts them.
 
 **Receive-side fixes:**
 

@@ -740,6 +740,16 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (server_id, user_id, blocked_user_id)
 	);`
 
+	// A removal of one of our users each peer holding their content is owed,
+	// deleted once the peer accepts.
+	createAccountRemovalPeerNoticesTable := `
+	CREATE TABLE IF NOT EXISTS account_removal_peer_notices (
+		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+
+		PRIMARY KEY (server_id, user_id)
+	);`
+
 	// The block or lift a local blocked user's client is owed for each
 	// pair, at most one, replaced by a later one and deleted on ack.
 	createUserBlockEventsTable := `
@@ -1748,6 +1758,7 @@ func InitDB(db *sql.DB) error {
 		createUserBlocksIndexes,
 		createUserBlockEventsTable,
 		createBlockPeerNoticesTable,
+		createAccountRemovalPeerNoticesTable,
 
 		createUserVouchesTable,
 		createUserVouchesActiveTable,
