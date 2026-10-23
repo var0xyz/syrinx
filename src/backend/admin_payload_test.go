@@ -121,12 +121,21 @@ func TestAdminRevocationServerPayloadCanonicalShape(t *testing.T) {
 }
 
 func TestReedFlagPayloadCanonicalShape(t *testing.T) {
-	createdAt := time.Date(2026, 10, 12, 14, 0, 0, 0, time.UTC)
-	got := buildReedFlagPayload("a9@home1234/r1", "k3@peer5678", "k3@peer5678/4a1e", "Scam link", createdAt)
-	want := `{"createdAt":"2026-10-12T14:00:00Z","keyID":"k3@peer5678/4a1e","note":"Scam link",` +
-		`"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","type":"reed-flag"}`
+	got := buildReedFlagPayload("a9@home1234/r1", "k3@peer5678", "k3@peer5678/4a1e", "Scam link")
+	want := `{"keyID":"k3@peer5678/4a1e","note":"Scam link","reedID":"a9@home1234/r1",` +
+		`"reporterID":"k3@peer5678","type":"reed-flag"}`
 	if string(got) != want {
 		t.Errorf("reed flag payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
+func TestReedFlagServerPayloadCanonicalShape(t *testing.T) {
+	signedAt := time.Date(2026, 10, 12, 14, 0, 0, 0, time.UTC)
+	got := buildReedFlagServerPayload("a9@home1234/r1", "k3@peer5678", "SERVERKEY01", "USERSIG", signedAt)
+	want := `{"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",` +
+		`"signedAt":"2026-10-12T14:00:00Z","type":"reed-flag","userSignature":"USERSIG"}`
+	if string(got) != want {
+		t.Errorf("reed flag server payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 }
 

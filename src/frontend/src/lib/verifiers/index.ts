@@ -52,6 +52,8 @@ import {
   buildUsernameCollisionPayload,
   buildFollowUserPayload,
   buildFollowServerPayload,
+  buildReedFlagPayload,
+  buildReedFlagServerPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -1014,6 +1016,48 @@ export async function verifyOwnBlock(cert: api.BlockCert): Promise<boolean> {
     return false;
   }
   return verifyBlockCert(cert, 'verifyOwnBlock');
+}
+
+/** A flag the viewer raised, countersigned by the flagged reed's server. */
+export async function verifyOwnFlag(flag: api.ReedFlag): Promise<boolean> {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!flag || flag.$typeName !== 'syrinx.ReedFlag' || !flag.signature?.armor || !flag.serverSignature) {
+    console.error('[verifyOwnFlag] missing fields or wrong type', flag?.$typeName);
+    return false;
+  }
+  if (!viewerID || flag.reporterId !== viewerID) {
+    console.error('[verifyOwnFlag] not a flag by the viewer');
+    return false;
+  }
+  const { fingerprint, serverID } = splitServerSignatureId(flag.serverSignature.id);
+  if (serverID !== parseCanonicalId(flag.reedId)?.[1]) {
+    console.error("[verifyOwnFlag] not countersigned by the reed's server");
+    return false;
+  }
+
+  const key = await resolvePublicKey(flag.reporterId, flag.signature.id);
+  if (!key?.armor || key.userId !== flag.reporterId) {
+    console.error('[verifyOwnFlag] no key of the reporter', flag.reporterId);
+    return false;
+  }
+  const userPayload = buildReedFlagPayload(flag.reedId, flag.reporterId, flag.signature.id, flag.note);
+  if (!(await cryptoService.verifySignature(userPayload, flag.signature.armor, key.armor))) {
+    console.error('[verifyOwnFlag] user signature failed', flag.reedId);
+    return false;
+  }
+  const serverPayload = buildReedFlagServerPayload(
+    flag.reedId,
+    flag.reporterId,
+    fingerprint,
+    flag.signature.armor,
+    signedAtHeader(flag.serverSignature.signedAt)
+  );
+  const serverResult = await verify(flag.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyOwnFlag] server signature failed', serverResult);
+    return false;
+  }
+  return true;
 }
 
 const MAX_ACCOUNT_NOTE_LEN = 140;

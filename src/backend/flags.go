@@ -21,54 +21,48 @@ import (
 // maxFlagNoteChars caps a flag's optional note.
 const maxFlagNoteChars = 140
 
-// flagClockSkew bounds how far a flag's signed createdAt may be from the
-// server's clock.
-const flagClockSkew = 5 * time.Minute
-
 // ErrAlreadyFlagged: the reporter already flagged that reed.
 var ErrAlreadyFlagged = errors.New("already flagged")
 
-// reedFlag is a flag as stored and as it travels.
+// reedFlag is a flag as stored and as it travels. ServerSignature is the
+// reed's home server's, empty until it takes the flag.
 type reedFlag struct {
-	ReedID     string
-	AuthorID   string
-	ReporterID string
-	Note       string
-	CreatedAt  time.Time
-	Signature  UserSignature
+	ReedID          string
+	AuthorID        string
+	ReporterID      string
+	Note            string
+	Signature       UserSignature
+	ServerSignature ServerSignature
 }
 
 func reedFlagFromPB(msg *pb.ReedFlag) reedFlag {
 	return reedFlag{
-		ReedID:     strings.TrimSpace(msg.GetReedId()),
-		ReporterID: msg.GetReporterId(),
-		Note:       msg.GetNote(),
-		CreatedAt:  timeFromUnix(msg.GetCreatedAt()),
-		Signature:  UserSignature{ID: msg.GetSignature().GetId(), Armor: msg.GetSignature().GetArmor()},
+		ReedID:          strings.TrimSpace(msg.GetReedId()),
+		ReporterID:      msg.GetReporterId(),
+		Note:            msg.GetNote(),
+		Signature:       UserSignature{ID: msg.GetSignature().GetId(), Armor: msg.GetSignature().GetArmor()},
+		ServerSignature: serverSignatureFromPB(msg.GetServerSignature()),
 	}
 }
 
 func pbReedFlag(f reedFlag) *pb.ReedFlag {
 	return &pb.ReedFlag{
-		ReedId:     f.ReedID,
-		ReporterId: f.ReporterID,
-		Note:       f.Note,
-		CreatedAt:  unixOrZero(f.CreatedAt),
-		Signature:  pbUserSignature(f.Signature),
+		ReedId:          f.ReedID,
+		ReporterId:      f.ReporterID,
+		Note:            f.Note,
+		Signature:       pbUserSignature(f.Signature),
+		ServerSignature: pbServerSignature(f.ServerSignature),
 	}
 }
 
-// checkFlag refuses a flag that isn't well formed: a reed ID, a short note,
-// a fresh timestamp, and a key of the reporter's.
+// checkFlag refuses a flag that isn't well formed: a reed ID, a short note
+// and a key of the reporter's.
 func checkFlag(f reedFlag) error {
 	if _, ok := authorOf(identityID(f.ReedID)); !ok {
 		return refuse(http.StatusBadRequest, "bad_reed_id", "Invalid reed ID")
 	}
 	if countCharacters(f.Note) > maxFlagNoteChars {
 		return refuse(http.StatusBadRequest, "bad_note", "A note can't exceed %d characters", maxFlagNoteChars)
-	}
-	if d := time.Since(f.CreatedAt); d > flagClockSkew || d < -flagClockSkew {
-		return refuse(http.StatusBadRequest, "clock_skew", "createdAt is too far from the server's clock")
 	}
 	owner, serverID, _, ok := parseKeyFingerprint(identityID(f.Signature.ID))
 	if !ok || string(canonicalID(serverID, owner)) != f.ReporterID || f.Signature.Armor == "" {
@@ -77,8 +71,8 @@ func checkFlag(f reedFlag) error {
 	return nil
 }
 
-// StoreFlag stores a verified flag on a reed authored here. The reed's
-// author is read from its identity row.
+// StoreFlag stores a verified, countersigned flag on a reed authored here.
+// The reed's author is read from its identity row.
 func (s *DataService) StoreFlag(ctx context.Context, f reedFlag) error {
 	return withAdminTx(s.db, ctx, func(tx *sql.Tx) error {
 		var authorID string
@@ -106,16 +100,22 @@ func (s *DataService) StoreFlag(ctx context.Context, f reedFlag) error {
 		if flagged {
 			return ErrAlreadyFlagged
 		}
-		sigID, err := insertUserSignature(ctx, tx, f.Signature.ID, f.Signature.Armor)
-		if err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO reed_flags (reed_id, author_id, reporter_id, note, public_key_id, user_signature_id, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, f.ReedID, authorID, f.ReporterID, f.Note, f.Signature.ID, sigID, f.CreatedAt.UTC())
-		return err
+		return insertReedFlagTx(ctx, tx, f, authorID)
 	})
+}
+
+// insertReedFlagTx writes f's row and both its signatures.
+func insertReedFlagTx(ctx context.Context, tx *sql.Tx, f reedFlag, authorID string) error {
+	userSigID, serverSigID, err := insertSignaturesTx(ctx, tx, f.Signature, f.ServerSignature)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO reed_flags (reed_id, author_id, reporter_id, note, public_key_id,
+			user_signature_id, server_signature_id, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, f.ReedID, authorID, f.ReporterID, f.Note, f.Signature.ID, userSigID, serverSigID, f.ServerSignature.SignedAt.UTC())
+	return err
 }
 
 // writeFlagError answers a refused flag, 409 when it was already flagged.
@@ -136,15 +136,28 @@ func (h *Handlers) verifyFlagSignature(ctx context.Context, f reedFlag) error {
 	if key == nil || key.Revoked {
 		return refuse(http.StatusUnauthorized, "bad_key", "Active public key not available")
 	}
-	payload := buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note, f.CreatedAt)
+	payload := buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note)
 	if err := h.services.crypto.verifySignature(ctx, string(payload), f.Signature.Armor, key.Armor); err != nil {
 		return refuse(http.StatusUnauthorized, "bad_signature", "signature verification failed")
 	}
 	return nil
 }
 
-// FlagReed handles POST /flags: a member flags a reed. A flag on a reed
-// from another server goes to that server, the only one whose admins see it.
+// storeFlag countersigns a verified flag on a reed authored here, now, and
+// stores it.
+func (h *Handlers) storeFlag(ctx context.Context, f *reedFlag) error {
+	now := time.Now().UTC().Truncate(time.Second)
+	payload := buildReedFlagServerPayload(f.ReedID, f.ReporterID, h.signingKey.Fingerprint, f.Signature.Armor, now)
+	sig, err := h.countersign(ctx, payload, now)
+	if err != nil {
+		return err
+	}
+	f.ServerSignature = sig
+	return h.services.db.StoreFlag(ctx, *f)
+}
+
+// FlagReed handles POST /flags: a member flags a reed, and gets it back
+// countersigned. A flag on another server's reed goes to that server.
 func (h *Handlers) FlagReed(w http.ResponseWriter, r *http.Request) {
 	callerID, _ := r.Context().Value(userIDKey).(string)
 	if callerID == "" {
@@ -178,15 +191,16 @@ func (h *Handlers) FlagReed(w http.ResponseWriter, r *http.Request) {
 		h.relayFlag(w, r, homeServerID, &msg)
 		return
 	}
-	if err := h.services.db.StoreFlag(r.Context(), f); err != nil {
+	if err := h.storeFlag(r.Context(), &f); err != nil {
 		h.writeFlagError(w, r, err)
 		return
 	}
 	h.metrics.FlagCreated(r.Context(), f.ReporterID, string(author), f.ReedID, metrics.OriginLocal, f.Note != "")
-	w.WriteHeader(http.StatusCreated)
+	writeResponse(w, http.StatusCreated, pbReedFlag(f))
 }
 
-// relayFlag hands a flag to the reed's home server: one call to one peer.
+// relayFlag hands a flag to the reed's home server, one call to one peer,
+// and answers with the flag as that server countersigned it.
 func (h *Handlers) relayFlag(w http.ResponseWriter, r *http.Request, homeServerID string, msg *pb.ReedFlag) {
 	peer, err := h.services.db.GetServerByID(r.Context(), homeServerID)
 	if err != nil {
@@ -197,10 +211,11 @@ func (h *Handlers) relayFlag(w http.ResponseWriter, r *http.Request, homeServerI
 		writeError(w, http.StatusNotFound, "Reed not found")
 		return
 	}
-	status, err := h.callPeerRelayEndpoint(r.Context(), homeServerID, peer.BaseURL, "/api/federation/relay/flag", msg, nil)
+	var countersigned pb.ReedFlag
+	status, err := h.callPeerRelayEndpoint(r.Context(), homeServerID, peer.BaseURL, "/api/federation/relay/flag", msg, &countersigned)
 	switch {
 	case err == nil && status >= 200 && status < 300:
-		w.WriteHeader(http.StatusCreated)
+		writeResponse(w, http.StatusCreated, &countersigned)
 	case status == http.StatusConflict:
 		writeError(w, http.StatusConflict, "already-flagged")
 	case status == http.StatusForbidden || status == http.StatusNotFound:
@@ -239,7 +254,7 @@ func (h *Handlers) FlagFromPeer(w http.ResponseWriter, r *http.Request) {
 		if err := h.services.db.UpsertRemoteIdentity(r.Context(), f.ReporterID, peerServerID); err != nil {
 			return err
 		}
-		return h.services.db.StoreFlag(r.Context(), f)
+		return h.storeFlag(r.Context(), &f)
 	}()
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "flag", err == nil)
 	if err != nil {
@@ -248,7 +263,7 @@ func (h *Handlers) FlagFromPeer(w http.ResponseWriter, r *http.Request) {
 	}
 	author, _ := authorOf(identityID(f.ReedID))
 	h.metrics.FlagCreated(r.Context(), f.ReporterID, string(author), f.ReedID, metrics.OriginPeer, f.Note != "")
-	w.WriteHeader(http.StatusCreated)
+	writeResponse(w, http.StatusCreated, pbReedFlag(f))
 }
 
 // maxDismissalReasonChars caps the reason an admin gives for a dismissal.
@@ -385,8 +400,11 @@ func (s *DataService) loadReedFlags(ctx context.Context, reeds []*flaggedReed) e
 			dismissalID = sql.NullInt64{Int64: fr.Dismissal.ID, Valid: true}
 		}
 		rows, err := s.db.QueryContext(ctx, `
-			SELECT f.reporter_id, f.note, f.created_at, us.public_key_id, us.signature
-			FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id
+			SELECT f.reporter_id, f.note, us.public_key_id, us.signature,
+				ss.private_key_id, ss.signature, ss.signed_at
+			FROM reed_flags f
+			JOIN user_signatures us ON us.id = f.user_signature_id
+			JOIN server_signatures ss ON ss.id = f.server_signature_id
 			WHERE f.reed_id = $1 AND f.dismissal_id IS NOT DISTINCT FROM $2::bigint
 				AND NOT EXISTS (SELECT 1 FROM account_removals ar WHERE ar.user_id = f.reporter_id)
 			ORDER BY f.created_at
@@ -396,11 +414,12 @@ func (s *DataService) loadReedFlags(ctx context.Context, reeds []*flaggedReed) e
 		}
 		for rows.Next() {
 			f := reedFlag{ReedID: fr.ReedID, AuthorID: fr.AuthorID}
-			if err := rows.Scan(&f.ReporterID, &f.Note, &f.CreatedAt, &f.Signature.ID, &f.Signature.Armor); err != nil {
+			if err := rows.Scan(&f.ReporterID, &f.Note, &f.Signature.ID, &f.Signature.Armor,
+				&f.ServerSignature.ID, &f.ServerSignature.Armor, &f.ServerSignature.SignedAt); err != nil {
 				rows.Close()
 				return err
 			}
-			f.CreatedAt = f.CreatedAt.UTC()
+			f.ServerSignature.SignedAt = f.ServerSignature.SignedAt.UTC()
 			fr.Flags = append(fr.Flags, f)
 		}
 		rows.Close()

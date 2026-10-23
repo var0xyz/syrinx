@@ -1599,7 +1599,7 @@ func InitDB(db *sql.DB) error {
 
 	// Signed flags on reeds authored here; reporter_id may be a remote member.
 	// author_id lets visibility be checked without the reed body. created_at
-	// is the timestamp the reporter signed.
+	// is when this server countersigned the flag.
 	createReedFlagsTable := `
 	CREATE TABLE IF NOT EXISTS reed_flags (
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
@@ -1608,6 +1608,7 @@ func InitDB(db *sql.DB) error {
 		note TEXT NOT NULL DEFAULT '',
 		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		created_at TIMESTAMP NOT NULL,
 		dismissal_id BIGINT REFERENCES flag_dismissals(id) ON DELETE CASCADE,
 		PRIMARY KEY (reed_id, reporter_id)

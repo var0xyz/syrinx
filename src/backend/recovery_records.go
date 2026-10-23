@@ -880,8 +880,13 @@ func (r recoveredFlag) restore(ctx context.Context, tx *sql.Tx, env *recoveryRec
 	if author == r.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(r.Note) > maxFlagNoteChars {
 		return refuseRecord("flag on %s isn't one this server takes", r.ReedID)
 	}
-	payload := buildReedFlagPayload(r.ReedID, r.ReporterID, r.Signature.ID, r.Note, r.CreatedAt)
+	payload := buildReedFlagPayload(r.ReedID, r.ReporterID, r.Signature.ID, r.Note)
 	if err := env.signedBy(ctx, tx, r.ReporterID, r.Signature, payload); err != nil {
+		return err
+	}
+	if err := env.countersignedHere(ctx, r.ServerSignature, func(fp string) []byte {
+		return buildReedFlagServerPayload(r.ReedID, r.ReporterID, fp, r.Signature.Armor, r.ServerSignature.SignedAt)
+	}); err != nil {
 		return err
 	}
 	if held, err := existsTx(ctx, tx, `SELECT 1 FROM reed_flags WHERE reed_id = $1 AND reporter_id = $2`, r.ReedID, r.ReporterID); err != nil || held {
@@ -890,15 +895,7 @@ func (r recoveredFlag) restore(ctx context.Context, tx *sql.Tx, env *recoveryRec
 	if err := insertReedIdentityOf(ctx, tx, r.ReedID, env.serverID, author); err != nil {
 		return err
 	}
-	sigID, err := insertUserSignature(ctx, tx, r.Signature.ID, r.Signature.Armor)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO reed_flags (reed_id, author_id, reporter_id, note, public_key_id, user_signature_id, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, r.ReedID, author, r.ReporterID, r.Note, r.Signature.ID, sigID, r.CreatedAt.UTC())
-	return err
+	return insertReedFlagTx(ctx, tx, r.reedFlag, author)
 }
 
 // applyRestoredUserStateTx settles what restored records say about userID

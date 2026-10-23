@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
-import type { AdminRequest, LedgerEntry, UserSignature } from "./common_pb";
+import type { AdminRequest, LedgerEntry, ServerSignature, UserSignature } from "./common_pb";
 import { file_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSKQAQoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoDRIoCglzaWduYXR1cmUYBSABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZSJXCg1GbGFnRGlzbWlzc2FsEgoKAmlkGAEgASgJEhQKDGRpc21pc3NlZF9ieRgCIAEoCRIOCgZyZWFzb24YAyABKAkSFAoMZGlzbWlzc2VkX2F0GAQgASgNIo4BCgtGbGFnZ2VkUmVlZBIXCgdyZWVkX2lkGAEgASgJUgZyZWVkSUQSGwoJYXV0aG9yX2lkGAIgASgJUghhdXRob3JJRBIfCgVmbGFncxgDIAMoCzIQLnN5cmlueC5SZWVkRmxhZxIoCglkaXNtaXNzYWwYBCABKAsyFS5zeXJpbnguRmxhZ0Rpc21pc3NhbCIlChNEaXNtaXNzRmxhZ3NSZXF1ZXN0Eg4KBnJlYXNvbhgBIAEoCSJKCg9GbGFnZ2VkUmVlZExpc3QSIgoFcmVlZHMYASADKAsyEy5zeXJpbnguRmxhZ2dlZFJlZWQSEwoLbmV4dF9jdXJzb3IYAiABKAkiNAoPVXNlclBlcm1pc3Npb25zEgwKBHJvbGUYASABKAkSEwoLcGVybWlzc2lvbnMYAiADKAlCIVofZ2l0aHViLmNvbS92YXIweHl6L3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSKvAQoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSKAoJc2lnbmF0dXJlGAQgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiVwoNRmxhZ0Rpc21pc3NhbBIKCgJpZBgBIAEoCRIUCgxkaXNtaXNzZWRfYnkYAiABKAkSDgoGcmVhc29uGAMgASgJEhQKDGRpc21pc3NlZF9hdBgEIAEoDSKOAQoLRmxhZ2dlZFJlZWQSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEhsKCWF1dGhvcl9pZBgCIAEoCVIIYXV0aG9ySUQSHwoFZmxhZ3MYAyADKAsyEC5zeXJpbnguUmVlZEZsYWcSKAoJZGlzbWlzc2FsGAQgASgLMhUuc3lyaW54LkZsYWdEaXNtaXNzYWwiJQoTRGlzbWlzc0ZsYWdzUmVxdWVzdBIOCgZyZWFzb24YASABKAkiSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJIjQKD1VzZXJQZXJtaXNzaW9ucxIMCgRyb2xlGAEgASgJEhMKC3Blcm1pc3Npb25zGAIgAygJQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -134,7 +134,7 @@ export const InviteTreeSchema: GenMessage<InviteTree> = /*@__PURE__*/
 
 /**
  * A member's signed flag on a reed. POST /api/flags and the peer relay
- * both carry it.
+ * both carry it, and answer with it countersigned by the reed's server.
  *
  * @generated from message syrinx.ReedFlag
  */
@@ -155,14 +155,14 @@ export type ReedFlag = Message<"syrinx.ReedFlag"> & {
   note: string;
 
   /**
-   * @generated from field: uint32 created_at = 4;
-   */
-  createdAt: number;
-
-  /**
-   * @generated from field: syrinx.UserSignature signature = 5;
+   * @generated from field: syrinx.UserSignature signature = 4;
    */
   signature?: UserSignature | undefined;
+
+  /**
+   * @generated from field: syrinx.ServerSignature server_signature = 5;
+   */
+  serverSignature?: ServerSignature | undefined;
 };
 
 /**

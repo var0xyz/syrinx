@@ -105,13 +105,20 @@ assert.equal(
 
 console.log('admin revocation payload parity: ok');
 
-const { buildReedFlagPayload } = await import('../src/lib/services/signing.ts');
+const { buildReedFlagPayload, buildReedFlagServerPayload } = await import('../src/lib/services/signing.ts');
 
 assert.equal(
-  buildReedFlagPayload('a9@home1234/r1', 'k3@peer5678', 'k3@peer5678/4a1e', 'Scam link', '2026-10-12T14:00:00Z'),
-  '{"createdAt":"2026-10-12T14:00:00Z","keyID":"k3@peer5678/4a1e","note":"Scam link",' +
-    '"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","type":"reed-flag"}',
+  buildReedFlagPayload('a9@home1234/r1', 'k3@peer5678', 'k3@peer5678/4a1e', 'Scam link'),
+  '{"keyID":"k3@peer5678/4a1e","note":"Scam link","reedID":"a9@home1234/r1",' +
+    '"reporterID":"k3@peer5678","type":"reed-flag"}',
   'reed flag payload'
+);
+
+assert.equal(
+  buildReedFlagServerPayload('a9@home1234/r1', 'k3@peer5678', 'SERVERKEY01', 'USERSIG', '2026-10-12T14:00:00Z'),
+  '{"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-12T14:00:00Z","type":"reed-flag","userSignature":"USERSIG"}',
+  'reed flag server payload'
 );
 
 console.log('flag payload parity: ok');

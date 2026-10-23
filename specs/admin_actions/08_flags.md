@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS reed_flags (
   note        TEXT NOT NULL DEFAULT '',  -- ≤ 140 characters, checked by the API
   public_key_id     VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
   user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-  created_at  TIMESTAMP NOT NULL,   -- the timestamp the reporter signed
+  server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+  created_at  TIMESTAMP NOT NULL,   -- when this server countersigned it
   dismissal_id BIGINT REFERENCES flag_dismissals(id) ON DELETE CASCADE,
   PRIMARY KEY (reed_id, reporter_id)
 );
@@ -54,7 +55,8 @@ CREATE INDEX IF NOT EXISTS idx_reed_flags_open ON reed_flags (created_at)
 - One flag per reporter per reed. Flagging the same reed again is refused
   with `409 {"error":"already-flagged"}`.
 - The reporter's signature is stored, so an admin can verify a flag
-  themselves instead of trusting the server.
+  themselves instead of trusting the server. So is the home server's
+  countersignature, whose timestamp is the flag's time.
 - `author_id` is stored so visibility can be checked without the reed body.
   The server knows the author from reed metadata.
 - Only reeds authored on this server have rows here. `reporter_id` may be a
@@ -69,9 +71,16 @@ CREATE INDEX IF NOT EXISTS idx_reed_flags_open ON reed_flags (created_at)
 | `GET /api/admin/flags?state=open\|dismissed` | Admin or root | Open flags, or past dismissals with the flags each closed, newest first, filtered by visibility, keyset cursor |
 | `POST /api/admin/flags/{reedID}/dismiss` | Admin or root, if they can see it | Dismiss every open flag on that reed `{reason}` (1 to 140 characters, required) |
 
-The reporter signs the flag (`reedID`, `note`, reporter ID, timestamp), so
+The reporter signs the flag (`reedID`, `note`, reporter ID, key ID), so
 the home server can check a relayed flag against the reporter's key instead
 of trusting the relaying server. One flag is one relay call to one peer.
+
+The home server countersigns a flag it takes (`buildReedFlagServerPayload`:
+the reed, the reporter, its key's fingerprint, the reporter's signature and
+the time), and answers with the countersigned flag, relayed back unchanged.
+The reporter's device keeps it, so a rebuilt server gets it back, checked
+against its own key like any other record. A flag refused as already raised
+comes back without one, and the device has nothing to report for it.
 
 Refused by the home server when flagging:
 

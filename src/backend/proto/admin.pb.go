@@ -268,16 +268,16 @@ func (x *InviteTree) GetNodes() []*InviteTreeNode {
 }
 
 // A member's signed flag on a reed. POST /api/flags and the peer relay
-// both carry it.
+// both carry it, and answer with it countersigned by the reed's server.
 type ReedFlag struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
-	ReporterId    string                 `protobuf:"bytes,2,opt,name=reporter_id,json=reporterID,proto3" json:"reporter_id,omitempty"`
-	Note          string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
-	CreatedAt     uint32                 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Signature     *UserSignature         `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ReedId          string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
+	ReporterId      string                 `protobuf:"bytes,2,opt,name=reporter_id,json=reporterID,proto3" json:"reporter_id,omitempty"`
+	Note            string                 `protobuf:"bytes,3,opt,name=note,proto3" json:"note,omitempty"`
+	Signature       *UserSignature         `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ReedFlag) Reset() {
@@ -331,16 +331,16 @@ func (x *ReedFlag) GetNote() string {
 	return ""
 }
 
-func (x *ReedFlag) GetCreatedAt() uint32 {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return 0
-}
-
 func (x *ReedFlag) GetSignature() *UserSignature {
 	if x != nil {
 		return x.Signature
+	}
+	return nil
+}
+
+func (x *ReedFlag) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
 	}
 	return nil
 }
@@ -659,15 +659,14 @@ const file_admin_proto_rawDesc = "" +
 	"\aremoved\x18\a \x01(\bR\aremoved\":\n" +
 	"\n" +
 	"InviteTree\x12,\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"\xac\x01\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"\xd1\x01\n" +
 	"\bReedFlag\x12\x17\n" +
 	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1f\n" +
 	"\vreporter_id\x18\x02 \x01(\tR\n" +
 	"reporterID\x12\x12\n" +
-	"\x04note\x18\x03 \x01(\tR\x04note\x12\x1d\n" +
-	"\n" +
-	"created_at\x18\x04 \x01(\rR\tcreatedAt\x123\n" +
-	"\tsignature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"}\n" +
+	"\x04note\x18\x03 \x01(\tR\x04note\x123\n" +
+	"\tsignature\x18\x04 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\x12B\n" +
+	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"}\n" +
 	"\rFlagDismissal\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fdismissed_by\x18\x02 \x01(\tR\vdismissedBy\x12\x16\n" +
@@ -715,6 +714,7 @@ var file_admin_proto_goTypes = []any{
 	(*AdminRequest)(nil),        // 10: syrinx.AdminRequest
 	(*LedgerEntry)(nil),         // 11: syrinx.LedgerEntry
 	(*UserSignature)(nil),       // 12: syrinx.UserSignature
+	(*ServerSignature)(nil),     // 13: syrinx.ServerSignature
 }
 var file_admin_proto_depIdxs = []int32{
 	10, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
@@ -722,14 +722,15 @@ var file_admin_proto_depIdxs = []int32{
 	11, // 2: syrinx.LedgerPage.tail:type_name -> syrinx.LedgerEntry
 	2,  // 3: syrinx.InviteTree.nodes:type_name -> syrinx.InviteTreeNode
 	12, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
-	4,  // 5: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
-	5,  // 6: syrinx.FlaggedReed.dismissal:type_name -> syrinx.FlagDismissal
-	6,  // 7: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
-	8,  // [8:8] is the sub-list for method output_type
-	8,  // [8:8] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	13, // 5: syrinx.ReedFlag.server_signature:type_name -> syrinx.ServerSignature
+	4,  // 6: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
+	5,  // 7: syrinx.FlaggedReed.dismissal:type_name -> syrinx.FlagDismissal
+	6,  // 8: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
+	9,  // [9:9] is the sub-list for method output_type
+	9,  // [9:9] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_admin_proto_init() }
