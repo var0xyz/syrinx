@@ -121,6 +121,35 @@ assert.equal(
   'reed flag server payload'
 );
 
+const { buildFlagDismissalPayload, buildFlagDismissalServerPayload, buildAdminRequestOpenedPayload } = await import(
+  '../src/lib/services/signing.ts'
+);
+
+assert.equal(
+  buildFlagDismissalPayload('01900000-0000-7000-8000-000000000001', 'a9@home1234/r1', 'Not a scam', 'a2@home1234/K2', [
+    'k3@peer5678',
+    'u1@home1234',
+  ]),
+  '{"dismissalID":"01900000-0000-7000-8000-000000000001","keyID":"a2@home1234/K2","reason":"Not a scam",' +
+    '"reedID":"a9@home1234/r1","reporters":["k3@peer5678","u1@home1234"],"type":"flag-dismissal"}',
+  'flag dismissal payload'
+);
+
+assert.equal(
+  buildFlagDismissalServerPayload('01900000-0000-7000-8000-000000000001', 'a9@home1234/r1', 'SERVERKEY01', 'USERSIG', '2026-10-12T15:00:00Z'),
+  '{"dismissalID":"01900000-0000-7000-8000-000000000001","reedID":"a9@home1234/r1","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-12T15:00:00Z","type":"flag-dismissal","userSignature":"USERSIG"}',
+  'flag dismissal server payload'
+);
+
+assert.equal(
+  buildAdminRequestOpenedPayload('5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50', 'REQSIG', 'home1234', 'SERVERKEY01', '2026-10-12T10:00:00Z'),
+  '{"requestID":"5f0c8a52-4c4e-4b8e-9a51-0f1c2d3e4f50","requestSignature":"REQSIG",' +
+    '"serverID":"home1234","serverKeyFingerprint":"SERVERKEY01","signedAt":"2026-10-12T10:00:00Z",' +
+    '"type":"admin-request-opened"}',
+  'admin request opened payload'
+);
+
 console.log('flag payload parity: ok');
 
 assert.equal(

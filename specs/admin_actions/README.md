@@ -28,6 +28,7 @@ when schema changes.
 | [09](09_broadcasts.md) | Broadcasts and private messages              | 01, 02                      |
 | [10](10_admin_spa.md) | Admin SPA                                    | 01–09                       |
 | [11](11_admins_mention.md) | The @admins mention                     | 09                          |
+| [12](12_admin_records.md) | Admin records on admins' devices          | 01, 08                      |
 
 ---
 
@@ -39,6 +40,7 @@ when schema changes.
 | ----- | ------------------------ |
 | 00    | Implemented              |
 | 01–11 | Implemented              |
+| 12    | Implemented              |
 
 ## Locked decisions
 

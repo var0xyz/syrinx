@@ -656,16 +656,22 @@ var recoveryRestoredTables = map[string]string{
 	"ledger_entry_targets": `SELECT entry_id, user_id FROM ledger_entry_targets`,
 	"admin_requests": `SELECT r.id, r.action, r.requester_id, r.requester_key_id, us.signature, oss.signature, oss.signed_at,
 		COALESCE(r.reason, ''), r.created_at, r.state, COALESCE(r.closed_by, ''), COALESCE(r.closer_key_id, ''),
-		COALESCE(cus.signature, ''), ss.signature, r.closed_at
+		COALESCE(cus.signature, ''), COALESCE(ss.signature, ''), COALESCE(r.closed_at::TEXT, '')
 		FROM admin_requests r JOIN user_signatures us ON us.id = r.requester_signature_id
 		JOIN server_signatures oss ON oss.id = r.requester_server_signature_id
 		LEFT JOIN user_signatures cus ON cus.id = r.closer_signature_id
-		JOIN server_signatures ss ON ss.id = r.server_signature_id`,
+		LEFT JOIN server_signatures ss ON ss.id = r.server_signature_id`,
 	"admin_request_targets": `SELECT request_id, user_id, dropped FROM admin_request_targets`,
 	"admin_request_content": `SELECT request_id, body FROM admin_request_content`,
-	"reed_flags": `SELECT f.reed_id, f.author_id, f.reporter_id, f.note, f.public_key_id, us.signature, ss.signature, f.created_at
+	"reed_flags": `SELECT f.reed_id, f.author_id, f.reporter_id, f.note, f.public_key_id, us.signature, ss.signature, f.created_at,
+		COALESCE(f.dismissal_id, '')
 		FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id
 		JOIN server_signatures ss ON ss.id = f.server_signature_id`,
+	"flag_dismissal_reporters": `SELECT dismissal_id, reporter_id FROM flag_dismissal_reporters`,
+	"flag_dismissals": `SELECT d.id, d.reed_id, d.author_id, COALESCE(d.dismissed_by, ''), d.reason, d.public_key_id,
+		us.signature, ss.signature, d.dismissed_at
+		FROM flag_dismissals d JOIN user_signatures us ON us.id = d.user_signature_id
+		JOIN server_signatures ss ON ss.id = d.server_signature_id`,
 	"pinned_reeds":   `SELECT user_id, reed_id FROM pinned_reeds`,
 	"user_following": `SELECT user_id, following_user_id FROM user_following`,
 	"user_followers": `SELECT user_id, follower_user_id FROM user_followers`,
@@ -681,9 +687,9 @@ var recoveryRestoredTables = map[string]string{
 		AND user_id NOT IN (SELECT user_id FROM account_removals)`,
 }
 
-// recoveryScenario is a live server with history worth rebuilding: admins
-// and their requests, an invite, a key rotation, replies, an echo,
-// mentions, threads, removals, likes, a block, vouches, a flag and pins.
+// recoveryScenario is a live server with history worth rebuilding: admins,
+// requests, an invite, a key rotation, replies, an echo, mentions, threads,
+// removals, likes, a block, vouches, flags, a dismissal and pins.
 type recoveryScenario struct {
 	a        *e2eServer
 	root     *e2eUser
@@ -752,6 +758,7 @@ func newRecoveryScenario(t *testing.T) recoveryScenario {
 	a.decide(t, dave, kick, adminDecisionApprove)
 	rejected := a.adminRequest(t, dave, adminActionSuspend, "Not sure", "", carol)
 	a.decide(t, root, rejected, adminDecisionReject)
+	a.adminRequest(t, dave, adminActionSuspend, "Still deciding", "", carol)
 
 	a.removeReed(t, bob, gone)
 	a.removeThread(t, alice, removedThread)
@@ -762,7 +769,8 @@ func newRecoveryScenario(t *testing.T) recoveryScenario {
 	a.vouch(t, bob, alice)
 	a.vouch(t, carol, alice)
 	a.withdrawVouch(t, carol, alice)
-	flags := []*pb.ReedFlag{a.flag(t, bob, echo)}
+	flags := []*pb.ReedFlag{a.flag(t, bob, echo), a.flag(t, carol, first)}
+	a.dismiss(t, dave, first, "Fine as it is")
 	a.pin(t, alice, first)
 
 	for _, u := range everyone {

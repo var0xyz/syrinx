@@ -7,6 +7,7 @@ import { removedAccountsRepository } from '$lib/repositories/removedAccounts';
 import { reedsService } from '$lib/repositories/reeds';
 import { userRepository } from '$lib/repositories/user';
 import { userListsRepository } from '$lib/repositories/userLists';
+import { flagsRepository } from '$lib/repositories/flags';
 import { dbService } from './db';
 import { verifyAccountRemoval } from '$lib/verifiers';
 import { get, writable } from 'svelte/store';
@@ -23,11 +24,8 @@ export { verifyAccountRemoval };
  * it's showing just became a tombstone. */
 export const accountRemovalCommitted = writable(0);
 
-/**
- * Peer purge set: drop profile/reeds/follows; keep public keys;
- * store cert for tombstone note. Verification runs inside
- * `removedAccountsRepository.put`.
- */
+/** Peer purge set: drop profile, reeds, follows and flags; keep public keys
+ * and the cert for the tombstone. `removedAccountsRepository.put` verifies. */
 export async function commitAccountRemovalLocally(cert: api.AccountRemoval): Promise<void> {
   await removedAccountsRepository.put(cert);
   await reedsService.deleteReedsByAuthor(cert.userId);
@@ -36,6 +34,7 @@ export async function commitAccountRemovalLocally(cert: api.AccountRemoval): Pro
   await dbService.delete('pendingFollows', cert.userId);
   await dbService.delete('unfollow', cert.userId);
   await userRepository.writeTombstone(cert.userId);
+  await flagsRepository.removeReporter(cert.userId);
 }
 
 export async function verifyAndCommitAccountRemoval(

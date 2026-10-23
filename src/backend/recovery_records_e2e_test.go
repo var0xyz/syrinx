@@ -218,6 +218,17 @@ func (s *e2eServer) flag(t *testing.T, u *e2eUser, reedID string) *pb.ReedFlag {
 	return &countersigned
 }
 
+// dismiss has admin dismiss every open flag on reedID.
+func (s *e2eServer) dismiss(t *testing.T, admin *e2eUser, reedID, reason string) {
+	t.Helper()
+	reporters := queryRows(t, s.db, `SELECT reporter_id FROM reed_flags WHERE reed_id = '`+reedID+`' AND dismissal_id IS NULL ORDER BY reporter_id`)
+	id := uuid.Must(uuid.NewV7()).String()
+	sig := s.sign(t, admin, buildFlagDismissalPayload(id, reedID, reason, admin.keyID, reporters))
+	msg := &pb.DismissFlagsRequest{Id: id, Reason: reason, Reporters: reporters, Signature: &pb.UserSignature{Id: admin.keyID, Armor: sig}}
+	vars := map[string]string{"reedID": reedID}
+	expectStatus(t, "dismiss", s.authed(t, admin, http.MethodPost, "/api/admin/flags/"+reedID+"/dismiss", msg, vars, s.h.DismissFlags), http.StatusOK)
+}
+
 func (s *e2eServer) pin(t *testing.T, u *e2eUser, reedID string) {
 	t.Helper()
 	vars := map[string]string{"reedID": reedID}
@@ -244,7 +255,12 @@ func (s *e2eServer) heldRecords(t *testing.T, u *e2eUser, flags []*pb.ReedFlag) 
 		}
 		add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_LedgerEntry{LedgerEntry: pbLedgerEntry(entry)}})
 	}
-	for _, id := range queryRows(t, s.db, `SELECT id FROM admin_requests WHERE state <> 'pending'`) {
+	admin := len(queryRows(t, s.db, `SELECT 1 FROM users WHERE id = '`+u.id+`' AND role IN ('admin', 'root')`)) > 0
+	held := `SELECT id FROM admin_requests WHERE state <> 'pending'`
+	if admin {
+		held = `SELECT id FROM admin_requests`
+	}
+	for _, id := range queryRows(t, s.db, held) {
 		req, err := ds.GetAdminRequest(ctx, id)
 		if err != nil || req == nil {
 			t.Fatalf("admin request %s: %v", id, err)
@@ -303,6 +319,23 @@ func (s *e2eServer) heldRecords(t *testing.T, u *e2eUser, flags []*pb.ReedFlag) 
 	for _, f := range flags {
 		if f.GetReporterId() == u.id {
 			add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_Flag{Flag: f}})
+		}
+	}
+	if !admin {
+		return out
+	}
+	for _, list := range []func(context.Context, string, string, int) ([]*flaggedReed, string, error){ds.ListOpenFlags, ds.ListDismissedFlags} {
+		reeds, _, err := list(ctx, u.id, "", 1000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, fr := range reeds {
+			for i := range fr.Flags {
+				add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_Flag{Flag: pbReedFlag(fr.Flags[i])}})
+			}
+			if fr.Dismissal != nil {
+				add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_FlagDismissal{FlagDismissal: pbFlagDismissal(fr.Dismissal)}})
+			}
 		}
 	}
 	return out

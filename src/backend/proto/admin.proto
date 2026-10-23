@@ -46,16 +46,21 @@ message ReedFlag {
   ServerSignature server_signature = 5;
 }
 
-// An admin closing a reed's open flags. dismissed_by is unset once their
-// account is gone.
+// An admin closing the open flags reporters raised on a reed, signed by
+// them and countersigned by the server. reporters is sorted. dismissed_by
+// is unset once their account is gone.
 message FlagDismissal {
   string id = 1;
-  string dismissed_by = 2;
-  string reason = 3;
-  uint32 dismissed_at = 4;
+  string reed_id = 2 [json_name = "reedID"];
+  string dismissed_by = 3;
+  string reason = 4;
+  repeated string reporters = 5;
+  UserSignature signature = 6;
+  ServerSignature server_signature = 7;
 }
 
-// A reed with flags, for admins: open ones, or the ones a dismissal closed.
+// A reed with flags, for admins: its open ones, or the ones a dismissal
+// closed, with it.
 message FlaggedReed {
   string reed_id = 1 [json_name = "reedID"];
   string author_id = 2 [json_name = "authorID"];
@@ -63,9 +68,13 @@ message FlaggedReed {
   FlagDismissal dismissal = 4;
 }
 
-// POST /admin/flags/{reedID}/dismiss.
+// POST /admin/flags/{reedID}/dismiss: the admin's signed dismissal of the
+// open flags reporters raised.
 message DismissFlagsRequest {
-  string reason = 1;
+  string id = 1;
+  string reason = 2;
+  repeated string reporters = 3;
+  UserSignature signature = 4;
 }
 
 message FlaggedReedList {

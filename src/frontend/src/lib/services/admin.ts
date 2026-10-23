@@ -2,10 +2,13 @@ import { writable } from 'svelte/store';
 import { apiService } from './api';
 import { authService } from './auth';
 import { requestSigner } from './request-signer';
-import { buildAdminDecisionPayload, buildAdminRequestPayload } from './signing';
+import { buildAdminDecisionPayload, buildAdminRequestPayload, buildFlagDismissalPayload } from './signing';
+import { generateDismissalId } from '$lib/utils/id';
 import { signedAtHeader } from './verify';
 import type * as api from '$lib/types/api';
+import type { AdminRecordMessage } from '$lib/proto/websocket_pb';
 import { adminRequestsRepository } from '$lib/repositories/adminRequests';
+import { flagsRepository } from '$lib/repositories/flags';
 
 export type AdminAction =
   | 'suspend'
@@ -39,6 +42,9 @@ export function isMailRequest(r: { action: string }): boolean {
 /** Bumped whenever a request is opened or decided here. */
 export const adminRequestsChanged = writable(0);
 
+/** Bumped whenever an admin record is stored or the admin stores cleared. */
+export const adminRecordsChanged = writable(0);
+
 function signer(): { userID: string; keyID: string } {
   const userID = localStorage.getItem('userId');
   const keyID = authService.getActiveKeyId();
@@ -70,6 +76,7 @@ export async function openAdminRequest(
     createdAt,
     requesterSignature: { id: keyID, armor },
   });
+  await adminRequestsRepository.put(req).catch((err) => console.error('Failed to store an opened request:', err));
   adminRequestsChanged.update((n) => n + 1);
   return req;
 }
@@ -89,69 +96,141 @@ export async function decideAdminRequest(
     signature: { id: keyID, armor },
   });
   await adminRequestsRepository.put(closed).catch((err) => console.error('Failed to store a closed request:', err));
+  adminRecordsChanged.update((n) => n + 1);
   adminRequestsChanged.update((n) => n + 1);
   return closed;
 }
 
-const PENDING_SEEN_KEY = 'adminPendingSeen';
-
-function loadPendingSeen(): string[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PENDING_SEEN_KEY) ?? '[]');
-    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
-  } catch {
-    return [];
+/** Stores a record pushed over the WebSocket. */
+export async function storeAdminRecord(rec: AdminRecordMessage): Promise<void> {
+  const r = rec.record;
+  if (r.case === 'request') {
+    await adminRequestsRepository.put(r.value);
+  } else if (r.case === 'flag' || r.case === 'dismissal') {
+    await (r.case === 'flag' ? flagsRepository.putFlag(r.value) : flagsRepository.putDismissal(r.value));
+    await flagsRepository.settleCase(r.value.reedId);
+  } else {
+    return;
   }
+  adminRecordsChanged.update((n) => n + 1);
 }
 
-function savePendingSeen(ids: string[]): void {
-  try {
-    localStorage.setItem(PENDING_SEEN_KEY, JSON.stringify(ids));
-  } catch {
-    // best-effort persistence only
-  }
+/** Deletes every admin record this device holds. */
+export async function clearAdminRecords(): Promise<void> {
+  await adminRequestsRepository.clear();
+  await flagsRepository.clearAdminCopies();
+  adminRecordsChanged.update((n) => n + 1);
 }
 
-async function storeClosed(req: api.AdminRequest): Promise<boolean> {
-  if (req.state === 'pending' || (await adminRequestsRepository.has(req.id))) return false;
+async function stored(put: () => Promise<boolean | void>, what: string): Promise<boolean> {
   try {
-    await adminRequestsRepository.put(req);
-    return true;
+    return (await put()) !== false;
   } catch (err) {
-    console.error('Failed to store a closed request:', req.id, err);
+    console.error('Failed to store', what, err);
     return false;
   }
 }
 
-/** Stores the closed requests this device lacks, given the open ones the
- * server just listed. Pages back until a page holds nothing new, then
- * fetches any request seen open last time that has since closed further
- * back. Returns whether anything was stored. */
-export async function syncClosedAdminRequests(pendingIDs: string[]): Promise<boolean> {
-  let stored = false;
+/** Every page of a listing, in order. */
+async function allPages<T>(page: (cursor: string) => Promise<{ items: T[]; next: string }>): Promise<T[]> {
+  const out: T[] = [];
   let cursor = '';
   do {
-    const page = await apiService.listAdminRequests('closed', cursor);
-    let fresh = false;
-    for (const req of page.requests) {
-      if (await storeClosed(req)) fresh = stored = true;
-    }
-    cursor = fresh ? page.nextCursor : '';
+    const p = await page(cursor);
+    out.push(...p.items);
+    cursor = p.next;
   } while (cursor);
+  return out;
+}
 
-  const open = new Set(pendingIDs);
-  const retry: string[] = [];
-  for (const id of loadPendingSeen()) {
-    if (open.has(id) || (await adminRequestsRepository.has(id))) continue;
+/** Pages back until a page holds nothing new. */
+async function pagesUntilKnown<T>(
+  page: (cursor: string) => Promise<{ items: T[]; next: string }>,
+  store: (item: T) => Promise<boolean>
+): Promise<void> {
+  let cursor = '';
+  do {
+    const p = await page(cursor);
+    let fresh = false;
+    for (const item of p.items) if (await store(item)) fresh = true;
+    cursor = fresh ? p.next : '';
+  } while (cursor);
+}
+
+async function syncAdminRecordsNow(): Promise<void> {
+  const { role } = await myPermissions();
+  if (role !== 'admin' && role !== 'root') {
+    await clearAdminRecords();
+    return;
+  }
+
+  const requests = (state: 'pending' | 'closed') => (cursor: string) =>
+    apiService.listAdminRequests(state, cursor).then((p) => ({ items: p.requests, next: p.nextCursor }));
+  const open = await allPages(requests('pending'));
+  for (const req of open) await stored(() => adminRequestsRepository.put(req), `request ${req.id}`);
+  await pagesUntilKnown(
+    requests('closed'),
+    (req) => stored(() => adminRequestsRepository.put(req), `request ${req.id}`)
+  );
+  // A request held pending that's no longer open closed further back.
+  const openIDs = new Set(open.map((r) => r.id));
+  for (const held of await adminRequestsRepository.getAll()) {
+    if (held.state !== 'pending' || openIDs.has(held.id)) continue;
     try {
-      if (await storeClosed(await apiService.getAdminRequest(id))) stored = true;
+      await adminRequestsRepository.put(await apiService.getAdminRequest(held.id));
     } catch (err) {
-      console.error('Failed to fetch a closed request:', id, err);
-      retry.push(id);
+      console.error('Failed to fetch a closed request:', held.id, err);
     }
   }
-  savePendingSeen([...pendingIDs, ...retry]);
-  return stored;
+
+  // A removed reporter's flags go when their account removal arrives.
+  const touched = new Set<string>();
+  const flagged = await allPages((c) => apiService.listFlags('open', c).then((p) => ({ items: p.reeds, next: p.nextCursor })));
+  for (const fr of flagged) {
+    touched.add(fr.reedId);
+    for (const f of fr.flags) await stored(() => flagsRepository.putFlag(f), `flag on ${f.reedId}`);
+  }
+  await pagesUntilKnown(
+    (c) => apiService.listFlags('dismissed', c).then((p) => ({ items: p.reeds, next: p.nextCursor })),
+    async (fr) => {
+      const d = fr.dismissal;
+      if (!d || (await flagsRepository.hasDismissal(d.id))) return false;
+      touched.add(fr.reedId);
+      for (const f of fr.flags) await stored(() => flagsRepository.putFlag(f), `flag on ${f.reedId}`);
+      return stored(() => flagsRepository.putDismissal(d), `dismissal ${d.id}`);
+    }
+  );
+  for (const reedId of touched) await flagsRepository.settleCase(reedId);
+  adminRecordsChanged.update((n) => n + 1);
+}
+
+let syncing: Promise<void> | null = null;
+
+/** Catches this device up on the admin records it may see, backfilling a
+ * new admin, or deletes them once the viewer isn't an admin or root. */
+export function syncAdminRecords(): Promise<void> {
+  syncing ??= syncAdminRecordsNow()
+    .catch((err) => console.error('Admin record sync failed:', err))
+    .finally(() => (syncing = null));
+  return syncing;
+}
+
+/** Signs and sends a dismissal of the open flags shown on reedID, and
+ * keeps the countersigned dismissal. */
+export async function dismissFlags(reedID: string, reason: string, flags: api.ReedFlag[]): Promise<api.FlagDismissal> {
+  const { keyID } = signer();
+  const id = generateDismissalId();
+  const reporters = flags.map((f) => f.reporterId).sort();
+  const armor = await requestSigner.sign(buildFlagDismissalPayload(id, reedID, reason, keyID, reporters));
+  const dismissal = await apiService.dismissFlags(reedID, { id, reason, reporters, signature: { id: keyID, armor } });
+  try {
+    await flagsRepository.putDismissal(dismissal);
+    await flagsRepository.settleCase(reedID);
+  } catch (err) {
+    console.error('Failed to store a dismissal:', err);
+  }
+  adminRecordsChanged.update((n) => n + 1);
+  return dismissal;
 }
 
 /** The viewer's role and permissions. */

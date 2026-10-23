@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSKvAQoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSKAoJc2lnbmF0dXJlGAQgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiVwoNRmxhZ0Rpc21pc3NhbBIKCgJpZBgBIAEoCRIUCgxkaXNtaXNzZWRfYnkYAiABKAkSDgoGcmVhc29uGAMgASgJEhQKDGRpc21pc3NlZF9hdBgEIAEoDSKOAQoLRmxhZ2dlZFJlZWQSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEhsKCWF1dGhvcl9pZBgCIAEoCVIIYXV0aG9ySUQSHwoFZmxhZ3MYAyADKAsyEC5zeXJpbnguUmVlZEZsYWcSKAoJZGlzbWlzc2FsGAQgASgLMhUuc3lyaW54LkZsYWdEaXNtaXNzYWwiJQoTRGlzbWlzc0ZsYWdzUmVxdWVzdBIOCgZyZWFzb24YASABKAkiSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJIjQKD1VzZXJQZXJtaXNzaW9ucxIMCgRyb2xlGAEgASgJEhMKC3Blcm1pc3Npb25zGAIgAygJQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSKvAQoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSKAoJc2lnbmF0dXJlGAQgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUiygEKDUZsYWdEaXNtaXNzYWwSCgoCaWQYASABKAkSFwoHcmVlZF9pZBgCIAEoCVIGcmVlZElEEhQKDGRpc21pc3NlZF9ieRgDIAEoCRIOCgZyZWFzb24YBCABKAkSEQoJcmVwb3J0ZXJzGAUgAygJEigKCXNpZ25hdHVyZRgGIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYByABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIo4BCgtGbGFnZ2VkUmVlZBIXCgdyZWVkX2lkGAEgASgJUgZyZWVkSUQSGwoJYXV0aG9yX2lkGAIgASgJUghhdXRob3JJRBIfCgVmbGFncxgDIAMoCzIQLnN5cmlueC5SZWVkRmxhZxIoCglkaXNtaXNzYWwYBCABKAsyFS5zeXJpbnguRmxhZ0Rpc21pc3NhbCJuChNEaXNtaXNzRmxhZ3NSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBnJlYXNvbhgCIAEoCRIRCglyZXBvcnRlcnMYAyADKAkSKAoJc2lnbmF0dXJlGAQgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUiSgoPRmxhZ2dlZFJlZWRMaXN0EiIKBXJlZWRzGAEgAygLMhMuc3lyaW54LkZsYWdnZWRSZWVkEhMKC25leHRfY3Vyc29yGAIgASgJIjQKD1VzZXJQZXJtaXNzaW9ucxIMCgRyb2xlGAEgASgJEhMKC3Blcm1pc3Npb25zGAIgAygJQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -173,8 +173,9 @@ export const ReedFlagSchema: GenMessage<ReedFlag> = /*@__PURE__*/
   messageDesc(file_admin, 4);
 
 /**
- * An admin closing a reed's open flags. dismissed_by is unset once their
- * account is gone.
+ * An admin closing the open flags reporters raised on a reed, signed by
+ * them and countersigned by the server. reporters is sorted. dismissed_by
+ * is unset once their account is gone.
  *
  * @generated from message syrinx.FlagDismissal
  */
@@ -185,19 +186,34 @@ export type FlagDismissal = Message<"syrinx.FlagDismissal"> & {
   id: string;
 
   /**
-   * @generated from field: string dismissed_by = 2;
+   * @generated from field: string reed_id = 2 [json_name = "reedID"];
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string dismissed_by = 3;
    */
   dismissedBy: string;
 
   /**
-   * @generated from field: string reason = 3;
+   * @generated from field: string reason = 4;
    */
   reason: string;
 
   /**
-   * @generated from field: uint32 dismissed_at = 4;
+   * @generated from field: repeated string reporters = 5;
    */
-  dismissedAt: number;
+  reporters: string[];
+
+  /**
+   * @generated from field: syrinx.UserSignature signature = 6;
+   */
+  signature?: UserSignature | undefined;
+
+  /**
+   * @generated from field: syrinx.ServerSignature server_signature = 7;
+   */
+  serverSignature?: ServerSignature | undefined;
 };
 
 /**
@@ -208,7 +224,8 @@ export const FlagDismissalSchema: GenMessage<FlagDismissal> = /*@__PURE__*/
   messageDesc(file_admin, 5);
 
 /**
- * A reed with flags, for admins: open ones, or the ones a dismissal closed.
+ * A reed with flags, for admins: its open ones, or the ones a dismissal
+ * closed, with it.
  *
  * @generated from message syrinx.FlaggedReed
  */
@@ -242,15 +259,31 @@ export const FlaggedReedSchema: GenMessage<FlaggedReed> = /*@__PURE__*/
   messageDesc(file_admin, 6);
 
 /**
- * POST /admin/flags/{reedID}/dismiss.
+ * POST /admin/flags/{reedID}/dismiss: the admin's signed dismissal of the
+ * open flags reporters raised.
  *
  * @generated from message syrinx.DismissFlagsRequest
  */
 export type DismissFlagsRequest = Message<"syrinx.DismissFlagsRequest"> & {
   /**
-   * @generated from field: string reason = 1;
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string reason = 2;
    */
   reason: string;
+
+  /**
+   * @generated from field: repeated string reporters = 3;
+   */
+  reporters: string[];
+
+  /**
+   * @generated from field: syrinx.UserSignature signature = 4;
+   */
+  signature?: UserSignature | undefined;
 };
 
 /**

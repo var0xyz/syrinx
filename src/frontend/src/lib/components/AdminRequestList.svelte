@@ -7,9 +7,10 @@
   import {
     ACTION_PERMISSION,
     adminRequestsChanged,
+    adminRecordsChanged,
     decideAdminRequest,
     decisionBlocker,
-    syncClosedAdminRequests,
+    syncAdminRecords,
   } from '$lib/services/admin';
   import { adminRequestsRepository } from '$lib/repositories/adminRequests';
   import { parsePermissionSet } from '$lib/utils/permissions';
@@ -71,6 +72,7 @@
   onMount(() => void loadClosed());
 
   $: $adminRequestsChanged, void loadRequests();
+  $: $adminRecordsChanged, void loadClosed();
 
   // Open requests are always read from the server: deciding needs it anyway.
   async function loadRequests(): Promise<void> {
@@ -86,13 +88,12 @@
       pendingLoaded = true;
     }
     fingerprintsFor(pending);
-    await syncClosedAdminRequests(all.map((r) => r.id)).catch((err) => console.error('Closed request sync failed:', err));
-    await loadClosed();
+    await syncAdminRecords();
   }
 
   // Closed requests never change, so they come from the local copy.
   async function loadClosed(): Promise<void> {
-    closed = (await adminRequestsRepository.getAll()).filter(include);
+    closed = (await adminRequestsRepository.getAll()).filter((r) => r.state !== 'pending' && include(r));
     closedLoaded = true;
     fingerprintsFor(closed);
   }
@@ -156,7 +157,11 @@
       await decideAdminRequest(r, deciding.decision);
       deciding = null;
     } catch (err) {
-      decisionError = err instanceof Error ? err.message : 'The decision was refused.';
+      const message = err instanceof Error ? err.message : '';
+      decisionError =
+        message === 'opened-before-recovery'
+          ? 'This request was opened before the server’s recovery. It can be decided once recovery is over.'
+          : message || 'The decision was refused.';
     } finally {
       submitting = false;
     }

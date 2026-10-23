@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -54,10 +55,35 @@ func (f *adminFixture) dismissedFlags(t *testing.T, viewer string) *pb.FlaggedRe
 	return f.listFlags(t, viewer, "/api/admin/flags?state=dismissed")
 }
 
-func (f *adminFixture) dismiss(t *testing.T, viewer, reedID, reason string) *httptest.ResponseRecorder {
+// dismiss has viewer sign and post a dismissal of the open flags on
+// reedID, or only reporters' when given.
+func (f *adminFixture) dismiss(t *testing.T, viewer, reedID, reason string, reporters ...string) *httptest.ResponseRecorder {
 	t.Helper()
+	if len(reporters) == 0 {
+		rows, err := f.db.Query(`SELECT reporter_id FROM reed_flags WHERE reed_id = $1 AND dismissal_id IS NULL ORDER BY reporter_id`, reedID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			reporters = append(reporters, id)
+		}
+		rows.Close()
+	}
+	slices.Sort(reporters)
+	id := uuid.Must(uuid.NewV7()).String()
+	payload := buildFlagDismissalPayload(id, reedID, strings.TrimSpace(reason), f.keyID(viewer), reporters)
+	sig, err := f.h.services.crypto.sign(context.Background(), string(payload), f.keys[viewer].PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := &pb.DismissFlagsRequest{Id: id, Reason: reason, Reporters: reporters,
+		Signature: &pb.UserSignature{Id: f.keyID(viewer), Armor: sig}}
 	return f.serve(t, f.h.DismissFlags, http.MethodPost, "/api/admin/flags/"+reedID+"/dismiss", viewer,
-		&pb.DismissFlagsRequest{Reason: reason}, map[string]string{"reedID": reedID})
+		msg, map[string]string{"reedID": reedID})
 }
 
 func (f *adminFixture) listFlags(t *testing.T, viewer, path string) *pb.FlaggedReedList {
@@ -168,7 +194,7 @@ func TestFlags_VisibilityAndDismiss(t *testing.T) {
 	if got := seen(f.openFlags(t, "a2")); got[userReed] {
 		t.Errorf("a dismissed reed is still open: %v", got)
 	}
-	if code := f.dismiss(t, "a2", userReed, "Again").Code; code != http.StatusNotFound {
+	if code := f.dismiss(t, "a2", userReed, "Again", f.ids["u1"]).Code; code != http.StatusNotFound {
 		t.Errorf("dismissing an already dismissed reed: %d, want 404", code)
 	}
 
@@ -177,11 +203,11 @@ func TestFlags_VisibilityAndDismiss(t *testing.T) {
 		t.Fatalf("dismissed = %+v, want the user's reed", dismissed)
 	}
 	d := dismissed[0]
-	if d.Dismissal.GetReason() != "Not a scam" || d.Dismissal.GetDismissedBy() != f.ids["a2"] || d.Dismissal.GetDismissedAt() == 0 {
+	if d.Dismissal.GetReason() != "Not a scam" || d.Dismissal.GetDismissedBy() != f.ids["a2"] || d.Dismissal.GetServerSignature().GetSignedAt() == 0 {
 		t.Errorf("dismissal = %+v", d.Dismissal)
 	}
-	if len(d.Flags) != 1 || d.Flags[0].Note != "Scam link" {
-		t.Errorf("dismissed flags = %+v, want the closed flag", d.Flags)
+	if len(d.Flags) != 1 || d.Flags[0].Note != "Scam link" || !slices.Equal(d.Dismissal.GetReporters(), []string{f.ids["u1"]}) {
+		t.Errorf("dismissed = %+v, want the closed flag and its reporter", d)
 	}
 	if entries := f.ledger(t); len(entries) != 0 {
 		t.Errorf("ledger = %+v, want no entry for a dismissal", entries)
@@ -200,21 +226,31 @@ func TestFlags_VisibilityAndDismiss(t *testing.T) {
 	}
 }
 
-func TestFlags_RemovedReporterLeftOut(t *testing.T) {
+// A removed reporter's flags go, and a dismissal left with none of its
+// flags goes with them; one keeping others stays.
+func TestFlags_RemovedReporterFlagsDeleted(t *testing.T) {
 	f := newAdminFixture(t)
-	reed := f.localReed(t, "u2")
-	if code := f.flag(t, "u1", reed, ""); code != http.StatusCreated {
-		t.Fatal(code)
+	f.useRealExecutors(adminActionKick)
+	alone, shared := f.localReed(t, "u2"), f.localReed(t, "a3")
+	for _, flag := range []struct{ reporter, reed string }{{"u1", alone}, {"u1", shared}, {"root", shared}} {
+		if code := f.flag(t, flag.reporter, flag.reed, ""); code != http.StatusCreated {
+			t.Fatal(code)
+		}
 	}
-	if _, err := f.db.Exec(`
-		WITH us AS (INSERT INTO user_signatures (public_key_id, signature) VALUES ($2, 's') RETURNING id),
-		     ss AS (INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('k', 's', NOW()) RETURNING id)
-		INSERT INTO account_removals (user_id, public_key_id, user_signature_id, server_signature_id)
-		SELECT $1, $2, us.id, ss.id FROM us, ss
-	`, f.ids["u1"], f.keyID("u1")); err != nil {
-		t.Fatal(err)
+	if rr := f.dismiss(t, "a2", alone, "Fine"); rr.Code != http.StatusOK {
+		t.Fatalf("dismiss: %d %s", rr.Code, rr.Body.String())
 	}
-	if list := f.openFlags(t, "a2"); len(list.Reeds) != 0 {
-		t.Fatalf("flags = %+v, want none from a removed reporter", list.Reeds)
+	if rr := f.dismiss(t, "a2", shared, "Fine too"); rr.Code != http.StatusOK {
+		t.Fatalf("dismiss: %d %s", rr.Code, rr.Body.String())
+	}
+
+	f.kick(t, "u1")
+	if n := queryRows(t, f.db, `SELECT COUNT(*) FROM reed_flags WHERE reporter_id = '`+f.ids["u1"]+`'`); n[0] != "0" {
+		t.Errorf("flags left by the kicked reporter: %s", n[0])
+	}
+	dismissed := f.dismissedFlags(t, "a1").Reeds
+	if len(dismissed) != 1 || dismissed[0].ReedId != shared || len(dismissed[0].Flags) != 1 ||
+		!slices.Equal(dismissed[0].Dismissal.GetReporters(), []string{f.ids["root"], f.ids["u1"]}) {
+		t.Errorf("dismissed = %+v, want only the shared reed's, keeping its signed reporters", dismissed)
 	}
 }

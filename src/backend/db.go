@@ -1585,16 +1585,29 @@ func InitDB(db *sql.DB) error {
 		ON ledger_entries((prev_id IS NULL)) WHERE prev_id IS NULL;
 	`
 
-	// An admin closing a reed's open flags, with their reason. Not in the
-	// ledger; a reed flagged again later gets a dismissal of its own.
+	// An admin closing a reed's open flags, signed by them, with their
+	// reason. Not in the ledger. id is minted by the admin's client;
+	// dismissed_at is when this server countersigned it.
 	createFlagDismissalsTable := `
 	CREATE TABLE IF NOT EXISTS flag_dismissals (
-		id BIGSERIAL PRIMARY KEY,
+		id VARCHAR(255) PRIMARY KEY,
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
 		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
 		dismissed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
 		reason TEXT NOT NULL,
+		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		dismissed_at TIMESTAMP NOT NULL
+	);`
+
+	// The reporters whose flags a dismissal closed, as its admin signed them.
+	// Not FK'd: a removed reporter's flags go, the signed list stays.
+	createFlagDismissalReportersTable := `
+	CREATE TABLE IF NOT EXISTS flag_dismissal_reporters (
+		dismissal_id VARCHAR(255) NOT NULL REFERENCES flag_dismissals(id) ON DELETE CASCADE,
+		reporter_id VARCHAR(255) NOT NULL,
+		PRIMARY KEY (dismissal_id, reporter_id)
 	);`
 
 	// Signed flags on reeds authored here; reporter_id may be a remote member.
@@ -1610,7 +1623,7 @@ func InitDB(db *sql.DB) error {
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		created_at TIMESTAMP NOT NULL,
-		dismissal_id BIGINT REFERENCES flag_dismissals(id) ON DELETE CASCADE,
+		dismissal_id VARCHAR(255) REFERENCES flag_dismissals(id) ON DELETE CASCADE,
 		PRIMARY KEY (reed_id, reporter_id)
 	);`
 
@@ -1926,6 +1939,7 @@ func InitDB(db *sql.DB) error {
 		createLedgerEntriesIndexes,
 		createLedgerEntryTargetsTable,
 		createFlagDismissalsTable,
+		createFlagDismissalReportersTable,
 		createReedFlagsTable,
 		createReedFlagsIndexes,
 	}

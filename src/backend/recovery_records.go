@@ -88,6 +88,8 @@ func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
 		return recoveredFlag{reedFlagFromPB(r.Flag)}, nil
 	case *pb.RecoveryRecord_Follow:
 		return recoveredFollow{followCertFromPB(r.Follow)}, nil
+	case *pb.RecoveryRecord_FlagDismissal:
+		return recoveredFlagDismissal{flagDismissalFromPB(r.FlagDismissal)}, nil
 	}
 	return nil, refuseRecord("unknown record kind")
 }
@@ -786,21 +788,29 @@ func (r recoveredAdminRequest) restore(ctx context.Context, tx *sql.Tx, env *rec
 	if err := r.verify(ctx, tx, env); err != nil {
 		return err
 	}
-	if held, err := existsTx(ctx, tx, `SELECT 1 FROM admin_requests WHERE id = $1`, req.ID); err != nil || held {
+	// A pending copy never reopens a closed one; a closed copy closes a
+	// pending one restored earlier.
+	held, err := getAdminRequestQ(ctx, tx, req.ID, true)
+	if err != nil || (held != nil && (held.State != adminStatePending || req.State == adminStatePending)) {
 		return err
 	}
-	for _, target := range req.Targets {
-		if err := mintIdentityTx(ctx, tx, target); err != nil {
+	state, decision, closed := req.State, req.Decision, req.ServerSignature
+	if held == nil {
+		for _, target := range req.Targets {
+			if err := mintIdentityTx(ctx, tx, target); err != nil {
+				return err
+			}
+		}
+		req.State, req.Decision, req.ServerSignature = adminStatePending, nil, nil
+		if err := insertAdminRequestTx(ctx, tx, req); err != nil {
 			return err
 		}
+		held = req
 	}
-	state, decision, closed := req.State, req.Decision, *req.ServerSignature
-	req.State, req.Decision = adminStatePending, nil
-	if err := insertAdminRequestTx(ctx, tx, req); err != nil {
-		return err
-	}
-	if err := closeAdminRequestTx(ctx, tx, req, state, decision, closed); err != nil {
-		return err
+	if state != adminStatePending {
+		if err := closeAdminRequestTx(ctx, tx, held, state, decision, *closed); err != nil {
+			return err
+		}
 	}
 	if len(req.Dropped) > 0 {
 		if _, err := tx.ExecContext(ctx, `
@@ -817,8 +827,8 @@ func (r recoveredAdminRequest) restore(ctx context.Context, tx *sql.Tx, env *rec
 	return nil
 }
 
-// verify checks a closed request the way a client does: both admins'
-// signatures, and this server's countersignatures on opening and closing.
+// verify checks a request the way a client does: both admins' signatures,
+// and this server's countersignatures on opening and, once closed, closing.
 func (r recoveredAdminRequest) verify(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv) error {
 	req := r.adminRequest
 	if err := env.local(req.RequesterID); err != nil {
@@ -832,8 +842,10 @@ func (r recoveredAdminRequest) verify(ctx context.Context, tx *sql.Tx, env *reco
 	if !slices.IsSorted(req.Targets) {
 		return refuseRecord("request %s's targets aren't sorted", req.ID)
 	}
-	if req.ServerSignature == nil || req.State == adminStatePending || (req.State == adminStateMoot) != (req.Decision == nil) {
-		return refuseRecord("request %s isn't closed", req.ID)
+	pending := req.State == adminStatePending
+	if pending != (req.ServerSignature == nil) || (pending && req.Decision != nil) ||
+		(!pending && (req.State == adminStateMoot) != (req.Decision == nil)) {
+		return refuseRecord("request %s's state doesn't match its signatures", req.ID)
 	}
 	if req.Decision != nil && req.Decision.Decision != decisionForState(req.State) {
 		return refuseRecord("request %s's decision doesn't match its state", req.ID)
@@ -861,6 +873,9 @@ func (r recoveredAdminRequest) verify(ctx context.Context, tx *sql.Tx, env *reco
 	}); err != nil {
 		return err
 	}
+	if pending {
+		return nil
+	}
 	closed := *req.ServerSignature
 	return env.countersignedHere(ctx, closed, func(fp string) []byte {
 		return buildAdminRequestServerPayload(req.ID, req.State, req.RequesterSignature.Armor, decisionArmor, env.serverID, fp, closed.SignedAt)
@@ -870,32 +885,127 @@ func (r recoveredAdminRequest) verify(ctx context.Context, tx *sql.Tx, env *reco
 type recoveredFlag struct{ reedFlag }
 
 func (r recoveredFlag) restore(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv) error {
-	if err := env.local(r.ReporterID); err != nil {
+	_, err := restoreFlagTx(ctx, tx, env, r.reedFlag)
+	return err
+}
+
+// restoreFlagTx stores f unless it's held, once it checks out: a flag this
+// server took, signed by its reporter, local or a peer's. It returns the
+// flagged reed's author.
+func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f reedFlag) (string, error) {
+	author, err := env.localEntity(f.ReedID)
+	if err != nil {
+		return "", err
+	}
+	if author == f.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(f.Note) > maxFlagNoteChars {
+		return "", refuseRecord("flag on %s isn't one this server takes", f.ReedID)
+	}
+	payload := buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note)
+	if env.local(f.ReporterID) == nil {
+		err = env.signedBy(ctx, tx, f.ReporterID, f.Signature, payload)
+	} else {
+		err = env.signedByHeldKey(ctx, tx, f.ReporterID, f.Signature, payload)
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := env.countersignedHere(ctx, f.ServerSignature, func(fp string) []byte {
+		return buildReedFlagServerPayload(f.ReedID, f.ReporterID, fp, f.Signature.Armor, f.ServerSignature.SignedAt)
+	}); err != nil {
+		return "", err
+	}
+	// A removed reporter's flags are gone for good.
+	if held, err := existsTx(ctx, tx, `
+		SELECT 1 FROM reed_flags WHERE reed_id = $1 AND reporter_id = $2
+		UNION ALL SELECT 1 FROM account_removals WHERE user_id = $2
+	`, f.ReedID, f.ReporterID); err != nil || held {
+		return author, err
+	}
+	if err := mintIdentityTx(ctx, tx, f.ReporterID); err != nil {
+		return "", err
+	}
+	if err := insertReedIdentityOf(ctx, tx, f.ReedID, env.serverID, author); err != nil {
+		return "", err
+	}
+	if err := insertReedFlagTx(ctx, tx, f, author); err != nil {
+		return "", err
+	}
+	// A dismissal restored before it closes it now.
+	_, err = tx.ExecContext(ctx, `
+		UPDATE reed_flags SET dismissal_id = (
+			SELECT d.id FROM flag_dismissals d
+			JOIN flag_dismissal_reporters dr ON dr.dismissal_id = d.id
+			WHERE d.reed_id = $1 AND dr.reporter_id = $2
+		)
+		WHERE reed_id = $1 AND reporter_id = $2
+	`, f.ReedID, f.ReporterID)
+	return author, err
+}
+
+// signedByHeldKey checks sig is over payload by a key of owner's, a user
+// of a server known here, held here. Without one it waits on owner.
+func (env *recoveryRecordEnv) signedByHeldKey(ctx context.Context, tx *sql.Tx, owner string, sig UserSignature, payload []byte) error {
+	if keyOwner, ok := authorOf(identityID(sig.ID)); !ok || string(keyOwner) != owner || sig.Armor == "" {
+		return refuseRecord("not signed by a key of %s's", owner)
+	}
+	_, serverID, _ := parseIdentityID(identityID(owner))
+	if known, err := existsTx(ctx, tx, `SELECT 1 FROM servers WHERE id = $1 AND NOT self`, serverID); err != nil || !known {
+		if err == nil {
+			err = refuseRecord("%s isn't a server known here", serverID)
+		}
 		return err
 	}
-	author, err := env.localEntity(r.ReedID)
+	var armor string
+	err := tx.QueryRowContext(ctx, `SELECT armor FROM public_keys WHERE id = $1`, sig.ID).Scan(&armor)
+	if err == sql.ErrNoRows {
+		return recoveryWaiting{on: owner}
+	}
 	if err != nil {
 		return err
 	}
-	if author == r.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(r.Note) > maxFlagNoteChars {
-		return refuseRecord("flag on %s isn't one this server takes", r.ReedID)
+	if err := env.verifier.verifySignature(ctx, string(payload), sig.Armor, armor); err != nil {
+		return refuseRecord("bad signature by %s", sig.ID)
 	}
-	payload := buildReedFlagPayload(r.ReedID, r.ReporterID, r.Signature.ID, r.Note)
-	if err := env.signedBy(ctx, tx, r.ReporterID, r.Signature, payload); err != nil {
+	return nil
+}
+
+type recoveredFlagDismissal struct{ *flagDismissal }
+
+// restore stores a dismissal an admin signed and this server countersigned,
+// and closes with it whichever of its flags are held; the rest close as
+// they come back.
+func (r recoveredFlagDismissal) restore(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv) error {
+	d := r.flagDismissal
+	if !isValidUUIDv7(d.ID) || d.Reason == "" || countCharacters(d.Reason) > maxDismissalReasonChars || !validReporters(d.Reporters) {
+		return refuseRecord("dismissal %s isn't well formed", d.ID)
+	}
+	author, err := env.localEntity(d.ReedID)
+	if err != nil {
 		return err
 	}
-	if err := env.countersignedHere(ctx, r.ServerSignature, func(fp string) []byte {
-		return buildReedFlagServerPayload(r.ReedID, r.ReporterID, fp, r.Signature.Armor, r.ServerSignature.SignedAt)
+	admin, ok := authorOf(identityID(d.Signature.ID))
+	if !ok || string(admin) == author {
+		return refuseRecord("dismissal %s isn't by an admin other than the reed's author", d.ID)
+	}
+	d.DismissedBy = string(admin)
+	if err := env.local(d.DismissedBy); err != nil {
+		return err
+	}
+	if err := env.signedBy(ctx, tx, d.DismissedBy, d.Signature, d.payload()); err != nil {
+		return err
+	}
+	if err := env.countersignedHere(ctx, d.ServerSignature, func(fp string) []byte {
+		return buildFlagDismissalServerPayload(d.ID, d.ReedID, fp, d.Signature.Armor, d.ServerSignature.SignedAt)
 	}); err != nil {
 		return err
 	}
-	if held, err := existsTx(ctx, tx, `SELECT 1 FROM reed_flags WHERE reed_id = $1 AND reporter_id = $2`, r.ReedID, r.ReporterID); err != nil || held {
+	if held, err := existsTx(ctx, tx, `SELECT 1 FROM flag_dismissals WHERE id = $1`, d.ID); err != nil || held {
 		return err
 	}
-	if err := insertReedIdentityOf(ctx, tx, r.ReedID, env.serverID, author); err != nil {
+	if err := insertReedIdentityOf(ctx, tx, d.ReedID, env.serverID, author); err != nil {
 		return err
 	}
-	return insertReedFlagTx(ctx, tx, r.reedFlag, author)
+	return insertFlagDismissalTx(ctx, tx, d, author)
 }
 
 // applyRestoredUserStateTx settles what restored records say about userID

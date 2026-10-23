@@ -514,6 +514,17 @@ export function buildAdminDecisionPayload(
   return canonicalJSON({ type: 'admin-decision', requestID, decision, deciderID, keyID, requestSignature });
 }
 
+/** Mirror of buildAdminRequestOpenedPayload in identity.go. */
+export function buildAdminRequestOpenedPayload(
+  requestID: string,
+  requestSignature: string,
+  serverID: string,
+  serverKeyFingerprint: string,
+  signedAt: string
+): string {
+  return canonicalJSON({ type: 'admin-request-opened', requestID, requestSignature, serverID, serverKeyFingerprint, signedAt });
+}
+
 /** Mirror of buildAdminRequestServerPayload in identity.go. */
 export function buildAdminRequestServerPayload(
   requestID: string,
@@ -623,6 +634,29 @@ export function buildAdminRevocationServerPayload(
 /** Mirror of buildReedFlagPayload in identity.go. */
 export function buildReedFlagPayload(reedID: string, reporterID: string, keyID: string, note: string): string {
   return canonicalJSON({ type: 'reed-flag', reedID, reporterID, keyID, note });
+}
+
+/** Mirror of buildFlagDismissalPayload in identity.go. reporters must
+ * already be sorted. */
+export function buildFlagDismissalPayload(
+  dismissalID: string,
+  reedID: string,
+  reason: string,
+  keyID: string,
+  reporters: string[]
+): string {
+  return canonicalJSON({ type: 'flag-dismissal', dismissalID, reedID, reason, keyID, reporters });
+}
+
+/** Mirror of buildFlagDismissalServerPayload in identity.go. */
+export function buildFlagDismissalServerPayload(
+  dismissalID: string,
+  reedID: string,
+  serverKeyFingerprint: string,
+  userSignature: string,
+  signedAt: string
+): string {
+  return canonicalJSON({ type: 'flag-dismissal', dismissalID, reedID, signedAt, serverKeyFingerprint, userSignature });
 }
 
 /** Mirror of buildReedFlagServerPayload in identity.go. */

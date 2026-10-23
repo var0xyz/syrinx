@@ -54,6 +54,9 @@ import {
   buildFollowServerPayload,
   buildReedFlagPayload,
   buildReedFlagServerPayload,
+  buildFlagDismissalPayload,
+  buildFlagDismissalServerPayload,
+  buildAdminRequestOpenedPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -1018,31 +1021,27 @@ export async function verifyOwnBlock(cert: api.BlockCert): Promise<boolean> {
   return verifyBlockCert(cert, 'verifyOwnBlock');
 }
 
-/** A flag the viewer raised, countersigned by the flagged reed's server. */
-export async function verifyOwnFlag(flag: api.ReedFlag): Promise<boolean> {
-  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+/** A flag signed by its reporter and countersigned by the flagged reed's
+ * server. */
+async function verifyReedFlag(flag: api.ReedFlag, label: string): Promise<boolean> {
   if (!flag || flag.$typeName !== 'syrinx.ReedFlag' || !flag.signature?.armor || !flag.serverSignature) {
-    console.error('[verifyOwnFlag] missing fields or wrong type', flag?.$typeName);
-    return false;
-  }
-  if (!viewerID || flag.reporterId !== viewerID) {
-    console.error('[verifyOwnFlag] not a flag by the viewer');
+    console.error(`[${label}] missing fields or wrong type`, flag?.$typeName);
     return false;
   }
   const { fingerprint, serverID } = splitServerSignatureId(flag.serverSignature.id);
   if (serverID !== parseCanonicalId(flag.reedId)?.[1]) {
-    console.error("[verifyOwnFlag] not countersigned by the reed's server");
+    console.error(`[${label}] not countersigned by the reed's server`);
     return false;
   }
 
   const key = await resolvePublicKey(flag.reporterId, flag.signature.id);
   if (!key?.armor || key.userId !== flag.reporterId) {
-    console.error('[verifyOwnFlag] no key of the reporter', flag.reporterId);
+    console.error(`[${label}] no key of the reporter`, flag.reporterId);
     return false;
   }
   const userPayload = buildReedFlagPayload(flag.reedId, flag.reporterId, flag.signature.id, flag.note);
   if (!(await cryptoService.verifySignature(userPayload, flag.signature.armor, key.armor))) {
-    console.error('[verifyOwnFlag] user signature failed', flag.reedId);
+    console.error(`[${label}] user signature failed`, flag.reedId);
     return false;
   }
   const serverPayload = buildReedFlagServerPayload(
@@ -1054,7 +1053,74 @@ export async function verifyOwnFlag(flag: api.ReedFlag): Promise<boolean> {
   );
   const serverResult = await verify(flag.serverSignature, serverPayload);
   if (serverResult.ok === false) {
-    console.error('[verifyOwnFlag] server signature failed', serverResult);
+    console.error(`[${label}] server signature failed`, serverResult);
+    return false;
+  }
+  return true;
+}
+
+function viewerServerID(): string | undefined {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  return parseCanonicalId(viewerID)?.[1];
+}
+
+/** A flag the viewer raised, countersigned by the flagged reed's server. */
+export async function verifyOwnFlag(flag: api.ReedFlag): Promise<boolean> {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  if (!viewerID || flag?.reporterId !== viewerID) {
+    console.error('[verifyOwnFlag] not a flag by the viewer');
+    return false;
+  }
+  return verifyReedFlag(flag, 'verifyOwnFlag');
+}
+
+/** A flag on a reed of the viewer's own server, for its admins. */
+export async function verifyReportedFlag(flag: api.ReedFlag): Promise<boolean> {
+  if (!viewerServerID() || parseCanonicalId(flag?.reedId)?.[1] !== viewerServerID()) {
+    console.error("[verifyReportedFlag] not a flag on this server's reeds");
+    return false;
+  }
+  return verifyReedFlag(flag, 'verifyReportedFlag');
+}
+
+/** A dismissal an admin of the viewer's server signed over the sorted
+ * reporters whose flags it closed, and the server countersigned. */
+export async function verifyFlagDismissal(d: api.FlagDismissal): Promise<boolean> {
+  const sorted = [...(d?.reporters ?? [])].sort();
+  if (
+    !d ||
+    d.$typeName !== 'syrinx.FlagDismissal' ||
+    !d.signature?.armor ||
+    !d.serverSignature ||
+    sorted.length === 0 ||
+    sorted.some((r, i) => r !== d.reporters[i] || r === sorted[i - 1])
+  ) {
+    console.error('[verifyFlagDismissal] missing fields or wrong type', d?.$typeName);
+    return false;
+  }
+  const serverID = viewerServerID();
+  const { fingerprint, serverID: signerServerID } = splitServerSignatureId(d.serverSignature.id);
+  if (!serverID || signerServerID !== serverID || parseCanonicalId(d.reedId)?.[1] !== serverID) {
+    console.error("[verifyFlagDismissal] not a dismissal by this server");
+    return false;
+  }
+  const owner = parseKeyId(d.signature.id);
+  if (!owner) return false;
+  const payload = buildFlagDismissalPayload(d.id, d.reedId, d.reason, d.signature.id, d.reporters);
+  if (!(await verifyAdminSignature(`${owner.userId}@${owner.serverId}`, d.signature, payload, false))) {
+    console.error('[verifyFlagDismissal] admin signature failed', d.id);
+    return false;
+  }
+  const serverPayload = buildFlagDismissalServerPayload(
+    d.id,
+    d.reedId,
+    fingerprint,
+    d.signature.armor,
+    signedAtHeader(d.serverSignature.signedAt)
+  );
+  const result = await verify(d.serverSignature, serverPayload);
+  if (result.ok === false) {
+    console.error('[verifyFlagDismissal] server signature failed', d.id, result);
     return false;
   }
   return true;
@@ -1326,6 +1392,50 @@ export async function verifyAdminAuthorization(
     return false;
   }
   return verifyClosedAdminRequest(req, opts);
+}
+
+/** An admin request in any state: a pending one carries the requester's
+ * signature and the countersignature of when it opened. */
+export async function verifyAdminRequest(req: api.AdminRequest): Promise<boolean> {
+  if (req?.state !== 'pending') return verifyClosedAdminRequest(req);
+  const serverID = parseCanonicalId(req.requesterId)?.[1];
+  const opened = req.openedSignature;
+  if (!serverID || !opened || req.decision || req.serverSignature) {
+    console.error('[verifyAdminRequest] not a pending request', req.id);
+    return false;
+  }
+  const { fingerprint, serverID: signerServerID } = splitServerSignatureId(opened.id);
+  if (signerServerID !== serverID) {
+    console.error('[verifyAdminRequest] not countersigned by the requester’s server');
+    return false;
+  }
+  const requestPayload = buildAdminRequestPayload(
+    req.id,
+    req.action,
+    req.requesterId,
+    req.requesterSignature?.id ?? '',
+    req.reason,
+    [...req.targets].sort(),
+    req.body,
+    signedAtHeader(req.createdAt)
+  );
+  if (!(await verifyAdminSignature(req.requesterId, req.requesterSignature, requestPayload, false))) {
+    console.error('[verifyAdminRequest] requester signature failed', req.id);
+    return false;
+  }
+  const openedPayload = buildAdminRequestOpenedPayload(
+    req.id,
+    req.requesterSignature?.armor ?? '',
+    serverID,
+    fingerprint,
+    signedAtHeader(opened.signedAt)
+  );
+  const result = await verify(opened, openedPayload);
+  if (result.ok === false) {
+    console.error('[verifyAdminRequest] opening countersignature failed', req.id, result);
+    return false;
+  }
+  return true;
 }
 
 /** A closed admin request: the requester's signature, the decider's when

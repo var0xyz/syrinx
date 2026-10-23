@@ -885,10 +885,13 @@ export const apiService = {
     return request(`/admin/flags?${query}`, { method: 'GET' }, FlaggedReedListSchema);
   },
 
-  async dismissFlags(reedId: string, reason: string): Promise<api.FlagDismissal> {
+  async dismissFlags(
+    reedId: string,
+    dismissal: MessageInitShape<typeof DismissFlagsRequestSchema>
+  ): Promise<api.FlagDismissal> {
     return request(
       `/admin/flags/${reedId}/dismiss`,
-      protoBody('POST', DismissFlagsRequestSchema, { reason }),
+      protoBody('POST', DismissFlagsRequestSchema, dismissal),
       FlagDismissalSchema
     );
   },

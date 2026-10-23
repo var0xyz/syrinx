@@ -6268,6 +6268,25 @@ func storeAccountRemovalTx(ctx context.Context, tx *sql.Tx, cert accountRemovalC
 // user or, on a kick, by its admin request: this server's own, or a peer's
 // kept as the signed approval it arrived as.
 func insertAccountRemovalRowTx(ctx context.Context, tx *sql.Tx, cert accountRemovalCert, selfIdentity identityID) error {
+	if err := insertAccountRemovalCertTx(ctx, tx, cert, selfIdentity); err != nil {
+		return err
+	}
+	return settleAccountRemovalTx(ctx, tx, selfIdentity)
+}
+
+// settleAccountRemovalTx drops a removed account's flags, and the
+// dismissals left with none.
+func settleAccountRemovalTx(ctx context.Context, tx *sql.Tx, removed identityID) error {
+	_, err := tx.ExecContext(ctx, `
+		WITH gone AS (DELETE FROM reed_flags WHERE reporter_id = $1 RETURNING dismissal_id)
+		DELETE FROM flag_dismissals d
+		WHERE d.id IN (SELECT dismissal_id FROM gone)
+			AND NOT EXISTS (SELECT 1 FROM reed_flags f WHERE f.dismissal_id = d.id AND f.reporter_id <> $1)
+	`, removed)
+	return err
+}
+
+func insertAccountRemovalCertTx(ctx context.Context, tx *sql.Tx, cert accountRemovalCert, selfIdentity identityID) error {
 	serverSigID, err := insertServerSignature(ctx, tx, cert.ServerFingerprint, cert.ServerSignature, cert.ServerSignedAt)
 	if err != nil {
 		return err

@@ -120,6 +120,7 @@ message RecoveryRecord {
     AdminRequest admin_request = 9;
     ReedFlag flag = 10;
     FollowCert follow = 11;
+    FlagDismissal flag_dismissal = 12;
   }
 }
 

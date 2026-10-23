@@ -857,3 +857,38 @@ func buildReedFlagServerPayload(
 		"userSignature":        userSignature,
 	})
 }
+
+// identityTypeFlagDismissal is the `type` of a flag dismissal.
+const identityTypeFlagDismissal = "flag-dismissal"
+
+// buildFlagDismissalPayload returns the bytes an admin signs to close the
+// open flags reporters raised on reedID. reporters must already be sorted.
+func buildFlagDismissalPayload(dismissalID, reedID, reason, keyID string, reporters []string) []byte {
+	return canonicalJSON(signedFields{
+		"type":        identityTypeFlagDismissal,
+		"dismissalID": dismissalID,
+		"reedID":      reedID,
+		"reason":      reason,
+		"keyID":       keyID,
+		"reporters":   reporters,
+	})
+}
+
+// buildFlagDismissalServerPayload returns the bytes the server
+// countersigns for a dismissal. signedAt is when it was made.
+func buildFlagDismissalServerPayload(
+	dismissalID,
+	reedID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeFlagDismissal,
+		"dismissalID":          dismissalID,
+		"reedID":               reedID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
+}
