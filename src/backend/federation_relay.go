@@ -95,7 +95,23 @@ func (h *Handlers) doPeerRequest(httpReq *http.Request, peerServerID, leg string
 	endPeerCallSpan(span, resp, err)
 	ok := err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300
 	h.metrics.FederationRelay(httpReq.Context(), metrics.DirectionOut, peerServerID, leg, ok)
+	if err == nil {
+		h.suspendIfPeerInLockdown(httpReq.Context(), peerServerID, resp)
+	}
 	return resp, err
+}
+
+// suspendIfPeerInLockdown marks a peer down when it answers that it is
+// recovering in lockdown: what we owe it waits for its boot notice.
+func (h *Handlers) suspendIfPeerInLockdown(ctx context.Context, peerServerID string, resp *http.Response) {
+	if resp.StatusCode != http.StatusServiceUnavailable || resp.Header.Get(recoveringHeader) != string(recoveryModeLockdown) {
+		return
+	}
+	if err := h.services.db.SetPeerDown(ctx, peerServerID, true); err != nil {
+		h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to suspend a peer in lockdown")
+		return
+	}
+	h.logFederationServerAsync(peerServerID, federationLogInfo, "Peer is recovering in lockdown; delivery suspended until it boots")
 }
 
 // callPeerRelayEndpoint POSTs body (nil for none) to a peer's relay RPC
@@ -128,6 +144,7 @@ func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, peerServerID, base
 		return 0, err
 	}
 	defer resp.Body.Close()
+	h.suspendIfPeerInLockdown(ctx, peerServerID, resp)
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
@@ -1675,6 +1692,7 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 		go h.deliverBehindStreams(peerServerID)
 		go h.sendOwedKeyRevocations(peerServerID)
 		go h.sendOwedBlockNotices(peerServerID)
+		go h.sendOwedAccountRemovals(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
 	w.WriteHeader(http.StatusNoContent)
@@ -1684,10 +1702,10 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 // peer known to hold a copy of that user's content — not followers or
 // subscribers, which are a peer-local concern resolved once it has the cert.
 
-// notifyForeignAccountRemovalToPeers tells every peer holding a copy of
-// removedUserID's content that the account was removed, so each can store
-// the cert and fan it out to its own local followers/subscribers.
-// Best-effort per peer: one unreachable peer must not block the rest.
+// notifyForeignAccountRemovalToPeers owes every peer holding a copy of
+// removedUserID's content the removal, so each can store the cert and fan
+// it out to its own users, and sends it. A peer that doesn't accept it
+// gets it again on its boot notice or ours.
 func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, removedUserID string, cert accountRemovalCert) {
 	log := h.services.log.GetLogger(ctx)
 	serverIDs, err := h.services.db.GetForeignHolderServersForAuthor(ctx, removedUserID)
@@ -1695,26 +1713,75 @@ func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, remov
 		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to resolve holder servers for account removal notify")
 		return
 	}
-	payload := &pb.RelayAccountRemovalNotifyPayload{
-		UserId:            removedUserID,
-		Note:              cert.Note,
-		UserSignature:     cert.UserSignature,
-		UserKeyId:         cert.UserKeyID,
-		ServerSignature:   cert.ServerSignature,
-		ServerFingerprint: cert.ServerFingerprint,
-		ServerSignedAt:    unixOrZero(cert.ServerSignedAt),
+	if len(serverIDs) == 0 {
+		return
 	}
-	if cert.Admin != nil {
-		payload.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(cert.Admin)}
+	if err := h.services.db.QueueAccountRemovalNotices(ctx, removedUserID, serverIDs); err != nil {
+		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to owe peers an account removal")
+		return
 	}
 	for _, serverID := range serverIDs {
-		peer, err := h.services.db.GetServerByID(ctx, serverID)
-		if err != nil || peer == nil {
+		h.sendOwedAccountRemovals(serverID)
+	}
+}
+
+// sendOwedAccountRemovals sends peerID every account removal it hasn't
+// accepted yet.
+func (h *Handlers) sendOwedAccountRemovals(peerID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	log := h.services.log.GetLogger(ctx)
+	userIDs, err := h.services.db.AccountRemovalsOwedTo(ctx, peerID)
+	if err != nil {
+		log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list account removals owed to peer")
+		return
+	}
+	if len(userIDs) == 0 {
+		return
+	}
+	peer, err := h.services.db.GetServerByID(ctx, peerID)
+	if err != nil || peer == nil {
+		return
+	}
+	for _, userID := range userIDs {
+		cert, err := h.services.db.GetAccountRemoval(ctx, userID)
+		if err != nil || cert == nil {
+			log.Error().Err(err).Str("userID", userID).Msg("Failed to load owed account removal")
 			continue
 		}
-		if _, err := h.callPeerRelayEndpoint(ctx, serverID, peer.BaseURL, "/api/federation/relay/account-removal-notify", payload, nil); err != nil {
-			log.Error().Err(err).Str("userID", removedUserID).Str("peerServerID", serverID).Msg("Failed to notify peer of account removal")
+		payload := &pb.RelayAccountRemovalNotifyPayload{
+			UserId:            userID,
+			Note:              cert.Note,
+			UserSignature:     cert.UserSignature,
+			UserKeyId:         cert.UserKeyID,
+			ServerSignature:   cert.ServerSignature,
+			ServerFingerprint: cert.ServerFingerprint,
+			ServerSignedAt:    unixOrZero(cert.ServerSignedAt),
 		}
+		if cert.Admin != nil {
+			payload.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(cert.Admin)}
+		}
+		status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, "/api/federation/relay/account-removal-notify", payload, nil)
+		if err != nil || status < 200 || status >= 300 {
+			log.Warn().Err(err).Int("status", status).Str("userID", userID).Str("peerServerID", peerID).Msg("Peer did not accept account removal")
+			continue
+		}
+		if err := h.services.db.DeleteAccountRemovalNotice(ctx, peerID, userID); err != nil {
+			log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to clear account removal notice")
+		}
+	}
+}
+
+// notifyPeersOfOwedAccountRemovals retries, at boot, every account removal
+// a connected peer hasn't accepted yet.
+func (h *Handlers) notifyPeersOfOwedAccountRemovals() {
+	peers, err := h.services.db.ListConnectedPeers(context.Background())
+	if err != nil {
+		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed account removals")
+		return
+	}
+	for _, peer := range peers {
+		h.sendOwedAccountRemovals(peer.ID)
 	}
 }
 
