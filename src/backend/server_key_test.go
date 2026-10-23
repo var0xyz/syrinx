@@ -212,7 +212,7 @@ func TestRecoveryBundleCarriesKeyChain(t *testing.T) {
 	}
 
 	targetDB := newTestDatabase(t, InitDB)
-	if _, err := importIntoDB(ctx, targetDB, cryptoSvc, serverKeyTestPassphrase, "https://test.example", bundle); err != nil {
+	if _, err := importIntoDB(ctx, targetDB, "https://test.example", bundle); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	restored, err := loadServerKeyRevocations(ctx, targetDB)

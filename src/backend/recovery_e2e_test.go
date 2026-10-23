@@ -269,7 +269,7 @@ func restoreIdentity(t *testing.T, a *e2eServer) *e2eServer {
 		t.Fatalf("exportFromDB: %v", err)
 	}
 	dbB := newTestDatabase(t, InitDB)
-	if _, err := importIntoDB(ctx, dbB, newCryptoService(), e2ePassphrase, "https://test.example", bundle); err != nil {
+	if _, err := importIntoDB(ctx, dbB, "https://test.example", bundle); err != nil {
 		t.Fatalf("importIntoDB: %v", err)
 	}
 	return newE2EServer(t, dbB, true)
