@@ -147,24 +147,11 @@ const (
 // when they are local, or to their home server when not. Whatever was
 // still owed for the pair is replaced: only the latest state matters.
 func (s *DataService) oweBlockEventTx(ctx context.Context, tx *sql.Tx, userID, blockedUserID, kind string) error {
-	_, blockedServerID, ok := parseIdentityID(identityID(blockedUserID))
-	if !ok {
-		return nil
-	}
-	var err error
-	if blockedServerID == s.serverID {
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO user_block_events (user_id, blocked_user_id, kind)
-			VALUES ($1, $2, $3)
-			ON CONFLICT (user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
-		`, userID, blockedUserID, kind)
-	} else {
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO block_peer_notices (server_id, user_id, blocked_user_id, kind)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (server_id, user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
-		`, blockedServerID, userID, blockedUserID, kind)
-	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO block_event_queue (user_id, blocked_user_id, kind)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (user_id, blocked_user_id) DO UPDATE SET kind = EXCLUDED.kind
+	`, userID, blockedUserID, kind)
 	if err != nil {
 		return fmt.Errorf("owe block event: %w", err)
 	}
@@ -197,7 +184,7 @@ func scanBlockEvents(rows *sql.Rows, err error) ([]blockEvent, error) {
 // BlockEventsFor returns the blocks and lifts userID's client hasn't acked.
 func (s *DataService) BlockEventsFor(ctx context.Context, userID string) ([]blockEvent, error) {
 	return scanBlockEvents(s.db.QueryContext(ctx, `
-		SELECT user_id, blocked_user_id, kind FROM user_block_events WHERE blocked_user_id = $1
+		SELECT user_id, blocked_user_id, kind FROM block_event_queue WHERE blocked_user_id = $1
 	`, userID))
 }
 
@@ -205,7 +192,7 @@ func (s *DataService) BlockEventsFor(ctx context.Context, userID string) ([]bloc
 // another kind replaced it meanwhile.
 func (s *DataService) DeleteBlockEvent(ctx context.Context, e blockEvent) error {
 	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM user_block_events WHERE user_id = $1 AND blocked_user_id = $2 AND kind = $3
+		DELETE FROM block_event_queue WHERE user_id = $1 AND blocked_user_id = $2 AND kind = $3
 	`, e.UserID, e.BlockedUserID, e.Kind)
 	return err
 }
@@ -213,7 +200,9 @@ func (s *DataService) DeleteBlockEvent(ctx context.Context, e blockEvent) error 
 // BlockNoticesOwedTo returns every block and lift serverID hasn't accepted.
 func (s *DataService) BlockNoticesOwedTo(ctx context.Context, serverID string) ([]blockEvent, error) {
 	return scanBlockEvents(s.db.QueryContext(ctx, `
-		SELECT user_id, blocked_user_id, kind FROM block_peer_notices WHERE server_id = $1
+		SELECT n.user_id, n.blocked_user_id, n.kind FROM block_event_queue n
+		JOIN identities i ON i.id = n.blocked_user_id
+		WHERE i.server_id = $1
 	`, serverID))
 }
 
@@ -221,8 +210,9 @@ func (s *DataService) BlockNoticesOwedTo(ctx context.Context, serverID string) (
 // another kind replaced it meanwhile.
 func (s *DataService) DeleteBlockNotice(ctx context.Context, serverID string, e blockEvent) error {
 	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM block_peer_notices
-		WHERE server_id = $1 AND user_id = $2 AND blocked_user_id = $3 AND kind = $4
+		DELETE FROM block_event_queue n USING identities i
+		WHERE i.id = n.blocked_user_id AND i.server_id = $1
+			AND n.user_id = $2 AND n.blocked_user_id = $3 AND n.kind = $4
 	`, serverID, e.UserID, e.BlockedUserID, e.Kind)
 	return err
 }

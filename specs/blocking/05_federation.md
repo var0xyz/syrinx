@@ -31,20 +31,9 @@ Both servers enforce:
 
 One per block, not per anything else: only one remote user is involved.
 
-A records what it owes each peer:
-
-```sql
-CREATE TABLE IF NOT EXISTS block_peer_notices (
-  server_id  VARCHAR(16)  NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-  user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-  blocked_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-  kind       VARCHAR(8)   NOT NULL CHECK (kind IN ('block', 'unblock')),
-  PRIMARY KEY (server_id, user_id, blocked_user_id)
-);
-```
-
-It is the peer-side twin of `user_block_events` ([04](04_realtime.md)):
-upserted by the same `oweBlockEventTx` in the block / unblock transaction,
+A records what it owes each peer in the same `block_event_queue` row a local
+blocked user's client is owed ([04](04_realtime.md)); the peer is the
+blocked user's home server, read from their identity. The row is upserted by the same `oweBlockEventTx` in the block / unblock transaction,
 replacing whatever was still owed for the pair, and deleted on a 2xx if no
 later notice replaced it. Sends to one peer are serialized, so a block and
 its lift can't cross on the wire and the peer always ends on the latest
