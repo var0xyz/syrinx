@@ -1669,11 +1669,9 @@ func (rs *realtimeService) dispatchKeyRevoked(ctx context.Context, recipientID, 
 	}
 }
 
-// fanoutAccountRemoval delivers removedUserID's account-removal cert to
-// every local follower, broadcast subscriber, and profile subscriber —
-// shared by the local realtimeAccountRemoved broadcast and
-// HandleForeignAccountRemoval (a peer holding removedUserID's content
-// telling us it happened).
+// fanoutAccountRemoval delivers removedUserID's removal to every local
+// follower, holder of their keys, broadcast and profile subscriber,
+// whether the removal is ours or a peer told us of it.
 func (rs *realtimeService) fanoutAccountRemoval(removedUserID string, cert *accountRemovalWire) {
 	followers, err := rs.db.GetOnlineFollowers(context.Background(), removedUserID)
 	if err != nil {
@@ -1685,6 +1683,11 @@ func (rs *realtimeService) fanoutAccountRemoval(removedUserID string, cert *acco
 	}
 	rs.dispatchAccountRemovalMany(followers, removedUserID, cert)
 	rs.dispatchAccountRemovalMany(broadcastRecipients, removedUserID, cert)
+	keyHolders, err := rs.db.GetOnlineKeyHolders(context.Background(), removedUserID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to get online key holders for account removal")
+	}
+	rs.dispatchAccountRemovalMany(keyHolders, removedUserID, cert)
 
 	profileSubscribers, err := rs.db.GetProfileSubscribers(context.Background(), removedUserID)
 	if err != nil {

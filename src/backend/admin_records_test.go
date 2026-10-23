@@ -234,3 +234,35 @@ func TestRecoveryE2E_RemoteReporterFlagWaitsForTheirKey(t *testing.T) {
 		t.Errorf("flags by the remote reporter = %s, want 1", n[0])
 	}
 }
+
+// Holding a removed user's key is enough to be told of the removal on
+// catch-up, until the device acks it.
+func TestAccountRemoval_ReachesKeyHolders(t *testing.T) {
+	f := newAdminFixture(t)
+	f.useRealExecutors(adminActionKick)
+	ctx := context.Background()
+	if err := f.ds.AllocatePublicKey(ctx, f.ids["a3"], f.keyID("u1")); err != nil {
+		t.Fatal(err)
+	}
+	f.kick(t, "u1")
+
+	removed := func(viewer string) bool {
+		missing, err := f.ds.GetMissingAccountRemovals(ctx, f.ids[viewer])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.ContainsFunc(missing, func(m missingAccountRemoval) bool { return m.UserID == f.ids["u1"] })
+	}
+	if !removed("a3") {
+		t.Error("a3 holds u1's key but isn't told of the removal")
+	}
+	if removed("root") {
+		t.Error("root holds nothing of u1's but is told of the removal")
+	}
+	if _, err := f.ds.ClearPeerStateForRemovedAccount(ctx, f.ids["a3"], f.ids["u1"]); err != nil {
+		t.Fatal(err)
+	}
+	if removed("a3") {
+		t.Error("a3 is still told of the removal after acking it")
+	}
+}
