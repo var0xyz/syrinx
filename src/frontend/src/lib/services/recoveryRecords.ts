@@ -69,6 +69,8 @@ const SOURCES: RecordSource<unknown>[] = [
     record: ({ compositeKey: _key, likedAt: _at, ...like }) => ({ case: 'like', value: like }),
   }),
   source<api.BlockCert>({ store: 'blocks', key: (r) => r.blockedUserId, record: (r) => ({ case: 'block', value: r }) }),
+  // Blocks against this device's user, a peer's users' among them.
+  source<api.BlockCert>({ store: 'blockedBy', key: (r) => r.userId, record: (r) => ({ case: 'block', value: r }) }),
   source<FlaggedReedRecord>({
     store: 'flaggedReeds',
     key: (r) => r.reedID,

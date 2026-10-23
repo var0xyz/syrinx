@@ -1,6 +1,7 @@
 /**
  * Drive unfinished recovery progress units through complete.
- * Order: own identity → peers → reeds → follows → records → pins → complete.
+ * Order: own identity → servers → peers → reeds → follows → records → pins →
+ * complete. Servers come first so a peer's users and reeds can be checked.
  */
 
 import {
@@ -19,6 +20,7 @@ import {
   markRecordPageStarted,
   OWN_IDENTITY_KEY,
   PINS_KEY,
+  SERVERS_KEY,
   peerEntityKey,
   RECORDS_KEY,
   reedEntityKey,
@@ -33,6 +35,7 @@ import {
   reportRecoveryPins,
   reportRecoveryRecords,
   reportRecoveryReed,
+  reportRecoveryServers,
 } from './recoveryHoldings';
 import { completeRecoveryRun } from './recoveryRun';
 import type { ApiError } from './api';
@@ -137,6 +140,18 @@ export async function runRecoveryWork(
       notify();
     } catch (err) {
       return { ok: false, error: errorMessage(err, 'Identity claim failed.') };
+    }
+  }
+
+  const servers = getRecoveryProgress()?.entities[SERVERS_KEY];
+  if (isEntityEntry(servers) && servers.endTime == null) {
+    markEntityStarted(SERVERS_KEY);
+    try {
+      await reportRecoveryServers();
+      markEntityFinished(SERVERS_KEY);
+      notify();
+    } catch (err) {
+      return { ok: false, error: errorMessage(err, 'Reporting servers failed.') };
     }
   }
 

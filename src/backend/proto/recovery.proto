@@ -120,6 +120,12 @@ message RecoveryRecord {
   }
 }
 
+// POST /recovery/servers: the peer records a device holds, answered with
+// one RecoveryRecordResult each.
+message RecoveryServersRequest {
+  repeated FederatedServerInfo servers = 1;
+}
+
 // POST /recovery/records.
 message RecoveryRecordsRequest {
   repeated RecoveryRecord records = 1;

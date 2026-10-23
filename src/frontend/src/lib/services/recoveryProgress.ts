@@ -9,12 +9,12 @@ import type { ReedType } from '$lib/types/reed';
 import { dbService } from './db';
 import { canAssembleKeyNest } from './recoveryKeyNest';
 import { enumerateRecoveryRecords, type RecoveryRecordRef } from './recoveryRecords';
-import { parseCanonicalId } from '$lib/utils/identityRef';
 
 export const RECOVERY_PROGRESS_KEY = 'recoveryProgress';
 export const FOLLOW_PAGE_SIZE = 100;
 
 export const OWN_IDENTITY_KEY = 'own_identity';
+export const SERVERS_KEY = 'servers';
 export const FOLLOWS_KEY = 'follows';
 export const RECORDS_KEY = 'records';
 export const PINS_KEY = 'pins';
@@ -73,6 +73,8 @@ export type EnumerateInput = {
   reeds: ReedType[];
   following: { userId: string }[];
   records: RecoveryRecordRef[];
+  /** How many peer records the device holds. */
+  servers: number;
 };
 
 type FollowRecord = { userId: string; timestamp?: number };
@@ -163,10 +165,9 @@ function chunk<T>(items: T[], size: number): T[][] {
  */
 export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLedger {
   const entities: Record<string, RecoveryProgressEntity> = {};
-  const localServerId = parseCanonicalId(input.selfUserId)?.[1];
-  const isLocal = (id: string) => parseCanonicalId(id)?.[1] === localServerId;
 
   entities[OWN_IDENTITY_KEY] = {};
+  if (input.servers > 0) entities[SERVERS_KEY] = {};
 
   const byFp = new Map<string, api.PublicKey>();
   for (const key of input.publicKeys) {
@@ -196,7 +197,7 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   };
 
   for (const user of input.users) {
-    if (user.id === input.selfUserId || !isLocal(user.id)) continue;
+    if (user.id === input.selfUserId) continue;
     const nest = canAssembleKeyNest(user.id, lookups);
     if (nest.ok === true) {
       entities[peerEntityKey(user.id)] = {};
@@ -210,7 +211,7 @@ export function enumerateRecoveryWork(input: EnumerateInput): RecoveryProgressLe
   }
 
   for (const reed of input.reeds) {
-    if (!reed.serverSignature || !reed.id || !isLocal(reed.userID)) continue;
+    if (!reed.serverSignature || !reed.id) continue;
     entities[reedEntityKey(reed.id)] = {};
   }
 
@@ -374,7 +375,7 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
   const selfUserId =
     typeof localStorage !== 'undefined' ? localStorage.getItem('userId') || '' : '';
 
-  const [users, usersInfo, publicKeys, revocations, reeds, following, records] = await Promise.all([
+  const [users, usersInfo, publicKeys, revocations, reeds, following, records, servers] = await Promise.all([
     dbService.getAll<api.User>('users'),
     dbService.getAll<api.UserInfo>('usersInfo'),
     dbService.getAll<api.PublicKey>('publicKeys'),
@@ -382,6 +383,7 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
     dbService.getAll<ReedType>('reeds'),
     dbService.getAll<FollowRecord>('following'),
     enumerateRecoveryRecords(),
+    dbService.getAll('federatedServers'),
   ]);
 
   const desired = enumerateRecoveryWork({
@@ -393,6 +395,7 @@ export async function ensureRecoveryProgress(): Promise<RecoveryProgressLedger> 
     reeds,
     following,
     records,
+    servers: servers.length,
   });
   const merged = mergeRecoveryProgress(desired, getRecoveryProgress());
   writeLedger(merged);

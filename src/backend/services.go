@@ -7812,6 +7812,28 @@ func recountReplyAncestorsTx(ctx context.Context, tx *sql.Tx, reedID string) err
 	return err
 }
 
+// mintPeerFollowTargetsTx adds the identity of every target on a peer this
+// server holds and hasn't revoked.
+func mintPeerFollowTargetsTx(ctx context.Context, tx *sql.Tx, serverID string, targets []string) error {
+	byServer := map[string][]string{}
+	for _, target := range targets {
+		if _, sid, ok := parseIdentityID(identityID(target)); ok && sid != serverID {
+			byServer[sid] = append(byServer[sid], target)
+		}
+	}
+	for sid, ids := range byServer {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO identities (id, server_id)
+			SELECT t, $2::varchar FROM unnest($1::text[]) AS t
+			WHERE EXISTS (SELECT 1 FROM server_mesh WHERE server_id = $2::varchar AND revoked_at IS NULL)
+			ON CONFLICT (id) DO NOTHING
+		`, pq.Array(ids), sid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // saveRecoveryFollowing writes follow edges for followerUserID. Existing
 // targets go into user_following / user_followers; missing targets go into
 // pending_follows. Caller must reject self-follows before calling.
@@ -7844,6 +7866,11 @@ func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, fol
 	// Without it, a target recovering concurrently could drain before our
 	// pending row commits, and the follow would never be applied.
 	if err := lockRecoveryFollowTargets(ctx, tx, canonicalTargets); err != nil {
+		return err
+	}
+	// A target on one of our peers is never claimed here: its home server
+	// vouches for it, so it gets its identity and the follow now.
+	if err := mintPeerFollowTargetsTx(ctx, tx, serverID, canonicalTargets); err != nil {
 		return err
 	}
 	rows, err := tx.QueryContext(ctx, `

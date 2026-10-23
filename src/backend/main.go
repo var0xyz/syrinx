@@ -638,6 +638,8 @@ func main() {
 		api.HandleFunc("/recovery/identity/claim", h.IssueChallenge).Methods(http.MethodGet)
 		api.HandleFunc("/recovery/identity/claim", h.ClaimIdentity).Methods(http.MethodPost)
 		api.HandleFunc("/recovery/identity/claim", h.noop).Methods(http.MethodOptions)
+		api.HandleFunc("/recovery/servers", h.ReportServers).Methods(http.MethodPost)
+		api.HandleFunc("/recovery/servers", h.noop).Methods(http.MethodOptions)
 		api.HandleFunc("/recovery/identity", h.ReportPeerIdentity).Methods(http.MethodPost)
 		api.HandleFunc("/recovery/identity", h.noop).Methods(http.MethodOptions)
 		api.HandleFunc("/recovery/reeds", h.ReportReed).Methods(http.MethodPost)

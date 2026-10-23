@@ -58,6 +58,10 @@ type recoveryRecordEnv struct {
 	serverID  string
 	serverKey recoveryServerKeyLookup
 	verifier  recoveryVerifier
+	// peerKey finds a peer's server keys; activePeer says whether a server
+	// is a peer held here and not revoked.
+	peerKey    func(peerID string) recoveryServerKeyLookup
+	activePeer func(ctx context.Context, serverID string) (bool, error)
 }
 
 func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
@@ -228,6 +232,50 @@ func (env *recoveryRecordEnv) signedBy(ctx context.Context, tx *sql.Tx, owner st
 	return nil
 }
 
+// signedOnPeer checks a record made on one of this server's peers: signed
+// by owner, one of its users, with a key restored from a device, and
+// countersigned by owner's server. A key not restored yet parks the record.
+func (env *recoveryRecordEnv) signedOnPeer(ctx context.Context, tx *sql.Tx, owner string, user UserSignature, payload []byte, server ServerSignature, serverPayload func(fp string) []byte) error {
+	_, peerID, ok := parseIdentityID(identityID(owner))
+	if !ok || env.peerKey == nil || env.activePeer == nil {
+		return refuseRecord("%s isn't a user of a peer of this server", owner)
+	}
+	if active, err := env.activePeer(ctx, peerID); err != nil {
+		return err
+	} else if !active {
+		return refuseRecord("%s isn't a peer of this server", peerID)
+	}
+	if keyOwner, ok := authorOf(identityID(user.ID)); !ok || string(keyOwner) != owner || user.Armor == "" {
+		return refuseRecord("not signed by a key of %s's", owner)
+	}
+	var armor string
+	err := tx.QueryRowContext(ctx, `SELECT armor FROM public_keys WHERE id = $1 AND owner = $2`, user.ID, owner).Scan(&armor)
+	if err == sql.ErrNoRows {
+		return recoveryWaiting{on: owner}
+	}
+	if err != nil {
+		return err
+	}
+	if err := env.verifier.verifySignature(ctx, string(payload), user.Armor, armor); err != nil {
+		return refuseRecord("bad signature by %s", user.ID)
+	}
+	fp, sigServerID, ok := parseIdentityID(identityID(server.ID))
+	if !ok || sigServerID != peerID || server.Armor == "" || server.SignedAt.IsZero() {
+		return refuseRecord("not countersigned by %s", peerID)
+	}
+	serverArmor, err := env.peerKey(peerID)(ctx, fp, server.SignedAt)
+	if err != nil {
+		return err
+	}
+	if serverArmor == "" {
+		return refuseRecord("unknown server key %s", server.ID)
+	}
+	if err := env.verifier.verifySignature(ctx, string(serverPayload(fp)), server.Armor, serverArmor); err != nil {
+		return refuseRecord("bad countersignature")
+	}
+	return nil
+}
+
 // mintIdentityTx adds a placeholder identity row for a local user not
 // restored yet, so a record naming them can be stored.
 func mintIdentityTx(ctx context.Context, tx *sql.Tx, userID string) error {
@@ -294,21 +342,24 @@ func (r recoveredLike) restore(ctx context.Context, tx *sql.Tx, env *recoveryRec
 type recoveredBlock struct{ BlockCert }
 
 func (r recoveredBlock) restore(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv) error {
-	if err := env.local(r.UserID); err != nil {
-		return err
-	}
 	if err := env.local(r.BlockedUserID); err != nil {
 		return err
 	}
 	if r.UserID == r.BlockedUserID {
 		return refuseRecord("a user can't block themselves")
 	}
-	if err := env.signedBy(ctx, tx, r.UserID, r.UserSignature, buildBlockUserPayload(r.UserID, r.BlockedUserID, r.UserSignature.ID)); err != nil {
-		return err
-	}
-	if err := env.countersignedHere(ctx, r.ServerSignature, func(fp string) []byte {
+	userPayload := buildBlockUserPayload(r.UserID, r.BlockedUserID, r.UserSignature.ID)
+	serverPayload := func(fp string) []byte {
 		return buildBlockServerPayload(r.UserID, r.BlockedUserID, fp, r.UserSignature.Armor, r.ServerSignature.SignedAt)
-	}); err != nil {
+	}
+	if err := env.local(r.UserID); err == nil {
+		if err := env.signedBy(ctx, tx, r.UserID, r.UserSignature, userPayload); err != nil {
+			return err
+		}
+		if err := env.countersignedHere(ctx, r.ServerSignature, serverPayload); err != nil {
+			return err
+		}
+	} else if err := env.signedOnPeer(ctx, tx, r.UserID, r.UserSignature, userPayload, r.ServerSignature, serverPayload); err != nil {
 		return err
 	}
 	if held, err := existsTx(ctx, tx, `SELECT 1 FROM user_blocks WHERE user_id = $1 AND blocked_user_id = $2`, r.UserID, r.BlockedUserID); err != nil || held {
