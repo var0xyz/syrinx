@@ -379,6 +379,33 @@ func buildServerKeyRevocationPayload(
 	})
 }
 
+// identityTypePeerRecord is the `type` of a peering record: what this
+// server knew about a peer when it signed it.
+const identityTypePeerRecord = "peer-record"
+
+// A peer record's status.
+const (
+	peerRecordConnected = "connected"
+	peerRecordRevoked   = "revoked"
+	peerRecordPurged    = "purged"
+)
+
+// buildPeerRecordPayload returns the bytes this server countersigns for a
+// peer. Mirrored by buildPeerRecordPayload in signing.ts.
+func buildPeerRecordPayload(serverID, peerID, name, keyID, baseURL, frontendURL, status string, signedAt time.Time) []byte {
+	return canonicalJSON(signedFields{
+		"type":        identityTypePeerRecord,
+		"serverID":    serverID,
+		"peerID":      peerID,
+		"name":        name,
+		"keyID":       keyID,
+		"baseURL":     baseURL,
+		"frontendURL": frontendURL,
+		"status":      status,
+		"signedAt":    signedTime(signedAt),
+	})
+}
+
 // identityTypeAccount is the `type` of an account removal certificate.
 const identityTypeAccount = "account"
 

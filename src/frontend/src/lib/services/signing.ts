@@ -189,6 +189,31 @@ export function buildServerKeyRevocationPayload(
   });
 }
 
+/** Mirror of buildPeerRecordPayload in identity.go: what a server countersigns
+ * about one of its peers. */
+export function buildPeerRecordPayload(
+  serverID: string,
+  peerID: string,
+  name: string,
+  keyID: string,
+  baseURL: string,
+  frontendURL: string,
+  status: string,
+  signedAt: string
+): string {
+  return canonicalJSON({
+    type: 'peer-record',
+    serverID,
+    peerID,
+    name,
+    keyID,
+    baseURL,
+    frontendURL,
+    status,
+    signedAt,
+  });
+}
+
 /** Mirror of buildThreadUserPayload in identity.go. reedIDs[0] is the head. */
 export function buildThreadUserPayload(serverID: string, threadID: string, reedIDs: string[]): string {
   return canonicalJSON({ type: 'thread', serverID, threadID, reedIDs });

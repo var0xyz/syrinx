@@ -118,13 +118,28 @@ func (x *ServerInfo) GetFederation() []*FederatedServerInfo {
 }
 
 // One established peer, for picking which server a verification link opens on.
+// A peer, revoked ones included, with the record this server countersigned
+// for it. Devices keep the newest record per peer and report it back when
+// the server is rebuilt.
 type FederatedServerInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	KeyId         string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	CreatedAt     uint32                 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	FrontendUrl   string                 `protobuf:"bytes,5,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	KeyId string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	// When this server approved the peer. Not signed.
+	CreatedAt   uint32 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	FrontendUrl string `protobuf:"bytes,5,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
+	BaseUrl     string `protobuf:"bytes,6,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	// connected or revoked.
+	Status string `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	// Approved on both sides. Not signed: a hint for picking where a
+	// verification link opens.
+	Established bool `protobuf:"varint,8,opt,name=established,proto3" json:"established,omitempty"`
+	// Countersignature over the record: id, name, key_id, base_url,
+	// frontend_url, status and its own signed_at.
+	ServerSignature *ServerSignature `protobuf:"bytes,9,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	// The peer's server key, accepted only if its fingerprint is key_id's.
+	KeyArmor      string `protobuf:"bytes,10,opt,name=key_armor,json=keyArmor,proto3" json:"key_armor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -190,6 +205,41 @@ func (x *FederatedServerInfo) GetCreatedAt() uint32 {
 func (x *FederatedServerInfo) GetFrontendUrl() string {
 	if x != nil {
 		return x.FrontendUrl
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetEstablished() bool {
+	if x != nil {
+		return x.Established
+	}
+	return false
+}
+
+func (x *FederatedServerInfo) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
+func (x *FederatedServerInfo) GetKeyArmor() string {
+	if x != nil {
+		return x.KeyArmor
 	}
 	return ""
 }
@@ -2027,14 +2077,20 @@ const file_identity_proto_rawDesc = "" +
 	"\rserver_key_id\x18\x06 \x01(\tR\vserverKeyId\x12;\n" +
 	"\n" +
 	"federation\x18\a \x03(\v2\x1b.syrinx.FederatedServerInfoR\n" +
-	"federation\"\x92\x01\n" +
+	"federation\"\xc8\x02\n" +
 	"\x13FederatedServerInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x15\n" +
 	"\x06key_id\x18\x03 \x01(\tR\x05keyId\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x04 \x01(\rR\tcreatedAt\x12!\n" +
-	"\ffrontend_url\x18\x05 \x01(\tR\vfrontendUrl\"i\n" +
+	"\ffrontend_url\x18\x05 \x01(\tR\vfrontendUrl\x12\x19\n" +
+	"\bbase_url\x18\x06 \x01(\tR\abaseUrl\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12 \n" +
+	"\vestablished\x18\b \x01(\bR\vestablished\x12B\n" +
+	"\x10server_signature\x18\t \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1b\n" +
+	"\tkey_armor\x18\n" +
+	" \x01(\tR\bkeyArmor\"i\n" +
 	"\x0eUserIDResponse\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\tR\tsignature\x12 \n" +
@@ -2225,33 +2281,34 @@ var file_identity_proto_goTypes = []any{
 	(*VouchListResponse)(nil),     // 25: syrinx.VouchListResponse
 	(*CreateVouchRequest)(nil),    // 26: syrinx.CreateVouchRequest
 	(*WithdrawVouchRequest)(nil),  // 27: syrinx.WithdrawVouchRequest
-	(*UserSignature)(nil),         // 28: syrinx.UserSignature
-	(*ServerSignature)(nil),       // 29: syrinx.ServerSignature
+	(*ServerSignature)(nil),       // 28: syrinx.ServerSignature
+	(*UserSignature)(nil),         // 29: syrinx.UserSignature
 	(*KeyRevocationCert)(nil),     // 30: syrinx.KeyRevocationCert
 	(*BlockCert)(nil),             // 31: syrinx.BlockCert
 }
 var file_identity_proto_depIdxs = []int32{
 	1,  // 0: syrinx.ServerInfo.federation:type_name -> syrinx.FederatedServerInfo
-	28, // 1: syrinx.User.user_signature:type_name -> syrinx.UserSignature
-	29, // 2: syrinx.User.server_signature:type_name -> syrinx.ServerSignature
-	5,  // 3: syrinx.User.invite:type_name -> syrinx.UserInvite
-	10, // 4: syrinx.UserSearchResponse.users:type_name -> syrinx.UserSearchResult
-	13, // 5: syrinx.FollowListResponse.users:type_name -> syrinx.FollowListUser
-	29, // 6: syrinx.PublicKey.server_signature:type_name -> syrinx.ServerSignature
-	30, // 7: syrinx.KeyRevocationResponse.user:type_name -> syrinx.KeyRevocationCert
-	17, // 8: syrinx.KeyRevocationResponse.server:type_name -> syrinx.ServerKeyRevocation
-	31, // 9: syrinx.BlockListResponse.blocks:type_name -> syrinx.BlockCert
-	28, // 10: syrinx.Vouch.user_signature:type_name -> syrinx.UserSignature
-	29, // 11: syrinx.Vouch.server_signature:type_name -> syrinx.ServerSignature
-	24, // 12: syrinx.Vouch.withdrawal:type_name -> syrinx.VouchWithdrawal
-	28, // 13: syrinx.VouchWithdrawal.user_signature:type_name -> syrinx.UserSignature
-	29, // 14: syrinx.VouchWithdrawal.server_signature:type_name -> syrinx.ServerSignature
-	23, // 15: syrinx.VouchListResponse.vouches:type_name -> syrinx.Vouch
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	28, // 1: syrinx.FederatedServerInfo.server_signature:type_name -> syrinx.ServerSignature
+	29, // 2: syrinx.User.user_signature:type_name -> syrinx.UserSignature
+	28, // 3: syrinx.User.server_signature:type_name -> syrinx.ServerSignature
+	5,  // 4: syrinx.User.invite:type_name -> syrinx.UserInvite
+	10, // 5: syrinx.UserSearchResponse.users:type_name -> syrinx.UserSearchResult
+	13, // 6: syrinx.FollowListResponse.users:type_name -> syrinx.FollowListUser
+	28, // 7: syrinx.PublicKey.server_signature:type_name -> syrinx.ServerSignature
+	30, // 8: syrinx.KeyRevocationResponse.user:type_name -> syrinx.KeyRevocationCert
+	17, // 9: syrinx.KeyRevocationResponse.server:type_name -> syrinx.ServerKeyRevocation
+	31, // 10: syrinx.BlockListResponse.blocks:type_name -> syrinx.BlockCert
+	29, // 11: syrinx.Vouch.user_signature:type_name -> syrinx.UserSignature
+	28, // 12: syrinx.Vouch.server_signature:type_name -> syrinx.ServerSignature
+	24, // 13: syrinx.Vouch.withdrawal:type_name -> syrinx.VouchWithdrawal
+	29, // 14: syrinx.VouchWithdrawal.user_signature:type_name -> syrinx.UserSignature
+	28, // 15: syrinx.VouchWithdrawal.server_signature:type_name -> syrinx.ServerSignature
+	23, // 16: syrinx.VouchListResponse.vouches:type_name -> syrinx.Vouch
+	17, // [17:17] is the sub-list for method output_type
+	17, // [17:17] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_identity_proto_init() }

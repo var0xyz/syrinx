@@ -75,7 +75,7 @@
     };
     let peers = [];
     try {
-      peers = await federatedServersRepository.all();
+      peers = (await federatedServersRepository.all()).filter((peer) => peer.status === 'connected' && peer.established);
     } catch (error) {
       console.error('Could not read federated servers', error);
     }

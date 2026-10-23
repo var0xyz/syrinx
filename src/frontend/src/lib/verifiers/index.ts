@@ -48,9 +48,11 @@ import {
   buildAdminRequestServerPayload,
   buildAccountKickServerPayload,
   buildAdminRevocationServerPayload,
+  buildPeerRecordPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
+import type { FederatedServer } from '$lib/types/server';
 import { countCharacters } from '$lib/utils/text';
 
 export type Verifier<T = unknown> = (data: T) => Promise<boolean>;
@@ -273,6 +275,36 @@ async function isKeyValidAt(
     serverConnection.sendRevokedKeyUsed(userID, fingerprint);
   }
   return valid;
+}
+
+/** A peer record this device's own server countersigned. The peer's key
+ * armor rides along unsigned: it is kept only when its fingerprint is the
+ * signed keyID's, and cleared otherwise. */
+export async function verifyPeerRecord(record: FederatedServer): Promise<boolean> {
+  const serverID = localStorage.getItem('serverId');
+  if (!serverID || !record.serverSignature?.signedAt) return false;
+  const payload = buildPeerRecordPayload(
+    serverID,
+    record.id,
+    record.name,
+    record.keyId,
+    record.baseUrl,
+    record.frontendUrl,
+    record.status,
+    signedAtHeader(record.serverSignature.signedAt)
+  );
+  const result = await verify(record.serverSignature, payload);
+  if (result.ok === false) {
+    console.error('[verifyPeerRecord] server signature failed', record.id, result);
+    return false;
+  }
+  if (record.keyArmor) {
+    const fingerprint = await cryptoService.fingerprintFromArmor(record.keyArmor).catch(() => '');
+    if (`${fingerprint.toLowerCase()}@${record.id}` !== record.keyId.toLowerCase()) {
+      record.keyArmor = '';
+    }
+  }
+  return true;
 }
 
 export async function verifyKeyRevocation(revocation: api.KeyRevocation): Promise<boolean> {

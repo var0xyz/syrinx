@@ -83,11 +83,38 @@ type Handlers struct {
 // FederatedServerInfo is one established peer as /server/info lists it.
 // FrontendURL is where its users open links, as agreed in the handshake.
 type FederatedServerInfo struct {
-	ID          string
-	Name        string
-	KeyID       string
-	CreatedAt   time.Time
-	FrontendURL string
+	ID           string
+	Name         string
+	KeyID        string
+	CreatedAt    time.Time
+	BaseURL      string
+	FrontendURL  string
+	Revoked      bool
+	Purged       bool
+	Established  bool
+	KeyArmor     string
+	Record       ServerSignature
+	RecordFields string
+}
+
+// status is what a peer record says about the peering.
+func (srv FederatedServerInfo) status() string {
+	if srv.Purged {
+		return peerRecordPurged
+	}
+	if srv.Revoked {
+		return peerRecordRevoked
+	}
+	return peerRecordConnected
+}
+
+// recordFields is what a peer record covers, without its timestamp: when it
+// changes, the record is signed again.
+func (srv FederatedServerInfo) recordFields() string {
+	return string(canonicalJSON(signedFields{
+		"peerID": srv.ID, "name": srv.Name, "keyID": srv.KeyID,
+		"baseURL": srv.BaseURL, "frontendURL": srv.FrontendURL, "status": srv.status(),
+	}))
 }
 
 // ///////////// //
@@ -166,15 +193,44 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 		ServerKeyId:       string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
 	}
 	for _, srv := range federation {
+		record, err := h.currentPeerRecord(r.Context(), srv)
+		if err != nil {
+			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("peerServerID", srv.ID).Msg("Failed to sign peer record")
+			continue
+		}
 		info.Federation = append(info.Federation, &pb.FederatedServerInfo{
-			Id:          srv.ID,
-			Name:        srv.Name,
-			KeyId:       srv.KeyID,
-			CreatedAt:   unixOrZero(srv.CreatedAt),
-			FrontendUrl: srv.FrontendURL,
+			Id:              srv.ID,
+			Name:            srv.Name,
+			KeyId:           srv.KeyID,
+			CreatedAt:       unixOrZero(srv.CreatedAt),
+			FrontendUrl:     srv.FrontendURL,
+			BaseUrl:         srv.BaseURL,
+			Status:          srv.status(),
+			Established:     srv.Established,
+			ServerSignature: pbServerSignature(record),
+			KeyArmor:        srv.KeyArmor,
 		})
 	}
 	writeResponse(w, http.StatusOK, info)
+}
+
+// currentPeerRecord returns the record countersigned for srv, signing a new
+// one first when what it covers changed since the last.
+func (h *Handlers) currentPeerRecord(ctx context.Context, srv FederatedServerInfo) (ServerSignature, error) {
+	fields := srv.recordFields()
+	if srv.Record.Armor != "" && srv.RecordFields == fields {
+		return srv.Record, nil
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	payload := buildPeerRecordPayload(h.services.db.GetServerID(), srv.ID, srv.Name, srv.KeyID, srv.BaseURL, srv.FrontendURL, srv.status(), now)
+	sig, err := h.countersign(ctx, payload, now)
+	if err != nil {
+		return ServerSignature{}, err
+	}
+	if err := h.services.db.SetPeerRecord(ctx, srv.ID, fields, sig); err != nil {
+		return ServerSignature{}, err
+	}
+	return sig, nil
 }
 
 // GetServerPublicKey returns the armored public half of a server signing
