@@ -259,7 +259,6 @@ func InitDB(db *sql.DB) error {
 		name VARCHAR(255) PRIMARY KEY,
 		self BOOLEAN NOT NULL DEFAULT FALSE,
 		signing_key VARCHAR(255),
-		identity_backup_at TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		base_url TEXT,
 		connected BOOLEAN NOT NULL DEFAULT FALSE,
@@ -280,6 +279,22 @@ func InitDB(db *sql.DB) error {
 		-- The key of ours this peer last accepted, so a rotation is announced
 		-- to each peer once.
 		peer_key_ack VARCHAR(255)
+	);`
+
+	createServersIndexes := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_servers_self
+		ON servers (self) WHERE self;
+	`
+
+	// What applies only to this server. first_boot_at is when this database
+	// was initialized: a first boot, or an identity import into an empty
+	// database. It never changes.
+	createServerSelfTable := `
+	CREATE TABLE IF NOT EXISTS server_self (
+		server_id VARCHAR(16) NOT NULL UNIQUE REFERENCES servers(id),
+		-- The last ops export-identity, which carries every signing key.
+		identity_backup_at TIMESTAMP,
+		first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);`
 
 	// Normalized attestation rows. public_key_id/private_key_id are not
@@ -1663,6 +1678,8 @@ func InitDB(db *sql.DB) error {
 
 	queries := []string{
 		createServersTable,
+		createServersIndexes,
+		createServerSelfTable,
 
 		createUserSignaturesTable,
 		createServerSignaturesTable,

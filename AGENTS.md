@@ -73,6 +73,12 @@ make import-identity FILE=bundle.sxi.gpg   # ./bin/ops import-identity <file>
 compile together — the `ops` binary and the server binary are mutually
 exclusive builds of the root package.
 
+The server **refuses to start** until its identity has been exported since
+its newest signing key was created (`server_self.identity_backup_at`; `ops
+check-identity-backup`). Without a TTY, `ops` reads the bundle password as
+one line from stdin — never from an env var. `scripts/federation-dev-up.sh`
+and the deploy scripts export it for you.
+
 Config comes from the process environment (`tooxie/env`, `env.MustAssert`),
 **not** a loaded `.env` file — copy `.env.example` to `.env` and `source` it (or
 `make env`). Key vars: `DB_*`, `SERVER_NAME` (required, non-empty),

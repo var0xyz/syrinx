@@ -327,3 +327,48 @@ syrinx_ensure_root_bootstrap() {
     echo "   is not needed for the server to keep running."
     echo "------------------------------------------------------------------"
 }
+
+# The server refuses to start until its identity (server id + every signing
+# key) is exported, and again after a new signing key. When the check fails,
+# export it next to the root export, with a generated password in a
+# .passphrase sidecar, for the operator to copy off with cp-root-creds.sh.
+syrinx_ensure_identity_backup() {
+    local ops export_dir out password
+    ops="/usr/local/bin/${APP_NAME}-ops"
+    if [ ! -x "$ops" ]; then
+        echo "❌ Error: missing $ops — build/install first" >&2
+        return 1
+    fi
+
+    if ( set -a; . "$ENV_FILE"; set +a; "$ops" check-identity-backup ) >/dev/null 2>&1; then
+        echo "🔹 Server identity backup is current"
+        return 0
+    fi
+
+    export_dir="$(syrinx_root_export_dir)"
+    mkdir -p "$export_dir"
+    chown "$APP_USER:$APP_USER" "/var/lib/${APP_NAME}" "$export_dir"
+    chmod 700 "$export_dir"
+    out="$export_dir/syrinx-identity-$(date -u +%Y%m%dT%H%M%SZ).sxi.gpg"
+    password="$(syrinx_root_gen_secret)"
+
+    echo "🔹 Exporting the server identity..."
+    if ! printf '%s\n' "$password" \
+        | ( set -a; . "$ENV_FILE"; set +a; "$ops" export-identity "$out" ) >/dev/null; then
+        echo "❌ Server identity export failed" >&2
+        return 1
+    fi
+    printf '%s\n' "$password" > "${out}.passphrase"
+    chown "$APP_USER:$APP_USER" "$out" "${out}.passphrase"
+    chmod 600 "$out" "${out}.passphrase"
+
+    echo "------------------------------------------------------------------"
+    echo "✅ Server identity exported"
+    echo "📦 Bundle:          $out"
+    echo "🔐 Passphrase file: ${out}.passphrase"
+    echo ""
+    echo "   This is the one thing a recovery can't rebuild from users. Copy"
+    echo "   both off the server (./deploy/scripts/syrinx/cp-root-creds.sh),"
+    echo "   keep them apart, then delete them here."
+    echo "------------------------------------------------------------------"
+}

@@ -177,6 +177,9 @@ CGO_ENABLED=0 go build -tags ripplescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP
 echo -e "\n💻 Building challenges-cleanup cron job (staged — not installed yet)..."
 CGO_ENABLED=0 go build -tags challengescleanup -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-challenges-cleanup" .
 
+echo -e "\n💻 Building the operator CLI (staged — not installed yet)..."
+CGO_ENABLED=0 go build -tags ops -ldflags="-w -s" -o "$BUILD_DIR/$APP_NAME-ops" .
+
 node_ensure
 echo -e "\n⚛️  Building SPA (staged — not published yet)..."
 cd "$BUILD_DIR/src/$FRONTEND_PATH"
@@ -195,6 +198,8 @@ echo -e "\n🚀 Both builds succeeded — installing atomically..."
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME" "/usr/local/bin/$APP_NAME"
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-ripples-cleanup" "/usr/local/bin/$APP_NAME-ripples-cleanup"
 install -o "$APP_USER" -g "$APP_USER" -m 500 "$BUILD_DIR/$APP_NAME-challenges-cleanup" "/usr/local/bin/$APP_NAME-challenges-cleanup"
+# Operator CLI (export-identity, rotate-key, ...): run as root, never by the service.
+install -o root -g root -m 500 "$BUILD_DIR/$APP_NAME-ops" "/usr/local/bin/$APP_NAME-ops"
 
 # Own log dir under LOG_DIR — the cron job runs as $APP_USER, not root,
 # and needs somewhere it can actually write. 711 on LOG_DIR itself lets
@@ -284,6 +289,10 @@ fi
 # unit is what stays running.
 echo -e "\n🔑 Checking root user bootstrap..."
 syrinx_ensure_root_bootstrap
+
+# The server won't start without a current identity backup.
+echo -e "\n🔑 Checking server identity backup..."
+syrinx_ensure_identity_backup
 
 echo -e "\n🔁 Restarting $APP_NAME..."
 systemctl restart "$APP_NAME.service"

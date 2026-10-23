@@ -1,6 +1,7 @@
 #!/bin/bash
-# Copy the reserved root identity's export file + passphrase down from the
-# app host to this machine, then optionally delete them from the host.
+# Copy the reserved root identity's export file + passphrase, and the server
+# identity bundle + passphrase, down from the app host to this machine, then
+# optionally delete them from the host.
 #
 # root-bootstrap.sh writes both files under /var/lib/$APP_NAME/root-export/
 # (mode 600, owned by the app's service user) and never prints the
@@ -20,7 +21,8 @@
 # deploy/syrinx.sh copies scripts to and setup.sh saves its answers in), so run
 # ./deploy/syrinx.sh setup at least once on this host before this script.
 #
-# Downloads the latest syrinx-1-*.sxi.gpg and its .passphrase sidecar over
+# Downloads the latest syrinx-1-*.sxi.gpg and syrinx-identity-*.sxi.gpg, each
+# with its .passphrase sidecar, over
 # SSH (sudo cat, since both are root-export-user-owned 600 files — nothing
 # is chmod'd or left world-readable on the host in the process), writes them
 # locally at mode 600, then asks whether to delete the remote copies. Losing
@@ -126,45 +128,53 @@ APP_NAME="$(remote_sudo "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")
 ok "APP_NAME=$APP_NAME"
 
 REMOTE_EXPORT_DIR="/var/lib/${APP_NAME}/root-export"
-info "Locating latest export in ${REMOTE_EXPORT_DIR} ..."
-REMOTE_EXPORT_FILE="$(remote_sudo "sudo find $(printf '%q' "$REMOTE_EXPORT_DIR") -maxdepth 1 -type f -name 'syrinx-1-*.sxi.gpg' 2>/dev/null | sort | tail -n1" || true)"
-[ -n "$REMOTE_EXPORT_FILE" ] || die "No syrinx-1-*.sxi.gpg found in ${REMOTE_EXPORT_DIR} on $DEPLOY_HOST — has the root identity been minted yet?"
-REMOTE_PASSPHRASE_FILE="${REMOTE_EXPORT_FILE}.passphrase"
-
-if ! remote_sudo "sudo test -f $(printf '%q' "$REMOTE_PASSPHRASE_FILE")"; then
-    die "Found $REMOTE_EXPORT_FILE but its .passphrase sidecar is missing on $DEPLOY_HOST — cannot import without it"
-fi
-
-EXPORT_BASENAME="$(basename "$REMOTE_EXPORT_FILE")"
 mkdir -p "$OUT_DIR"
 umask 077
-LOCAL_EXPORT_FILE="$OUT_DIR/$EXPORT_BASENAME"
-LOCAL_PASSPHRASE_FILE="$OUT_DIR/${EXPORT_BASENAME}.passphrase"
 
-info "Copying export file..."
-remote_sudo "sudo cat $(printf '%q' "$REMOTE_EXPORT_FILE")" > "$LOCAL_EXPORT_FILE"
-chmod 600 "$LOCAL_EXPORT_FILE"
+# copy_latest PATTERN copies the newest file matching PATTERN and its
+# .passphrase sidecar, prints the remote paths, and returns 1 if none.
+copy_latest() {
+    local pattern="$1" remote passphrase base
+    remote="$(remote_sudo "sudo find $(printf '%q' "$REMOTE_EXPORT_DIR") -maxdepth 1 -type f -name '$pattern' 2>/dev/null | sort | tail -n1" || true)"
+    [ -n "$remote" ] || return 1
+    passphrase="${remote}.passphrase"
+    if ! remote_sudo "sudo test -f $(printf '%q' "$passphrase")"; then
+        die "Found $remote but its .passphrase sidecar is missing on $DEPLOY_HOST — cannot import without it"
+    fi
+    base="$(basename "$remote")"
+    info "Copying $base..."
+    remote_sudo "sudo cat $(printf '%q' "$remote")" > "$OUT_DIR/$base"
+    remote_sudo "sudo cat $(printf '%q' "$passphrase")" > "$OUT_DIR/$base.passphrase"
+    chmod 600 "$OUT_DIR/$base" "$OUT_DIR/$base.passphrase"
+    ok "Saved $OUT_DIR/$base (+ .passphrase)"
+    COPIED+=("$remote" "$passphrase")
+}
 
-info "Copying passphrase..."
-remote_sudo "sudo cat $(printf '%q' "$REMOTE_PASSPHRASE_FILE")" > "$LOCAL_PASSPHRASE_FILE"
-chmod 600 "$LOCAL_PASSPHRASE_FILE"
-
-ok "Saved to:"
-echo "  $LOCAL_EXPORT_FILE"
-echo "  $LOCAL_PASSPHRASE_FILE"
+COPIED=()
+info "Looking in ${REMOTE_EXPORT_DIR} ..."
+if copy_latest 'syrinx-1-*.sxi.gpg'; then
+    echo "   Root identity: import via SPA /import → \"I only have my keys\","
+    echo "   using the passphrase in its .passphrase file."
+fi
+if copy_latest 'syrinx-identity-*.sxi.gpg'; then
+    echo "   Server identity: what a recovery is rebuilt from, with"
+    echo "   echo \"\$PASSPHRASE\" | ${APP_NAME}-ops import-identity <bundle>"
+fi
+[ "${#COPIED[@]}" -gt 0 ] || die "No root export or server identity bundle found in ${REMOTE_EXPORT_DIR} on $DEPLOY_HOST — has setup run?"
 echo ""
-echo "Import via SPA /import → \"I only have my keys\", using the passphrase"
-echo "in the .passphrase file. Store both somewhere safe — losing them loses"
-echo "the ability to import this identity."
+echo "Store these somewhere safe — losing them loses the ability to import"
+echo "these identities."
 echo ""
 
 read -r -p "Delete these files from ${DEPLOY_HOST} now? [y/N]: " DELETE_REMOTE
 case "${DELETE_REMOTE:-N}" in
     y|Y)
-        remote_sudo "sudo rm -f $(printf '%q' "$REMOTE_EXPORT_FILE") $(printf '%q' "$REMOTE_PASSPHRASE_FILE")"
+        quoted=""
+        for f in "${COPIED[@]}"; do quoted="$quoted $(printf '%q' "$f")"; done
+        remote_sudo "sudo rm -f$quoted"
         ok "Deleted from $DEPLOY_HOST"
         ;;
     *)
-        info "Left in place on $DEPLOY_HOST at $REMOTE_EXPORT_FILE (+ .passphrase)"
+        info "Left in place on $DEPLOY_HOST"
         ;;
 esac

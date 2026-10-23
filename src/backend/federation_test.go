@@ -36,6 +36,11 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			connected BOOLEAN NOT NULL DEFAULT FALSE,
 			signing_key VARCHAR(255)
 		)`,
+		`CREATE TABLE IF NOT EXISTS server_self (
+			server_id VARCHAR(255) NOT NULL UNIQUE REFERENCES servers(id),
+			identity_backup_at TIMESTAMP,
+			first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
 		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS peer_approved_at TIMESTAMP`,

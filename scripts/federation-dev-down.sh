@@ -52,9 +52,9 @@ fi
 
 # Root export bundles minted by federation-dev-up.sh (syrinx-a-1-*.sxi.gpg /
 # syrinx-b-1-*.sxi.gpg), plus any unlabeled syrinx-1-*.sxi.gpg left over from
-# a run before instance-labeled filenames existed.
+# a run before instance-labeled filenames existed, and the identity bundles.
 shopt -s nullglob
-bundles=("$ROOT_DIR"/scripts/syrinx-a-1-*.sxi.gpg "$ROOT_DIR"/scripts/syrinx-b-1-*.sxi.gpg "$ROOT_DIR"/scripts/syrinx-1-*.sxi.gpg "$ROOT_DIR"/syrinx-1-*.sxi.gpg)
+bundles=("$ROOT_DIR"/scripts/syrinx-a-1-*.sxi.gpg "$ROOT_DIR"/scripts/syrinx-b-1-*.sxi.gpg "$ROOT_DIR"/scripts/syrinx-1-*.sxi.gpg "$ROOT_DIR"/syrinx-1-*.sxi.gpg "$ROOT_DIR"/scripts/syrinx-[ab]-identity.sxi.gpg)
 shopt -u nullglob
 if [ "${#bundles[@]}" -gt 0 ]; then
   echo "Deleting root key backups: ${bundles[*]}"
