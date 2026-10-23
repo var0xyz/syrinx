@@ -112,13 +112,11 @@ import {
 import {
   FederationActionResponseSchema,
   FederationAttemptRequestSchema,
-  FederationAttemptResponseSchema,
   FederationAttemptSchema,
   FederationAttemptStatusSchema,
   FederationCreateRequestSchema,
   FederationCreateResponseSchema,
   FederationInvitationListSchema,
-  FederationInvitationResponseSchema,
   FederationListSchema,
   FederationLogsSchema,
   FederationReasonRequestSchema,
@@ -562,26 +560,6 @@ export const apiService = {
   async getFederationServerLogs(serverId: string): Promise<string> {
     const logs = await request(`/federation/servers/${encodeURIComponent(serverId)}/logs`, { method: 'GET' }, FederationLogsSchema);
     return logs.text;
-  },
-
-  /** undefined when this server was the responder (no local invitation row). */
-  async getFederationServerInvitation(serverId: string): Promise<api.FederationInvitation | undefined> {
-    const resp = await request(
-      `/federation/servers/${encodeURIComponent(serverId)}/invitation`,
-      { method: 'GET' },
-      FederationInvitationResponseSchema,
-    );
-    return resp.invitation;
-  },
-
-  /** undefined if no attempt row is found (shouldn't happen for a real server). */
-  async getFederationServerAttempt(serverId: string): Promise<api.FederationAttempt | undefined> {
-    const resp = await request(
-      `/federation/servers/${encodeURIComponent(serverId)}/attempt`,
-      { method: 'GET' },
-      FederationAttemptResponseSchema,
-    );
-    return resp.attempt;
   },
 
   async getFederationAttempt(attemptId: string): Promise<api.FederationAttempt> {

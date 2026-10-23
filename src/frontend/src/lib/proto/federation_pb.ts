@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file federation.proto.
  */
 export const file_federation: GenFile = /*@__PURE__*/
-  fileDesc("ChBmZWRlcmF0aW9uLnByb3RvEgZzeXJpbngiSAoXRmVkZXJhdGlvbkNyZWF0ZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIfChdyZW1vdGVfcHVibGljX2tleV9hcm1vchgCIAEoCSJYChhGZWRlcmF0aW9uQ3JlYXRlUmVzcG9uc2USEQoJaW52aXRlX2lkGAEgASgJEhkKEWNvbm5lY3Rpb25fc3RyaW5nGAIgASgJEg4KBnN0YXR1cxgDIAEoCSK7AgoURmVkZXJhdGlvbkludml0YXRpb24SEQoJaW52aXRlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc3RhdHVzGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSGgoScmVtb3RlX2ZpbmdlcnByaW50GAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKA0SEwoLYWNjZXB0ZWRfYXQYByABKA0SFgoJc2VydmVyX2lkGAggASgJSACIAQESGAoLcmV2aWV3ZWRfYnkYCSABKAlIAYgBARITCgtyZXZpZXdlZF9hdBgKIAEoDRIeChFjb25uZWN0aW9uX3N0cmluZxgLIAEoCUgCiAEBQgwKCl9zZXJ2ZXJfaWRCDgoMX3Jldmlld2VkX2J5QhQKEl9jb25uZWN0aW9uX3N0cmluZyJNChhGZWRlcmF0aW9uSW52aXRhdGlvbkxpc3QSMQoLaW52aXRhdGlvbnMYASADKAsyHC5zeXJpbnguRmVkZXJhdGlvbkludml0YXRpb24iUAocRmVkZXJhdGlvbkludml0YXRpb25SZXNwb25zZRIwCgppbnZpdGF0aW9uGAEgASgLMhwuc3lyaW54LkZlZGVyYXRpb25JbnZpdGF0aW9uIskDChBGZWRlcmF0aW9uU2VydmVyEhEKCXNlcnZlcl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCGJhc2VfdXJsGAMgASgJEhQKDGZyb250ZW5kX3VybBgEIAEoCRIRCgljb25uZWN0ZWQYBSABKAgSEwoLZXN0YWJsaXNoZWQYBiABKAgSEgoKY3JlYXRlZF9hdBgHIAEoDRIPCgdyZXZva2VkGAggASgIEhIKCnJldm9rZWRfYXQYCSABKA0SFwoKcmV2b2tlZF9ieRgKIAEoCUgAiAEBEhsKDnJldm9rZWRfcmVhc29uGAsgASgJSAGIAQESGgoSZGlzY29ubmVjdF9wZW5kaW5nGAwgASgIEh8KF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2F0GA0gASgNEiQKF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5GA4gASgJSAKIAQESHgoRZGlzY29ubmVjdF9yZWFzb24YDyABKAlIA4gBAUINCgtfcmV2b2tlZF9ieUIRCg9fcmV2b2tlZF9yZWFzb25CGgoYX2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5QhQKEl9kaXNjb25uZWN0X3JlYXNvbiJBChRGZWRlcmF0aW9uU2VydmVyTGlzdBIpCgdzZXJ2ZXJzGAEgAygLMhguc3lyaW54LkZlZGVyYXRpb25TZXJ2ZXIiwgMKEUZlZGVyYXRpb25BdHRlbXB0EhIKCmF0dGVtcHRfaWQYASABKAkSGAoQcmVtb3RlX3NlcnZlcl9pZBgCIAEoCRIaChJyZW1vdGVfc2VydmVyX25hbWUYAyABKAkSEAoIYmFzZV91cmwYBCABKAkSFAoMZnJvbnRlbmRfdXJsGAUgASgJEhMKC2ZpbmdlcnByaW50GAYgASgJEhoKDWludml0YXRpb25faWQYByABKAlIAIgBARIWCglzZXJ2ZXJfaWQYCCABKAlIAYgBARISCgpjcmVhdGVkX2F0GAkgASgNEg4KBnN0YXR1cxgKIAEoCRIYCgthcHByb3ZlZF9ieRgLIAEoCUgCiAEBEhMKC2FwcHJvdmVkX2F0GAwgASgNEhgKC3JlamVjdGVkX2J5GA0gASgJSAOIAQESEwoLcmVqZWN0ZWRfYXQYDiABKA0SHAoPcmVqZWN0ZWRfcmVhc29uGA8gASgJSASIAQFCEAoOX2ludml0YXRpb25faWRCDAoKX3NlcnZlcl9pZEIOCgxfYXBwcm92ZWRfYnlCDgoMX3JlamVjdGVkX2J5QhIKEF9yZWplY3RlZF9yZWFzb24iRwoZRmVkZXJhdGlvbkF0dGVtcHRSZXNwb25zZRIqCgdhdHRlbXB0GAEgASgLMhkuc3lyaW54LkZlZGVyYXRpb25BdHRlbXB0IpsBCg5GZWRlcmF0aW9uTGlzdBIxCgtpbnZpdGF0aW9ucxgBIAMoCzIcLnN5cmlueC5GZWRlcmF0aW9uSW52aXRhdGlvbhIrCghhdHRlbXB0cxgCIAMoCzIZLnN5cmlueC5GZWRlcmF0aW9uQXR0ZW1wdBIpCgdzZXJ2ZXJzGAMgAygLMhguc3lyaW54LkZlZGVyYXRpb25TZXJ2ZXIiHgoORmVkZXJhdGlvbkxvZ3MSDAoEdGV4dBgBIAEoCSI1ChhGZWRlcmF0aW9uQXR0ZW1wdFJlcXVlc3QSGQoRY29ubmVjdGlvbl9zdHJpbmcYASABKAkiPAoXRmVkZXJhdGlvbkF0dGVtcHRTdGF0dXMSDgoGc3RhdHVzGAEgASgJEhEKCXNlcnZlcl9pZBgCIAEoCSIpChdGZWRlcmF0aW9uUmVhc29uUmVxdWVzdBIOCgZyZWFzb24YASABKAkieQoYRmVkZXJhdGlvbkFjdGlvblJlc3BvbnNlEhEKCWludml0ZV9pZBgBIAEoCRISCgphdHRlbXB0X2lkGAIgASgJEhEKCXNlcnZlcl9pZBgDIAEoCRIOCgZzdGF0dXMYBCABKAkSEwoLZXN0YWJsaXNoZWQYBSABKAgiogEKGEZlZGVyYXRpb25Db25uZWN0UmVxdWVzdBIRCglzZXJ2ZXJfaWQYASABKAkSEwoLc2VydmVyX25hbWUYAiABKAkSEAoIYmFzZV91cmwYAyABKAkSFAoMZnJvbnRlbmRfdXJsGAQgASgJEhMKC2ZpbmdlcnByaW50GAUgASgJEhEKCXNpZ25hdHVyZRgGIAEoCRIOCgZzZWNyZXQYByABKAkiPgoZRmVkZXJhdGlvbkNvbm5lY3RSZXNwb25zZRIOCgZzdGF0dXMYASABKAkSEQoJc2VydmVyX2lkGAIgASgJIksKFkZlZGVyYXRpb25Vc2VySWRlbnRpdHkSGgoEdXNlchgBIAEoCzIMLnN5cmlueC5Vc2VyEhUKDWFjdGl2ZV9rZXlfaWQYAiABKAkilwEKE1JlbGF5UmVxdWVzdFBheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIRCglhdXRob3JfaWQYAiABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAyABKAkSGAoQcmVxdWVzdGVyX2tleV9pZBgEIAEoCRIXCg9wZWVyX3JlcXVlc3RfaWQYBSABKAkSDgoGdGhyZWFkGAYgASgIIj0KFFJlbGF5UmVxdWVzdFJlc3BvbnNlEhUKDXBlZXJfZXZlbnRfaWQYASABKAkSDgoGc3RhdHVzGAIgASgJIlUKF1JlbGF5UHJvZmlsZVBhZ2VQYXlsb2FkEhEKCWF1dGhvcl9pZBgBIAEoCRIZChFyZXF1ZXN0ZXJfdXNlcl9pZBgCIAEoCRIMCgRwYWdlGAMgASgFIk0KGFJlbGF5UHJvZmlsZVBhZ2VSZXNwb25zZRIQCghyZWVkX2lkcxgBIAMoCRINCgVjb3VudBgCIAEoBRIQCghoYXNfbW9yZRgDIAEoCCJmChNSZWxheURlbGl2ZXJQYXlsb2FkEhUKDXBlZXJfZXZlbnRfaWQYASABKAkSEgoKY2lwaGVydGV4dBgCIAEoCRIkCgZyZWNvcmQYAyABKAsyFC5zeXJpbnguVGhyZWFkUmVjb3JkIiwKE1JlbGF5Tm90SGVsZFBheWxvYWQSFQoNcGVlcl9ldmVudF9pZBgBIAEoCSIrChJSZWxheUNhbmNlbFBheWxvYWQSFQoNcGVlcl9ldmVudF9pZBgBIAEoCSIoCg9SZWxheUFja1BheWxvYWQSFQoNcGVlcl9ldmVudF9pZBgBIAEoCSJHChlSZWxheVN1YnNjcmliZVJlZWRQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAiABKAkidQoaUmVsYXlTdWJzY3JpYmVSZWVkUmVzcG9uc2USDQoFZm91bmQYASABKAgSDgoGZWNob2VzGAIgASgFEhgKEGNvdmVyYWdlX3BlcmNlbnQYAyABKAUSDwoHcmVwbGllcxgEIAEoBRINCgVsaWtlcxgFIAEoBSJJChtSZWxheVVuc3Vic2NyaWJlUmVlZFBheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIZChFyZXF1ZXN0ZXJfdXNlcl9pZBgCIAEoCSJlChVSZWxheVJlZWRTdGF0c1BheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIXCg9leGNsdWRlX3VzZXJfaWQYAiABKAkSIgoHbWVzc2FnZRgDIAEoCzIRLnN5cmlueC5XU01lc3NhZ2UiKwoYUmVsYXlIb2xkZXJOb3RpZnlQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkifAobUmVsYXlGYWxsYmFja1JlcXVlc3RQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAiABKAkSGAoQcmVxdWVzdGVyX2tleV9pZBgDIAEoCRIXCg9wZWVyX3JlcXVlc3RfaWQYBCABKAkiRQocUmVsYXlGYWxsYmFja1JlcXVlc3RSZXNwb25zZRIVCg1wZWVyX2V2ZW50X2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJGChdSZWxheVNlYXJjaFVzZXJzUGF5bG9hZBINCgVxdWVyeRgBIAEoCRINCgVsaW1pdBgCIAEoBRINCgVhZnRlchgDIAEoCSJDChhSZWxheVNlYXJjaFVzZXJzUmVzcG9uc2USJwoFdXNlcnMYASADKAsyGC5zeXJpbnguVXNlclNlYXJjaFJlc3VsdCIuChxSZWxheURpc2Nvbm5lY3ROb3RpZnlQYXlsb2FkEg4KBnJlYXNvbhgBIAEoCSI8ChFSZWxheU5ld1JlZWRSZXBseRIWCg5wYXJlbnRfcmVlZF9pZBgBIAEoCRIPCgdyb290X2lkGAIgASgJIjwKEFJlbGF5TmV3UmVlZEVjaG8SFgoOZWNob2VkX3JlZWRfaWQYASABKAkSEAoIaXNfYmxhbmsYAiABKAgisAEKE1JlbGF5TmV3UmVlZFBheWxvYWQSDwoHcmVlZF9pZBgBIAEoCRIRCglhdXRob3JfaWQYAiABKAkSEQoJc2lnbmVkX2F0GAMgASgNEhAKCG1lbnRpb25zGAQgAygJEigKBXJlcGx5GAUgASgLMhkuc3lyaW54LlJlbGF5TmV3UmVlZFJlcGx5EiYKBGVjaG8YBiABKAsyGC5zeXJpbnguUmVsYXlOZXdSZWVkRWNobyK1AQoUUmVsYXlSZWVkUmVtb3ZhbENlcnQSDwoHcmVlZF9pZBgBIAEoCRIPCgd1c2VyX2lkGAIgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAMgASgJEhMKC3VzZXJfa2V5X2lkGAQgASgJEhgKEHNlcnZlcl9zaWduYXR1cmUYBSABKAkSGgoSc2VydmVyX2ZpbmdlcnByaW50GAYgASgJEhgKEHNlcnZlcl9zaWduZWRfYXQYByABKA0iXQoXUmVsYXlSZWVkUmVtb3ZhbFBheWxvYWQSKgoEY2VydBgBIAEoCzIcLnN5cmlueC5SZWxheVJlZWRSZW1vdmFsQ2VydBIWCg5wYXJlbnRfcmVlZF9pZBgCIAEoCSIrChlSZWxheVJlYWx0aW1lUmVzZXRQYXlsb2FkEg4KBnJlYXNvbhgBIAEoCSL4AQogUmVsYXlBY2NvdW50UmVtb3ZhbE5vdGlmeVBheWxvYWQSDwoHdXNlcl9pZBgBIAEoCRIMCgRub3RlGAIgASgJEhYKDnVzZXJfc2lnbmF0dXJlGAMgASgJEhMKC3VzZXJfa2V5X2lkGAQgASgJEhgKEHNlcnZlcl9zaWduYXR1cmUYBSABKAkSGgoSc2VydmVyX2ZpbmdlcnByaW50GAYgASgJEhgKEHNlcnZlcl9zaWduZWRfYXQYByABKA0SLgoFYWRtaW4YCCABKAsyGi5zeXJpbnguQWRtaW5BdXRob3JpemF0aW9uSACIAQFCCAoGX2FkbWluIj8KE1JlbGF5VW5ibG9ja1BheWxvYWQSDwoHdXNlcl9pZBgBIAEoCRIXCg9ibG9ja2VkX3VzZXJfaWQYAiABKAkiOQoaUmVsYXlWb3VjaFJlZmVyZW5jZVBheWxvYWQSGwoEY2VydBgBIAEoCzINLnN5cmlueC5Wb3VjaCJ1ChtSZWxheVZvdWNoV2l0aGRyYXdhbFBheWxvYWQSEAoIdm91Y2hfaWQYASABKAkSFwoPdm91Y2hlcl91c2VyX2lkGAIgASgJEisKCndpdGhkcmF3YWwYAyABKAsyFy5zeXJpbnguVm91Y2hXaXRoZHJhd2FsQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common, file_identity, file_websocket]);
+  fileDesc("ChBmZWRlcmF0aW9uLnByb3RvEgZzeXJpbngiSAoXRmVkZXJhdGlvbkNyZWF0ZVJlcXVlc3QSDAoEbmFtZRgBIAEoCRIfChdyZW1vdGVfcHVibGljX2tleV9hcm1vchgCIAEoCSJYChhGZWRlcmF0aW9uQ3JlYXRlUmVzcG9uc2USEQoJaW52aXRlX2lkGAEgASgJEhkKEWNvbm5lY3Rpb25fc3RyaW5nGAIgASgJEg4KBnN0YXR1cxgDIAEoCSKVAgoURmVkZXJhdGlvbkludml0YXRpb24SEQoJaW52aXRlX2lkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc3RhdHVzGAMgASgJEhIKCmNyZWF0ZWRfYnkYBCABKAkSGgoScmVtb3RlX2ZpbmdlcnByaW50GAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKA0SEwoLYWNjZXB0ZWRfYXQYByABKA0SGAoLcmV2aWV3ZWRfYnkYCSABKAlIAIgBARITCgtyZXZpZXdlZF9hdBgKIAEoDRIeChFjb25uZWN0aW9uX3N0cmluZxgLIAEoCUgBiAEBQg4KDF9yZXZpZXdlZF9ieUIUChJfY29ubmVjdGlvbl9zdHJpbmciTQoYRmVkZXJhdGlvbkludml0YXRpb25MaXN0EjEKC2ludml0YXRpb25zGAEgAygLMhwuc3lyaW54LkZlZGVyYXRpb25JbnZpdGF0aW9uItQEChBGZWRlcmF0aW9uU2VydmVyEhEKCXNlcnZlcl9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCGJhc2VfdXJsGAMgASgJEhQKDGZyb250ZW5kX3VybBgEIAEoCRIRCgljb25uZWN0ZWQYBSABKAgSEwoLZXN0YWJsaXNoZWQYBiABKAgSEgoKY3JlYXRlZF9hdBgHIAEoDRIPCgdyZXZva2VkGAggASgIEhIKCnJldm9rZWRfYXQYCSABKA0SFwoKcmV2b2tlZF9ieRgKIAEoCUgAiAEBEhsKDnJldm9rZWRfcmVhc29uGAsgASgJSAGIAQESGgoSZGlzY29ubmVjdF9wZW5kaW5nGAwgASgIEh8KF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2F0GA0gASgNEiQKF2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5GA4gASgJSAKIAQESHgoRZGlzY29ubmVjdF9yZWFzb24YDyABKAlIA4gBARIXCgppbnZpdGVkX2J5GBAgASgJSASIAQESEgoKaW52aXRlZF9hdBgRIAEoDRIYCgthcHByb3ZlZF9ieRgSIAEoCUgFiAEBEhMKC2FwcHJvdmVkX2F0GBMgASgNEg4KBnB1cmdlZBgUIAEoCEINCgtfcmV2b2tlZF9ieUIRCg9fcmV2b2tlZF9yZWFzb25CGgoYX2Rpc2Nvbm5lY3RfcmVxdWVzdGVkX2J5QhQKEl9kaXNjb25uZWN0X3JlYXNvbkINCgtfaW52aXRlZF9ieUIOCgxfYXBwcm92ZWRfYnkiQQoURmVkZXJhdGlvblNlcnZlckxpc3QSKQoHc2VydmVycxgBIAMoCzIYLnN5cmlueC5GZWRlcmF0aW9uU2VydmVyIt0CChFGZWRlcmF0aW9uQXR0ZW1wdBISCgphdHRlbXB0X2lkGAEgASgJEhgKEHJlbW90ZV9zZXJ2ZXJfaWQYAiABKAkSGgoScmVtb3RlX3NlcnZlcl9uYW1lGAMgASgJEhAKCGJhc2VfdXJsGAQgASgJEhQKDGZyb250ZW5kX3VybBgFIAEoCRITCgtmaW5nZXJwcmludBgGIAEoCRIaCg1pbnZpdGF0aW9uX2lkGAcgASgJSACIAQESEgoKY3JlYXRlZF9hdBgJIAEoDRIOCgZzdGF0dXMYCiABKAkSGAoLcmVqZWN0ZWRfYnkYDSABKAlIAYgBARITCgtyZWplY3RlZF9hdBgOIAEoDRIcCg9yZWplY3RlZF9yZWFzb24YDyABKAlIAogBAUIQCg5faW52aXRhdGlvbl9pZEIOCgxfcmVqZWN0ZWRfYnlCEgoQX3JlamVjdGVkX3JlYXNvbiKbAQoORmVkZXJhdGlvbkxpc3QSMQoLaW52aXRhdGlvbnMYASADKAsyHC5zeXJpbnguRmVkZXJhdGlvbkludml0YXRpb24SKwoIYXR0ZW1wdHMYAiADKAsyGS5zeXJpbnguRmVkZXJhdGlvbkF0dGVtcHQSKQoHc2VydmVycxgDIAMoCzIYLnN5cmlueC5GZWRlcmF0aW9uU2VydmVyIh4KDkZlZGVyYXRpb25Mb2dzEgwKBHRleHQYASABKAkiNQoYRmVkZXJhdGlvbkF0dGVtcHRSZXF1ZXN0EhkKEWNvbm5lY3Rpb25fc3RyaW5nGAEgASgJIjwKF0ZlZGVyYXRpb25BdHRlbXB0U3RhdHVzEg4KBnN0YXR1cxgBIAEoCRIRCglzZXJ2ZXJfaWQYAiABKAkiKQoXRmVkZXJhdGlvblJlYXNvblJlcXVlc3QSDgoGcmVhc29uGAEgASgJInkKGEZlZGVyYXRpb25BY3Rpb25SZXNwb25zZRIRCglpbnZpdGVfaWQYASABKAkSEgoKYXR0ZW1wdF9pZBgCIAEoCRIRCglzZXJ2ZXJfaWQYAyABKAkSDgoGc3RhdHVzGAQgASgJEhMKC2VzdGFibGlzaGVkGAUgASgIIqIBChhGZWRlcmF0aW9uQ29ubmVjdFJlcXVlc3QSEQoJc2VydmVyX2lkGAEgASgJEhMKC3NlcnZlcl9uYW1lGAIgASgJEhAKCGJhc2VfdXJsGAMgASgJEhQKDGZyb250ZW5kX3VybBgEIAEoCRITCgtmaW5nZXJwcmludBgFIAEoCRIRCglzaWduYXR1cmUYBiABKAkSDgoGc2VjcmV0GAcgASgJIj4KGUZlZGVyYXRpb25Db25uZWN0UmVzcG9uc2USDgoGc3RhdHVzGAEgASgJEhEKCXNlcnZlcl9pZBgCIAEoCSJLChZGZWRlcmF0aW9uVXNlcklkZW50aXR5EhoKBHVzZXIYASABKAsyDC5zeXJpbnguVXNlchIVCg1hY3RpdmVfa2V5X2lkGAIgASgJIpcBChNSZWxheVJlcXVlc3RQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSEQoJYXV0aG9yX2lkGAIgASgJEhkKEXJlcXVlc3Rlcl91c2VyX2lkGAMgASgJEhgKEHJlcXVlc3Rlcl9rZXlfaWQYBCABKAkSFwoPcGVlcl9yZXF1ZXN0X2lkGAUgASgJEg4KBnRocmVhZBgGIAEoCCI9ChRSZWxheVJlcXVlc3RSZXNwb25zZRIVCg1wZWVyX2V2ZW50X2lkGAEgASgJEg4KBnN0YXR1cxgCIAEoCSJVChdSZWxheVByb2ZpbGVQYWdlUGF5bG9hZBIRCglhdXRob3JfaWQYASABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAiABKAkSDAoEcGFnZRgDIAEoBSJNChhSZWxheVByb2ZpbGVQYWdlUmVzcG9uc2USEAoIcmVlZF9pZHMYASADKAkSDQoFY291bnQYAiABKAUSEAoIaGFzX21vcmUYAyABKAgiZgoTUmVsYXlEZWxpdmVyUGF5bG9hZBIVCg1wZWVyX2V2ZW50X2lkGAEgASgJEhIKCmNpcGhlcnRleHQYAiABKAkSJAoGcmVjb3JkGAMgASgLMhQuc3lyaW54LlRocmVhZFJlY29yZCIsChNSZWxheU5vdEhlbGRQYXlsb2FkEhUKDXBlZXJfZXZlbnRfaWQYASABKAkiKwoSUmVsYXlDYW5jZWxQYXlsb2FkEhUKDXBlZXJfZXZlbnRfaWQYASABKAkiKAoPUmVsYXlBY2tQYXlsb2FkEhUKDXBlZXJfZXZlbnRfaWQYASABKAkiRwoZUmVsYXlTdWJzY3JpYmVSZWVkUGF5bG9hZBIPCgdyZWVkX2lkGAEgASgJEhkKEXJlcXVlc3Rlcl91c2VyX2lkGAIgASgJInUKGlJlbGF5U3Vic2NyaWJlUmVlZFJlc3BvbnNlEg0KBWZvdW5kGAEgASgIEg4KBmVjaG9lcxgCIAEoBRIYChBjb3ZlcmFnZV9wZXJjZW50GAMgASgFEg8KB3JlcGxpZXMYBCABKAUSDQoFbGlrZXMYBSABKAUiSQobUmVsYXlVbnN1YnNjcmliZVJlZWRQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSGQoRcmVxdWVzdGVyX3VzZXJfaWQYAiABKAkiZQoVUmVsYXlSZWVkU3RhdHNQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSFwoPZXhjbHVkZV91c2VyX2lkGAIgASgJEiIKB21lc3NhZ2UYAyABKAsyES5zeXJpbnguV1NNZXNzYWdlIisKGFJlbGF5SG9sZGVyTm90aWZ5UGF5bG9hZBIPCgdyZWVkX2lkGAEgASgJInwKG1JlbGF5RmFsbGJhY2tSZXF1ZXN0UGF5bG9hZBIPCgdyZWVkX2lkGAEgASgJEhkKEXJlcXVlc3Rlcl91c2VyX2lkGAIgASgJEhgKEHJlcXVlc3Rlcl9rZXlfaWQYAyABKAkSFwoPcGVlcl9yZXF1ZXN0X2lkGAQgASgJIkUKHFJlbGF5RmFsbGJhY2tSZXF1ZXN0UmVzcG9uc2USFQoNcGVlcl9ldmVudF9pZBgBIAEoCRIOCgZzdGF0dXMYAiABKAkiRgoXUmVsYXlTZWFyY2hVc2Vyc1BheWxvYWQSDQoFcXVlcnkYASABKAkSDQoFbGltaXQYAiABKAUSDQoFYWZ0ZXIYAyABKAkiQwoYUmVsYXlTZWFyY2hVc2Vyc1Jlc3BvbnNlEicKBXVzZXJzGAEgAygLMhguc3lyaW54LlVzZXJTZWFyY2hSZXN1bHQiLgocUmVsYXlEaXNjb25uZWN0Tm90aWZ5UGF5bG9hZBIOCgZyZWFzb24YASABKAkiPAoRUmVsYXlOZXdSZWVkUmVwbHkSFgoOcGFyZW50X3JlZWRfaWQYASABKAkSDwoHcm9vdF9pZBgCIAEoCSI8ChBSZWxheU5ld1JlZWRFY2hvEhYKDmVjaG9lZF9yZWVkX2lkGAEgASgJEhAKCGlzX2JsYW5rGAIgASgIIrABChNSZWxheU5ld1JlZWRQYXlsb2FkEg8KB3JlZWRfaWQYASABKAkSEQoJYXV0aG9yX2lkGAIgASgJEhEKCXNpZ25lZF9hdBgDIAEoDRIQCghtZW50aW9ucxgEIAMoCRIoCgVyZXBseRgFIAEoCzIZLnN5cmlueC5SZWxheU5ld1JlZWRSZXBseRImCgRlY2hvGAYgASgLMhguc3lyaW54LlJlbGF5TmV3UmVlZEVjaG8itQEKFFJlbGF5UmVlZFJlbW92YWxDZXJ0Eg8KB3JlZWRfaWQYASABKAkSDwoHdXNlcl9pZBgCIAEoCRIWCg51c2VyX3NpZ25hdHVyZRgDIAEoCRITCgt1c2VyX2tleV9pZBgEIAEoCRIYChBzZXJ2ZXJfc2lnbmF0dXJlGAUgASgJEhoKEnNlcnZlcl9maW5nZXJwcmludBgGIAEoCRIYChBzZXJ2ZXJfc2lnbmVkX2F0GAcgASgNIl0KF1JlbGF5UmVlZFJlbW92YWxQYXlsb2FkEioKBGNlcnQYASABKAsyHC5zeXJpbnguUmVsYXlSZWVkUmVtb3ZhbENlcnQSFgoOcGFyZW50X3JlZWRfaWQYAiABKAkiKwoZUmVsYXlSZWFsdGltZVJlc2V0UGF5bG9hZBIOCgZyZWFzb24YASABKAki+AEKIFJlbGF5QWNjb3VudFJlbW92YWxOb3RpZnlQYXlsb2FkEg8KB3VzZXJfaWQYASABKAkSDAoEbm90ZRgCIAEoCRIWCg51c2VyX3NpZ25hdHVyZRgDIAEoCRITCgt1c2VyX2tleV9pZBgEIAEoCRIYChBzZXJ2ZXJfc2lnbmF0dXJlGAUgASgJEhoKEnNlcnZlcl9maW5nZXJwcmludBgGIAEoCRIYChBzZXJ2ZXJfc2lnbmVkX2F0GAcgASgNEi4KBWFkbWluGAggASgLMhouc3lyaW54LkFkbWluQXV0aG9yaXphdGlvbkgAiAEBQggKBl9hZG1pbiI/ChNSZWxheVVuYmxvY2tQYXlsb2FkEg8KB3VzZXJfaWQYASABKAkSFwoPYmxvY2tlZF91c2VyX2lkGAIgASgJIjkKGlJlbGF5Vm91Y2hSZWZlcmVuY2VQYXlsb2FkEhsKBGNlcnQYASABKAsyDS5zeXJpbnguVm91Y2gidQobUmVsYXlWb3VjaFdpdGhkcmF3YWxQYXlsb2FkEhAKCHZvdWNoX2lkGAEgASgJEhcKD3ZvdWNoZXJfdXNlcl9pZBgCIAEoCRIrCgp3aXRoZHJhd2FsGAMgASgLMhcuc3lyaW54LlZvdWNoV2l0aGRyYXdhbEIhWh9naXRodWIuY29tL3ZhcjB4eXovc3lyaW54L3Byb3RvYgZwcm90bzM", [file_common, file_identity, file_websocket]);
 
 /**
  * POST /federation/invitations.
@@ -109,11 +109,6 @@ export type FederationInvitation = Message<"syrinx.FederationInvitation"> & {
   acceptedAt: number;
 
   /**
-   * @generated from field: optional string server_id = 8;
-   */
-  serverId?: string | undefined;
-
-  /**
    * @generated from field: optional string reviewed_by = 9;
    */
   reviewedBy?: string | undefined;
@@ -152,26 +147,6 @@ export type FederationInvitationList = Message<"syrinx.FederationInvitationList"
  */
 export const FederationInvitationListSchema: GenMessage<FederationInvitationList> = /*@__PURE__*/
   messageDesc(file_federation, 3);
-
-/**
- * GET /federation/servers/{id}/invitation: unset when this server was the
- * responder.
- *
- * @generated from message syrinx.FederationInvitationResponse
- */
-export type FederationInvitationResponse = Message<"syrinx.FederationInvitationResponse"> & {
-  /**
-   * @generated from field: syrinx.FederationInvitation invitation = 1;
-   */
-  invitation?: FederationInvitation | undefined;
-};
-
-/**
- * Describes the message syrinx.FederationInvitationResponse.
- * Use `create(FederationInvitationResponseSchema)` to create a new message.
- */
-export const FederationInvitationResponseSchema: GenMessage<FederationInvitationResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 4);
 
 /**
  * An approved peer.
@@ -257,6 +232,35 @@ export type FederationServer = Message<"syrinx.FederationServer"> & {
    * @generated from field: optional string disconnect_reason = 15;
    */
   disconnectReason?: string | undefined;
+
+  /**
+   * Set when this server sent the invitation; unset when it accepted one.
+   *
+   * @generated from field: optional string invited_by = 16;
+   */
+  invitedBy?: string | undefined;
+
+  /**
+   * @generated from field: uint32 invited_at = 17;
+   */
+  invitedAt: number;
+
+  /**
+   * @generated from field: optional string approved_by = 18;
+   */
+  approvedBy?: string | undefined;
+
+  /**
+   * @generated from field: uint32 approved_at = 19;
+   */
+  approvedAt: number;
+
+  /**
+   * Revoked, and its users and reeds deleted; the record stays.
+   *
+   * @generated from field: bool purged = 20;
+   */
+  purged: boolean;
 };
 
 /**
@@ -264,7 +268,7 @@ export type FederationServer = Message<"syrinx.FederationServer"> & {
  * Use `create(FederationServerSchema)` to create a new message.
  */
 export const FederationServerSchema: GenMessage<FederationServer> = /*@__PURE__*/
-  messageDesc(file_federation, 5);
+  messageDesc(file_federation, 4);
 
 /**
  * @generated from message syrinx.FederationServerList
@@ -281,10 +285,11 @@ export type FederationServerList = Message<"syrinx.FederationServerList"> & {
  * Use `create(FederationServerListSchema)` to create a new message.
  */
 export const FederationServerListSchema: GenMessage<FederationServerList> = /*@__PURE__*/
-  messageDesc(file_federation, 6);
+  messageDesc(file_federation, 5);
 
 /**
- * A handshake attempt against a peer, at any stage.
+ * A handshake attempt against a peer, pending or rejected: approval deletes
+ * it and the peer's FederationServer takes over.
  *
  * @generated from message syrinx.FederationAttempt
  */
@@ -325,11 +330,6 @@ export type FederationAttempt = Message<"syrinx.FederationAttempt"> & {
   invitationId?: string | undefined;
 
   /**
-   * @generated from field: optional string server_id = 8;
-   */
-  serverId?: string | undefined;
-
-  /**
    * @generated from field: uint32 created_at = 9;
    */
   createdAt: number;
@@ -338,16 +338,6 @@ export type FederationAttempt = Message<"syrinx.FederationAttempt"> & {
    * @generated from field: string status = 10;
    */
   status: string;
-
-  /**
-   * @generated from field: optional string approved_by = 11;
-   */
-  approvedBy?: string | undefined;
-
-  /**
-   * @generated from field: uint32 approved_at = 12;
-   */
-  approvedAt: number;
 
   /**
    * @generated from field: optional string rejected_by = 13;
@@ -370,26 +360,7 @@ export type FederationAttempt = Message<"syrinx.FederationAttempt"> & {
  * Use `create(FederationAttemptSchema)` to create a new message.
  */
 export const FederationAttemptSchema: GenMessage<FederationAttempt> = /*@__PURE__*/
-  messageDesc(file_federation, 7);
-
-/**
- * GET /federation/servers/{id}/attempt: unset if no attempt row exists.
- *
- * @generated from message syrinx.FederationAttemptResponse
- */
-export type FederationAttemptResponse = Message<"syrinx.FederationAttemptResponse"> & {
-  /**
-   * @generated from field: syrinx.FederationAttempt attempt = 1;
-   */
-  attempt?: FederationAttempt | undefined;
-};
-
-/**
- * Describes the message syrinx.FederationAttemptResponse.
- * Use `create(FederationAttemptResponseSchema)` to create a new message.
- */
-export const FederationAttemptResponseSchema: GenMessage<FederationAttemptResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 8);
+  messageDesc(file_federation, 6);
 
 /**
  * GET /federation/list: the mesh tab's combined view.
@@ -418,7 +389,7 @@ export type FederationList = Message<"syrinx.FederationList"> & {
  * Use `create(FederationListSchema)` to create a new message.
  */
 export const FederationListSchema: GenMessage<FederationList> = /*@__PURE__*/
-  messageDesc(file_federation, 9);
+  messageDesc(file_federation, 7);
 
 /**
  * GET /federation/servers/{id}/logs and /federation/attempts/{id}/logs:
@@ -438,7 +409,7 @@ export type FederationLogs = Message<"syrinx.FederationLogs"> & {
  * Use `create(FederationLogsSchema)` to create a new message.
  */
 export const FederationLogsSchema: GenMessage<FederationLogs> = /*@__PURE__*/
-  messageDesc(file_federation, 10);
+  messageDesc(file_federation, 8);
 
 /**
  * POST /federation/attempt: the connection string pasted by an admin.
@@ -457,7 +428,7 @@ export type FederationAttemptRequest = Message<"syrinx.FederationAttemptRequest"
  * Use `create(FederationAttemptRequestSchema)` to create a new message.
  */
 export const FederationAttemptRequestSchema: GenMessage<FederationAttemptRequest> = /*@__PURE__*/
-  messageDesc(file_federation, 11);
+  messageDesc(file_federation, 9);
 
 /**
  * @generated from message syrinx.FederationAttemptStatus
@@ -479,7 +450,7 @@ export type FederationAttemptStatus = Message<"syrinx.FederationAttemptStatus"> 
  * Use `create(FederationAttemptStatusSchema)` to create a new message.
  */
 export const FederationAttemptStatusSchema: GenMessage<FederationAttemptStatus> = /*@__PURE__*/
-  messageDesc(file_federation, 12);
+  messageDesc(file_federation, 10);
 
 /**
  * POST /federation/attempts/{id}/reject and /federation/servers/{id}/revoke.
@@ -498,7 +469,7 @@ export type FederationReasonRequest = Message<"syrinx.FederationReasonRequest"> 
  * Use `create(FederationReasonRequestSchema)` to create a new message.
  */
 export const FederationReasonRequestSchema: GenMessage<FederationReasonRequest> = /*@__PURE__*/
-  messageDesc(file_federation, 13);
+  messageDesc(file_federation, 11);
 
 /**
  * The outcome of an admin action on an invitation, attempt or server.
@@ -539,7 +510,7 @@ export type FederationActionResponse = Message<"syrinx.FederationActionResponse"
  * Use `create(FederationActionResponseSchema)` to create a new message.
  */
 export const FederationActionResponseSchema: GenMessage<FederationActionResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 14);
+  messageDesc(file_federation, 12);
 
 /**
  * POST /federation/connect/{inviteId}: the responder calls the initiator
@@ -589,7 +560,7 @@ export type FederationConnectRequest = Message<"syrinx.FederationConnectRequest"
  * Use `create(FederationConnectRequestSchema)` to create a new message.
  */
 export const FederationConnectRequestSchema: GenMessage<FederationConnectRequest> = /*@__PURE__*/
-  messageDesc(file_federation, 15);
+  messageDesc(file_federation, 13);
 
 /**
  * @generated from message syrinx.FederationConnectResponse
@@ -611,7 +582,7 @@ export type FederationConnectResponse = Message<"syrinx.FederationConnectRespons
  * Use `create(FederationConnectResponseSchema)` to create a new message.
  */
 export const FederationConnectResponseSchema: GenMessage<FederationConnectResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 16);
+  messageDesc(file_federation, 14);
 
 /**
  * GET /federation/users/{userID}/identity: the snapshot a peer resolves a
@@ -636,7 +607,7 @@ export type FederationUserIdentity = Message<"syrinx.FederationUserIdentity"> & 
  * Use `create(FederationUserIdentitySchema)` to create a new message.
  */
 export const FederationUserIdentitySchema: GenMessage<FederationUserIdentity> = /*@__PURE__*/
-  messageDesc(file_federation, 17);
+  messageDesc(file_federation, 15);
 
 /**
  * @generated from message syrinx.RelayRequestPayload
@@ -680,7 +651,7 @@ export type RelayRequestPayload = Message<"syrinx.RelayRequestPayload"> & {
  * Use `create(RelayRequestPayloadSchema)` to create a new message.
  */
 export const RelayRequestPayloadSchema: GenMessage<RelayRequestPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 18);
+  messageDesc(file_federation, 16);
 
 /**
  * @generated from message syrinx.RelayRequestResponse
@@ -702,7 +673,7 @@ export type RelayRequestResponse = Message<"syrinx.RelayRequestResponse"> & {
  * Use `create(RelayRequestResponseSchema)` to create a new message.
  */
 export const RelayRequestResponseSchema: GenMessage<RelayRequestResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 19);
+  messageDesc(file_federation, 17);
 
 /**
  * @generated from message syrinx.RelayProfilePagePayload
@@ -729,7 +700,7 @@ export type RelayProfilePagePayload = Message<"syrinx.RelayProfilePagePayload"> 
  * Use `create(RelayProfilePagePayloadSchema)` to create a new message.
  */
 export const RelayProfilePagePayloadSchema: GenMessage<RelayProfilePagePayload> = /*@__PURE__*/
-  messageDesc(file_federation, 20);
+  messageDesc(file_federation, 18);
 
 /**
  * @generated from message syrinx.RelayProfilePageResponse
@@ -756,7 +727,7 @@ export type RelayProfilePageResponse = Message<"syrinx.RelayProfilePageResponse"
  * Use `create(RelayProfilePageResponseSchema)` to create a new message.
  */
 export const RelayProfilePageResponseSchema: GenMessage<RelayProfilePageResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 21);
+  messageDesc(file_federation, 19);
 
 /**
  * Relayed content for a request the receiver registered. A relayed thread
@@ -786,7 +757,7 @@ export type RelayDeliverPayload = Message<"syrinx.RelayDeliverPayload"> & {
  * Use `create(RelayDeliverPayloadSchema)` to create a new message.
  */
 export const RelayDeliverPayloadSchema: GenMessage<RelayDeliverPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 22);
+  messageDesc(file_federation, 20);
 
 /**
  * @generated from message syrinx.RelayNotHeldPayload
@@ -803,7 +774,7 @@ export type RelayNotHeldPayload = Message<"syrinx.RelayNotHeldPayload"> & {
  * Use `create(RelayNotHeldPayloadSchema)` to create a new message.
  */
 export const RelayNotHeldPayloadSchema: GenMessage<RelayNotHeldPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 23);
+  messageDesc(file_federation, 21);
 
 /**
  * @generated from message syrinx.RelayCancelPayload
@@ -820,7 +791,7 @@ export type RelayCancelPayload = Message<"syrinx.RelayCancelPayload"> & {
  * Use `create(RelayCancelPayloadSchema)` to create a new message.
  */
 export const RelayCancelPayloadSchema: GenMessage<RelayCancelPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 24);
+  messageDesc(file_federation, 22);
 
 /**
  * @generated from message syrinx.RelayAckPayload
@@ -837,7 +808,7 @@ export type RelayAckPayload = Message<"syrinx.RelayAckPayload"> & {
  * Use `create(RelayAckPayloadSchema)` to create a new message.
  */
 export const RelayAckPayloadSchema: GenMessage<RelayAckPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 25);
+  messageDesc(file_federation, 23);
 
 /**
  * @generated from message syrinx.RelaySubscribeReedPayload
@@ -859,7 +830,7 @@ export type RelaySubscribeReedPayload = Message<"syrinx.RelaySubscribeReedPayloa
  * Use `create(RelaySubscribeReedPayloadSchema)` to create a new message.
  */
 export const RelaySubscribeReedPayloadSchema: GenMessage<RelaySubscribeReedPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 26);
+  messageDesc(file_federation, 24);
 
 /**
  * @generated from message syrinx.RelaySubscribeReedResponse
@@ -896,7 +867,7 @@ export type RelaySubscribeReedResponse = Message<"syrinx.RelaySubscribeReedRespo
  * Use `create(RelaySubscribeReedResponseSchema)` to create a new message.
  */
 export const RelaySubscribeReedResponseSchema: GenMessage<RelaySubscribeReedResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 27);
+  messageDesc(file_federation, 25);
 
 /**
  * @generated from message syrinx.RelayUnsubscribeReedPayload
@@ -918,7 +889,7 @@ export type RelayUnsubscribeReedPayload = Message<"syrinx.RelayUnsubscribeReedPa
  * Use `create(RelayUnsubscribeReedPayloadSchema)` to create a new message.
  */
 export const RelayUnsubscribeReedPayloadSchema: GenMessage<RelayUnsubscribeReedPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 28);
+  messageDesc(file_federation, 26);
 
 /**
  * One live update for a reed, as the WS message its local viewers get.
@@ -947,7 +918,7 @@ export type RelayReedStatsPayload = Message<"syrinx.RelayReedStatsPayload"> & {
  * Use `create(RelayReedStatsPayloadSchema)` to create a new message.
  */
 export const RelayReedStatsPayloadSchema: GenMessage<RelayReedStatsPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 29);
+  messageDesc(file_federation, 27);
 
 /**
  * @generated from message syrinx.RelayHolderNotifyPayload
@@ -964,7 +935,7 @@ export type RelayHolderNotifyPayload = Message<"syrinx.RelayHolderNotifyPayload"
  * Use `create(RelayHolderNotifyPayloadSchema)` to create a new message.
  */
 export const RelayHolderNotifyPayloadSchema: GenMessage<RelayHolderNotifyPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 30);
+  messageDesc(file_federation, 28);
 
 /**
  * @generated from message syrinx.RelayFallbackRequestPayload
@@ -996,7 +967,7 @@ export type RelayFallbackRequestPayload = Message<"syrinx.RelayFallbackRequestPa
  * Use `create(RelayFallbackRequestPayloadSchema)` to create a new message.
  */
 export const RelayFallbackRequestPayloadSchema: GenMessage<RelayFallbackRequestPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 31);
+  messageDesc(file_federation, 29);
 
 /**
  * @generated from message syrinx.RelayFallbackRequestResponse
@@ -1018,7 +989,7 @@ export type RelayFallbackRequestResponse = Message<"syrinx.RelayFallbackRequestR
  * Use `create(RelayFallbackRequestResponseSchema)` to create a new message.
  */
 export const RelayFallbackRequestResponseSchema: GenMessage<RelayFallbackRequestResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 32);
+  messageDesc(file_federation, 30);
 
 /**
  * @generated from message syrinx.RelaySearchUsersPayload
@@ -1045,7 +1016,7 @@ export type RelaySearchUsersPayload = Message<"syrinx.RelaySearchUsersPayload"> 
  * Use `create(RelaySearchUsersPayloadSchema)` to create a new message.
  */
 export const RelaySearchUsersPayloadSchema: GenMessage<RelaySearchUsersPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 33);
+  messageDesc(file_federation, 31);
 
 /**
  * @generated from message syrinx.RelaySearchUsersResponse
@@ -1062,7 +1033,7 @@ export type RelaySearchUsersResponse = Message<"syrinx.RelaySearchUsersResponse"
  * Use `create(RelaySearchUsersResponseSchema)` to create a new message.
  */
 export const RelaySearchUsersResponseSchema: GenMessage<RelaySearchUsersResponse> = /*@__PURE__*/
-  messageDesc(file_federation, 34);
+  messageDesc(file_federation, 32);
 
 /**
  * @generated from message syrinx.RelayDisconnectNotifyPayload
@@ -1079,7 +1050,7 @@ export type RelayDisconnectNotifyPayload = Message<"syrinx.RelayDisconnectNotify
  * Use `create(RelayDisconnectNotifyPayloadSchema)` to create a new message.
  */
 export const RelayDisconnectNotifyPayloadSchema: GenMessage<RelayDisconnectNotifyPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 35);
+  messageDesc(file_federation, 33);
 
 /**
  * @generated from message syrinx.RelayNewReedReply
@@ -1101,7 +1072,7 @@ export type RelayNewReedReply = Message<"syrinx.RelayNewReedReply"> & {
  * Use `create(RelayNewReedReplySchema)` to create a new message.
  */
 export const RelayNewReedReplySchema: GenMessage<RelayNewReedReply> = /*@__PURE__*/
-  messageDesc(file_federation, 36);
+  messageDesc(file_federation, 34);
 
 /**
  * @generated from message syrinx.RelayNewReedEcho
@@ -1123,7 +1094,7 @@ export type RelayNewReedEcho = Message<"syrinx.RelayNewReedEcho"> & {
  * Use `create(RelayNewReedEchoSchema)` to create a new message.
  */
 export const RelayNewReedEchoSchema: GenMessage<RelayNewReedEcho> = /*@__PURE__*/
-  messageDesc(file_federation, 37);
+  messageDesc(file_federation, 35);
 
 /**
  * Announces one of the sender's own reeds, without content.
@@ -1167,7 +1138,7 @@ export type RelayNewReedPayload = Message<"syrinx.RelayNewReedPayload"> & {
  * Use `create(RelayNewReedPayloadSchema)` to create a new message.
  */
 export const RelayNewReedPayloadSchema: GenMessage<RelayNewReedPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 38);
+  messageDesc(file_federation, 36);
 
 /**
  * A signed reed removal as it travels between servers.
@@ -1216,7 +1187,7 @@ export type RelayReedRemovalCert = Message<"syrinx.RelayReedRemovalCert"> & {
  * Use `create(RelayReedRemovalCertSchema)` to create a new message.
  */
 export const RelayReedRemovalCertSchema: GenMessage<RelayReedRemovalCert> = /*@__PURE__*/
-  messageDesc(file_federation, 39);
+  messageDesc(file_federation, 37);
 
 /**
  * The removal cert, plus the parent the removed reed replied to.
@@ -1240,7 +1211,7 @@ export type RelayReedRemovalPayload = Message<"syrinx.RelayReedRemovalPayload"> 
  * Use `create(RelayReedRemovalPayloadSchema)` to create a new message.
  */
 export const RelayReedRemovalPayloadSchema: GenMessage<RelayReedRemovalPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 40);
+  messageDesc(file_federation, 38);
 
 /**
  * @generated from message syrinx.RelayRealtimeResetPayload
@@ -1257,7 +1228,7 @@ export type RelayRealtimeResetPayload = Message<"syrinx.RelayRealtimeResetPayloa
  * Use `create(RelayRealtimeResetPayloadSchema)` to create a new message.
  */
 export const RelayRealtimeResetPayloadSchema: GenMessage<RelayRealtimeResetPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 41);
+  messageDesc(file_federation, 39);
 
 /**
  * @generated from message syrinx.RelayAccountRemovalNotifyPayload
@@ -1311,7 +1282,7 @@ export type RelayAccountRemovalNotifyPayload = Message<"syrinx.RelayAccountRemov
  * Use `create(RelayAccountRemovalNotifyPayloadSchema)` to create a new message.
  */
 export const RelayAccountRemovalNotifyPayloadSchema: GenMessage<RelayAccountRemovalNotifyPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 42);
+  messageDesc(file_federation, 40);
 
 /**
  * @generated from message syrinx.RelayUnblockPayload
@@ -1333,7 +1304,7 @@ export type RelayUnblockPayload = Message<"syrinx.RelayUnblockPayload"> & {
  * Use `create(RelayUnblockPayloadSchema)` to create a new message.
  */
 export const RelayUnblockPayloadSchema: GenMessage<RelayUnblockPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 43);
+  messageDesc(file_federation, 41);
 
 /**
  * @generated from message syrinx.RelayVouchReferencePayload
@@ -1350,7 +1321,7 @@ export type RelayVouchReferencePayload = Message<"syrinx.RelayVouchReferencePayl
  * Use `create(RelayVouchReferencePayloadSchema)` to create a new message.
  */
 export const RelayVouchReferencePayloadSchema: GenMessage<RelayVouchReferencePayload> = /*@__PURE__*/
-  messageDesc(file_federation, 44);
+  messageDesc(file_federation, 42);
 
 /**
  * @generated from message syrinx.RelayVouchWithdrawalPayload
@@ -1377,5 +1348,5 @@ export type RelayVouchWithdrawalPayload = Message<"syrinx.RelayVouchWithdrawalPa
  * Use `create(RelayVouchWithdrawalPayloadSchema)` to create a new message.
  */
 export const RelayVouchWithdrawalPayloadSchema: GenMessage<RelayVouchWithdrawalPayload> = /*@__PURE__*/
-  messageDesc(file_federation, 45);
+  messageDesc(file_federation, 43);
 

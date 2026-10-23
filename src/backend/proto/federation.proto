@@ -28,7 +28,6 @@ message FederationInvitation {
   string remote_fingerprint = 5;
   uint32 created_at = 6;
   uint32 accepted_at = 7;
-  optional string server_id = 8;
   optional string reviewed_by = 9;
   uint32 reviewed_at = 10;
   optional string connection_string = 11;
@@ -36,12 +35,6 @@ message FederationInvitation {
 
 message FederationInvitationList {
   repeated FederationInvitation invitations = 1;
-}
-
-// GET /federation/servers/{id}/invitation: unset when this server was the
-// responder.
-message FederationInvitationResponse {
-  FederationInvitation invitation = 1;
 }
 
 // An approved peer.
@@ -63,13 +56,21 @@ message FederationServer {
   uint32 disconnect_requested_at = 13;
   optional string disconnect_requested_by = 14;
   optional string disconnect_reason = 15;
+  // Set when this server sent the invitation; unset when it accepted one.
+  optional string invited_by = 16;
+  uint32 invited_at = 17;
+  optional string approved_by = 18;
+  uint32 approved_at = 19;
+  // Revoked, and its users and reeds deleted; the record stays.
+  bool purged = 20;
 }
 
 message FederationServerList {
   repeated FederationServer servers = 1;
 }
 
-// A handshake attempt against a peer, at any stage.
+// A handshake attempt against a peer, pending or rejected: approval deletes
+// it and the peer's FederationServer takes over.
 message FederationAttempt {
   string attempt_id = 1;
   string remote_server_id = 2;
@@ -78,19 +79,11 @@ message FederationAttempt {
   string frontend_url = 5;
   string fingerprint = 6;
   optional string invitation_id = 7;
-  optional string server_id = 8;
   uint32 created_at = 9;
   string status = 10;
-  optional string approved_by = 11;
-  uint32 approved_at = 12;
   optional string rejected_by = 13;
   uint32 rejected_at = 14;
   optional string rejected_reason = 15;
-}
-
-// GET /federation/servers/{id}/attempt: unset if no attempt row exists.
-message FederationAttemptResponse {
-  FederationAttempt attempt = 1;
 }
 
 // GET /federation/list: the mesh tab's combined view.

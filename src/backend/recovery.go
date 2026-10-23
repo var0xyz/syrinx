@@ -64,7 +64,7 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 
 	var serverID, serverName, signingFP string
 	err := db.QueryRowContext(ctx, `
-		SELECT id, name, signing_key FROM servers WHERE self = TRUE
+		SELECT id, name, key_id FROM servers WHERE self = TRUE
 	`).Scan(&serverID, &serverName, &signingFP)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("no self server row")
@@ -73,7 +73,7 @@ func exportFromDB(ctx context.Context, db *sql.DB, exportedAt time.Time) (*recov
 		return nil, fmt.Errorf("load self server: %w", err)
 	}
 	if signingFP == "" {
-		return nil, fmt.Errorf("self server has no signing_key")
+		return nil, fmt.Errorf("self server has no signing key")
 	}
 	if serverName == "" {
 		return nil, fmt.Errorf("self server has no name")
@@ -339,7 +339,7 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 
 	var self recoveryExistingSelf
 	err := db.QueryRowContext(ctx, `
-		SELECT id, name, COALESCE(signing_key, '') FROM servers WHERE self = TRUE
+		SELECT id, name, COALESCE(key_id, '') FROM servers WHERE self = TRUE
 	`).Scan(&self.ID, &self.Name, &self.SigningKey)
 
 	if err == nil {
@@ -423,7 +423,7 @@ func importIntoDB(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, pas
 	}
 
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO servers (id, name, self, signing_key, frontend_url)
+		INSERT INTO servers (id, name, self, key_id, frontend_url)
 		VALUES ($1, $2, TRUE, $3, $4)
 	`, b.ServerID, b.ServerName, b.SigningKeyID, frontendURL); err != nil {
 		return 0, fmt.Errorf("insert self server: %w", err)

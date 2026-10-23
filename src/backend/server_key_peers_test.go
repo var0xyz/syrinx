@@ -141,11 +141,12 @@ func pinnedPeerHandlers(t *testing.T, peer rotatedPeer) (*Handlers, *int32) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`
-		INSERT INTO servers (id, name, self, base_url, frontend_url, connected, key_id)
-		VALUES ('Ab3xY9pQ', 'peer.example', FALSE, $1, $1, TRUE, $2)
+		INSERT INTO servers (id, name, self, base_url, frontend_url, key_id)
+		VALUES ('Ab3xY9pQ', 'peer.example', FALSE, $1, $1, $2)
 	`, fake.URL, peer.keys[0]); err != nil {
 		t.Fatal(err)
 	}
+	peerTestMesh(t, db, "Ab3xY9pQ")
 	return h, &requests
 }
 

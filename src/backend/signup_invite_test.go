@@ -21,15 +21,13 @@ func openSignupTestDB(t *testing.T) *sql.DB {
 func ensureSignupInviteSchema(db *sql.DB) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS servers (
-			id VARCHAR(16) UNIQUE,
-			name VARCHAR(255) PRIMARY KEY,
+			id VARCHAR(16) PRIMARY KEY,
+			name VARCHAR(255) NOT NULL UNIQUE,
 			self BOOLEAN NOT NULL DEFAULT FALSE,
-			signing_key VARCHAR(255),
-			identity_backup_at TIMESTAMP,
+			key_id VARCHAR(255),
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
-			frontend_url TEXT NOT NULL,
-			connected BOOLEAN NOT NULL DEFAULT FALSE
+			frontend_url TEXT NOT NULL
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_self (
 			server_id VARCHAR(16) NOT NULL UNIQUE REFERENCES servers(id),

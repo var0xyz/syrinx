@@ -143,7 +143,6 @@ type FederationInvitation struct {
 	RemoteFingerprint string                 `protobuf:"bytes,5,opt,name=remote_fingerprint,json=remoteFingerprint,proto3" json:"remote_fingerprint,omitempty"`
 	CreatedAt         uint32                 `protobuf:"varint,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	AcceptedAt        uint32                 `protobuf:"varint,7,opt,name=accepted_at,json=acceptedAt,proto3" json:"accepted_at,omitempty"`
-	ServerId          *string                `protobuf:"bytes,8,opt,name=server_id,json=serverId,proto3,oneof" json:"server_id,omitempty"`
 	ReviewedBy        *string                `protobuf:"bytes,9,opt,name=reviewed_by,json=reviewedBy,proto3,oneof" json:"reviewed_by,omitempty"`
 	ReviewedAt        uint32                 `protobuf:"varint,10,opt,name=reviewed_at,json=reviewedAt,proto3" json:"reviewed_at,omitempty"`
 	ConnectionString  *string                `protobuf:"bytes,11,opt,name=connection_string,json=connectionString,proto3,oneof" json:"connection_string,omitempty"`
@@ -230,13 +229,6 @@ func (x *FederationInvitation) GetAcceptedAt() uint32 {
 	return 0
 }
 
-func (x *FederationInvitation) GetServerId() string {
-	if x != nil && x.ServerId != nil {
-		return *x.ServerId
-	}
-	return ""
-}
-
 func (x *FederationInvitation) GetReviewedBy() string {
 	if x != nil && x.ReviewedBy != nil {
 		return *x.ReviewedBy
@@ -302,52 +294,6 @@ func (x *FederationInvitationList) GetInvitations() []*FederationInvitation {
 	return nil
 }
 
-// GET /federation/servers/{id}/invitation: unset when this server was the
-// responder.
-type FederationInvitationResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Invitation    *FederationInvitation  `protobuf:"bytes,1,opt,name=invitation,proto3" json:"invitation,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FederationInvitationResponse) Reset() {
-	*x = FederationInvitationResponse{}
-	mi := &file_federation_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FederationInvitationResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FederationInvitationResponse) ProtoMessage() {}
-
-func (x *FederationInvitationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FederationInvitationResponse.ProtoReflect.Descriptor instead.
-func (*FederationInvitationResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *FederationInvitationResponse) GetInvitation() *FederationInvitation {
-	if x != nil {
-		return x.Invitation
-	}
-	return nil
-}
-
 // An approved peer.
 type FederationServer struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
@@ -368,13 +314,20 @@ type FederationServer struct {
 	DisconnectRequestedAt uint32  `protobuf:"varint,13,opt,name=disconnect_requested_at,json=disconnectRequestedAt,proto3" json:"disconnect_requested_at,omitempty"`
 	DisconnectRequestedBy *string `protobuf:"bytes,14,opt,name=disconnect_requested_by,json=disconnectRequestedBy,proto3,oneof" json:"disconnect_requested_by,omitempty"`
 	DisconnectReason      *string `protobuf:"bytes,15,opt,name=disconnect_reason,json=disconnectReason,proto3,oneof" json:"disconnect_reason,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// Set when this server sent the invitation; unset when it accepted one.
+	InvitedBy  *string `protobuf:"bytes,16,opt,name=invited_by,json=invitedBy,proto3,oneof" json:"invited_by,omitempty"`
+	InvitedAt  uint32  `protobuf:"varint,17,opt,name=invited_at,json=invitedAt,proto3" json:"invited_at,omitempty"`
+	ApprovedBy *string `protobuf:"bytes,18,opt,name=approved_by,json=approvedBy,proto3,oneof" json:"approved_by,omitempty"`
+	ApprovedAt uint32  `protobuf:"varint,19,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
+	// Revoked, and its users and reeds deleted; the record stays.
+	Purged        bool `protobuf:"varint,20,opt,name=purged,proto3" json:"purged,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FederationServer) Reset() {
 	*x = FederationServer{}
-	mi := &file_federation_proto_msgTypes[5]
+	mi := &file_federation_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +339,7 @@ func (x *FederationServer) String() string {
 func (*FederationServer) ProtoMessage() {}
 
 func (x *FederationServer) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[5]
+	mi := &file_federation_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,7 +352,7 @@ func (x *FederationServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationServer.ProtoReflect.Descriptor instead.
 func (*FederationServer) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{5}
+	return file_federation_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FederationServer) GetServerId() string {
@@ -507,6 +460,41 @@ func (x *FederationServer) GetDisconnectReason() string {
 	return ""
 }
 
+func (x *FederationServer) GetInvitedBy() string {
+	if x != nil && x.InvitedBy != nil {
+		return *x.InvitedBy
+	}
+	return ""
+}
+
+func (x *FederationServer) GetInvitedAt() uint32 {
+	if x != nil {
+		return x.InvitedAt
+	}
+	return 0
+}
+
+func (x *FederationServer) GetApprovedBy() string {
+	if x != nil && x.ApprovedBy != nil {
+		return *x.ApprovedBy
+	}
+	return ""
+}
+
+func (x *FederationServer) GetApprovedAt() uint32 {
+	if x != nil {
+		return x.ApprovedAt
+	}
+	return 0
+}
+
+func (x *FederationServer) GetPurged() bool {
+	if x != nil {
+		return x.Purged
+	}
+	return false
+}
+
 type FederationServerList struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Servers       []*FederationServer    `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
@@ -516,7 +504,7 @@ type FederationServerList struct {
 
 func (x *FederationServerList) Reset() {
 	*x = FederationServerList{}
-	mi := &file_federation_proto_msgTypes[6]
+	mi := &file_federation_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -528,7 +516,7 @@ func (x *FederationServerList) String() string {
 func (*FederationServerList) ProtoMessage() {}
 
 func (x *FederationServerList) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[6]
+	mi := &file_federation_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -541,7 +529,7 @@ func (x *FederationServerList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationServerList.ProtoReflect.Descriptor instead.
 func (*FederationServerList) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{6}
+	return file_federation_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *FederationServerList) GetServers() []*FederationServer {
@@ -551,7 +539,8 @@ func (x *FederationServerList) GetServers() []*FederationServer {
 	return nil
 }
 
-// A handshake attempt against a peer, at any stage.
+// A handshake attempt against a peer, pending or rejected: approval deletes
+// it and the peer's FederationServer takes over.
 type FederationAttempt struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	AttemptId        string                 `protobuf:"bytes,1,opt,name=attempt_id,json=attemptId,proto3" json:"attempt_id,omitempty"`
@@ -561,11 +550,8 @@ type FederationAttempt struct {
 	FrontendUrl      string                 `protobuf:"bytes,5,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
 	Fingerprint      string                 `protobuf:"bytes,6,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	InvitationId     *string                `protobuf:"bytes,7,opt,name=invitation_id,json=invitationId,proto3,oneof" json:"invitation_id,omitempty"`
-	ServerId         *string                `protobuf:"bytes,8,opt,name=server_id,json=serverId,proto3,oneof" json:"server_id,omitempty"`
 	CreatedAt        uint32                 `protobuf:"varint,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	Status           string                 `protobuf:"bytes,10,opt,name=status,proto3" json:"status,omitempty"`
-	ApprovedBy       *string                `protobuf:"bytes,11,opt,name=approved_by,json=approvedBy,proto3,oneof" json:"approved_by,omitempty"`
-	ApprovedAt       uint32                 `protobuf:"varint,12,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
 	RejectedBy       *string                `protobuf:"bytes,13,opt,name=rejected_by,json=rejectedBy,proto3,oneof" json:"rejected_by,omitempty"`
 	RejectedAt       uint32                 `protobuf:"varint,14,opt,name=rejected_at,json=rejectedAt,proto3" json:"rejected_at,omitempty"`
 	RejectedReason   *string                `protobuf:"bytes,15,opt,name=rejected_reason,json=rejectedReason,proto3,oneof" json:"rejected_reason,omitempty"`
@@ -575,7 +561,7 @@ type FederationAttempt struct {
 
 func (x *FederationAttempt) Reset() {
 	*x = FederationAttempt{}
-	mi := &file_federation_proto_msgTypes[7]
+	mi := &file_federation_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -587,7 +573,7 @@ func (x *FederationAttempt) String() string {
 func (*FederationAttempt) ProtoMessage() {}
 
 func (x *FederationAttempt) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[7]
+	mi := &file_federation_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -600,7 +586,7 @@ func (x *FederationAttempt) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationAttempt.ProtoReflect.Descriptor instead.
 func (*FederationAttempt) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{7}
+	return file_federation_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *FederationAttempt) GetAttemptId() string {
@@ -652,13 +638,6 @@ func (x *FederationAttempt) GetInvitationId() string {
 	return ""
 }
 
-func (x *FederationAttempt) GetServerId() string {
-	if x != nil && x.ServerId != nil {
-		return *x.ServerId
-	}
-	return ""
-}
-
 func (x *FederationAttempt) GetCreatedAt() uint32 {
 	if x != nil {
 		return x.CreatedAt
@@ -671,20 +650,6 @@ func (x *FederationAttempt) GetStatus() string {
 		return x.Status
 	}
 	return ""
-}
-
-func (x *FederationAttempt) GetApprovedBy() string {
-	if x != nil && x.ApprovedBy != nil {
-		return *x.ApprovedBy
-	}
-	return ""
-}
-
-func (x *FederationAttempt) GetApprovedAt() uint32 {
-	if x != nil {
-		return x.ApprovedAt
-	}
-	return 0
 }
 
 func (x *FederationAttempt) GetRejectedBy() string {
@@ -708,51 +673,6 @@ func (x *FederationAttempt) GetRejectedReason() string {
 	return ""
 }
 
-// GET /federation/servers/{id}/attempt: unset if no attempt row exists.
-type FederationAttemptResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Attempt       *FederationAttempt     `protobuf:"bytes,1,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FederationAttemptResponse) Reset() {
-	*x = FederationAttemptResponse{}
-	mi := &file_federation_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FederationAttemptResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FederationAttemptResponse) ProtoMessage() {}
-
-func (x *FederationAttemptResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FederationAttemptResponse.ProtoReflect.Descriptor instead.
-func (*FederationAttemptResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *FederationAttemptResponse) GetAttempt() *FederationAttempt {
-	if x != nil {
-		return x.Attempt
-	}
-	return nil
-}
-
 // GET /federation/list: the mesh tab's combined view.
 type FederationList struct {
 	state         protoimpl.MessageState  `protogen:"open.v1"`
@@ -765,7 +685,7 @@ type FederationList struct {
 
 func (x *FederationList) Reset() {
 	*x = FederationList{}
-	mi := &file_federation_proto_msgTypes[9]
+	mi := &file_federation_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -777,7 +697,7 @@ func (x *FederationList) String() string {
 func (*FederationList) ProtoMessage() {}
 
 func (x *FederationList) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[9]
+	mi := &file_federation_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -790,7 +710,7 @@ func (x *FederationList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationList.ProtoReflect.Descriptor instead.
 func (*FederationList) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{9}
+	return file_federation_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *FederationList) GetInvitations() []*FederationInvitation {
@@ -825,7 +745,7 @@ type FederationLogs struct {
 
 func (x *FederationLogs) Reset() {
 	*x = FederationLogs{}
-	mi := &file_federation_proto_msgTypes[10]
+	mi := &file_federation_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -837,7 +757,7 @@ func (x *FederationLogs) String() string {
 func (*FederationLogs) ProtoMessage() {}
 
 func (x *FederationLogs) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[10]
+	mi := &file_federation_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -850,7 +770,7 @@ func (x *FederationLogs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationLogs.ProtoReflect.Descriptor instead.
 func (*FederationLogs) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{10}
+	return file_federation_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FederationLogs) GetText() string {
@@ -870,7 +790,7 @@ type FederationAttemptRequest struct {
 
 func (x *FederationAttemptRequest) Reset() {
 	*x = FederationAttemptRequest{}
-	mi := &file_federation_proto_msgTypes[11]
+	mi := &file_federation_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +802,7 @@ func (x *FederationAttemptRequest) String() string {
 func (*FederationAttemptRequest) ProtoMessage() {}
 
 func (x *FederationAttemptRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[11]
+	mi := &file_federation_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +815,7 @@ func (x *FederationAttemptRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationAttemptRequest.ProtoReflect.Descriptor instead.
 func (*FederationAttemptRequest) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{11}
+	return file_federation_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FederationAttemptRequest) GetConnectionString() string {
@@ -915,7 +835,7 @@ type FederationAttemptStatus struct {
 
 func (x *FederationAttemptStatus) Reset() {
 	*x = FederationAttemptStatus{}
-	mi := &file_federation_proto_msgTypes[12]
+	mi := &file_federation_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -927,7 +847,7 @@ func (x *FederationAttemptStatus) String() string {
 func (*FederationAttemptStatus) ProtoMessage() {}
 
 func (x *FederationAttemptStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[12]
+	mi := &file_federation_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -940,7 +860,7 @@ func (x *FederationAttemptStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationAttemptStatus.ProtoReflect.Descriptor instead.
 func (*FederationAttemptStatus) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{12}
+	return file_federation_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FederationAttemptStatus) GetStatus() string {
@@ -967,7 +887,7 @@ type FederationReasonRequest struct {
 
 func (x *FederationReasonRequest) Reset() {
 	*x = FederationReasonRequest{}
-	mi := &file_federation_proto_msgTypes[13]
+	mi := &file_federation_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -979,7 +899,7 @@ func (x *FederationReasonRequest) String() string {
 func (*FederationReasonRequest) ProtoMessage() {}
 
 func (x *FederationReasonRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[13]
+	mi := &file_federation_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -992,7 +912,7 @@ func (x *FederationReasonRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationReasonRequest.ProtoReflect.Descriptor instead.
 func (*FederationReasonRequest) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{13}
+	return file_federation_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FederationReasonRequest) GetReason() string {
@@ -1017,7 +937,7 @@ type FederationActionResponse struct {
 
 func (x *FederationActionResponse) Reset() {
 	*x = FederationActionResponse{}
-	mi := &file_federation_proto_msgTypes[14]
+	mi := &file_federation_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1029,7 +949,7 @@ func (x *FederationActionResponse) String() string {
 func (*FederationActionResponse) ProtoMessage() {}
 
 func (x *FederationActionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[14]
+	mi := &file_federation_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1042,7 +962,7 @@ func (x *FederationActionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationActionResponse.ProtoReflect.Descriptor instead.
 func (*FederationActionResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{14}
+	return file_federation_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *FederationActionResponse) GetInviteId() string {
@@ -1097,7 +1017,7 @@ type FederationConnectRequest struct {
 
 func (x *FederationConnectRequest) Reset() {
 	*x = FederationConnectRequest{}
-	mi := &file_federation_proto_msgTypes[15]
+	mi := &file_federation_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1109,7 +1029,7 @@ func (x *FederationConnectRequest) String() string {
 func (*FederationConnectRequest) ProtoMessage() {}
 
 func (x *FederationConnectRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[15]
+	mi := &file_federation_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1122,7 +1042,7 @@ func (x *FederationConnectRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationConnectRequest.ProtoReflect.Descriptor instead.
 func (*FederationConnectRequest) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{15}
+	return file_federation_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *FederationConnectRequest) GetServerId() string {
@@ -1184,7 +1104,7 @@ type FederationConnectResponse struct {
 
 func (x *FederationConnectResponse) Reset() {
 	*x = FederationConnectResponse{}
-	mi := &file_federation_proto_msgTypes[16]
+	mi := &file_federation_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1196,7 +1116,7 @@ func (x *FederationConnectResponse) String() string {
 func (*FederationConnectResponse) ProtoMessage() {}
 
 func (x *FederationConnectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[16]
+	mi := &file_federation_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1209,7 +1129,7 @@ func (x *FederationConnectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationConnectResponse.ProtoReflect.Descriptor instead.
 func (*FederationConnectResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{16}
+	return file_federation_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *FederationConnectResponse) GetStatus() string {
@@ -1238,7 +1158,7 @@ type FederationUserIdentity struct {
 
 func (x *FederationUserIdentity) Reset() {
 	*x = FederationUserIdentity{}
-	mi := &file_federation_proto_msgTypes[17]
+	mi := &file_federation_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1250,7 +1170,7 @@ func (x *FederationUserIdentity) String() string {
 func (*FederationUserIdentity) ProtoMessage() {}
 
 func (x *FederationUserIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[17]
+	mi := &file_federation_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1263,7 +1183,7 @@ func (x *FederationUserIdentity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FederationUserIdentity.ProtoReflect.Descriptor instead.
 func (*FederationUserIdentity) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{17}
+	return file_federation_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *FederationUserIdentity) GetUser() *User {
@@ -1295,7 +1215,7 @@ type RelayRequestPayload struct {
 
 func (x *RelayRequestPayload) Reset() {
 	*x = RelayRequestPayload{}
-	mi := &file_federation_proto_msgTypes[18]
+	mi := &file_federation_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1307,7 +1227,7 @@ func (x *RelayRequestPayload) String() string {
 func (*RelayRequestPayload) ProtoMessage() {}
 
 func (x *RelayRequestPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[18]
+	mi := &file_federation_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1320,7 +1240,7 @@ func (x *RelayRequestPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayRequestPayload.ProtoReflect.Descriptor instead.
 func (*RelayRequestPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{18}
+	return file_federation_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RelayRequestPayload) GetReedId() string {
@@ -1375,7 +1295,7 @@ type RelayRequestResponse struct {
 
 func (x *RelayRequestResponse) Reset() {
 	*x = RelayRequestResponse{}
-	mi := &file_federation_proto_msgTypes[19]
+	mi := &file_federation_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1387,7 +1307,7 @@ func (x *RelayRequestResponse) String() string {
 func (*RelayRequestResponse) ProtoMessage() {}
 
 func (x *RelayRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[19]
+	mi := &file_federation_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1400,7 +1320,7 @@ func (x *RelayRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayRequestResponse.ProtoReflect.Descriptor instead.
 func (*RelayRequestResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{19}
+	return file_federation_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RelayRequestResponse) GetPeerEventId() string {
@@ -1428,7 +1348,7 @@ type RelayProfilePagePayload struct {
 
 func (x *RelayProfilePagePayload) Reset() {
 	*x = RelayProfilePagePayload{}
-	mi := &file_federation_proto_msgTypes[20]
+	mi := &file_federation_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1440,7 +1360,7 @@ func (x *RelayProfilePagePayload) String() string {
 func (*RelayProfilePagePayload) ProtoMessage() {}
 
 func (x *RelayProfilePagePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[20]
+	mi := &file_federation_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1453,7 +1373,7 @@ func (x *RelayProfilePagePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayProfilePagePayload.ProtoReflect.Descriptor instead.
 func (*RelayProfilePagePayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{20}
+	return file_federation_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RelayProfilePagePayload) GetAuthorId() string {
@@ -1488,7 +1408,7 @@ type RelayProfilePageResponse struct {
 
 func (x *RelayProfilePageResponse) Reset() {
 	*x = RelayProfilePageResponse{}
-	mi := &file_federation_proto_msgTypes[21]
+	mi := &file_federation_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1500,7 +1420,7 @@ func (x *RelayProfilePageResponse) String() string {
 func (*RelayProfilePageResponse) ProtoMessage() {}
 
 func (x *RelayProfilePageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[21]
+	mi := &file_federation_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1513,7 +1433,7 @@ func (x *RelayProfilePageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayProfilePageResponse.ProtoReflect.Descriptor instead.
 func (*RelayProfilePageResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{21}
+	return file_federation_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *RelayProfilePageResponse) GetReedIds() []string {
@@ -1550,7 +1470,7 @@ type RelayDeliverPayload struct {
 
 func (x *RelayDeliverPayload) Reset() {
 	*x = RelayDeliverPayload{}
-	mi := &file_federation_proto_msgTypes[22]
+	mi := &file_federation_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1562,7 +1482,7 @@ func (x *RelayDeliverPayload) String() string {
 func (*RelayDeliverPayload) ProtoMessage() {}
 
 func (x *RelayDeliverPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[22]
+	mi := &file_federation_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1575,7 +1495,7 @@ func (x *RelayDeliverPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayDeliverPayload.ProtoReflect.Descriptor instead.
 func (*RelayDeliverPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{22}
+	return file_federation_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *RelayDeliverPayload) GetPeerEventId() string {
@@ -1608,7 +1528,7 @@ type RelayNotHeldPayload struct {
 
 func (x *RelayNotHeldPayload) Reset() {
 	*x = RelayNotHeldPayload{}
-	mi := &file_federation_proto_msgTypes[23]
+	mi := &file_federation_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1620,7 +1540,7 @@ func (x *RelayNotHeldPayload) String() string {
 func (*RelayNotHeldPayload) ProtoMessage() {}
 
 func (x *RelayNotHeldPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[23]
+	mi := &file_federation_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1633,7 +1553,7 @@ func (x *RelayNotHeldPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayNotHeldPayload.ProtoReflect.Descriptor instead.
 func (*RelayNotHeldPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{23}
+	return file_federation_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *RelayNotHeldPayload) GetPeerEventId() string {
@@ -1652,7 +1572,7 @@ type RelayCancelPayload struct {
 
 func (x *RelayCancelPayload) Reset() {
 	*x = RelayCancelPayload{}
-	mi := &file_federation_proto_msgTypes[24]
+	mi := &file_federation_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1664,7 +1584,7 @@ func (x *RelayCancelPayload) String() string {
 func (*RelayCancelPayload) ProtoMessage() {}
 
 func (x *RelayCancelPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[24]
+	mi := &file_federation_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1597,7 @@ func (x *RelayCancelPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayCancelPayload.ProtoReflect.Descriptor instead.
 func (*RelayCancelPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{24}
+	return file_federation_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RelayCancelPayload) GetPeerEventId() string {
@@ -1696,7 +1616,7 @@ type RelayAckPayload struct {
 
 func (x *RelayAckPayload) Reset() {
 	*x = RelayAckPayload{}
-	mi := &file_federation_proto_msgTypes[25]
+	mi := &file_federation_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1708,7 +1628,7 @@ func (x *RelayAckPayload) String() string {
 func (*RelayAckPayload) ProtoMessage() {}
 
 func (x *RelayAckPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[25]
+	mi := &file_federation_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1721,7 +1641,7 @@ func (x *RelayAckPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayAckPayload.ProtoReflect.Descriptor instead.
 func (*RelayAckPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{25}
+	return file_federation_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RelayAckPayload) GetPeerEventId() string {
@@ -1741,7 +1661,7 @@ type RelaySubscribeReedPayload struct {
 
 func (x *RelaySubscribeReedPayload) Reset() {
 	*x = RelaySubscribeReedPayload{}
-	mi := &file_federation_proto_msgTypes[26]
+	mi := &file_federation_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1753,7 +1673,7 @@ func (x *RelaySubscribeReedPayload) String() string {
 func (*RelaySubscribeReedPayload) ProtoMessage() {}
 
 func (x *RelaySubscribeReedPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[26]
+	mi := &file_federation_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1766,7 +1686,7 @@ func (x *RelaySubscribeReedPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelaySubscribeReedPayload.ProtoReflect.Descriptor instead.
 func (*RelaySubscribeReedPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{26}
+	return file_federation_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *RelaySubscribeReedPayload) GetReedId() string {
@@ -1796,7 +1716,7 @@ type RelaySubscribeReedResponse struct {
 
 func (x *RelaySubscribeReedResponse) Reset() {
 	*x = RelaySubscribeReedResponse{}
-	mi := &file_federation_proto_msgTypes[27]
+	mi := &file_federation_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1808,7 +1728,7 @@ func (x *RelaySubscribeReedResponse) String() string {
 func (*RelaySubscribeReedResponse) ProtoMessage() {}
 
 func (x *RelaySubscribeReedResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[27]
+	mi := &file_federation_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1821,7 +1741,7 @@ func (x *RelaySubscribeReedResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelaySubscribeReedResponse.ProtoReflect.Descriptor instead.
 func (*RelaySubscribeReedResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{27}
+	return file_federation_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RelaySubscribeReedResponse) GetFound() bool {
@@ -1869,7 +1789,7 @@ type RelayUnsubscribeReedPayload struct {
 
 func (x *RelayUnsubscribeReedPayload) Reset() {
 	*x = RelayUnsubscribeReedPayload{}
-	mi := &file_federation_proto_msgTypes[28]
+	mi := &file_federation_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1881,7 +1801,7 @@ func (x *RelayUnsubscribeReedPayload) String() string {
 func (*RelayUnsubscribeReedPayload) ProtoMessage() {}
 
 func (x *RelayUnsubscribeReedPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[28]
+	mi := &file_federation_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1894,7 +1814,7 @@ func (x *RelayUnsubscribeReedPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayUnsubscribeReedPayload.ProtoReflect.Descriptor instead.
 func (*RelayUnsubscribeReedPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{28}
+	return file_federation_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RelayUnsubscribeReedPayload) GetReedId() string {
@@ -1923,7 +1843,7 @@ type RelayReedStatsPayload struct {
 
 func (x *RelayReedStatsPayload) Reset() {
 	*x = RelayReedStatsPayload{}
-	mi := &file_federation_proto_msgTypes[29]
+	mi := &file_federation_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1935,7 +1855,7 @@ func (x *RelayReedStatsPayload) String() string {
 func (*RelayReedStatsPayload) ProtoMessage() {}
 
 func (x *RelayReedStatsPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[29]
+	mi := &file_federation_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1948,7 +1868,7 @@ func (x *RelayReedStatsPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayReedStatsPayload.ProtoReflect.Descriptor instead.
 func (*RelayReedStatsPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{29}
+	return file_federation_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *RelayReedStatsPayload) GetReedId() string {
@@ -1981,7 +1901,7 @@ type RelayHolderNotifyPayload struct {
 
 func (x *RelayHolderNotifyPayload) Reset() {
 	*x = RelayHolderNotifyPayload{}
-	mi := &file_federation_proto_msgTypes[30]
+	mi := &file_federation_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1993,7 +1913,7 @@ func (x *RelayHolderNotifyPayload) String() string {
 func (*RelayHolderNotifyPayload) ProtoMessage() {}
 
 func (x *RelayHolderNotifyPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[30]
+	mi := &file_federation_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2006,7 +1926,7 @@ func (x *RelayHolderNotifyPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayHolderNotifyPayload.ProtoReflect.Descriptor instead.
 func (*RelayHolderNotifyPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{30}
+	return file_federation_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *RelayHolderNotifyPayload) GetReedId() string {
@@ -2028,7 +1948,7 @@ type RelayFallbackRequestPayload struct {
 
 func (x *RelayFallbackRequestPayload) Reset() {
 	*x = RelayFallbackRequestPayload{}
-	mi := &file_federation_proto_msgTypes[31]
+	mi := &file_federation_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2040,7 +1960,7 @@ func (x *RelayFallbackRequestPayload) String() string {
 func (*RelayFallbackRequestPayload) ProtoMessage() {}
 
 func (x *RelayFallbackRequestPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[31]
+	mi := &file_federation_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2053,7 +1973,7 @@ func (x *RelayFallbackRequestPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayFallbackRequestPayload.ProtoReflect.Descriptor instead.
 func (*RelayFallbackRequestPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{31}
+	return file_federation_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *RelayFallbackRequestPayload) GetReedId() string {
@@ -2094,7 +2014,7 @@ type RelayFallbackRequestResponse struct {
 
 func (x *RelayFallbackRequestResponse) Reset() {
 	*x = RelayFallbackRequestResponse{}
-	mi := &file_federation_proto_msgTypes[32]
+	mi := &file_federation_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2106,7 +2026,7 @@ func (x *RelayFallbackRequestResponse) String() string {
 func (*RelayFallbackRequestResponse) ProtoMessage() {}
 
 func (x *RelayFallbackRequestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[32]
+	mi := &file_federation_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2119,7 +2039,7 @@ func (x *RelayFallbackRequestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayFallbackRequestResponse.ProtoReflect.Descriptor instead.
 func (*RelayFallbackRequestResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{32}
+	return file_federation_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RelayFallbackRequestResponse) GetPeerEventId() string {
@@ -2147,7 +2067,7 @@ type RelaySearchUsersPayload struct {
 
 func (x *RelaySearchUsersPayload) Reset() {
 	*x = RelaySearchUsersPayload{}
-	mi := &file_federation_proto_msgTypes[33]
+	mi := &file_federation_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2159,7 +2079,7 @@ func (x *RelaySearchUsersPayload) String() string {
 func (*RelaySearchUsersPayload) ProtoMessage() {}
 
 func (x *RelaySearchUsersPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[33]
+	mi := &file_federation_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2172,7 +2092,7 @@ func (x *RelaySearchUsersPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelaySearchUsersPayload.ProtoReflect.Descriptor instead.
 func (*RelaySearchUsersPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{33}
+	return file_federation_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RelaySearchUsersPayload) GetQuery() string {
@@ -2205,7 +2125,7 @@ type RelaySearchUsersResponse struct {
 
 func (x *RelaySearchUsersResponse) Reset() {
 	*x = RelaySearchUsersResponse{}
-	mi := &file_federation_proto_msgTypes[34]
+	mi := &file_federation_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2217,7 +2137,7 @@ func (x *RelaySearchUsersResponse) String() string {
 func (*RelaySearchUsersResponse) ProtoMessage() {}
 
 func (x *RelaySearchUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[34]
+	mi := &file_federation_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2230,7 +2150,7 @@ func (x *RelaySearchUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelaySearchUsersResponse.ProtoReflect.Descriptor instead.
 func (*RelaySearchUsersResponse) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{34}
+	return file_federation_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *RelaySearchUsersResponse) GetUsers() []*UserSearchResult {
@@ -2249,7 +2169,7 @@ type RelayDisconnectNotifyPayload struct {
 
 func (x *RelayDisconnectNotifyPayload) Reset() {
 	*x = RelayDisconnectNotifyPayload{}
-	mi := &file_federation_proto_msgTypes[35]
+	mi := &file_federation_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2261,7 +2181,7 @@ func (x *RelayDisconnectNotifyPayload) String() string {
 func (*RelayDisconnectNotifyPayload) ProtoMessage() {}
 
 func (x *RelayDisconnectNotifyPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[35]
+	mi := &file_federation_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2274,7 +2194,7 @@ func (x *RelayDisconnectNotifyPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayDisconnectNotifyPayload.ProtoReflect.Descriptor instead.
 func (*RelayDisconnectNotifyPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{35}
+	return file_federation_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RelayDisconnectNotifyPayload) GetReason() string {
@@ -2294,7 +2214,7 @@ type RelayNewReedReply struct {
 
 func (x *RelayNewReedReply) Reset() {
 	*x = RelayNewReedReply{}
-	mi := &file_federation_proto_msgTypes[36]
+	mi := &file_federation_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2306,7 +2226,7 @@ func (x *RelayNewReedReply) String() string {
 func (*RelayNewReedReply) ProtoMessage() {}
 
 func (x *RelayNewReedReply) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[36]
+	mi := &file_federation_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2319,7 +2239,7 @@ func (x *RelayNewReedReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayNewReedReply.ProtoReflect.Descriptor instead.
 func (*RelayNewReedReply) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{36}
+	return file_federation_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *RelayNewReedReply) GetParentReedId() string {
@@ -2346,7 +2266,7 @@ type RelayNewReedEcho struct {
 
 func (x *RelayNewReedEcho) Reset() {
 	*x = RelayNewReedEcho{}
-	mi := &file_federation_proto_msgTypes[37]
+	mi := &file_federation_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2358,7 +2278,7 @@ func (x *RelayNewReedEcho) String() string {
 func (*RelayNewReedEcho) ProtoMessage() {}
 
 func (x *RelayNewReedEcho) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[37]
+	mi := &file_federation_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2371,7 +2291,7 @@ func (x *RelayNewReedEcho) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayNewReedEcho.ProtoReflect.Descriptor instead.
 func (*RelayNewReedEcho) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{37}
+	return file_federation_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *RelayNewReedEcho) GetEchoedReedId() string {
@@ -2403,7 +2323,7 @@ type RelayNewReedPayload struct {
 
 func (x *RelayNewReedPayload) Reset() {
 	*x = RelayNewReedPayload{}
-	mi := &file_federation_proto_msgTypes[38]
+	mi := &file_federation_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2415,7 +2335,7 @@ func (x *RelayNewReedPayload) String() string {
 func (*RelayNewReedPayload) ProtoMessage() {}
 
 func (x *RelayNewReedPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[38]
+	mi := &file_federation_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2428,7 +2348,7 @@ func (x *RelayNewReedPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayNewReedPayload.ProtoReflect.Descriptor instead.
 func (*RelayNewReedPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{38}
+	return file_federation_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *RelayNewReedPayload) GetReedId() string {
@@ -2489,7 +2409,7 @@ type RelayReedRemovalCert struct {
 
 func (x *RelayReedRemovalCert) Reset() {
 	*x = RelayReedRemovalCert{}
-	mi := &file_federation_proto_msgTypes[39]
+	mi := &file_federation_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2501,7 +2421,7 @@ func (x *RelayReedRemovalCert) String() string {
 func (*RelayReedRemovalCert) ProtoMessage() {}
 
 func (x *RelayReedRemovalCert) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[39]
+	mi := &file_federation_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2514,7 +2434,7 @@ func (x *RelayReedRemovalCert) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayReedRemovalCert.ProtoReflect.Descriptor instead.
 func (*RelayReedRemovalCert) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{39}
+	return file_federation_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RelayReedRemovalCert) GetReedId() string {
@@ -2577,7 +2497,7 @@ type RelayReedRemovalPayload struct {
 
 func (x *RelayReedRemovalPayload) Reset() {
 	*x = RelayReedRemovalPayload{}
-	mi := &file_federation_proto_msgTypes[40]
+	mi := &file_federation_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2589,7 +2509,7 @@ func (x *RelayReedRemovalPayload) String() string {
 func (*RelayReedRemovalPayload) ProtoMessage() {}
 
 func (x *RelayReedRemovalPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[40]
+	mi := &file_federation_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2602,7 +2522,7 @@ func (x *RelayReedRemovalPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayReedRemovalPayload.ProtoReflect.Descriptor instead.
 func (*RelayReedRemovalPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{40}
+	return file_federation_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *RelayReedRemovalPayload) GetCert() *RelayReedRemovalCert {
@@ -2628,7 +2548,7 @@ type RelayRealtimeResetPayload struct {
 
 func (x *RelayRealtimeResetPayload) Reset() {
 	*x = RelayRealtimeResetPayload{}
-	mi := &file_federation_proto_msgTypes[41]
+	mi := &file_federation_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2640,7 +2560,7 @@ func (x *RelayRealtimeResetPayload) String() string {
 func (*RelayRealtimeResetPayload) ProtoMessage() {}
 
 func (x *RelayRealtimeResetPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[41]
+	mi := &file_federation_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2653,7 +2573,7 @@ func (x *RelayRealtimeResetPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayRealtimeResetPayload.ProtoReflect.Descriptor instead.
 func (*RelayRealtimeResetPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{41}
+	return file_federation_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *RelayRealtimeResetPayload) GetReason() string {
@@ -2680,7 +2600,7 @@ type RelayAccountRemovalNotifyPayload struct {
 
 func (x *RelayAccountRemovalNotifyPayload) Reset() {
 	*x = RelayAccountRemovalNotifyPayload{}
-	mi := &file_federation_proto_msgTypes[42]
+	mi := &file_federation_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2692,7 +2612,7 @@ func (x *RelayAccountRemovalNotifyPayload) String() string {
 func (*RelayAccountRemovalNotifyPayload) ProtoMessage() {}
 
 func (x *RelayAccountRemovalNotifyPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[42]
+	mi := &file_federation_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2705,7 +2625,7 @@ func (x *RelayAccountRemovalNotifyPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayAccountRemovalNotifyPayload.ProtoReflect.Descriptor instead.
 func (*RelayAccountRemovalNotifyPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{42}
+	return file_federation_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RelayAccountRemovalNotifyPayload) GetUserId() string {
@@ -2774,7 +2694,7 @@ type RelayUnblockPayload struct {
 
 func (x *RelayUnblockPayload) Reset() {
 	*x = RelayUnblockPayload{}
-	mi := &file_federation_proto_msgTypes[43]
+	mi := &file_federation_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2786,7 +2706,7 @@ func (x *RelayUnblockPayload) String() string {
 func (*RelayUnblockPayload) ProtoMessage() {}
 
 func (x *RelayUnblockPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[43]
+	mi := &file_federation_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2799,7 +2719,7 @@ func (x *RelayUnblockPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayUnblockPayload.ProtoReflect.Descriptor instead.
 func (*RelayUnblockPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{43}
+	return file_federation_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *RelayUnblockPayload) GetUserId() string {
@@ -2825,7 +2745,7 @@ type RelayVouchReferencePayload struct {
 
 func (x *RelayVouchReferencePayload) Reset() {
 	*x = RelayVouchReferencePayload{}
-	mi := &file_federation_proto_msgTypes[44]
+	mi := &file_federation_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2837,7 +2757,7 @@ func (x *RelayVouchReferencePayload) String() string {
 func (*RelayVouchReferencePayload) ProtoMessage() {}
 
 func (x *RelayVouchReferencePayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[44]
+	mi := &file_federation_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2850,7 +2770,7 @@ func (x *RelayVouchReferencePayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayVouchReferencePayload.ProtoReflect.Descriptor instead.
 func (*RelayVouchReferencePayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{44}
+	return file_federation_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *RelayVouchReferencePayload) GetCert() *Vouch {
@@ -2871,7 +2791,7 @@ type RelayVouchWithdrawalPayload struct {
 
 func (x *RelayVouchWithdrawalPayload) Reset() {
 	*x = RelayVouchWithdrawalPayload{}
-	mi := &file_federation_proto_msgTypes[45]
+	mi := &file_federation_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2883,7 +2803,7 @@ func (x *RelayVouchWithdrawalPayload) String() string {
 func (*RelayVouchWithdrawalPayload) ProtoMessage() {}
 
 func (x *RelayVouchWithdrawalPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_federation_proto_msgTypes[45]
+	mi := &file_federation_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2896,7 +2816,7 @@ func (x *RelayVouchWithdrawalPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RelayVouchWithdrawalPayload.ProtoReflect.Descriptor instead.
 func (*RelayVouchWithdrawalPayload) Descriptor() ([]byte, []int) {
-	return file_federation_proto_rawDescGZIP(), []int{45}
+	return file_federation_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *RelayVouchWithdrawalPayload) GetVouchId() string {
@@ -2931,7 +2851,7 @@ const file_federation_proto_rawDesc = "" +
 	"\x18FederationCreateResponse\x12\x1b\n" +
 	"\tinvite_id\x18\x01 \x01(\tR\binviteId\x12+\n" +
 	"\x11connection_string\x18\x02 \x01(\tR\x10connectionString\x12\x16\n" +
-	"\x06status\x18\x03 \x01(\tR\x06status\"\xbc\x03\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\"\x8c\x03\n" +
 	"\x14FederationInvitation\x12\x1b\n" +
 	"\tinvite_id\x18\x01 \x01(\tR\binviteId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -2942,24 +2862,17 @@ const file_federation_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\rR\tcreatedAt\x12\x1f\n" +
 	"\vaccepted_at\x18\a \x01(\rR\n" +
-	"acceptedAt\x12 \n" +
-	"\tserver_id\x18\b \x01(\tH\x00R\bserverId\x88\x01\x01\x12$\n" +
-	"\vreviewed_by\x18\t \x01(\tH\x01R\n" +
+	"acceptedAt\x12$\n" +
+	"\vreviewed_by\x18\t \x01(\tH\x00R\n" +
 	"reviewedBy\x88\x01\x01\x12\x1f\n" +
 	"\vreviewed_at\x18\n" +
 	" \x01(\rR\n" +
 	"reviewedAt\x120\n" +
-	"\x11connection_string\x18\v \x01(\tH\x02R\x10connectionString\x88\x01\x01B\f\n" +
-	"\n" +
-	"_server_idB\x0e\n" +
+	"\x11connection_string\x18\v \x01(\tH\x01R\x10connectionString\x88\x01\x01B\x0e\n" +
 	"\f_reviewed_byB\x14\n" +
 	"\x12_connection_string\"Z\n" +
 	"\x18FederationInvitationList\x12>\n" +
-	"\vinvitations\x18\x01 \x03(\v2\x1c.syrinx.FederationInvitationR\vinvitations\"\\\n" +
-	"\x1cFederationInvitationResponse\x12<\n" +
-	"\n" +
-	"invitation\x18\x01 \x01(\v2\x1c.syrinx.FederationInvitationR\n" +
-	"invitation\"\x93\x05\n" +
+	"\vinvitations\x18\x01 \x03(\v2\x1c.syrinx.FederationInvitationR\vinvitations\"\xd4\x06\n" +
 	"\x10FederationServer\x12\x1b\n" +
 	"\tserver_id\x18\x01 \x01(\tR\bserverId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x19\n" +
@@ -2979,13 +2892,24 @@ const file_federation_proto_rawDesc = "" +
 	"\x12disconnect_pending\x18\f \x01(\bR\x11disconnectPending\x126\n" +
 	"\x17disconnect_requested_at\x18\r \x01(\rR\x15disconnectRequestedAt\x12;\n" +
 	"\x17disconnect_requested_by\x18\x0e \x01(\tH\x02R\x15disconnectRequestedBy\x88\x01\x01\x120\n" +
-	"\x11disconnect_reason\x18\x0f \x01(\tH\x03R\x10disconnectReason\x88\x01\x01B\r\n" +
+	"\x11disconnect_reason\x18\x0f \x01(\tH\x03R\x10disconnectReason\x88\x01\x01\x12\"\n" +
+	"\n" +
+	"invited_by\x18\x10 \x01(\tH\x04R\tinvitedBy\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"invited_at\x18\x11 \x01(\rR\tinvitedAt\x12$\n" +
+	"\vapproved_by\x18\x12 \x01(\tH\x05R\n" +
+	"approvedBy\x88\x01\x01\x12\x1f\n" +
+	"\vapproved_at\x18\x13 \x01(\rR\n" +
+	"approvedAt\x12\x16\n" +
+	"\x06purged\x18\x14 \x01(\bR\x06purgedB\r\n" +
 	"\v_revoked_byB\x11\n" +
 	"\x0f_revoked_reasonB\x1a\n" +
 	"\x18_disconnect_requested_byB\x14\n" +
-	"\x12_disconnect_reason\"J\n" +
+	"\x12_disconnect_reasonB\r\n" +
+	"\v_invited_byB\x0e\n" +
+	"\f_approved_by\"J\n" +
 	"\x14FederationServerList\x122\n" +
-	"\aservers\x18\x01 \x03(\v2\x18.syrinx.FederationServerR\aservers\"\xfd\x04\n" +
+	"\aservers\x18\x01 \x03(\v2\x18.syrinx.FederationServerR\aservers\"\xf6\x03\n" +
 	"\x11FederationAttempt\x12\x1d\n" +
 	"\n" +
 	"attempt_id\x18\x01 \x01(\tR\tattemptId\x12(\n" +
@@ -2994,29 +2918,19 @@ const file_federation_proto_rawDesc = "" +
 	"\bbase_url\x18\x04 \x01(\tR\abaseUrl\x12!\n" +
 	"\ffrontend_url\x18\x05 \x01(\tR\vfrontendUrl\x12 \n" +
 	"\vfingerprint\x18\x06 \x01(\tR\vfingerprint\x12(\n" +
-	"\rinvitation_id\x18\a \x01(\tH\x00R\finvitationId\x88\x01\x01\x12 \n" +
-	"\tserver_id\x18\b \x01(\tH\x01R\bserverId\x88\x01\x01\x12\x1d\n" +
+	"\rinvitation_id\x18\a \x01(\tH\x00R\finvitationId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\t \x01(\rR\tcreatedAt\x12\x16\n" +
 	"\x06status\x18\n" +
 	" \x01(\tR\x06status\x12$\n" +
-	"\vapproved_by\x18\v \x01(\tH\x02R\n" +
-	"approvedBy\x88\x01\x01\x12\x1f\n" +
-	"\vapproved_at\x18\f \x01(\rR\n" +
-	"approvedAt\x12$\n" +
-	"\vrejected_by\x18\r \x01(\tH\x03R\n" +
+	"\vrejected_by\x18\r \x01(\tH\x01R\n" +
 	"rejectedBy\x88\x01\x01\x12\x1f\n" +
 	"\vrejected_at\x18\x0e \x01(\rR\n" +
 	"rejectedAt\x12,\n" +
-	"\x0frejected_reason\x18\x0f \x01(\tH\x04R\x0erejectedReason\x88\x01\x01B\x10\n" +
-	"\x0e_invitation_idB\f\n" +
-	"\n" +
-	"_server_idB\x0e\n" +
-	"\f_approved_byB\x0e\n" +
+	"\x0frejected_reason\x18\x0f \x01(\tH\x02R\x0erejectedReason\x88\x01\x01B\x10\n" +
+	"\x0e_invitation_idB\x0e\n" +
 	"\f_rejected_byB\x12\n" +
-	"\x10_rejected_reason\"P\n" +
-	"\x19FederationAttemptResponse\x123\n" +
-	"\aattempt\x18\x01 \x01(\v2\x19.syrinx.FederationAttemptR\aattempt\"\xbb\x01\n" +
+	"\x10_rejected_reason\"\xbb\x01\n" +
 	"\x0eFederationList\x12>\n" +
 	"\vinvitations\x18\x01 \x03(\v2\x1c.syrinx.FederationInvitationR\vinvitations\x125\n" +
 	"\battempts\x18\x02 \x03(\v2\x19.syrinx.FederationAttemptR\battempts\x122\n" +
@@ -3176,85 +3090,81 @@ func file_federation_proto_rawDescGZIP() []byte {
 	return file_federation_proto_rawDescData
 }
 
-var file_federation_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_federation_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_federation_proto_goTypes = []any{
 	(*FederationCreateRequest)(nil),          // 0: syrinx.FederationCreateRequest
 	(*FederationCreateResponse)(nil),         // 1: syrinx.FederationCreateResponse
 	(*FederationInvitation)(nil),             // 2: syrinx.FederationInvitation
 	(*FederationInvitationList)(nil),         // 3: syrinx.FederationInvitationList
-	(*FederationInvitationResponse)(nil),     // 4: syrinx.FederationInvitationResponse
-	(*FederationServer)(nil),                 // 5: syrinx.FederationServer
-	(*FederationServerList)(nil),             // 6: syrinx.FederationServerList
-	(*FederationAttempt)(nil),                // 7: syrinx.FederationAttempt
-	(*FederationAttemptResponse)(nil),        // 8: syrinx.FederationAttemptResponse
-	(*FederationList)(nil),                   // 9: syrinx.FederationList
-	(*FederationLogs)(nil),                   // 10: syrinx.FederationLogs
-	(*FederationAttemptRequest)(nil),         // 11: syrinx.FederationAttemptRequest
-	(*FederationAttemptStatus)(nil),          // 12: syrinx.FederationAttemptStatus
-	(*FederationReasonRequest)(nil),          // 13: syrinx.FederationReasonRequest
-	(*FederationActionResponse)(nil),         // 14: syrinx.FederationActionResponse
-	(*FederationConnectRequest)(nil),         // 15: syrinx.FederationConnectRequest
-	(*FederationConnectResponse)(nil),        // 16: syrinx.FederationConnectResponse
-	(*FederationUserIdentity)(nil),           // 17: syrinx.FederationUserIdentity
-	(*RelayRequestPayload)(nil),              // 18: syrinx.RelayRequestPayload
-	(*RelayRequestResponse)(nil),             // 19: syrinx.RelayRequestResponse
-	(*RelayProfilePagePayload)(nil),          // 20: syrinx.RelayProfilePagePayload
-	(*RelayProfilePageResponse)(nil),         // 21: syrinx.RelayProfilePageResponse
-	(*RelayDeliverPayload)(nil),              // 22: syrinx.RelayDeliverPayload
-	(*RelayNotHeldPayload)(nil),              // 23: syrinx.RelayNotHeldPayload
-	(*RelayCancelPayload)(nil),               // 24: syrinx.RelayCancelPayload
-	(*RelayAckPayload)(nil),                  // 25: syrinx.RelayAckPayload
-	(*RelaySubscribeReedPayload)(nil),        // 26: syrinx.RelaySubscribeReedPayload
-	(*RelaySubscribeReedResponse)(nil),       // 27: syrinx.RelaySubscribeReedResponse
-	(*RelayUnsubscribeReedPayload)(nil),      // 28: syrinx.RelayUnsubscribeReedPayload
-	(*RelayReedStatsPayload)(nil),            // 29: syrinx.RelayReedStatsPayload
-	(*RelayHolderNotifyPayload)(nil),         // 30: syrinx.RelayHolderNotifyPayload
-	(*RelayFallbackRequestPayload)(nil),      // 31: syrinx.RelayFallbackRequestPayload
-	(*RelayFallbackRequestResponse)(nil),     // 32: syrinx.RelayFallbackRequestResponse
-	(*RelaySearchUsersPayload)(nil),          // 33: syrinx.RelaySearchUsersPayload
-	(*RelaySearchUsersResponse)(nil),         // 34: syrinx.RelaySearchUsersResponse
-	(*RelayDisconnectNotifyPayload)(nil),     // 35: syrinx.RelayDisconnectNotifyPayload
-	(*RelayNewReedReply)(nil),                // 36: syrinx.RelayNewReedReply
-	(*RelayNewReedEcho)(nil),                 // 37: syrinx.RelayNewReedEcho
-	(*RelayNewReedPayload)(nil),              // 38: syrinx.RelayNewReedPayload
-	(*RelayReedRemovalCert)(nil),             // 39: syrinx.RelayReedRemovalCert
-	(*RelayReedRemovalPayload)(nil),          // 40: syrinx.RelayReedRemovalPayload
-	(*RelayRealtimeResetPayload)(nil),        // 41: syrinx.RelayRealtimeResetPayload
-	(*RelayAccountRemovalNotifyPayload)(nil), // 42: syrinx.RelayAccountRemovalNotifyPayload
-	(*RelayUnblockPayload)(nil),              // 43: syrinx.RelayUnblockPayload
-	(*RelayVouchReferencePayload)(nil),       // 44: syrinx.RelayVouchReferencePayload
-	(*RelayVouchWithdrawalPayload)(nil),      // 45: syrinx.RelayVouchWithdrawalPayload
-	(*User)(nil),                             // 46: syrinx.User
-	(*ThreadRecord)(nil),                     // 47: syrinx.ThreadRecord
-	(*WSMessage)(nil),                        // 48: syrinx.WSMessage
-	(*UserSearchResult)(nil),                 // 49: syrinx.UserSearchResult
-	(*AdminAuthorization)(nil),               // 50: syrinx.AdminAuthorization
-	(*Vouch)(nil),                            // 51: syrinx.Vouch
-	(*VouchWithdrawal)(nil),                  // 52: syrinx.VouchWithdrawal
+	(*FederationServer)(nil),                 // 4: syrinx.FederationServer
+	(*FederationServerList)(nil),             // 5: syrinx.FederationServerList
+	(*FederationAttempt)(nil),                // 6: syrinx.FederationAttempt
+	(*FederationList)(nil),                   // 7: syrinx.FederationList
+	(*FederationLogs)(nil),                   // 8: syrinx.FederationLogs
+	(*FederationAttemptRequest)(nil),         // 9: syrinx.FederationAttemptRequest
+	(*FederationAttemptStatus)(nil),          // 10: syrinx.FederationAttemptStatus
+	(*FederationReasonRequest)(nil),          // 11: syrinx.FederationReasonRequest
+	(*FederationActionResponse)(nil),         // 12: syrinx.FederationActionResponse
+	(*FederationConnectRequest)(nil),         // 13: syrinx.FederationConnectRequest
+	(*FederationConnectResponse)(nil),        // 14: syrinx.FederationConnectResponse
+	(*FederationUserIdentity)(nil),           // 15: syrinx.FederationUserIdentity
+	(*RelayRequestPayload)(nil),              // 16: syrinx.RelayRequestPayload
+	(*RelayRequestResponse)(nil),             // 17: syrinx.RelayRequestResponse
+	(*RelayProfilePagePayload)(nil),          // 18: syrinx.RelayProfilePagePayload
+	(*RelayProfilePageResponse)(nil),         // 19: syrinx.RelayProfilePageResponse
+	(*RelayDeliverPayload)(nil),              // 20: syrinx.RelayDeliverPayload
+	(*RelayNotHeldPayload)(nil),              // 21: syrinx.RelayNotHeldPayload
+	(*RelayCancelPayload)(nil),               // 22: syrinx.RelayCancelPayload
+	(*RelayAckPayload)(nil),                  // 23: syrinx.RelayAckPayload
+	(*RelaySubscribeReedPayload)(nil),        // 24: syrinx.RelaySubscribeReedPayload
+	(*RelaySubscribeReedResponse)(nil),       // 25: syrinx.RelaySubscribeReedResponse
+	(*RelayUnsubscribeReedPayload)(nil),      // 26: syrinx.RelayUnsubscribeReedPayload
+	(*RelayReedStatsPayload)(nil),            // 27: syrinx.RelayReedStatsPayload
+	(*RelayHolderNotifyPayload)(nil),         // 28: syrinx.RelayHolderNotifyPayload
+	(*RelayFallbackRequestPayload)(nil),      // 29: syrinx.RelayFallbackRequestPayload
+	(*RelayFallbackRequestResponse)(nil),     // 30: syrinx.RelayFallbackRequestResponse
+	(*RelaySearchUsersPayload)(nil),          // 31: syrinx.RelaySearchUsersPayload
+	(*RelaySearchUsersResponse)(nil),         // 32: syrinx.RelaySearchUsersResponse
+	(*RelayDisconnectNotifyPayload)(nil),     // 33: syrinx.RelayDisconnectNotifyPayload
+	(*RelayNewReedReply)(nil),                // 34: syrinx.RelayNewReedReply
+	(*RelayNewReedEcho)(nil),                 // 35: syrinx.RelayNewReedEcho
+	(*RelayNewReedPayload)(nil),              // 36: syrinx.RelayNewReedPayload
+	(*RelayReedRemovalCert)(nil),             // 37: syrinx.RelayReedRemovalCert
+	(*RelayReedRemovalPayload)(nil),          // 38: syrinx.RelayReedRemovalPayload
+	(*RelayRealtimeResetPayload)(nil),        // 39: syrinx.RelayRealtimeResetPayload
+	(*RelayAccountRemovalNotifyPayload)(nil), // 40: syrinx.RelayAccountRemovalNotifyPayload
+	(*RelayUnblockPayload)(nil),              // 41: syrinx.RelayUnblockPayload
+	(*RelayVouchReferencePayload)(nil),       // 42: syrinx.RelayVouchReferencePayload
+	(*RelayVouchWithdrawalPayload)(nil),      // 43: syrinx.RelayVouchWithdrawalPayload
+	(*User)(nil),                             // 44: syrinx.User
+	(*ThreadRecord)(nil),                     // 45: syrinx.ThreadRecord
+	(*WSMessage)(nil),                        // 46: syrinx.WSMessage
+	(*UserSearchResult)(nil),                 // 47: syrinx.UserSearchResult
+	(*AdminAuthorization)(nil),               // 48: syrinx.AdminAuthorization
+	(*Vouch)(nil),                            // 49: syrinx.Vouch
+	(*VouchWithdrawal)(nil),                  // 50: syrinx.VouchWithdrawal
 }
 var file_federation_proto_depIdxs = []int32{
 	2,  // 0: syrinx.FederationInvitationList.invitations:type_name -> syrinx.FederationInvitation
-	2,  // 1: syrinx.FederationInvitationResponse.invitation:type_name -> syrinx.FederationInvitation
-	5,  // 2: syrinx.FederationServerList.servers:type_name -> syrinx.FederationServer
-	7,  // 3: syrinx.FederationAttemptResponse.attempt:type_name -> syrinx.FederationAttempt
-	2,  // 4: syrinx.FederationList.invitations:type_name -> syrinx.FederationInvitation
-	7,  // 5: syrinx.FederationList.attempts:type_name -> syrinx.FederationAttempt
-	5,  // 6: syrinx.FederationList.servers:type_name -> syrinx.FederationServer
-	46, // 7: syrinx.FederationUserIdentity.user:type_name -> syrinx.User
-	47, // 8: syrinx.RelayDeliverPayload.record:type_name -> syrinx.ThreadRecord
-	48, // 9: syrinx.RelayReedStatsPayload.message:type_name -> syrinx.WSMessage
-	49, // 10: syrinx.RelaySearchUsersResponse.users:type_name -> syrinx.UserSearchResult
-	36, // 11: syrinx.RelayNewReedPayload.reply:type_name -> syrinx.RelayNewReedReply
-	37, // 12: syrinx.RelayNewReedPayload.echo:type_name -> syrinx.RelayNewReedEcho
-	39, // 13: syrinx.RelayReedRemovalPayload.cert:type_name -> syrinx.RelayReedRemovalCert
-	50, // 14: syrinx.RelayAccountRemovalNotifyPayload.admin:type_name -> syrinx.AdminAuthorization
-	51, // 15: syrinx.RelayVouchReferencePayload.cert:type_name -> syrinx.Vouch
-	52, // 16: syrinx.RelayVouchWithdrawalPayload.withdrawal:type_name -> syrinx.VouchWithdrawal
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	4,  // 1: syrinx.FederationServerList.servers:type_name -> syrinx.FederationServer
+	2,  // 2: syrinx.FederationList.invitations:type_name -> syrinx.FederationInvitation
+	6,  // 3: syrinx.FederationList.attempts:type_name -> syrinx.FederationAttempt
+	4,  // 4: syrinx.FederationList.servers:type_name -> syrinx.FederationServer
+	44, // 5: syrinx.FederationUserIdentity.user:type_name -> syrinx.User
+	45, // 6: syrinx.RelayDeliverPayload.record:type_name -> syrinx.ThreadRecord
+	46, // 7: syrinx.RelayReedStatsPayload.message:type_name -> syrinx.WSMessage
+	47, // 8: syrinx.RelaySearchUsersResponse.users:type_name -> syrinx.UserSearchResult
+	34, // 9: syrinx.RelayNewReedPayload.reply:type_name -> syrinx.RelayNewReedReply
+	35, // 10: syrinx.RelayNewReedPayload.echo:type_name -> syrinx.RelayNewReedEcho
+	37, // 11: syrinx.RelayReedRemovalPayload.cert:type_name -> syrinx.RelayReedRemovalCert
+	48, // 12: syrinx.RelayAccountRemovalNotifyPayload.admin:type_name -> syrinx.AdminAuthorization
+	49, // 13: syrinx.RelayVouchReferencePayload.cert:type_name -> syrinx.Vouch
+	50, // 14: syrinx.RelayVouchWithdrawalPayload.withdrawal:type_name -> syrinx.VouchWithdrawal
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_federation_proto_init() }
@@ -3266,16 +3176,16 @@ func file_federation_proto_init() {
 	file_identity_proto_init()
 	file_websocket_proto_init()
 	file_federation_proto_msgTypes[2].OneofWrappers = []any{}
-	file_federation_proto_msgTypes[5].OneofWrappers = []any{}
-	file_federation_proto_msgTypes[7].OneofWrappers = []any{}
-	file_federation_proto_msgTypes[42].OneofWrappers = []any{}
+	file_federation_proto_msgTypes[4].OneofWrappers = []any{}
+	file_federation_proto_msgTypes[6].OneofWrappers = []any{}
+	file_federation_proto_msgTypes[40].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_federation_proto_rawDesc), len(file_federation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   46,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

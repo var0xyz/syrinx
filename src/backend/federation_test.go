@@ -33,25 +33,31 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			base_url TEXT,
 			frontend_url TEXT NOT NULL,
-			connected BOOLEAN NOT NULL DEFAULT FALSE,
-			signing_key VARCHAR(255)
+			key_id VARCHAR(255)
 		)`,
 		`CREATE TABLE IF NOT EXISTS server_self (
 			server_id VARCHAR(255) NOT NULL UNIQUE REFERENCES servers(id),
 			identity_backup_at TIMESTAMP,
 			first_boot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS base_url TEXT`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS peer_approved_at TIMESTAMP`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS key_id VARCHAR(255)`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMP`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_by VARCHAR(255)`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS revoked_reason TEXT`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS disconnect_requested_at TIMESTAMP`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS disconnect_requested_by VARCHAR(255)`,
-		`ALTER TABLE servers ADD COLUMN IF NOT EXISTS disconnect_reason TEXT`,
+		`CREATE TABLE IF NOT EXISTS server_mesh (
+			server_id VARCHAR(255) PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
+			connected BOOLEAN NOT NULL DEFAULT TRUE,
+			invited_by VARCHAR(255),
+			invited_at TIMESTAMP,
+			approved_by VARCHAR(255),
+			approved_at TIMESTAMP,
+			peer_approved_at TIMESTAMP,
+			peer_key_ack VARCHAR(255),
+			revoked_at TIMESTAMP,
+			revoked_by VARCHAR(255),
+			revoked_reason TEXT,
+			disconnect_requested_at TIMESTAMP,
+			disconnect_requested_by VARCHAR(255),
+			disconnect_reason TEXT,
+			down_at TIMESTAMP,
+			purged_at TIMESTAMP
+		)`,
 		`CREATE TABLE IF NOT EXISTS identities (
 			id VARCHAR(255) PRIMARY KEY,
 			server_id VARCHAR(16),
@@ -164,9 +170,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			created_by VARCHAR(255) NOT NULL REFERENCES identities(id),
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			accepted_at TIMESTAMPTZ,
-			server_id VARCHAR(255) REFERENCES servers(id),
 			status VARCHAR(16) NOT NULL DEFAULT 'new'
-				CHECK (status IN ('new', 'accepted', 'approved', 'rejected', 'canceled', 'revoked')),
+				CHECK (status IN ('new', 'accepted', 'canceled')),
 			reviewed_by VARCHAR(255) REFERENCES identities(id),
 			reviewed_at TIMESTAMPTZ,
 			connection_ciphertext TEXT
@@ -179,13 +184,10 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			frontend_url TEXT NOT NULL,
 			fingerprint VARCHAR(255) NOT NULL,
 			public_key_armor TEXT NOT NULL DEFAULT '',
-			invitation_id VARCHAR(255) REFERENCES federation_invitation(id),
-			server_id VARCHAR(255) REFERENCES servers(id),
+			invitation_id VARCHAR(255) REFERENCES federation_invitation(id) ON DELETE CASCADE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			status VARCHAR(16) NOT NULL DEFAULT 'pending'
-				CHECK (status IN ('pending', 'approved', 'rejected')),
-			approved_by VARCHAR(255) REFERENCES identities(id),
-			approved_at TIMESTAMPTZ,
+				CHECK (status IN ('pending', 'rejected')),
 			rejected_by VARCHAR(255) REFERENCES identities(id),
 			rejected_at TIMESTAMPTZ,
 			rejected_reason TEXT
@@ -207,7 +209,7 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			PRIMARY KEY (attempt_id, log_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS federation_server_log (
-			server_id VARCHAR(255) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+			server_id VARCHAR(255) NOT NULL REFERENCES server_mesh(server_id) ON DELETE CASCADE,
 			log_id VARCHAR(255) NOT NULL REFERENCES federation_log(id) ON DELETE CASCADE,
 			PRIMARY KEY (server_id, log_id)
 		)`,
@@ -571,10 +573,9 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Accepted, but server_id stays NULL — no servers row exists yet, only
-	// a pending federation_attempt (see below).
+	// Accepted: no servers row exists yet, only a pending attempt.
 	inv, _ := ds.GetFederationInvitation(context.Background(), "inv1")
-	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID != "" {
+	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil {
 		t.Fatalf("inv=%+v", inv)
 	}
 	var ciphertext sql.NullString
@@ -609,18 +610,8 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 		t.Fatalf("list=%+v, want empty (accepted invitations are excluded)", list)
 	}
 
-	// Before approval, GetFederationInvitationForServer finds nothing (no
-	// invitation has this server_id yet).
-	forServer, err := ds.GetFederationInvitationForServer(context.Background(), "server-b")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if forServer != nil {
-		t.Fatalf("forServer=%+v, want nil before approval", forServer)
-	}
-
-	// Approve (by a different admin) creates the servers row and backfills
-	// both the attempt's and the invitation's server_id.
+	// Approve (by a different admin) creates the servers row and deletes
+	// the attempt and the invitation, keeping who invited it.
 	if _, _, err := ds.ApproveFederationAttempt(context.Background(), attemptID, admin2, fixed, false, h.signerFor(context.Background()), peerNotYetApproved, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -632,13 +623,17 @@ func TestMarkFederationInvitationAccepted_ClearsCiphertext(t *testing.T) {
 	if serverCount != 1 {
 		t.Fatalf("expected servers row after approval, got %d", serverCount)
 	}
-
-	forServer, err = ds.GetFederationInvitationForServer(context.Background(), "server-b")
-	if err != nil {
+	if gone, _ := ds.GetFederationInvitation(context.Background(), "inv1"); gone != nil {
+		t.Fatalf("invitation after approval = %+v, want deleted", gone)
+	}
+	var invitedBy, approvedBy string
+	if err := ds.db.QueryRowContext(context.Background(),
+		`SELECT invited_by, approved_by FROM server_mesh WHERE server_id = $1`, "server-b",
+	).Scan(&invitedBy, &approvedBy); err != nil {
 		t.Fatal(err)
 	}
-	if forServer == nil || forServer.ID != "inv1" || forServer.ConnectionCiphertext != "" {
-		t.Fatalf("forServer=%+v", forServer)
+	if invitedBy != admin1 || approvedBy != admin2 {
+		t.Fatalf("invited_by=%q approved_by=%q", invitedBy, approvedBy)
 	}
 }
 
@@ -768,7 +763,7 @@ func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
 
 	var revokedAt sql.NullTime
 	if err := ds.db.QueryRowContext(context.Background(),
-		`SELECT revoked_at FROM servers WHERE id = $1`, serverID,
+		`SELECT revoked_at FROM server_mesh WHERE server_id = $1`, serverID,
 	).Scan(&revokedAt); err != nil {
 		t.Fatal(err)
 	}
@@ -784,7 +779,7 @@ func TestFederationServerDisconnect_SameAdminConfirmForbidden(t *testing.T) {
 		t.Fatalf("confirm by different admin status=%d body=%s", rr3.Code, rr3.Body.String())
 	}
 	if err := ds.db.QueryRowContext(context.Background(),
-		`SELECT revoked_at FROM servers WHERE id = $1`, serverID,
+		`SELECT revoked_at FROM server_mesh WHERE server_id = $1`, serverID,
 	).Scan(&revokedAt); err != nil {
 		t.Fatal(err)
 	}

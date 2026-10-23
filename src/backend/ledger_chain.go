@@ -50,7 +50,7 @@ func appendLedgerEntryTx(ctx context.Context, tx *sql.Tx, sign ledgerSigner, ser
 		return fmt.Errorf("lock ledger: %w", err)
 	}
 	var signingKey string
-	if err := tx.QueryRowContext(ctx, `SELECT signing_key FROM servers WHERE self = TRUE`).Scan(&signingKey); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT key_id FROM servers WHERE self = TRUE`).Scan(&signingKey); err != nil {
 		return fmt.Errorf("load signing key: %w", err)
 	}
 	if signingKey != string(canonicalID(serverID, serverKeyFingerprint)) {

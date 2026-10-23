@@ -27,6 +27,10 @@ func newTeardownTestService(t *testing.T) (*sql.DB, *realtimeService, string) {
 			t.Fatalf("insert server %s: %v", stmt.id, err)
 		}
 	}
+	// A known peer, not connected until a test says so.
+	if _, err := db.Exec(`INSERT INTO server_mesh (server_id, connected) VALUES ($1, FALSE)`, teardownPeerID); err != nil {
+		t.Fatalf("insert peering: %v", err)
+	}
 	ds := NewDataService(db, teardownHomeID)
 	ds.setServerIDForTest(teardownHomeID)
 	rs := newRealtimeService(ds, newCryptoService(), "")

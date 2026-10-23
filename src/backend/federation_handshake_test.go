@@ -118,13 +118,12 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatalf("attemptResp=%+v", &attemptResp)
 	}
 
-	// a's invitation should now be accepted — but server_id stays NULL until
-	// a federation_attempt against it is APPROVED (not yet).
+	// a's invitation should now be accepted, until its attempt is approved.
 	inv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
 	if err != nil || inv == nil {
 		t.Fatalf("inv=%v err=%v", inv, err)
 	}
-	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil || inv.ServerID != "" {
+	if inv.Status != federationStatusAccepted || inv.AcceptedAt == nil {
 		t.Fatalf("a invitation=%+v", inv)
 	}
 
@@ -176,34 +175,35 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 		t.Fatalf("b attempt=%+v", bAttempt)
 	}
 
-	// Approving a's attempt for b creates the servers row, sets server_id
-	// on both the attempt and the (approved) invitation.
+	// Approving a's attempt for b creates the peer's servers and
+	// server_mesh rows, and deletes the attempt and the invitation.
 	// aAdmin is also the invitation's own creator here — passing
 	// callerIsRoot bypasses the different-admin check so this test can
 	// focus on the handshake round-trip itself, not that rule.
 	if _, _, err := a.ds.ApproveFederationAttempt(context.Background(), aAttempt.ID, aAdmin, time.Now().UTC(), true, a.h.signerFor(context.Background()), a.h.notifyPeerOfApproval, nil); err != nil {
 		t.Fatal(err)
 	}
-	approvedInv, err := a.ds.GetFederationInvitation(context.Background(), inviteID)
-	if err != nil || approvedInv == nil {
-		t.Fatalf("approvedInv=%v err=%v", approvedInv, err)
+	peerB := aAttempt.RemoteServerID
+	if gone, err := a.ds.GetFederationInvitation(context.Background(), inviteID); err != nil || gone != nil {
+		t.Fatalf("invitation after approval = %+v (%v), want deleted", gone, err)
 	}
-	if approvedInv.Status != federationStatusApproved || approvedInv.ServerID != aAttempt.RemoteServerID {
-		t.Fatalf("approved invitation=%+v, want server_id=%q", approvedInv, aAttempt.RemoteServerID)
+	if left, err := a.ds.ListFederationAttempts(context.Background()); err != nil || len(left) != 0 {
+		t.Fatalf("attempts after approval = %+v (%v), want none", left, err)
 	}
 	var aConnected bool
-	var aPeerName string
-	if err := a.ds.db.QueryRowContext(context.Background(),
-		`SELECT connected, name FROM servers WHERE id = $1`, approvedInv.ServerID,
-	).Scan(&aConnected, &aPeerName); err != nil {
+	var aPeerName, aInvitedBy, aApprovedBy string
+	if err := a.ds.db.QueryRowContext(context.Background(), `
+		SELECT m.connected, s.name, m.invited_by, m.approved_by
+		FROM servers s JOIN server_mesh m ON m.server_id = s.id WHERE s.id = $1
+	`, peerB).Scan(&aConnected, &aPeerName, &aInvitedBy, &aApprovedBy); err != nil {
 		t.Fatal(err)
 	}
-	if !aConnected || aPeerName != "Bravo" {
-		t.Fatalf("a's approved server: connected=%v name=%q", aConnected, aPeerName)
+	if !aConnected || aPeerName != "Bravo" || aInvitedBy != aAdmin || aApprovedBy != aAdmin {
+		t.Fatalf("a's approved server: connected=%v name=%q invited_by=%q approved_by=%q", aConnected, aPeerName, aInvitedBy, aApprovedBy)
 	}
-	assertPeerFrontendURL(t, a.ds, approvedInv.ServerID, "https://app.server-b.example")
+	assertPeerFrontendURL(t, a.ds, peerB, "https://app.server-b.example")
 	// b hasn't approved a yet, so a's approval stands but isn't established.
-	assertPeerEstablished(t, a.ds, approvedInv.ServerID, false)
+	assertPeerEstablished(t, a.ds, peerB, false)
 
 	// Approve b's side too, so both instances have an established peer —
 	// mirrors a real bidirectional federation link.
@@ -215,7 +215,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	assertPeerFrontendURL(t, b.ds, bAttempt.RemoteServerID, "https://app.server-a.example")
 	// b's notice reached a, which had approved b: both sides now know.
 	assertPeerEstablished(t, b.ds, bAttempt.RemoteServerID, true)
-	assertPeerEstablished(t, a.ds, approvedInv.ServerID, true)
+	assertPeerEstablished(t, a.ds, peerB, true)
 
 	// b resolves a's admin user through the peer-authenticated IdP endpoint
 	// which proves signatureAuthMiddleware's
@@ -401,7 +401,7 @@ func assertPeerEstablished(t *testing.T, ds *DataService, serverID string, want 
 	t.Helper()
 	var established bool
 	if err := ds.db.QueryRowContext(context.Background(),
-		`SELECT peer_approved_at IS NOT NULL FROM servers WHERE id = $1`, serverID,
+		`SELECT peer_approved_at IS NOT NULL FROM server_mesh WHERE server_id = $1`, serverID,
 	).Scan(&established); err != nil {
 		t.Fatal(err)
 	}

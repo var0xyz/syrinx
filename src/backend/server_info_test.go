@@ -11,11 +11,16 @@ import (
 func TestListFederatedServers(t *testing.T) {
 	db, rs, _ := newTeardownTestService(t)
 	for _, stmt := range []string{
-		`UPDATE servers SET connected = TRUE, base_url = 'https://api.peer.example', frontend_url = 'https://peer.example', key_id = 'fp@peer5678', peer_approved_at = NOW() WHERE id = 'peer5678'`,
-		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url, revoked_at) VALUES ('gone9012', 'gone', FALSE, TRUE, 'https://gone.example', 'https://gone.example', NOW())`,
-		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url) VALUES ('wait3456', 'waiting', FALSE, FALSE, 'https://wait.example', 'https://wait.example')`,
-		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url, disconnect_requested_at, peer_approved_at) VALUES ('leav7890', 'leaving', FALSE, TRUE, 'https://leaving.example', 'https://leaving.example', NOW(), NOW())`,
-		`INSERT INTO servers (id, name, self, connected, base_url, frontend_url) VALUES ('half1234', 'halfway', FALSE, TRUE, 'https://half.example', 'https://half.example')`,
+		`UPDATE servers SET base_url = 'https://api.peer.example', frontend_url = 'https://peer.example', key_id = 'fp@peer5678' WHERE id = 'peer5678'`,
+		`UPDATE server_mesh SET connected = TRUE, peer_approved_at = NOW() WHERE server_id = 'peer5678'`,
+		`INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ('gone9012', 'gone', FALSE, 'https://gone.example', 'https://gone.example')`,
+		`INSERT INTO server_mesh (server_id, revoked_at, peer_approved_at) VALUES ('gone9012', NOW(), NOW())`,
+		`INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ('wait3456', 'waiting', FALSE, 'https://wait.example', 'https://wait.example')`,
+		`INSERT INTO server_mesh (server_id, connected) VALUES ('wait3456', FALSE)`,
+		`INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ('leav7890', 'leaving', FALSE, 'https://leaving.example', 'https://leaving.example')`,
+		`INSERT INTO server_mesh (server_id, disconnect_requested_at, peer_approved_at) VALUES ('leav7890', NOW(), NOW())`,
+		`INSERT INTO servers (id, name, self, base_url, frontend_url) VALUES ('half1234', 'halfway', FALSE, 'https://half.example', 'https://half.example')`,
+		`INSERT INTO server_mesh (server_id) VALUES ('half1234')`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("seed: %v", err)

@@ -132,7 +132,8 @@ func TestForgetPeerReportsLocalViewers(t *testing.T) {
 	}
 
 	// The lost-connection message names the peer even once it's revoked.
-	if _, err := db.Exec(`UPDATE servers SET revoked_at = NOW() WHERE id = $1`, teardownPeerID); err != nil {
+	peerTestMesh(t, db, teardownPeerID)
+	if _, err := db.Exec(`UPDATE server_mesh SET revoked_at = NOW() WHERE server_id = $1`, teardownPeerID); err != nil {
 		t.Fatalf("revoke peer: %v", err)
 	}
 	name, err := rs.db.GetServerName(context.Background(), teardownPeerID)
@@ -152,7 +153,7 @@ func postRealtimeReset(t *testing.T, h *Handlers, peerServerID, reason string) i
 func peerDown(t *testing.T, db *sql.DB, serverID string) bool {
 	t.Helper()
 	var down bool
-	if err := db.QueryRow(`SELECT down_at IS NOT NULL FROM servers WHERE id = $1`, serverID).Scan(&down); err != nil {
+	if err := db.QueryRow(`SELECT down_at IS NOT NULL FROM server_mesh WHERE server_id = $1`, serverID).Scan(&down); err != nil {
 		t.Fatalf("read down_at: %v", err)
 	}
 	return down
@@ -247,9 +248,10 @@ func TestRealtimeResetFromPeerIsLogged(t *testing.T) {
 // Sending a notice is recorded too, including when it fails.
 func TestRealtimeResetSendIsLogged(t *testing.T) {
 	db, rs, _ := newTeardownTestService(t)
-	if _, err := db.Exec(`UPDATE servers SET connected = TRUE, base_url = 'http://127.0.0.1:1' WHERE id = $1`, teardownPeerID); err != nil {
+	if _, err := db.Exec(`UPDATE servers SET base_url = 'http://127.0.0.1:1' WHERE id = $1`, teardownPeerID); err != nil {
 		t.Fatalf("make peer reachable: %v", err)
 	}
+	peerTestMesh(t, db, teardownPeerID)
 	h := &Handlers{services: &Services{db: rs.db, log: NewLoggingService()}, metrics: metrics.Noop{}}
 
 	h.notifyPeersOfRealtimeReset(realtimeResetBoot)

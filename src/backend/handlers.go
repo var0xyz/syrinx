@@ -4834,9 +4834,6 @@ func federationInvitationRowToWire(row federationInvitationListRow) *pb.Federati
 		AcceptedAt:        unixPtr(row.AcceptedAt),
 		ReviewedAt:        unixPtr(row.ReviewedAt),
 	}
-	if row.ServerID != "" {
-		item.ServerId = &row.ServerID
-	}
 	if row.ReviewedBy != "" {
 		item.ReviewedBy = &row.ReviewedBy
 	}
@@ -4892,6 +4889,15 @@ func federationServerRowToWire(row federationServerListRow) *pb.FederationServer
 		CreatedAt:         unixOrZero(row.CreatedAt),
 		Revoked:           row.Revoked,
 		DisconnectPending: row.DisconnectPending,
+		ApprovedAt:        unixPtr(row.ApprovedAt),
+		Purged:            row.Purged,
+	}
+	if row.InvitedBy != "" {
+		wire.InvitedBy = &row.InvitedBy
+		wire.InvitedAt = unixPtr(row.InvitedAt)
+	}
+	if row.ApprovedBy != "" {
+		wire.ApprovedBy = &row.ApprovedBy
 	}
 	if row.Revoked {
 		wire.RevokedAt = unixPtr(row.RevokedAt)
@@ -4914,16 +4920,8 @@ func federationServerRowToWire(row federationServerListRow) *pb.FederationServer
 	return wire
 }
 
-// GetFederationServerLogs returns federation_log lines for one peer server,
-// one line per entry — the mesh tab's per-server drill-down (tap
-// a server to see what actually happened during its handshake, since that
-// spans two servers and can fail or stall asynchronously). Attempt log lines
-// (pre-approval, written before a servers row existed — see
-// logFederationAttempt's doc comment) come first, then server log lines,
-// each section chronological — the attempt and the server together are one
-// continuous story for this connection. Plain text instead of a JSON array:
-// the client only ever displays these lines verbatim, so there's nothing to
-// parse on either side.
+// GetFederationServerLogs returns federation_log lines for one peer, one
+// line per entry, chronological. Plain text: the client only displays them.
 func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Request) {
 	caller, authed := r.Context().Value(userIDKey).(string)
 	if !authed || caller == "" {
@@ -4946,30 +4944,12 @@ func (h *Handlers) GetFederationServerLogs(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	var sb strings.Builder
-
-	// Every servers row has a backing attempt (ApproveFederationAttempt
-	// backfills federation_attempt.server_id), but treat a miss as "no
-	// attempt info" rather than an error.
-	attempt, err := h.services.db.GetFederationAttemptForServer(r.Context(), serverID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if attempt != nil {
-		attemptRows, err := h.services.db.ListFederationAttemptLogs(r.Context(), attempt.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-		writeFederationLogLines(&sb, attemptRows)
-	}
-
 	serverRows, err := h.services.db.ListFederationServerLogs(r.Context(), serverID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 		return
 	}
+	var sb strings.Builder
 	writeFederationLogLines(&sb, serverRows)
 
 	writeResponse(w, http.StatusOK, &pb.FederationLogs{Text: sb.String()})
@@ -4982,86 +4962,6 @@ func writeFederationLogLines(sb *strings.Builder, rows []federationServerLogRow)
 	}
 }
 
-// GetFederationServerInvitation returns the invitation that produced this
-// server connection (invited-by/approved-by/dates), for the mesh tab's
-// peer detail page. 200 with a JSON null body when this server was the
-// responder — it has no local invitation row (see
-// GetFederationInvitationForServer's doc comment), which is expected, not
-// an error.
-func (h *Handlers) GetFederationServerInvitation(w http.ResponseWriter, r *http.Request) {
-	caller, authed := r.Context().Value(userIDKey).(string)
-	if !authed || caller == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
-		return
-	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
-		return
-	}
-
-	serverID := mux.Vars(r)["id"]
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "Argument `id` is required")
-		return
-	}
-
-	inv, err := h.services.db.GetFederationInvitationForServer(r.Context(), serverID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if inv == nil {
-		writeResponse(w, http.StatusOK, &pb.FederationInvitationResponse{})
-		return
-	}
-	writeResponse(w, http.StatusOK, &pb.FederationInvitationResponse{Invitation: federationInvitationRowToWire(*inv)})
-}
-
-// GetFederationServerAttempt returns the (approved) attempt that produced
-// this server connection — approved-by/dates, for the mesh tab's peer
-// detail page. 200 with a JSON null body if no attempt row is found, which
-// shouldn't happen for a real servers row but is treated as "no attempt
-// info" rather than an error (see GetFederationAttemptForServer's doc
-// comment).
-func (h *Handlers) GetFederationServerAttempt(w http.ResponseWriter, r *http.Request) {
-	caller, authed := r.Context().Value(userIDKey).(string)
-	if !authed || caller == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
-		return
-	}
-	admin, err := h.isAdmin(r.Context(), caller)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if !admin {
-		writeError(w, http.StatusForbidden, "Admin required")
-		return
-	}
-
-	serverID := mux.Vars(r)["id"]
-	if serverID == "" {
-		writeError(w, http.StatusBadRequest, "Argument `id` is required")
-		return
-	}
-
-	attempt, err := h.services.db.GetFederationAttemptForServer(r.Context(), serverID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Internal Server Error")
-		return
-	}
-	if attempt == nil {
-		writeResponse(w, http.StatusOK, &pb.FederationAttemptResponse{})
-		return
-	}
-	writeResponse(w, http.StatusOK, &pb.FederationAttemptResponse{Attempt: federationAttemptRowToWire(*attempt)})
-}
-
 func federationAttemptRowToWire(row federationAttemptRow) *pb.FederationAttempt {
 	item := &pb.FederationAttempt{
 		AttemptId:        row.ID,
@@ -5072,17 +4972,10 @@ func federationAttemptRowToWire(row federationAttemptRow) *pb.FederationAttempt 
 		Fingerprint:      row.Fingerprint,
 		CreatedAt:        unixOrZero(row.CreatedAt),
 		Status:           row.Status,
-		ApprovedAt:       unixPtr(row.ApprovedAt),
 		RejectedAt:       unixPtr(row.RejectedAt),
 	}
 	if row.InvitationID != "" {
 		item.InvitationId = &row.InvitationID
-	}
-	if row.ServerID != "" {
-		item.ServerId = &row.ServerID
-	}
-	if row.ApprovedBy != "" {
-		item.ApprovedBy = &row.ApprovedBy
 	}
 	if row.RejectedBy != "" {
 		item.RejectedBy = &row.RejectedBy
@@ -5260,7 +5153,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "Internal Server Error")
 	default:
 		h.pushLedgerEntries(entry)
-		h.logFederationAttemptAsync(attemptID, federationLogInfo,
+		h.logFederationServerAsync(serverID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
 		h.metrics.FederationLifecycle(r.Context(), "attempt_approved", serverID, caller)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, ServerId: serverID, Status: "approved", Established: established})

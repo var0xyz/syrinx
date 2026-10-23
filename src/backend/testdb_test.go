@@ -95,3 +95,18 @@ func newTestDatabase(t *testing.T, ensureSchema func(*sql.DB) error) *sql.DB {
 	}
 	return db
 }
+
+// peerTestMesh connects an existing servers row as a peer approved on both
+// sides, as approving a real handshake would.
+func peerTestMesh(t testing.TB, db *sql.DB, serverID string) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO server_mesh (server_id, approved_at, peer_approved_at)
+		VALUES ($1, NOW() - INTERVAL '1 hour', NOW())
+		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE,
+			approved_at = COALESCE(server_mesh.approved_at, EXCLUDED.approved_at),
+			peer_approved_at = COALESCE(server_mesh.peer_approved_at, EXCLUDED.peer_approved_at)
+	`, serverID); err != nil {
+		t.Fatalf("peer %s: %v", serverID, err)
+	}
+}
