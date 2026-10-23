@@ -167,7 +167,7 @@ func TestBlockUserForcesUnfollowAndDropsAllocations(t *testing.T) {
 	f := newBlockFixture(t)
 	ctx := context.Background()
 	for _, pair := range [][2]string{{f.bob, f.alice}, {f.alice, f.bob}, {f.carol, f.alice}} {
-		if err := f.ds.FollowUser(ctx, pair[0], pair[1]); err != nil {
+		if err := seedFollowEdges(f.ds, pair[0], pair[1]); err != nil {
 			t.Fatal(err)
 		}
 	}

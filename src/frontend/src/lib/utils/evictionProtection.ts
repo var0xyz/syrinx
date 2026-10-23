@@ -2,6 +2,8 @@
 export interface ProtectionInputs {
   viewerID: string | null;
   following: { userId: string }[];
+  /** Followers: the key that signed each follow must stay. */
+  followers: { followerId: string }[];
   userLists: { memberIds: string[] }[];
   vouches: { subjectUserId: string }[];
 }
@@ -15,6 +17,7 @@ export function buildProtectedUserIDs(inputs: ProtectionInputs): Set<string> {
   const protectedIDs = new Set<string>();
   if (inputs.viewerID) protectedIDs.add(inputs.viewerID);
   for (const { userId } of inputs.following) protectedIDs.add(userId);
+  for (const { followerId } of inputs.followers) protectedIDs.add(followerId);
   for (const userList of inputs.userLists) {
     for (const memberID of userList.memberIds) protectedIDs.add(memberID);
   }

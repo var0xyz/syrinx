@@ -11,6 +11,7 @@ export type {
   AdminDecision,
   AdminRequest,
   BlockCert,
+  FollowCert,
   KeyRevocationCert as KeyRevocation,
   ReedRemovalCert as ReedRemoval,
   Ripple,

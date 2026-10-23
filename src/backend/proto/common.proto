@@ -117,6 +117,16 @@ message BlockCert {
   ServerSignature server_signature = 4;
 }
 
+// A follow (follow true) or unfollow, signed by the follower and
+// countersigned by their home server.
+message FollowCert {
+  string follower_id = 1 [json_name = "followerID"];
+  string followee_id = 2 [json_name = "followeeID"];
+  bool follow = 3;
+  UserSignature user_signature = 4;
+  ServerSignature server_signature = 5;
+}
+
 // A two-admin request: the requester's signed proposal, and once closed,
 // the decision and the server's countersignature. targets are sorted, as
 // signed; dropped_targets are those removed while it was pending.

@@ -54,7 +54,7 @@ func TestBlockNotifyFromPeerStoresAndForcesUnfollow(t *testing.T) {
 	if err := h.services.db.UpsertRemoteIdentity(ctx, s.userID, revHomeServerID); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.services.db.FollowUser(ctx, bob, s.userID); err != nil {
+	if err := seedFollowEdges(h.services.db, bob, s.userID); err != nil {
 		t.Fatal(err)
 	}
 

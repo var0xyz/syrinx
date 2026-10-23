@@ -21,13 +21,13 @@ delivery).
 | 04 | Signed peer records in `/server/info`                                 | Implemented |
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                          | Implemented |
-| 07 | Recovery reports servers, then users, then reeds, local and foreign   | In progress |
+| 07 | Recovery reports servers, then users, then reeds, local and foreign   | Implemented |
 | 08 | Username collision certificate                                        | Implemented |
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | Implemented |
 | 10 | Recovery metrics and dashboard                                        | Implemented |
 | 11 | Refuse removed accounts                                               | Implemented |
 | 12 | Keys-only restore of a recorded account                               | Implemented |
-| 13 | Signed follows                                                        | Proposed    |
+| 13 | Signed follows                                                        | Implemented |
 
 ## What went wrong
 
@@ -302,9 +302,10 @@ The runner reports, per client:
    verified the same way. Restores its `reed_identities`, the reporter's
    holding, and the links that stay here: replies to and echoes of our
    reeds, mentions of our users.
-5. **Follows.** Follow certificates from both ends (step 13). A target on a
-   known peer gets its identity and the follow directly, never
-   `pending_follows`.
+5. **Follows.** Follow certificates from both ends (step 13), reported as
+   records: a follow waits for its follower's identity like any record. A
+   followee on a known peer gets its identity and the follow directly.
+   `POST /api/recovery/following` and `pending_follows` are gone.
 6. **Records.** The device's `blockedBy` blocks too, reported as block
    records: a block by a peer's user against the reporting user is checked
    against the blocker's restored key and their server's keys, and waits
@@ -481,10 +482,28 @@ can't inflate anyone else's count.
 locked key, about 3 KB with RSA-2048 keys. Deferred until accounts get that
 large.
 
-Today's follows are unsigned: `user_following` / `user_followers` rows and
-the client's `following` and `pendingFollows` stores carry no signature,
-and `POST /api/recovery/following` takes a bare list of IDs. All of them
-carry the certificate instead.
+**As built.**
+
+- `follow_certs` holds the latest certificate per pair this server keeps.
+  `follow_event_queue` owes it to the followee: their client when they are
+  local (WebSocket `FOLLOWED`, acked with `FOLLOWED_ACK`, caught up on
+  `SYNC_REQUEST`), their home server otherwise
+  (`/api/federation/relay/follow-notify`, retried at boot and on the peer's
+  boot notice). An unfollow row is deleted once nobody is owed it.
+- A follow of a peer's user is sent to the peer before it is stored. A
+  refusal there (block, unclaimed, gone) goes back to the follower and
+  nothing is kept. A peer that can't be reached gets it later, and a later
+  refusal undoes the follow.
+- `POST`/`DELETE /users/{id}/follow` take the follower's signature and
+  return the countersigned certificate.
+- On the device:
+  - `followCerts` keeps the latest own certificate per followee, which is
+    all recovery sends;
+  - `followers` keeps the latest follow of the viewer per follower, and
+    puts the follower in the eviction-protected set, so their keys stay;
+  - both go out as recovery records.
+- Account recovery's bootstrap returns both sets.
+- A followers list verifies each follow before showing it.
 
 ## Open questions
 

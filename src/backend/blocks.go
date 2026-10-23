@@ -232,6 +232,11 @@ func (s *DataService) DeleteBlockNotice(ctx context.Context, serverID string, e 
 // server keeps for each side exist, so it serves either server.
 func applyBlockEffectsTx(ctx context.Context, tx *sql.Tx, userID, blockedUserID string) ([]string, error) {
 	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM follow_certs WHERE follower_id = $1 AND followee_id = $2
+	`, blockedUserID, userID); err != nil {
+		return nil, fmt.Errorf("delete blocked user's follow: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2
 	`, blockedUserID, userID); err != nil {
 		return nil, fmt.Errorf("delete blocked user's following: %w", err)

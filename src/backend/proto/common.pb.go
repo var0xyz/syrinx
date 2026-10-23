@@ -938,6 +938,84 @@ func (x *BlockCert) GetServerSignature() *ServerSignature {
 	return nil
 }
 
+// A follow (follow true) or unfollow, signed by the follower and
+// countersigned by their home server.
+type FollowCert struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	FollowerId      string                 `protobuf:"bytes,1,opt,name=follower_id,json=followerID,proto3" json:"follower_id,omitempty"`
+	FolloweeId      string                 `protobuf:"bytes,2,opt,name=followee_id,json=followeeID,proto3" json:"followee_id,omitempty"`
+	Follow          bool                   `protobuf:"varint,3,opt,name=follow,proto3" json:"follow,omitempty"`
+	UserSignature   *UserSignature         `protobuf:"bytes,4,opt,name=user_signature,json=userSignature,proto3" json:"user_signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *FollowCert) Reset() {
+	*x = FollowCert{}
+	mi := &file_common_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FollowCert) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FollowCert) ProtoMessage() {}
+
+func (x *FollowCert) ProtoReflect() protoreflect.Message {
+	mi := &file_common_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FollowCert.ProtoReflect.Descriptor instead.
+func (*FollowCert) Descriptor() ([]byte, []int) {
+	return file_common_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *FollowCert) GetFollowerId() string {
+	if x != nil {
+		return x.FollowerId
+	}
+	return ""
+}
+
+func (x *FollowCert) GetFolloweeId() string {
+	if x != nil {
+		return x.FolloweeId
+	}
+	return ""
+}
+
+func (x *FollowCert) GetFollow() bool {
+	if x != nil {
+		return x.Follow
+	}
+	return false
+}
+
+func (x *FollowCert) GetUserSignature() *UserSignature {
+	if x != nil {
+		return x.UserSignature
+	}
+	return nil
+}
+
+func (x *FollowCert) GetServerSignature() *ServerSignature {
+	if x != nil {
+		return x.ServerSignature
+	}
+	return nil
+}
+
 // A two-admin request: the requester's signed proposal, and once closed,
 // the decision and the server's countersignature. targets are sorted, as
 // signed; dropped_targets are those removed while it was pending.
@@ -963,7 +1041,7 @@ type AdminRequest struct {
 
 func (x *AdminRequest) Reset() {
 	*x = AdminRequest{}
-	mi := &file_common_proto_msgTypes[11]
+	mi := &file_common_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -975,7 +1053,7 @@ func (x *AdminRequest) String() string {
 func (*AdminRequest) ProtoMessage() {}
 
 func (x *AdminRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[11]
+	mi := &file_common_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -988,7 +1066,7 @@ func (x *AdminRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminRequest.ProtoReflect.Descriptor instead.
 func (*AdminRequest) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{11}
+	return file_common_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *AdminRequest) GetId() string {
@@ -1094,7 +1172,7 @@ type AdminDecision struct {
 
 func (x *AdminDecision) Reset() {
 	*x = AdminDecision{}
-	mi := &file_common_proto_msgTypes[12]
+	mi := &file_common_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1106,7 +1184,7 @@ func (x *AdminDecision) String() string {
 func (*AdminDecision) ProtoMessage() {}
 
 func (x *AdminDecision) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[12]
+	mi := &file_common_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1119,7 +1197,7 @@ func (x *AdminDecision) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminDecision.ProtoReflect.Descriptor instead.
 func (*AdminDecision) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{12}
+	return file_common_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *AdminDecision) GetDecision() string {
@@ -1154,7 +1232,7 @@ type AdminAuthorization struct {
 
 func (x *AdminAuthorization) Reset() {
 	*x = AdminAuthorization{}
-	mi := &file_common_proto_msgTypes[13]
+	mi := &file_common_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1166,7 +1244,7 @@ func (x *AdminAuthorization) String() string {
 func (*AdminAuthorization) ProtoMessage() {}
 
 func (x *AdminAuthorization) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[13]
+	mi := &file_common_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1179,7 +1257,7 @@ func (x *AdminAuthorization) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AdminAuthorization.ProtoReflect.Descriptor instead.
 func (*AdminAuthorization) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{13}
+	return file_common_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *AdminAuthorization) GetRequest() *AdminRequest {
@@ -1210,7 +1288,7 @@ type LedgerEntry struct {
 
 func (x *LedgerEntry) Reset() {
 	*x = LedgerEntry{}
-	mi := &file_common_proto_msgTypes[14]
+	mi := &file_common_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1222,7 +1300,7 @@ func (x *LedgerEntry) String() string {
 func (*LedgerEntry) ProtoMessage() {}
 
 func (x *LedgerEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_common_proto_msgTypes[14]
+	mi := &file_common_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1235,7 +1313,7 @@ func (x *LedgerEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LedgerEntry.ProtoReflect.Descriptor instead.
 func (*LedgerEntry) Descriptor() ([]byte, []int) {
-	return file_common_proto_rawDescGZIP(), []int{14}
+	return file_common_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *LedgerEntry) GetId() uint64 {
@@ -1389,7 +1467,16 @@ const file_common_proto_rawDesc = "" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12&\n" +
 	"\x0fblocked_user_id\x18\x02 \x01(\tR\rblockedUserID\x12<\n" +
 	"\x0euser_signature\x18\x03 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
-	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xac\x04\n" +
+	"\x10server_signature\x18\x04 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xe8\x01\n" +
+	"\n" +
+	"FollowCert\x12\x1f\n" +
+	"\vfollower_id\x18\x01 \x01(\tR\n" +
+	"followerID\x12\x1f\n" +
+	"\vfollowee_id\x18\x02 \x01(\tR\n" +
+	"followeeID\x12\x16\n" +
+	"\x06follow\x18\x03 \x01(\bR\x06follow\x12<\n" +
+	"\x0euser_signature\x18\x04 \x01(\v2\x15.syrinx.UserSignatureR\ruserSignature\x12B\n" +
+	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xac\x04\n" +
 	"\fAdminRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12!\n" +
@@ -1442,7 +1529,7 @@ func file_common_proto_rawDescGZIP() []byte {
 	return file_common_proto_rawDescData
 }
 
-var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_common_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_common_proto_goTypes = []any{
 	(*UserSignature)(nil),      // 0: syrinx.UserSignature
 	(*ServerSignature)(nil),    // 1: syrinx.ServerSignature
@@ -1455,27 +1542,28 @@ var file_common_proto_goTypes = []any{
 	(*ThreadRemovalCert)(nil),  // 8: syrinx.ThreadRemovalCert
 	(*ThreadRemoval)(nil),      // 9: syrinx.ThreadRemoval
 	(*BlockCert)(nil),          // 10: syrinx.BlockCert
-	(*AdminRequest)(nil),       // 11: syrinx.AdminRequest
-	(*AdminDecision)(nil),      // 12: syrinx.AdminDecision
-	(*AdminAuthorization)(nil), // 13: syrinx.AdminAuthorization
-	(*LedgerEntry)(nil),        // 14: syrinx.LedgerEntry
+	(*FollowCert)(nil),         // 11: syrinx.FollowCert
+	(*AdminRequest)(nil),       // 12: syrinx.AdminRequest
+	(*AdminDecision)(nil),      // 13: syrinx.AdminDecision
+	(*AdminAuthorization)(nil), // 14: syrinx.AdminAuthorization
+	(*LedgerEntry)(nil),        // 15: syrinx.LedgerEntry
 }
 var file_common_proto_depIdxs = []int32{
 	5,  // 0: syrinx.Error.account_removal:type_name -> syrinx.AccountRemovalCert
 	4,  // 1: syrinx.Error.reed_removal:type_name -> syrinx.ReedRemovalCert
 	9,  // 2: syrinx.Error.thread_removal:type_name -> syrinx.ThreadRemoval
 	10, // 3: syrinx.Error.block:type_name -> syrinx.BlockCert
-	13, // 4: syrinx.Error.suspension:type_name -> syrinx.AdminAuthorization
+	14, // 4: syrinx.Error.suspension:type_name -> syrinx.AdminAuthorization
 	0,  // 5: syrinx.Ripple.user_signature:type_name -> syrinx.UserSignature
 	1,  // 6: syrinx.Ripple.server_signature:type_name -> syrinx.ServerSignature
 	0,  // 7: syrinx.ReedRemovalCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 8: syrinx.ReedRemovalCert.server_signature:type_name -> syrinx.ServerSignature
 	0,  // 9: syrinx.AccountRemovalCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 10: syrinx.AccountRemovalCert.server_signature:type_name -> syrinx.ServerSignature
-	13, // 11: syrinx.AccountRemovalCert.admin:type_name -> syrinx.AdminAuthorization
+	14, // 11: syrinx.AccountRemovalCert.admin:type_name -> syrinx.AdminAuthorization
 	0,  // 12: syrinx.KeyRevocationCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 13: syrinx.KeyRevocationCert.server_signature:type_name -> syrinx.ServerSignature
-	13, // 14: syrinx.KeyRevocationCert.admin:type_name -> syrinx.AdminAuthorization
+	14, // 14: syrinx.KeyRevocationCert.admin:type_name -> syrinx.AdminAuthorization
 	0,  // 15: syrinx.ThreadRecord.user_signature:type_name -> syrinx.UserSignature
 	1,  // 16: syrinx.ThreadRecord.server_signature:type_name -> syrinx.ServerSignature
 	0,  // 17: syrinx.ThreadRemovalCert.user_signature:type_name -> syrinx.UserSignature
@@ -1484,18 +1572,20 @@ var file_common_proto_depIdxs = []int32{
 	7,  // 20: syrinx.ThreadRemoval.record:type_name -> syrinx.ThreadRecord
 	0,  // 21: syrinx.BlockCert.user_signature:type_name -> syrinx.UserSignature
 	1,  // 22: syrinx.BlockCert.server_signature:type_name -> syrinx.ServerSignature
-	0,  // 23: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
-	12, // 24: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
-	1,  // 25: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
-	1,  // 26: syrinx.AdminRequest.opened_signature:type_name -> syrinx.ServerSignature
-	0,  // 27: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
-	11, // 28: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
-	1,  // 29: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
-	30, // [30:30] is the sub-list for method output_type
-	30, // [30:30] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	0,  // 23: syrinx.FollowCert.user_signature:type_name -> syrinx.UserSignature
+	1,  // 24: syrinx.FollowCert.server_signature:type_name -> syrinx.ServerSignature
+	0,  // 25: syrinx.AdminRequest.requester_signature:type_name -> syrinx.UserSignature
+	13, // 26: syrinx.AdminRequest.decision:type_name -> syrinx.AdminDecision
+	1,  // 27: syrinx.AdminRequest.server_signature:type_name -> syrinx.ServerSignature
+	1,  // 28: syrinx.AdminRequest.opened_signature:type_name -> syrinx.ServerSignature
+	0,  // 29: syrinx.AdminDecision.signature:type_name -> syrinx.UserSignature
+	12, // 30: syrinx.AdminAuthorization.request:type_name -> syrinx.AdminRequest
+	1,  // 31: syrinx.LedgerEntry.server_signature:type_name -> syrinx.ServerSignature
+	32, // [32:32] is the sub-list for method output_type
+	32, // [32:32] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_common_proto_init() }
@@ -1513,15 +1603,15 @@ func file_common_proto_init() {
 	file_common_proto_msgTypes[3].OneofWrappers = []any{}
 	file_common_proto_msgTypes[5].OneofWrappers = []any{}
 	file_common_proto_msgTypes[6].OneofWrappers = []any{}
-	file_common_proto_msgTypes[11].OneofWrappers = []any{}
-	file_common_proto_msgTypes[14].OneofWrappers = []any{}
+	file_common_proto_msgTypes[12].OneofWrappers = []any{}
+	file_common_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_common_proto_rawDesc), len(file_common_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

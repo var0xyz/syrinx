@@ -24,6 +24,7 @@ import {
 import {
   AccountRemovalCertSchema,
   BlockCertSchema,
+  FollowCertSchema,
   AdminAuthorizationSchema,
   AdminDecisionSchema,
   AdminRequestSchema,
@@ -49,6 +50,7 @@ import {
   BindDeviceResponseSchema,
   BlockListResponseSchema,
   BlockRequestSchema,
+  FollowRequestSchema,
   CheckUsernameRequestSchema,
   CreateVouchRequestSchema,
   DeleteAccountRequestSchema,
@@ -102,7 +104,6 @@ import {
   ChallengeResponseSchema,
   ClaimIdentityRequestSchema,
   PeerIdentityRequestSchema,
-  RecoveryFollowingRequestSchema,
   RecoveryPinsRequestSchema,
   RecoveryProfileSchema,
   RecoveryRecordsRequestSchema,
@@ -1004,12 +1005,16 @@ export const apiService = {
     return resp.revocation.value;
   },
 
-  async followUser(targetUserId: string): Promise<void> {
-    await send(`/users/${targetUserId}/follow`, { method: 'POST' });
+  /** Sends the viewer's signed follow and returns it countersigned. */
+  async followUser(targetUserId: string, signature: string, keyId: string): Promise<api.FollowCert> {
+    const fingerprint = parseKeyId(keyId)?.fingerprint ?? keyId;
+    return request(`/users/${targetUserId}/follow`, protoBody('POST', FollowRequestSchema, { signature, fingerprint }), FollowCertSchema);
   },
 
-  async unfollowUser(targetUserId: string): Promise<void> {
-    await send(`/users/${targetUserId}/follow`, { method: 'DELETE' });
+  /** Sends the viewer's signed unfollow and returns it countersigned. */
+  async unfollowUser(targetUserId: string, signature: string, keyId: string): Promise<api.FollowCert> {
+    const fingerprint = parseKeyId(keyId)?.fingerprint ?? keyId;
+    return request(`/users/${targetUserId}/follow`, protoBody('DELETE', FollowRequestSchema, { signature, fingerprint }), FollowCertSchema);
   },
 
   /** GET /keys/{id}/revocation and GET /keys/{id} without checking the
@@ -1096,10 +1101,6 @@ export const apiService = {
     await send('/recovery/reeds', protoBody('POST', RecoveryReedRequestSchema, body));
   },
 
-  /** Authenticated: report a page of following user IDs (≤100). */
-  async reportRecoveryFollowing(userIds: string[]): Promise<void> {
-    await send('/recovery/following', protoBody('POST', RecoveryFollowingRequestSchema, { userIds }));
-  },
 
   /** Authenticated: report the peer records this device holds (≤100); one
    * outcome each. */

@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { buildProtectedUserIDs } from '../src/lib/utils/evictionProtection.ts';
 
-const empty = { viewerID: null, following: [], userLists: [], vouches: [] };
+const empty = { viewerID: null, following: [], followers: [], userLists: [], vouches: [] };
 
 assert.deepEqual(buildProtectedUserIDs(empty), new Set(), 'nothing to protect');
 
@@ -35,9 +35,16 @@ assert.ok(!inbound.has('carol@x'), 'someone who vouched for you is evictable');
 const mixed = buildProtectedUserIDs({
   viewerID: 'me@home',
   following: [{ userId: 'followed@x' }],
+  followers: [],
   userLists: [{ memberIds: ['listed@x'] }],
   vouches: [{ subjectUserId: 'bob@peer', voucherUserId: 'me@home' }],
 });
+// A follower's key verifies the follow this device keeps for recovery.
+assert.ok(
+  buildProtectedUserIDs({ ...empty, followers: [{ followerId: 'fan@peer' }] }).has('fan@peer'),
+  'a follower is protected'
+);
+
 assert.ok(!mixed.has('stranger@x'), 'an unrelated user remains evictable');
 assert.deepEqual(
   mixed,

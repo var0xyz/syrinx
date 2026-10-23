@@ -106,6 +106,7 @@ export enum ServerEvent {
   ThreadRemoved        = 'THREAD_REMOVED',
   UserBlocked          = 'USER_BLOCKED',
   UserUnblocked        = 'USER_UNBLOCKED',
+  Followed             = 'FOLLOWED',
   LedgerEntry          = 'LEDGER_ENTRY',
 }
 
@@ -639,6 +640,10 @@ class ServerConnection {
 
   sendUserBlockedAck(userId: string): void {
     this.sendMsg({ type: MessageType.USER_BLOCKED_ACK, payload: { case: 'userBlockedAck', value: { userId } } });
+  }
+
+  sendFollowedAck(followerId: string, follow: boolean): void {
+    this.sendMsg({ type: MessageType.FOLLOWED_ACK, payload: { case: 'followedAck', value: { followerId, follow } } });
   }
 
   sendUserUnblockedAck(userId: string): void {

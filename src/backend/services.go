@@ -1007,121 +1007,6 @@ func (s *DataService) DeleteUser(ctx context.Context, userID string) error {
 	return tx.Commit()
 }
 
-// ErrFollowTargetNotFound is returned by FollowUser when userID has no
-// identities row yet (see UpsertRemoteIdentity).
-var ErrFollowTargetNotFound = errors.New("follow target not found")
-
-// FollowUser takes followerID/userID already in userID@serverID form.
-// user_followers is only written when userID is local — see
-// RecordRemoteFollower for the remote case.
-func (s *DataService) FollowUser(ctx context.Context, followerID, userID string) error {
-	followerIdentity := followerID
-	targetIdentity := userID
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var targetExists bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM identities WHERE id = $1)
-	`, targetIdentity).Scan(&targetExists); err != nil {
-		return err
-	}
-	if !targetExists {
-		return ErrFollowTargetNotFound
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO user_following (user_id, following_user_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`, followerIdentity, targetIdentity)
-	if err != nil {
-		return err
-	}
-
-	if _, embeddedServerID, ok := parseIdentityID(identityID(targetIdentity)); ok && embeddedServerID == s.serverID {
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO user_followers (user_id, follower_user_id)
-			VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-		`, targetIdentity, followerIdentity)
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
-}
-
-// RecordRemoteFollower is FollowUser's mirror on the receiving end of a
-// federated follow: only user_followers is written (userID isn't this
-// server's user, so it has no user_following of its own to maintain).
-func (s *DataService) RecordRemoteFollower(ctx context.Context, userID, followerID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	// A peer may only follow users who live on this server.
-	var targetExists bool
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)
-	`, userID).Scan(&targetExists); err != nil {
-		return err
-	}
-	if !targetExists {
-		return ErrFollowTargetNotFound
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO user_followers (user_id, follower_user_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`, userID, followerID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// Same reasoning as FollowUser above — both params already in userID@serverID form.
-func (s *DataService) UnfollowUser(ctx context.Context, followerID, userID string) error {
-	followerIdentity := followerID
-	targetIdentity := userID
-
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	_, err = tx.ExecContext(ctx, `
-		DELETE FROM user_following
-		WHERE user_id = $1 AND following_user_id = $2
-	`, followerIdentity, targetIdentity)
-	if err != nil {
-		return err
-	}
-
-	if _, embeddedServerID, ok := parseIdentityID(identityID(targetIdentity)); ok && embeddedServerID == s.serverID {
-		_, err = tx.ExecContext(ctx, `
-			DELETE FROM user_followers
-			WHERE user_id = $1 AND follower_user_id = $2
-		`, targetIdentity, followerIdentity)
-		if err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
-}
-
 var ErrPinTargetNotFound = errors.New("pin target not found")
 var ErrPinLimitReached = errors.New("pin limit reached")
 
@@ -1174,16 +1059,6 @@ func (s *DataService) UnpinReed(ctx context.Context, pinningUserID, reedID strin
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM pinned_reeds WHERE user_id = $1 AND reed_id = $2
 	`, pinningUserID, reedID)
-	return err
-}
-
-// RemoveRemoteFollower is UnfollowUser's mirror on the receiving end of a
-// federated unfollow — see RecordRemoteFollower.
-func (s *DataService) RemoveRemoteFollower(ctx context.Context, userID, followerID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM user_followers
-		WHERE user_id = $1 AND follower_user_id = $2
-	`, userID, followerID)
 	return err
 }
 
@@ -1838,6 +1713,7 @@ func (s *DataService) ListReplies(ctx context.Context, parentReedID string, limi
 type FollowListItem struct {
 	UserID     string    `json:"userID"`
 	FollowedAt time.Time `json:"followedAt"`
+	Cert       *FollowCert
 }
 
 // FollowListResponse is the body of GET /users/{userID}/following and
@@ -1852,9 +1728,27 @@ func (s *DataService) ListFollowing(ctx context.Context, userID string, limit in
 	return s.listFollowEdge(ctx, "user_following", "following_user_id", userID, limit, before)
 }
 
-// ListFollowers returns userID's followers list, oldest-followed first.
+// ListFollowers returns userID's followers list, oldest-followed first,
+// each with the follow certificate for the viewer to verify.
 func (s *DataService) ListFollowers(ctx context.Context, userID string, limit int, before *time.Time) (*FollowListResponse, error) {
-	return s.listFollowEdge(ctx, "user_followers", "follower_user_id", userID, limit, before)
+	list, err := s.listFollowEdge(ctx, "user_followers", "follower_user_id", userID, limit, before)
+	if err != nil || len(list.Users) == 0 {
+		return list, err
+	}
+	ids := make([]string, len(list.Users))
+	for i, u := range list.Users {
+		ids[i] = u.UserID
+	}
+	certs, err := s.followCertsOf(ctx, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list.Users {
+		if c, ok := certs[list.Users[i].UserID]; ok {
+			list.Users[i].Cert = &c
+		}
+	}
+	return list, nil
 }
 
 // listFollowEdge is the shared keyset-paginated query behind ListFollowing /
@@ -3578,35 +3472,8 @@ func (s *DataService) loadLikeCertTx(ctx context.Context, q likeQuerier, likerId
 //   Account recovery   //
 // ==================== //
 
-// ListUserFollowing returns user ids this user follows. userID is the
-// local, session-recovering account owner, already in userID@serverID
-// form; the returned list holds that same form directly, no decode step.
-func (s *DataService) ListUserFollowing(ctx context.Context, userID string) ([]string, error) {
-	selfIdentity := userID
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT following_user_id
-		FROM user_following
-		WHERE user_id = $1
-		ORDER BY following_user_id
-	`, selfIdentity)
-	if err != nil {
-		return nil, fmt.Errorf("list following: %w", err)
-	}
-	defer rows.Close()
-
-	var out []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
 // ListUserReeds returns non-removed reed ids for userID, tip first. userID
-// is the same local, session-recovering account owner as ListUserFollowing,
+// is the local, session-recovering account owner,
 // already in userID@serverID form.
 func (s *DataService) ListUserReeds(ctx context.Context, userID string) (tipReedID *string, reedIDs []string, err error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -7033,8 +6900,6 @@ func scanInvite(ctx context.Context, sigDB signingDBTX, row inviteScannable) (*i
 //   recovery   //
 // ============ //
 
-const maxRecoveryFollowingBatch = 100
-
 // recoverySaveIdentityResult describes what a save did to the users row.
 type recoverySaveIdentityResult struct {
 	Created bool
@@ -7148,9 +7013,6 @@ func saveOwnIdentity(ctx context.Context, db *sql.DB, serverID string, sign ledg
 	`, selfIdentity); err != nil {
 		return nil, err
 	}
-	if err := drainRecoveryPendingFollows(ctx, tx, selfIdentity); err != nil {
-		return nil, err
-	}
 	if deviceID != "" {
 		if err := bindRecoveryClaimDeviceTx(ctx, tx, selfIdentity, deviceID, profile.ServerSignature.Timestamp.UTC()); err != nil {
 			return nil, err
@@ -7192,9 +7054,6 @@ func savePeerIdentity(ctx context.Context, db *sql.DB, serverID string, sign led
 			return nil, err
 		}
 	}
-	if err := drainRecoveryPendingFollows(ctx, tx, selfIdentity); err != nil {
-		return nil, err
-	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -7208,12 +7067,6 @@ func upsertRecoveryIdentity(ctx context.Context, tx *sql.Tx, serverID string, si
 	incomingSignedAt := profile.ServerSignature.Timestamp.UTC().Truncate(time.Second)
 	selfIdentity := identityID(profile.ID)
 	activeFP := flat[len(flat)-1].Key.Fingerprint
-
-	// Taken before the identities lock, in the order saveRecoveryFollowing
-	// takes it, so the two never deadlock.
-	if err := lockRecoveryFollowTargets(ctx, tx, []string{string(selfIdentity)}); err != nil {
-		return nil, err
-	}
 
 	// Lock/check the identities row, not users — identities is the actual FK
 	// target. users.id IS identities.id directly, so the join is on u.id.
@@ -7624,48 +7477,6 @@ func nullIfEmptyString(s string) interface{} {
 	return s
 }
 
-// lockRecoveryFollowTargets serializes, per target, a follower recording a
-// pending follow against the target's own recovery draining them.
-func lockRecoveryFollowTargets(ctx context.Context, tx *sql.Tx, targets []string) error {
-	keys := slices.Clone(targets)
-	slices.Sort(keys)
-	for _, t := range slices.Compact(keys) {
-		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "recovery-follow:"+t); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// drainRecoveryPendingFollows moves pending edges targeting target into
-// the real follow tables, then deletes those pending rows.
-func drainRecoveryPendingFollows(ctx context.Context, tx *sql.Tx, target identityID) error {
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO user_following (user_id, following_user_id)
-		SELECT follower_user_id, following_user_id
-		FROM pending_follows
-		WHERE following_user_id = $1
-		ON CONFLICT DO NOTHING
-	`, target); err != nil {
-		return fmt.Errorf("drain pending following: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO user_followers (user_id, follower_user_id)
-		SELECT following_user_id, follower_user_id
-		FROM pending_follows
-		WHERE following_user_id = $1
-		ON CONFLICT DO NOTHING
-	`, target); err != nil {
-		return fmt.Errorf("drain pending followers: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		DELETE FROM pending_follows WHERE following_user_id = $1
-	`, target); err != nil {
-		return fmt.Errorf("delete pending follows: %w", err)
-	}
-	return nil
-}
-
 // bindRecoveryClaimDeviceTx binds the claiming device in the own-identity
 // claim transaction. Device binding is local-account-only, so ownerIdentity
 // is always a local selfIdentity — same convention as BindDeviceTx.
@@ -7933,129 +7744,6 @@ func recountReplyAncestorsTx(ctx context.Context, tx *sql.Tx, reedID string) err
 		ON CONFLICT (reed_id) DO UPDATE SET reply_count = EXCLUDED.reply_count
 	`, reedID)
 	return err
-}
-
-// mintPeerFollowTargetsTx adds the identity of every target on a peer this
-// server holds and hasn't revoked.
-func mintPeerFollowTargetsTx(ctx context.Context, tx *sql.Tx, serverID string, targets []string) error {
-	byServer := map[string][]string{}
-	for _, target := range targets {
-		if _, sid, ok := parseIdentityID(identityID(target)); ok && sid != serverID {
-			byServer[sid] = append(byServer[sid], target)
-		}
-	}
-	for sid, ids := range byServer {
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO identities (id, server_id)
-			SELECT t, $2::varchar FROM unnest($1::text[]) AS t
-			WHERE EXISTS (SELECT 1 FROM server_mesh WHERE server_id = $2::varchar AND revoked_at IS NULL)
-			ON CONFLICT (id) DO NOTHING
-		`, pq.Array(ids), sid); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// saveRecoveryFollowing writes follow edges for followerUserID. Existing
-// targets go into user_following / user_followers; missing targets go into
-// pending_follows. Caller must reject self-follows before calling.
-// followerUserID/targetIDs arrive already canonical (userID@serverID).
-func saveRecoveryFollowing(ctx context.Context, db *sql.DB, serverID string, followerUserID string, targetIDs []string) error {
-	if len(targetIDs) == 0 {
-		return nil
-	}
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	followerIdentity := identityID(followerUserID)
-
-	// Check identities, not users, same reason as saveRecoveryReed above.
-	existing := make(map[string]bool, len(targetIDs))
-	targetIdentities := make(map[string]identityID, len(targetIDs))
-	canonicalTargets := make([]string, 0, len(targetIDs))
-	for _, targetID := range targetIDs {
-		if targetID == "" {
-			continue
-		}
-		targetIdentity := identityID(targetID)
-		targetIdentities[targetID] = targetIdentity
-		canonicalTargets = append(canonicalTargets, string(targetIdentity))
-	}
-	// Without it, a target recovering concurrently could drain before our
-	// pending row commits, and the follow would never be applied.
-	if err := lockRecoveryFollowTargets(ctx, tx, canonicalTargets); err != nil {
-		return err
-	}
-	// A target on one of our peers is never claimed here: its home server
-	// vouches for it, so it gets its identity and the follow now.
-	if err := mintPeerFollowTargetsTx(ctx, tx, serverID, canonicalTargets); err != nil {
-		return err
-	}
-	rows, err := tx.QueryContext(ctx, `
-		SELECT id FROM identities WHERE id = ANY($1)
-	`, pq.Array(canonicalTargets))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return err
-		}
-		existing[id] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, targetID := range targetIDs {
-		if targetID == "" {
-			continue
-		}
-		targetIdentity := targetIdentities[targetID]
-		if existing[string(targetIdentity)] {
-			// A block of the follower ended the follow, and still bars it.
-			blocked, err := existsTx(ctx, tx, `
-				SELECT 1 FROM user_blocks WHERE user_id = $1 AND blocked_user_id = $2
-			`, targetIdentity, followerIdentity)
-			if err != nil {
-				return err
-			}
-			if blocked {
-				continue
-			}
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO user_following (user_id, following_user_id)
-				VALUES ($1, $2)
-				ON CONFLICT DO NOTHING
-			`, followerIdentity, targetIdentity); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `
-				INSERT INTO user_followers (user_id, follower_user_id)
-				VALUES ($1, $2)
-				ON CONFLICT DO NOTHING
-			`, targetIdentity, followerIdentity); err != nil {
-				return err
-			}
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO pending_follows (follower_user_id, following_user_id)
-			VALUES ($1, $2)
-			ON CONFLICT DO NOTHING
-		`, followerIdentity, targetIdentity); err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit()
 }
 
 // saveRecoveryPins restores ownerID's pinned reeds, most recent first, as
@@ -10213,6 +9901,8 @@ func (s *DataService) ClearPeerStateForRemovedAccount(ctx context.Context, viewe
 		{`DELETE FROM user_following WHERE user_id = $1 AND following_user_id = $2`, removedIdentity, viewerIdentity},
 		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, removedIdentity, viewerIdentity},
 		{`DELETE FROM user_followers WHERE user_id = $1 AND follower_user_id = $2`, viewerIdentity, removedIdentity},
+		{`DELETE FROM follow_certs WHERE follower_id = $1 AND followee_id = $2`, viewerIdentity, removedIdentity},
+		{`DELETE FROM follow_certs WHERE follower_id = $1 AND followee_id = $2`, removedIdentity, viewerIdentity},
 	}
 	for _, s := range stmts {
 		if _, err := tx.ExecContext(ctx, s.q, s.a1, s.a2); err != nil {

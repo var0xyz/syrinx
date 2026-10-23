@@ -86,6 +86,8 @@ func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
 		return recoveredAdminRequest{adminRequestFromPB(r.AdminRequest)}, nil
 	case *pb.RecoveryRecord_Flag:
 		return recoveredFlag{reedFlagFromPB(r.Flag)}, nil
+	case *pb.RecoveryRecord_Follow:
+		return recoveredFollow{followCertFromPB(r.Follow)}, nil
 	}
 	return nil, refuseRecord("unknown record kind")
 }
@@ -379,6 +381,54 @@ func (r recoveredBlock) restore(ctx context.Context, tx *sql.Tx, env *recoveryRe
 		return err
 	}
 	_, err = applyBlockEffectsTx(ctx, tx, r.UserID, r.BlockedUserID)
+	return err
+}
+
+// recoveredFollow is a follow or unfollow either end reports; the newest
+// certificate per pair wins.
+type recoveredFollow struct{ FollowCert }
+
+func (r recoveredFollow) restore(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv) error {
+	if r.FollowerID == r.FolloweeID {
+		return refuseRecord("a user can't follow themselves")
+	}
+	followerLocal, followeeLocal := env.local(r.FollowerID) == nil, env.local(r.FolloweeID) == nil
+	if !followerLocal && !followeeLocal {
+		return refuseRecord("neither end is a user of this server")
+	}
+	userPayload := buildFollowUserPayload(r.FollowerID, r.FolloweeID, r.UserSignature.ID, r.Follow)
+	serverPayload := func(fp string) []byte {
+		return buildFollowServerPayload(r.FollowerID, r.FolloweeID, r.Follow, fp, r.UserSignature.Armor, r.ServerSignature.SignedAt)
+	}
+	if followerLocal {
+		if err := env.signedBy(ctx, tx, r.FollowerID, r.UserSignature, userPayload); err != nil {
+			return err
+		}
+		if err := env.countersignedHere(ctx, r.ServerSignature, serverPayload); err != nil {
+			return err
+		}
+	} else if err := env.signedOnPeer(ctx, tx, r.FollowerID, r.UserSignature, userPayload, r.ServerSignature, serverPayload); err != nil {
+		return err
+	}
+	if !followeeLocal {
+		_, peerID, _ := parseIdentityID(identityID(r.FolloweeID))
+		if active, err := env.activePeer(ctx, peerID); err != nil {
+			return err
+		} else if !active {
+			return refuseRecord("%s isn't a peer of this server", peerID)
+		}
+	}
+	if err := mintIdentityTx(ctx, tx, r.FolloweeID); err != nil {
+		return err
+	}
+	// A block of the follower ended the follow, and still bars it.
+	if blocked, err := existsTx(ctx, tx, `SELECT 1 FROM user_blocks WHERE user_id = $1 AND blocked_user_id = $2`, r.FolloweeID, r.FollowerID); err != nil || (blocked && r.Follow) {
+		return err
+	}
+	// An unfollow is owed to a local followee whose device may still hold
+	// the follow, so it doesn't come back from there.
+	ds := &DataService{db: env.db, serverID: env.serverID}
+	_, err := ds.saveFollowCertTx(ctx, tx, r.FollowCert, !r.Follow && followeeLocal)
 	return err
 }
 

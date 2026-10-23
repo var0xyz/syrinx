@@ -55,6 +55,7 @@
   import { receiveSuspension, suspension } from '$lib/services/suspension';
   import SuspendedScreen from '$lib/components/SuspendedScreen.svelte';
   import { checkOwnUsername, lostUsername } from '$lib/services/usernameCollision';
+  import { receiveFollow } from '$lib/services/followers';
   import UsernameCollisionGate from '$lib/components/UsernameCollisionGate.svelte';
   import { firstPartMatching, receiveThreadResponse, serveThreadRelay } from '$lib/services/threadFetch';
   import { applyThreadRemoval } from '$lib/services/threadRemoval';
@@ -384,6 +385,9 @@
     });
     serverConnection.on(ServerEvent.UserUnblocked, async (data) => {
       if (data.userId) await receiveUnblock(data.userId);
+    });
+    serverConnection.on(ServerEvent.Followed, async (data) => {
+      if (data.cert) await receiveFollow(data.cert);
     });
     serverConnection.on(ServerEvent.LedgerEntry, async (data) => {
       if (data.entry) await receiveLedgerEntry(data.entry);

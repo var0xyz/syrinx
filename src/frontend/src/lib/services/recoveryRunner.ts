@@ -6,16 +6,12 @@
 
 import {
   COMPLETE_KEY,
-  FOLLOWS_KEY,
   getRecoveryProgress,
   isEntityEntry,
-  isFollowsEntry,
   isRecordsEntry,
   markEntityFinished,
   markEntitySkipped,
   markEntityStarted,
-  markFollowPageFinished,
-  markFollowPageStarted,
   markRecordPageFinished,
   markRecordPageStarted,
   OWN_IDENTITY_KEY,
@@ -24,14 +20,12 @@ import {
   peerEntityKey,
   RECORDS_KEY,
   reedEntityKey,
-  type RecoveryFollowPage,
   type RecoveryRecordPage,
 } from './recoveryProgress';
 import { claimOwnIdentity } from './ownIdentityClaim';
 import { reportPeerIdentity } from './peerIdentityReport';
 import {
   completeRecoveryImport,
-  reportRecoveryFollowing,
   reportRecoveryPins,
   reportRecoveryRecords,
   reportRecoveryReed,
@@ -103,14 +97,6 @@ function pendingReedIds(): string[] {
     ids.push(key.slice('reed:'.length));
   }
   return ids;
-}
-
-/** Follow pages that still need a POST. */
-function pendingFollowPages(): RecoveryFollowPage[] {
-  const ledger = getRecoveryProgress();
-  const follows = ledger?.entities[FOLLOWS_KEY];
-  if (!isFollowsEntry(follows)) return [];
-  return follows.pages.filter((page) => page.endTime == null);
 }
 
 /** Records pages that still need a POST. */
@@ -208,20 +194,6 @@ export async function runRecoveryWork(
       return {
         ok: false,
         error: errorMessage(err, 'Reed report failed.'),
-      };
-    }
-  }
-
-  for (const page of pendingFollowPages()) {
-    markFollowPageStarted(page.index);
-    try {
-      await reportRecoveryFollowing(page.userIds);
-      markFollowPageFinished(page.index);
-      notify();
-    } catch (err) {
-      return {
-        ok: false,
-        error: errorMessage(err, 'Follow report failed.'),
       };
     }
   }

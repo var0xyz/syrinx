@@ -27,6 +27,7 @@ func ensureFollowCountSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS user_signatures (id SERIAL PRIMARY KEY, public_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS server_signatures (id SERIAL PRIMARY KEY, private_key_id VARCHAR(255) NOT NULL, signature TEXT NOT NULL, signed_at TIMESTAMP NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS unclaimed_accounts (user_id VARCHAR(255) PRIMARY KEY)`,
+		`CREATE TABLE IF NOT EXISTS follow_certs (follower_id VARCHAR(255), followee_id VARCHAR(255), follow BOOLEAN, user_signature_id INT, server_signature_id INT)`,
 		`DROP TABLE IF EXISTS user_followers CASCADE`,
 		`DROP TABLE IF EXISTS user_following CASCADE`,
 		`DROP TABLE IF EXISTS reeds CASCADE`,

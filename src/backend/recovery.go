@@ -760,11 +760,6 @@ type recoveryReedLinks struct {
 	Mentions     []string
 }
 
-// recoveryFollowingRequest is the POST /api/recovery/following body.
-type recoveryFollowingRequest struct {
-	UserIDs []string `json:"userIDs"`
-}
-
 // recoveryFlatKey is one key in oldest→newest order after nest verification.
 // Oldest-first matches public_keys.predecessor_id FK insert order.
 type recoveryFlatKey struct {

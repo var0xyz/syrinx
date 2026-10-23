@@ -6,7 +6,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 	"time"
 
@@ -153,34 +152,6 @@ func TestReportReed_BadCountersig(t *testing.T) {
 	h.ReportReed(rr, httpReq)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestReportFollowing_TooMany(t *testing.T) {
-	db := openSignupTestDB(t)
-	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
-	ids := make([]string, 101)
-	for i := range ids {
-		ids[i] = "user-" + strconv.Itoa(i)
-	}
-	httpReq := protoRequest(http.MethodPost, "/api/recovery/following", &pb.RecoveryFollowingRequest{UserIds: ids})
-	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), userIDKey, "caller1"))
-	rr := httptest.NewRecorder()
-	h.ReportFollowing(rr, httpReq)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d", rr.Code)
-	}
-}
-
-func TestReportFollowing_Self(t *testing.T) {
-	db := openSignupTestDB(t)
-	h := newSignupGateHandlers(t, db, AppConfig{ServerName: "test"})
-	httpReq := protoRequest(http.MethodPost, "/api/recovery/following", &pb.RecoveryFollowingRequest{UserIds: []string{"caller1"}})
-	httpReq = httpReq.WithContext(context.WithValue(httpReq.Context(), userIDKey, "caller1"))
-	rr := httptest.NewRecorder()
-	h.ReportFollowing(rr, httpReq)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("status=%d", rr.Code)
 	}
 }
 

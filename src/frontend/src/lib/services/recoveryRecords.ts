@@ -71,6 +71,9 @@ const SOURCES: RecordSource<unknown>[] = [
   source<api.BlockCert>({ store: 'blocks', key: (r) => r.blockedUserId, record: (r) => ({ case: 'block', value: r }) }),
   // Blocks against this device's user, a peer's users' among them.
   source<api.BlockCert>({ store: 'blockedBy', key: (r) => r.userId, record: (r) => ({ case: 'block', value: r }) }),
+  // Follows from both ends: the server keeps the newest per pair.
+  source<api.FollowCert>({ store: 'followCerts', key: (r) => r.followeeId, record: (r) => ({ case: 'follow', value: r }) }),
+  source<api.FollowCert>({ store: 'followers', key: (r) => r.followerId, record: (r) => ({ case: 'follow', value: r }) }),
   source<FlaggedReedRecord>({
     store: 'flaggedReeds',
     key: (r) => r.reedID,

@@ -1127,72 +1127,6 @@ func compareUserSearch(a, b UserSearchResult) int {
 	return strings.Compare(aid, bid)
 }
 
-// proxyFollowIfForeign forwards a local end-user's follow/unfollow to the
-// peer owning userID, if foreign, waiting for confirmation.
-func (h *Handlers) proxyFollowIfForeign(w http.ResponseWriter, r *http.Request, method, userID string) (handled bool, status int) {
-	followerID, isUser := r.Context().Value(userIDKey).(string)
-	if !isUser {
-		return false, 0
-	}
-	_, embeddedServerID, ok := parseIdentityID(identityID(userID))
-	if !ok || embeddedServerID == h.services.db.GetServerID() {
-		return false, 0
-	}
-
-	log := h.services.log.GetLogger(r.Context())
-	peer, err := h.services.db.GetServerByID(r.Context(), embeddedServerID)
-	if err != nil {
-		internalServerError(w)
-		return true, 0
-	}
-	if peer == nil {
-		writeError(w, http.StatusNotFound, "Not found")
-		return true, 0
-	}
-
-	if err := h.forwardFollowToPeer(r.Context(), method, peer.ID, peer.BaseURL, userID, followerID); err != nil {
-		log.Error().Str("userID", userID).Str("followerID", followerID).Err(err).Msg("Failed to forward follow to peer")
-		h.logFederationServerAsync(peer.ID, "error", fmt.Sprintf("Follow forward to %s failed: %s", peer.BaseURL, err.Error()))
-		writeError(w, http.StatusBadGateway, "Failed to reach peer server")
-		return true, 0
-	}
-
-	op := metrics.OpAdd
-	if method == http.MethodDelete {
-		op = metrics.OpRemove
-	}
-	h.metrics.Follow(r.Context(), op, true)
-	w.WriteHeader(http.StatusNoContent)
-	return true, http.StatusNoContent
-}
-
-// resolveFollower returns who's following: an end-user's own session, or
-// a peer vouching for one of its users via the body's follower_id.
-func (h *Handlers) resolveFollower(r *http.Request) (followerID string, ok bool) {
-	if userID, isUser := r.Context().Value(userIDKey).(string); isUser {
-		return userID, true
-	}
-	peerServerID, isPeer := r.Context().Value(peerServerIDKey).(string)
-	if !isPeer {
-		return "", false
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return "", false
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	var req pb.FollowRequest
-	if err := proto.Unmarshal(body, &req); err != nil {
-		return "", false
-	}
-	followerID = strings.TrimSpace(req.GetFollowerId())
-	_, embeddedServerID, parseOK := parseIdentityID(identityID(followerID))
-	if !parseOK || embeddedServerID != peerServerID {
-		return "", false
-	}
-	return followerID, true
-}
-
 // resolveActingUser returns who's acting: an end-user's own session, or a
 // peer vouching for one of its users via candidateID (already extracted
 // from the request body by the caller, since each route's request message
@@ -1211,104 +1145,6 @@ func (h *Handlers) resolveActingUser(r *http.Request, candidateID string) (userI
 		return "", false
 	}
 	return candidateID, true
-}
-
-func (h *Handlers) FollowUser(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	userID := mux.Vars(r)["userID"]
-	if followerID, ok := h.resolveFollower(r); ok && h.refuseBlockedRequester(w, r, userID, followerID) {
-		return
-	}
-
-	if handled, status := h.proxyFollowIfForeign(w, r, http.MethodPost, userID); handled {
-		if status == http.StatusNoContent {
-			followerID, _ := h.resolveFollower(r)
-			h.rememberRemoteIdentityAndFollowLocally(r.Context(), log, followerID, userID)
-		}
-		return
-	}
-
-	followerID, ok := h.resolveFollower(r)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "Argument `followerID` is required")
-		return
-	}
-	if followerID == userID {
-		writeError(w, http.StatusBadRequest, "Cannot follow yourself")
-		return
-	}
-	// An account only recorded from someone's cache waits for its owner.
-	if unclaimed, err := h.services.db.IsUnclaimed(r.Context(), userID); err != nil {
-		internalServerError(w)
-		return
-	} else if unclaimed {
-		writeError(w, http.StatusConflict, "This account's owner hasn't come back to this server yet")
-		return
-	}
-
-	if _, isPeer := r.Context().Value(peerServerIDKey).(string); isPeer {
-		h.upsertRemoteIdentity(r.Context(), log, followerID)
-		if err := h.services.db.RecordRemoteFollower(r.Context(), userID, followerID); err != nil {
-			if errors.Is(err, ErrFollowTargetNotFound) {
-				writeError(w, http.StatusNotFound, "User not found")
-				return
-			}
-			log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error recording remote follower")
-			internalServerError(w)
-			return
-		}
-		h.metrics.Follow(r.Context(), metrics.OpAdd, true)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if err := h.services.db.FollowUser(r.Context(), followerID, userID); err != nil {
-		if errors.Is(err, ErrFollowTargetNotFound) {
-			writeError(w, http.StatusNotFound, "User not found")
-			return
-		}
-		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error following user")
-		internalServerError(w)
-		return
-	}
-
-	h.metrics.Follow(r.Context(), metrics.OpAdd, false)
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (h *Handlers) UnfollowUser(w http.ResponseWriter, r *http.Request) {
-	log := h.services.log.GetLogger(r.Context())
-	userID := mux.Vars(r)["userID"]
-
-	if handled, _ := h.proxyFollowIfForeign(w, r, http.MethodDelete, userID); handled {
-		return
-	}
-
-	followerID, ok := h.resolveFollower(r)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "Argument `followerID` is required")
-		return
-	}
-
-	if _, isPeer := r.Context().Value(peerServerIDKey).(string); isPeer {
-		if err := h.services.db.RemoveRemoteFollower(r.Context(), userID, followerID); err != nil {
-			log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error removing remote follower")
-			internalServerError(w)
-			return
-		}
-		h.metrics.Follow(r.Context(), metrics.OpRemove, true)
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-
-	if err := h.services.db.UnfollowUser(r.Context(), followerID, userID); err != nil {
-		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Error unfollowing user")
-		internalServerError(w)
-		return
-	}
-
-	h.metrics.Follow(r.Context(), metrics.OpRemove, false)
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
@@ -3774,13 +3610,10 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	following, err := h.services.db.ListUserFollowing(r.Context(), req.UserID)
+	follows, followers, err := h.services.db.ActiveFollowCerts(r.Context(), req.UserID)
 	if err != nil {
 		internalServerError(w)
 		return
-	}
-	if following == nil {
-		following = []string{}
 	}
 
 	tipReedID, reedIDs, err := h.services.db.ListUserReeds(r.Context(), req.UserID)
@@ -3794,12 +3627,14 @@ func (h *Handlers) BootstrapAccountRecovery(w http.ResponseWriter, r *http.Reque
 
 	h.metrics.AccountRecovery(r.Context(), "bootstrap", true, "")
 	h.metrics.DeviceBound(r.Context())
-	writeResponse(w, http.StatusOK, &pb.AccountRecoveryBootstrapResponse{
-		Profile:   pbUser(profile),
-		Following: following,
-		TipReedId: tipReedID,
-		ReedIds:   reedIDs,
-	})
+	res := &pb.AccountRecoveryBootstrapResponse{Profile: pbUser(profile), TipReedId: tipReedID, ReedIds: reedIDs}
+	for i := range follows {
+		res.Follows = append(res.Follows, pbFollowCert(&follows[i]))
+	}
+	for i := range followers {
+		res.Followers = append(res.Followers, pbFollowCert(&followers[i]))
+	}
+	writeResponse(w, http.StatusOK, res)
 }
 
 // ============ //
@@ -4021,41 +3856,6 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ReportFollowing handles POST /api/recovery/following.
-func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
-	caller, ok := r.Context().Value(userIDKey).(string)
-	if !ok || caller == "" {
-		writeError(w, http.StatusUnauthorized, "Unauthorized")
-		return
-	}
-
-	var msg pb.RecoveryFollowingRequest
-	if err := readRequest(r, &msg); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-	req := recoveryFollowingRequest{UserIDs: msg.GetUserIds()}
-	if len(req.UserIDs) > maxRecoveryFollowingBatch {
-		writeError(w, http.StatusBadRequest, "userIDs exceeds maximum of 100")
-		return
-	}
-	for _, id := range req.UserIDs {
-		if id == caller {
-			writeError(w, http.StatusBadRequest, "Cannot follow yourself")
-			return
-		}
-	}
-
-	if err := saveRecoveryFollowing(r.Context(), h.services.db.db, h.services.db.GetServerID(), caller, req.UserIDs); err != nil {
-		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery following failed")
-		h.metrics.ServerRecovery(r.Context(), "following", false)
-		internalServerError(w)
-		return
-	}
-	h.metrics.ServerRecovery(r.Context(), "following", true)
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // recoveryRecords is what restoring reported records runs against.
 func (h *Handlers) recoveryRecords() *recoveryRecordEnv {
 	return &recoveryRecordEnv{
@@ -4234,16 +4034,6 @@ func (h *Handlers) upsertRemoteIdentity(ctx context.Context, log *zerolog.Logger
 	}
 	if err := h.services.db.UpsertRemoteIdentity(ctx, canonicalID, serverID); err != nil {
 		log.Error().Str("userID", canonicalID).Err(err).Msg("Failed to remember remote identity")
-	}
-}
-
-// rememberRemoteIdentityAndFollowLocally writes this server's own
-// user_following row after a remote follow was confirmed by the peer —
-// the target's identities row must exist first for the FK.
-func (h *Handlers) rememberRemoteIdentityAndFollowLocally(ctx context.Context, log *zerolog.Logger, followerID, userID string) {
-	h.upsertRemoteIdentity(ctx, log, userID)
-	if err := h.services.db.FollowUser(ctx, followerID, userID); err != nil {
-		log.Error().Str("followerID", followerID).Str("userID", userID).Err(err).Msg("Failed to record confirmed remote follow locally")
 	}
 }
 
@@ -4524,34 +4314,6 @@ func (h *Handlers) proxyToPeer(w http.ResponseWriter, r *http.Request, peerServe
 		log.Error().Err(err).Str("target", target).Msg("failed to relay proxied response body")
 	}
 	return resp.StatusCode
-}
-
-// forwardFollowToPeer tells a peer that followerID follows/unfollows
-// userID (local to the peer). Blocks until the peer confirms.
-func (h *Handlers) forwardFollowToPeer(ctx context.Context, method, peerServerID, peerBaseURL, userID, followerID string) error {
-	target := strings.TrimRight(peerBaseURL, "/") + "/api/users/" + userID + "/follow"
-	encoded, err := proto.Marshal(&pb.FollowRequest{FollowerId: followerID})
-	if err != nil {
-		return err
-	}
-	body := string(encoded)
-	httpReq, err := http.NewRequestWithContext(ctx, method, target, strings.NewReader(body))
-	if err != nil {
-		return err
-	}
-	httpReq.Header.Set("Content-Type", protobufContentType)
-	if err := h.setPeerProxyAuthHeaders(httpReq, body); err != nil {
-		return err
-	}
-	resp, err := h.doPeerRequest(httpReq, peerServerID, "follow")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("peer responded %d", resp.StatusCode)
-	}
-	return nil
 }
 
 // setPeerProxyAuthHeaders signs an outgoing peer request (with the given

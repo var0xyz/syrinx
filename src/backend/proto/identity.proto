@@ -147,13 +147,18 @@ message UserSearchResponse {
 
 // POST/DELETE /users/{id}/follow. follower_id is read only when a peer
 // relays the follow for one of its users.
+// POST and DELETE /users/{id}/follow: the follower's signature over the
+// follow or unfollow, by the key with this fingerprint.
 message FollowRequest {
-  string follower_id = 1 [json_name = "followerID"];
+  string signature = 1;
+  string fingerprint = 2;
 }
 
 message FollowListUser {
   string user_id = 1 [json_name = "userID"];
   uint32 followed_at = 2;
+  // On a followers list: the follow, for the viewer to verify.
+  FollowCert cert = 3;
 }
 
 message FollowListResponse {

@@ -24,9 +24,11 @@ message AccountRecoveryBootstrapRequest {
 
 message AccountRecoveryBootstrapResponse {
   User profile = 1;
-  repeated string following = 2;
+  // The user's active follows, and the follows of them.
+  repeated FollowCert follows = 2;
   optional string tip_reed_id = 3 [json_name = "tipReedID"];
   repeated string reed_ids = 4 [json_name = "reedIDs"];
+  repeated FollowCert followers = 5;
 }
 
 // A countersigned identity record as recovery's claim, peer and status
@@ -117,6 +119,7 @@ message RecoveryRecord {
     LedgerEntry ledger_entry = 8;
     AdminRequest admin_request = 9;
     ReedFlag flag = 10;
+    FollowCert follow = 11;
   }
 }
 
@@ -147,7 +150,3 @@ message RecoveryPinsRequest {
   repeated string reed_ids = 1 [json_name = "reedIDs"];
 }
 
-// POST /recovery/following.
-message RecoveryFollowingRequest {
-  repeated string user_ids = 1 [json_name = "userIDs"];
-}
