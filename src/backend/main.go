@@ -585,6 +585,8 @@ func main() {
 	api.HandleFunc("/federation/relay/new-reed", h.NewReedFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/new-reed", h.noop).Methods("OPTIONS")
 
+	api.HandleFunc("/federation/relay/follow-notify", h.FollowNotifyFromPeer).Methods("POST")
+	api.HandleFunc("/federation/relay/follow-notify", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/block-notify", h.BlockNotifyFromPeer).Methods("POST")
 	api.HandleFunc("/federation/relay/block-notify", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/federation/relay/unblock-notify", h.UnblockNotifyFromPeer).Methods("POST")
@@ -645,8 +647,6 @@ func main() {
 		api.HandleFunc("/recovery/identity", h.noop).Methods(http.MethodOptions)
 		api.HandleFunc("/recovery/reeds", h.ReportReed).Methods(http.MethodPost)
 		api.HandleFunc("/recovery/reeds", h.noop).Methods(http.MethodOptions)
-		api.HandleFunc("/recovery/following", h.ReportFollowing).Methods(http.MethodPost)
-		api.HandleFunc("/recovery/following", h.noop).Methods(http.MethodOptions)
 		api.HandleFunc("/recovery/records", h.ReportRecords).Methods(http.MethodPost)
 		api.HandleFunc("/recovery/records", h.noop).Methods(http.MethodOptions)
 		api.HandleFunc("/recovery/pins", h.ReportPins).Methods(http.MethodPost)
@@ -706,6 +706,7 @@ func main() {
 	go h.notifyPeersOfServerKey()
 	go h.notifyPeersOfOwedKeyRevocations()
 	go h.notifyPeersOfOwedBlockNotices()
+	go h.notifyPeersOfOwedFollowNotices()
 	go h.notifyPeersOfOwedAccountRemovals()
 
 	// Wait for shutdown signal

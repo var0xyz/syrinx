@@ -929,6 +929,40 @@ func InitDB(db *sql.DB) error {
 		ON user_following(following_user_id);
 	`
 
+	// The latest follow certificate per pair this server keeps: an active
+	// follow, or an unfollow until whoever it is owed to has it.
+	createFollowCertsTable := `
+	CREATE TABLE IF NOT EXISTS follow_certs (
+		follower_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		followee_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		follow BOOLEAN NOT NULL,
+		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
+
+		PRIMARY KEY (follower_id, followee_id)
+	);`
+
+	createFollowCertsIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_follow_certs_followee
+		ON follow_certs (followee_id);
+	`
+
+	// The certificate each pair's followee is owed: their client when they
+	// are local, their home server otherwise.
+	createFollowEventQueueTable := `
+	CREATE TABLE IF NOT EXISTS follow_event_queue (
+		follower_id VARCHAR(255) NOT NULL,
+		followee_id VARCHAR(255) NOT NULL,
+
+		PRIMARY KEY (follower_id, followee_id),
+		FOREIGN KEY (follower_id, followee_id) REFERENCES follow_certs ON DELETE CASCADE
+	);`
+
+	createFollowEventQueueIndexes := `
+	CREATE INDEX IF NOT EXISTS idx_follow_event_queue_followee
+		ON follow_event_queue (followee_id);
+	`
+
 	createPinnedReedsTable := `
 	CREATE TABLE IF NOT EXISTS pinned_reeds (
 		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
@@ -1491,18 +1525,6 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// Follow edges reported during recovery whose target has no identities
-	// row yet. following_user_id has no FK — holds unknown targets until
-	// claim/peer report drains them into user_following/user_followers.
-	createPendingFollowsTable := `
-	CREATE TABLE IF NOT EXISTS pending_follows (
-		follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		following_user_id VARCHAR(255) NOT NULL,
-		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-		PRIMARY KEY (follower_user_id, following_user_id)
-	);`
-
 	// Reported records that name something not restored yet: an identity
 	// whose keys verify them, or the ledger entry before one.
 	createPendingRecoveryRecordsTable := `
@@ -1512,11 +1534,6 @@ func InitDB(db *sql.DB) error {
 		record BYTEA NOT NULL,
 		PRIMARY KEY (waiting_on, digest)
 	);`
-
-	createPendingFollowsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_pending_follows_following_user_id
-		ON pending_follows(following_user_id);
-	`
 
 	// Invites — operational redeem state plus the inviter's attestation.
 	// id is canonical (creatorID@serverID/uuid) and globally unique, so it
@@ -1807,6 +1824,10 @@ func InitDB(db *sql.DB) error {
 
 		createUserFollowingTable,
 		createUserFollowingIndexes,
+		createFollowCertsTable,
+		createFollowCertsIndexes,
+		createFollowEventQueueTable,
+		createFollowEventQueueIndexes,
 
 		createPinnedReedsTable,
 		createPinnedReedsIndexes,
@@ -1897,8 +1918,6 @@ func InitDB(db *sql.DB) error {
 		createAccountRecoveryChallengesTable,
 		createRealtimeAuthNoncesTable,
 
-		createPendingFollowsTable,
-		createPendingFollowsIndexes,
 		createPendingRecoveryRecordsTable,
 
 		// Federation

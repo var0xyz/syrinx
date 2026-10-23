@@ -135,7 +135,7 @@ While recovery mode is on:
 
 1. **Own-identity claim** — prove possession of the key chain the old server countersigned (challenge + nested keys).
 2. **Peer identities** — report profiles/keys held locally, one at a time; server upserts with newest-wins on server-signed time.
-3. **Reeds & follows** — report holdings and follow edges; mark complete.
+3. **Reeds & records** — report holdings, then signed records, follows among them; mark complete.
 4. **Import gate** — until complete, the user is barred from normal API use (server middleware + client mirror) so half-restored accounts don’t act like finished logins.
 
 The server never learns private keys. It reconstructs **public, signed** state from the community.
@@ -149,7 +149,8 @@ Once everyone has reported in, the rebuilt database matches the old one. Each de
 - threads, likes, blocks, vouches and their withdrawals, pins and flags;
 - reed, thread and account removals, including kicks;
 - closed admin requests, and with them suspensions, and the whole ledger;
-- follows, and each returning user's device binding.
+- follows, as certificates signed by the follower and countersigned by their server: each end keeps its own copy, so either one brings a follow back, and the newest per pair wins;
+- each returning user's device binding.
 
 Every signed record is checked as it was when first accepted, and one that names a user not restored yet waits until that user is. A user who never returns is still rebuilt from what peers cached, as an unclaimed account they can claim later.
 

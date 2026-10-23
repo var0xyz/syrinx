@@ -318,6 +318,24 @@ export function buildBlockServerPayload(
   return canonicalJSON({ type: 'block', userID, blockedUserID, signedAt, serverKeyFingerprint, userSignature });
 }
 
+/** Mirror of buildFollowUserPayload in identity.go: follow is false for
+ * an unfollow. */
+export function buildFollowUserPayload(followerID: string, followeeID: string, keyID: string, follow: boolean): string {
+  return canonicalJSON({ type: 'follow', followerID, followeeID, keyID, follow });
+}
+
+/** Mirror of buildFollowServerPayload in identity.go. */
+export function buildFollowServerPayload(
+  followerID: string,
+  followeeID: string,
+  follow: boolean,
+  serverKeyFingerprint: string,
+  userSignature: string,
+  signedAt: string
+): string {
+  return canonicalJSON({ type: 'follow', followerID, followeeID, follow, signedAt, serverKeyFingerprint, userSignature });
+}
+
 /** Mirror of buildVouchUserPayload in identity.go. Key ids are
  * owner-prefixed, so both users are named; no client timestamp. */
 export function buildVouchUserPayload(voucherKeyID: string, subjectKeyID: string, note: string): string {

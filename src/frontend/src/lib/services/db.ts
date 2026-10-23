@@ -89,9 +89,13 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 36;
+  private readonly version = 37;
   private readonly storeNames = [
     ['following',   'userId'     ],
+    // The viewer's latest signed follow or unfollow per followee, and the
+    // follows of the viewer, kept for recovery.
+    ['followCerts', 'followeeId' ],
+    ['followers',   'followerId' ],
     ['privateKeys', 'keyId'      ],
     ['publicKeys',  'id'         ],
     ['revocations', 'id'         ],

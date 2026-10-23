@@ -1074,9 +1074,12 @@ func (x *UserSearchResponse) GetNextCursor() string {
 
 // POST/DELETE /users/{id}/follow. follower_id is read only when a peer
 // relays the follow for one of its users.
+// POST and DELETE /users/{id}/follow: the follower's signature over the
+// follow or unfollow, by the key with this fingerprint.
 type FollowRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FollowerId    string                 `protobuf:"bytes,1,opt,name=follower_id,json=followerID,proto3" json:"follower_id,omitempty"`
+	Signature     string                 `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
+	Fingerprint   string                 `protobuf:"bytes,2,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1111,17 +1114,26 @@ func (*FollowRequest) Descriptor() ([]byte, []int) {
 	return file_identity_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *FollowRequest) GetFollowerId() string {
+func (x *FollowRequest) GetSignature() string {
 	if x != nil {
-		return x.FollowerId
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *FollowRequest) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
 	}
 	return ""
 }
 
 type FollowListUser struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
-	FollowedAt    uint32                 `protobuf:"varint,2,opt,name=followed_at,json=followedAt,proto3" json:"followed_at,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	UserId     string                 `protobuf:"bytes,1,opt,name=user_id,json=userID,proto3" json:"user_id,omitempty"`
+	FollowedAt uint32                 `protobuf:"varint,2,opt,name=followed_at,json=followedAt,proto3" json:"followed_at,omitempty"`
+	// On a followers list: the follow, for the viewer to verify.
+	Cert          *FollowCert `protobuf:"bytes,3,opt,name=cert,proto3" json:"cert,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1168,6 +1180,13 @@ func (x *FollowListUser) GetFollowedAt() uint32 {
 		return x.FollowedAt
 	}
 	return 0
+}
+
+func (x *FollowListUser) GetCert() *FollowCert {
+	if x != nil {
+		return x.Cert
+	}
+	return nil
 }
 
 type FollowListResponse struct {
@@ -2248,14 +2267,15 @@ const file_identity_proto_rawDesc = "" +
 	"\x05users\x18\x01 \x03(\v2\x18.syrinx.UserSearchResultR\x05users\x12\x19\n" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\x12\x1f\n" +
 	"\vnext_cursor\x18\x03 \x01(\tR\n" +
-	"nextCursor\"0\n" +
-	"\rFollowRequest\x12\x1f\n" +
-	"\vfollower_id\x18\x01 \x01(\tR\n" +
-	"followerID\"J\n" +
+	"nextCursor\"O\n" +
+	"\rFollowRequest\x12\x1c\n" +
+	"\tsignature\x18\x01 \x01(\tR\tsignature\x12 \n" +
+	"\vfingerprint\x18\x02 \x01(\tR\vfingerprint\"r\n" +
 	"\x0eFollowListUser\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1f\n" +
 	"\vfollowed_at\x18\x02 \x01(\rR\n" +
-	"followedAt\"]\n" +
+	"followedAt\x12&\n" +
+	"\x04cert\x18\x03 \x01(\v2\x12.syrinx.FollowCertR\x04cert\"]\n" +
 	"\x12FollowListResponse\x12,\n" +
 	"\x05users\x18\x01 \x03(\v2\x16.syrinx.FollowListUserR\x05users\x12\x19\n" +
 	"\bhas_more\x18\x02 \x01(\bR\ahasMore\"\xbf\x02\n" +
@@ -2381,8 +2401,9 @@ var file_identity_proto_goTypes = []any{
 	(*WithdrawVouchRequest)(nil),  // 28: syrinx.WithdrawVouchRequest
 	(*ServerSignature)(nil),       // 29: syrinx.ServerSignature
 	(*UserSignature)(nil),         // 30: syrinx.UserSignature
-	(*KeyRevocationCert)(nil),     // 31: syrinx.KeyRevocationCert
-	(*BlockCert)(nil),             // 32: syrinx.BlockCert
+	(*FollowCert)(nil),            // 31: syrinx.FollowCert
+	(*KeyRevocationCert)(nil),     // 32: syrinx.KeyRevocationCert
+	(*BlockCert)(nil),             // 33: syrinx.BlockCert
 }
 var file_identity_proto_depIdxs = []int32{
 	1,  // 0: syrinx.ServerInfo.federation:type_name -> syrinx.FederatedServerInfo
@@ -2393,22 +2414,23 @@ var file_identity_proto_depIdxs = []int32{
 	7,  // 5: syrinx.User.username_collision:type_name -> syrinx.UsernameCollision
 	29, // 6: syrinx.UsernameCollision.server_signature:type_name -> syrinx.ServerSignature
 	11, // 7: syrinx.UserSearchResponse.users:type_name -> syrinx.UserSearchResult
-	14, // 8: syrinx.FollowListResponse.users:type_name -> syrinx.FollowListUser
-	29, // 9: syrinx.PublicKey.server_signature:type_name -> syrinx.ServerSignature
-	31, // 10: syrinx.KeyRevocationResponse.user:type_name -> syrinx.KeyRevocationCert
-	18, // 11: syrinx.KeyRevocationResponse.server:type_name -> syrinx.ServerKeyRevocation
-	32, // 12: syrinx.BlockListResponse.blocks:type_name -> syrinx.BlockCert
-	30, // 13: syrinx.Vouch.user_signature:type_name -> syrinx.UserSignature
-	29, // 14: syrinx.Vouch.server_signature:type_name -> syrinx.ServerSignature
-	25, // 15: syrinx.Vouch.withdrawal:type_name -> syrinx.VouchWithdrawal
-	30, // 16: syrinx.VouchWithdrawal.user_signature:type_name -> syrinx.UserSignature
-	29, // 17: syrinx.VouchWithdrawal.server_signature:type_name -> syrinx.ServerSignature
-	24, // 18: syrinx.VouchListResponse.vouches:type_name -> syrinx.Vouch
-	19, // [19:19] is the sub-list for method output_type
-	19, // [19:19] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	31, // 8: syrinx.FollowListUser.cert:type_name -> syrinx.FollowCert
+	14, // 9: syrinx.FollowListResponse.users:type_name -> syrinx.FollowListUser
+	29, // 10: syrinx.PublicKey.server_signature:type_name -> syrinx.ServerSignature
+	32, // 11: syrinx.KeyRevocationResponse.user:type_name -> syrinx.KeyRevocationCert
+	18, // 12: syrinx.KeyRevocationResponse.server:type_name -> syrinx.ServerKeyRevocation
+	33, // 13: syrinx.BlockListResponse.blocks:type_name -> syrinx.BlockCert
+	30, // 14: syrinx.Vouch.user_signature:type_name -> syrinx.UserSignature
+	29, // 15: syrinx.Vouch.server_signature:type_name -> syrinx.ServerSignature
+	25, // 16: syrinx.Vouch.withdrawal:type_name -> syrinx.VouchWithdrawal
+	30, // 17: syrinx.VouchWithdrawal.user_signature:type_name -> syrinx.UserSignature
+	29, // 18: syrinx.VouchWithdrawal.server_signature:type_name -> syrinx.ServerSignature
+	24, // 19: syrinx.VouchListResponse.vouches:type_name -> syrinx.Vouch
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_identity_proto_init() }

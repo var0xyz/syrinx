@@ -301,6 +301,35 @@ func buildBlockServerPayload(
 	})
 }
 
+// identityTypeFollow is the `type` of a follow certificate.
+const identityTypeFollow = "follow"
+
+// buildFollowUserPayload returns the bytes a follower signs; follow is
+// false for an unfollow. keyID names the follower's signing key.
+func buildFollowUserPayload(followerID, followeeID, keyID string, follow bool) []byte {
+	return canonicalJSON(signedFields{
+		"type":       identityTypeFollow,
+		"followerID": followerID,
+		"followeeID": followeeID,
+		"keyID":      keyID,
+		"follow":     follow,
+	})
+}
+
+// buildFollowServerPayload returns the bytes the follower's home server
+// countersigns.
+func buildFollowServerPayload(followerID, followeeID string, follow bool, serverKeyFingerprint, userSignature string, signedAt time.Time) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeFollow,
+		"followerID":           followerID,
+		"followeeID":           followeeID,
+		"follow":               follow,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
+}
+
 // MaxVouchNoteChars caps a vouch's optional public memo.
 const MaxVouchNoteChars = 140
 

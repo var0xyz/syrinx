@@ -331,7 +331,11 @@ func pbVouchList(l *VouchListResponse) *pb.VouchListResponse {
 func pbFollowList(l *FollowListResponse) *pb.FollowListResponse {
 	out := &pb.FollowListResponse{HasMore: l.HasMore}
 	for _, u := range l.Users {
-		out.Users = append(out.Users, &pb.FollowListUser{UserId: u.UserID, FollowedAt: unixOrZero(u.FollowedAt)})
+		item := &pb.FollowListUser{UserId: u.UserID, FollowedAt: unixOrZero(u.FollowedAt)}
+		if u.Cert != nil {
+			item.Cert = pbFollowCert(u.Cert)
+		}
+		out.Users = append(out.Users, item)
 	}
 	return out
 }

@@ -1,21 +1,68 @@
 import { dbService } from '$lib/services/db';
 import { apiService } from '$lib/services/api';
-import { allowUnsigned } from '$lib/verifiers';
+import { authService } from '$lib/services/auth';
+import { requestSigner } from '$lib/services/request-signer';
+import { buildFollowUserPayload } from '$lib/services/signing';
+import { allowUnsigned, verifyOwnFollow } from '$lib/verifiers';
 import { userListsRepository } from '$lib/repositories/userLists';
+import type * as api from '$lib/types/api';
 
 interface FollowRecord {
   userId: string;
   timestamp: number;
 }
 
-interface UnfollowRecord {
+/** A signed follow or unfollow waiting to reach the server. */
+interface PendingFollowRecord {
   userId: string;
   timestamp: number;
+  keyId: string;
+  signature: string;
 }
 
 const FOLLOWING_STORE = 'following';
+const FOLLOW_CERTS_STORE = 'followCerts';
 const PENDING_FOLLOWS_STORE = 'pendingFollows';
 const UNFOLLOW_STORE = 'unfollow';
+
+/** A refusal that retrying can't fix. */
+function isPermanent(error: unknown): boolean {
+  const status = (error as { status?: number })?.status;
+  return status != null && status >= 400 && status < 500 && status !== 401 && status !== 429;
+}
+
+async function sign(userId: string, follow: boolean): Promise<PendingFollowRecord> {
+  const viewerID = localStorage.getItem('userId');
+  const keyId = authService.getActiveKeyId();
+  if (!viewerID || !keyId) throw new Error('Not signed in');
+  const signature = await requestSigner.sign(buildFollowUserPayload(viewerID, userId, keyId, follow));
+  return { userId, timestamp: Date.now(), keyId, signature };
+}
+
+/** Keeps the countersigned certificate, the latest per followee. */
+async function keepCert(cert: api.FollowCert): Promise<void> {
+  try {
+    await dbService.put(FOLLOW_CERTS_STORE, cert, verifyOwnFollow);
+  } catch (error) {
+    console.warn('[following] refused follow certificate', cert.followeeId, error);
+  }
+}
+
+async function flush(record: PendingFollowRecord, follow: boolean): Promise<void> {
+  const store = follow ? PENDING_FOLLOWS_STORE : UNFOLLOW_STORE;
+  try {
+    const cert = follow
+      ? await apiService.followUser(record.userId, record.signature, record.keyId)
+      : await apiService.unfollowUser(record.userId, record.signature, record.keyId);
+    await keepCert(cert);
+    await dbService.delete(store, record.userId);
+  } catch (error) {
+    console.error(`Failed to sync ${follow ? 'follow' : 'unfollow'} to server:`, error);
+    if (!isPermanent(error)) return;
+    await dbService.delete(store, record.userId);
+    if (follow) await dbService.delete(FOLLOWING_STORE, record.userId);
+  }
+}
 
 export const followingRepository = {
   async isFollowing(userId: string): Promise<boolean> {
@@ -23,80 +70,41 @@ export const followingRepository = {
     return !!record;
   },
 
-  /**
-   * Record a follow that already exists on the server (e.g. restore from
-   * backup) without enqueueing a pending sync POST.
-   */
-  async recordLocalFollow(userId: string): Promise<void> {
-    const existing = await dbService.get<FollowRecord>(FOLLOWING_STORE, userId);
-    if (existing) return;
+  /** Records a follow the server already holds, with its certificate. */
+  async recordLocalFollow(cert: api.FollowCert): Promise<void> {
+    await keepCert(cert);
+    if (await dbService.get<FollowRecord>(FOLLOWING_STORE, cert.followeeId)) return;
     await dbService.put<FollowRecord>(
       FOLLOWING_STORE,
-      { userId, timestamp: Date.now() },
+      { userId: cert.followeeId, timestamp: Date.now() },
       allowUnsigned
     );
   },
 
   async follow(userId: string): Promise<void> {
-    const existing = await dbService.get<FollowRecord>(FOLLOWING_STORE, userId);
-    if (existing) return;
-
-    const record: FollowRecord = { userId, timestamp: Date.now() };
-    await dbService.put<FollowRecord>(FOLLOWING_STORE, record, allowUnsigned);
-    await dbService.put<FollowRecord>(PENDING_FOLLOWS_STORE, record, allowUnsigned);
-
-    try {
-      await apiService.followUser(userId);
-      await dbService.delete(PENDING_FOLLOWS_STORE, userId);
-    } catch (error) {
-      console.error('Failed to sync follow to server:', error);
-    }
+    if (await dbService.get<FollowRecord>(FOLLOWING_STORE, userId)) return;
+    const record = await sign(userId, true);
+    await dbService.delete(UNFOLLOW_STORE, userId);
+    await dbService.put<FollowRecord>(FOLLOWING_STORE, { userId, timestamp: record.timestamp }, allowUnsigned);
+    await dbService.put<PendingFollowRecord>(PENDING_FOLLOWS_STORE, record, allowUnsigned);
+    await flush(record, true);
   },
 
   async unfollow(userId: string): Promise<void> {
+    const record = await sign(userId, false);
     await dbService.delete(FOLLOWING_STORE, userId);
+    await dbService.delete(PENDING_FOLLOWS_STORE, userId);
     await userListsRepository.removeMember(userId);
-    await dbService.put<UnfollowRecord>(
-      UNFOLLOW_STORE,
-      { userId, timestamp: Date.now() },
-      allowUnsigned
-    );
-
-    try {
-      await apiService.unfollowUser(userId);
-      await dbService.delete(UNFOLLOW_STORE, userId);
-    } catch (error) {
-      console.error('Failed to sync unfollow to server:', error);
-    }
-  },
-
-  async getPendingFollows(): Promise<FollowRecord[]> {
-    return dbService.getAll<FollowRecord>(PENDING_FOLLOWS_STORE);
-  },
-
-  async getPendingUnfollows(): Promise<UnfollowRecord[]> {
-    return dbService.getAll<UnfollowRecord>(UNFOLLOW_STORE);
+    await dbService.put<PendingFollowRecord>(UNFOLLOW_STORE, record, allowUnsigned);
+    await flush(record, false);
   },
 
   async syncPending(): Promise<void> {
-    const pendingFollows = await dbService.getAll<FollowRecord>(PENDING_FOLLOWS_STORE);
-    for (const record of pendingFollows) {
-      try {
-        await apiService.followUser(record.userId);
-        await dbService.delete(PENDING_FOLLOWS_STORE, record.userId);
-      } catch (error) {
-        console.error('Failed to sync pending follow:', record.userId, error);
-      }
+    for (const record of await dbService.getAll<PendingFollowRecord>(PENDING_FOLLOWS_STORE)) {
+      await flush(record, true);
     }
-
-    const pendingUnfollows = await dbService.getAll<UnfollowRecord>(UNFOLLOW_STORE);
-    for (const record of pendingUnfollows) {
-      try {
-        await apiService.unfollowUser(record.userId);
-        await dbService.delete(UNFOLLOW_STORE, record.userId);
-      } catch (error) {
-        console.error('Failed to sync pending unfollow:', record.userId, error);
-      }
+    for (const record of await dbService.getAll<PendingFollowRecord>(UNFOLLOW_STORE)) {
+      await flush(record, false);
     }
   },
 };

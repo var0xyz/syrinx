@@ -6,6 +6,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import RemotePagination from '$lib/components/RemotePagination.svelte';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
+  import { verifyFollowCert } from '$lib/verifiers';
 
   export let userId = '';
   /** 'following' | 'followers' */
@@ -34,8 +35,16 @@
       ? await apiService.listFollowing(userId, { before: cursor ? Number(cursor) : undefined })
       : await apiService.listFollowers(userId, { before: cursor ? Number(cursor) : undefined });
 
+    // A follower is listed only with a follow that verifies, never stored.
+    const shown = mode === 'following'
+      ? list.users
+      : (await Promise.all(list.users.map(async (u) => {
+          const c = u.cert;
+          const ok = !!c && c.follow && c.followerId === u.userId && c.followeeId === userId && (await verifyFollowCert(c));
+          return ok ? u : null;
+        }))).filter((u) => u !== null);
     const items = await Promise.all(
-      list.users.map(async (u) => {
+      shown.map(async (u) => {
         const profile = await userRepository.getByUserId(u.userId).catch(() => null);
         return {
           userID: u.userId,

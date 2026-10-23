@@ -10,6 +10,7 @@ import { authService } from './auth';
 import { cryptoService } from './crypto';
 import { requestSigner } from './request-signer';
 import { followingRepository } from '$lib/repositories/following';
+import { followersRepository } from '$lib/repositories/followers';
 import { reedRequestsRepository } from '$lib/repositories/reedRequests';
 import { reedsService } from '$lib/repositories/reeds';
 import { serverInfo, refreshServerInfo } from './serverInfo';
@@ -114,8 +115,11 @@ export async function restoreFromIdentityBackup(backup: BackupPayload): Promise<
   await authService.saveUserToStorage(bootstrap.profile);
   authService.setActiveKey(keyId);
 
-  for (const followId of bootstrap.following) {
-    await followingRepository.recordLocalFollow(followId);
+  for (const cert of bootstrap.follows) {
+    await followingRepository.recordLocalFollow(cert);
+  }
+  for (const cert of bootstrap.followers) {
+    await followersRepository.put(cert);
   }
 
   if (bootstrap.tipReedId) {

@@ -118,6 +118,21 @@ func (h *Handlers) suspendIfPeerInLockdown(ctx context.Context, peerServerID str
 // path, signed as this server's own key, and decodes a 2xx response into
 // out (nil to ignore it). Returns the peer's HTTP status.
 func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, peerServerID, baseURL, path string, body, out proto.Message) (status int, err error) {
+	status, respBody, err := h.callPeerRelayEndpointRaw(ctx, peerServerID, baseURL, path, body)
+	if err != nil {
+		return status, err
+	}
+	if out != nil && status >= 200 && status < 300 {
+		if err := proto.Unmarshal(respBody, out); err != nil {
+			return status, err
+		}
+	}
+	return status, nil
+}
+
+// callPeerRelayEndpointRaw is callPeerRelayEndpoint returning the peer's
+// response body, whatever its status.
+func (h *Handlers) callPeerRelayEndpointRaw(ctx context.Context, peerServerID, baseURL, path string, body proto.Message) (status int, respBody []byte, err error) {
 	leg := relayLeg(path)
 	ok := false
 	defer func() { h.metrics.FederationRelay(ctx, metrics.DirectionOut, peerServerID, leg, ok) }()
@@ -125,41 +140,36 @@ func (h *Handlers) callPeerRelayEndpoint(ctx context.Context, peerServerID, base
 	var payload []byte
 	if body != nil {
 		if payload, err = proto.Marshal(body); err != nil {
-			return 0, err
+			return 0, nil, err
 		}
 	}
 	target := strings.TrimRight(baseURL, "/") + path
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	httpReq.Header.Set("Content-Type", protobufContentType)
 	if err := h.setPeerProxyAuthHeaders(httpReq, string(payload)); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	_, span := startPeerCallSpan(ctx, peerServerID, leg)
 	resp, err := h.federationHTTPClient().Do(httpReq)
 	endPeerCallSpan(span, resp, err)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	h.suspendIfPeerInLockdown(ctx, peerServerID, resp)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
+	respBody, err = io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return resp.StatusCode, err
+		return resp.StatusCode, nil, err
 	}
 	if resp.StatusCode == http.StatusForbidden {
 		h.acceptRefusalBlock(ctx, peerServerID, respBody)
 	}
-	if out != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		if err := proto.Unmarshal(respBody, out); err != nil {
-			return resp.StatusCode, err
-		}
-	}
 	ok = resp.StatusCode >= 200 && resp.StatusCode < 300
-	return resp.StatusCode, nil
+	return resp.StatusCode, respBody, nil
 }
 
 // ///////////////////////////////////// //
@@ -1692,6 +1702,7 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 		go h.deliverBehindStreams(peerServerID)
 		go h.sendOwedKeyRevocations(peerServerID)
 		go h.sendOwedBlockNotices(peerServerID)
+		go h.sendOwedFollowNotices(peerServerID)
 		go h.sendOwedAccountRemovals(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)

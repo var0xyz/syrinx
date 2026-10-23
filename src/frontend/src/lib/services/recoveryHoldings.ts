@@ -73,13 +73,6 @@ export async function reportRecoveryPins(selfUserId: string): Promise<void> {
   await apiService.reportRecoveryPins([...info.pinnedReedIds]);
 }
 
-/** POST one follow page (≤100 user IDs). */
-export async function reportRecoveryFollowing(
-  userIds: string[]
-): Promise<void> {
-  await apiService.reportRecoveryFollowing(userIds);
-}
-
 /** POST /recovery/complete (idempotent server-side). */
 export async function completeRecoveryImport(): Promise<void> {
   await apiService.completeRecovery();

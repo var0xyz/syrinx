@@ -18,13 +18,23 @@ func TestBlockedUserCannotInteract(t *testing.T) {
 	reedID := uuid.Must(uuid.NewV7()).String()
 	vars := map[string]string{"userID": f.alice, "reedID": reedID}
 
-	follow := func(user string, kp cryptoKeyPair) int {
-		return f.serve(t, f.h.FollowUser, http.MethodPost, "/api/users/"+f.alice+"/follow", user, kp, nil, map[string]string{"userID": f.alice}).Code
+	followAs := func(user string, kp cryptoKeyPair, follow bool) int {
+		sig, err := f.h.services.crypto.sign(context.Background(), string(buildFollowUserPayload(user, f.alice, f.keyID(user, kp), follow)), kp.PrivateKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := &pb.FollowRequest{Signature: sig, Fingerprint: kp.Fingerprint}
+		handler, method := f.h.FollowUser, http.MethodPost
+		if !follow {
+			handler, method = f.h.UnfollowUser, http.MethodDelete
+		}
+		return f.serve(t, handler, method, "/api/users/"+f.alice+"/follow", user, kp, body, map[string]string{"userID": f.alice}).Code
 	}
+	follow := func(user string, kp cryptoKeyPair) int { return followAs(user, kp, true) }
 	if code := follow(f.bob, f.bobKP); code != http.StatusForbidden {
 		t.Fatalf("bob follows alice: status %d", code)
 	}
-	if code := follow(f.carol, f.carolKP); code != http.StatusNoContent {
+	if code := follow(f.carol, f.carolKP); code != http.StatusOK {
 		t.Fatalf("carol follows alice: status %d", code)
 	}
 
@@ -49,8 +59,8 @@ func TestBlockedUserCannotInteract(t *testing.T) {
 	}
 
 	// Unfollowing and blocking back are never refused.
-	if rr := f.serve(t, f.h.UnfollowUser, http.MethodDelete, "/api/users/"+f.alice+"/follow", f.bob, f.bobKP, nil, map[string]string{"userID": f.alice}); rr.Code != http.StatusNoContent {
-		t.Fatalf("bob unfollows alice: status %d", rr.Code)
+	if code := followAs(f.bob, f.bobKP, false); code != http.StatusOK {
+		t.Fatalf("bob unfollows alice: status %d", code)
 	}
 	if rr := f.postBlock(t, f.bob, f.bobKP, f.alice); rr.Code != http.StatusOK {
 		t.Fatalf("bob blocks alice back: status %d", rr.Code)

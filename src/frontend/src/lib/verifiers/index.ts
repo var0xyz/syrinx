@@ -50,6 +50,8 @@ import {
   buildAdminRevocationServerPayload,
   buildPeerRecordPayload,
   buildUsernameCollisionPayload,
+  buildFollowUserPayload,
+  buildFollowServerPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
 import type { LedgerRecord } from '$lib/repositories/ledger';
@@ -942,6 +944,56 @@ async function verifyBlockCert(cert: api.BlockCert, label: string): Promise<bool
     return false;
   }
   return true;
+}
+
+/** A follow or unfollow, signed by the follower and countersigned by their
+ * home server. */
+export async function verifyFollowCert(cert: api.FollowCert): Promise<boolean> {
+  if (!cert || cert.$typeName !== 'syrinx.FollowCert' || !cert.userSignature?.armor || !cert.serverSignature) {
+    console.error('[verifyFollowCert] missing fields or wrong type', cert?.$typeName);
+    return false;
+  }
+  const { fingerprint, serverID } = splitServerSignatureId(cert.serverSignature.id);
+  if (serverID !== parseCanonicalId(cert.followerId)?.[1]) {
+    console.error("[verifyFollowCert] not countersigned by the follower's server");
+    return false;
+  }
+  const key = await resolvePublicKey(cert.followerId, cert.userSignature.id);
+  if (!key?.armor || key.userId !== cert.followerId) {
+    console.error('[verifyFollowCert] no key of the follower', cert.followerId);
+    return false;
+  }
+  const userPayload = buildFollowUserPayload(cert.followerId, cert.followeeId, cert.userSignature.id, cert.follow);
+  if (!(await cryptoService.verifySignature(userPayload, cert.userSignature.armor, key.armor))) {
+    console.error('[verifyFollowCert] user signature failed', cert.followerId);
+    return false;
+  }
+  const serverPayload = buildFollowServerPayload(
+    cert.followerId,
+    cert.followeeId,
+    cert.follow,
+    fingerprint,
+    cert.userSignature.armor,
+    signedAtHeader(cert.serverSignature.signedAt)
+  );
+  const serverResult = await verify(cert.serverSignature, serverPayload);
+  if (serverResult.ok === false) {
+    console.error('[verifyFollowCert] server signature failed', serverResult);
+    return false;
+  }
+  return true;
+}
+
+/** The viewer's own follow or unfollow. */
+export async function verifyOwnFollow(cert: api.FollowCert): Promise<boolean> {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  return !!viewerID && cert?.followerId === viewerID && verifyFollowCert(cert);
+}
+
+/** A follow of the viewer. */
+export async function verifyFollowOfViewer(cert: api.FollowCert): Promise<boolean> {
+  const viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
+  return !!viewerID && cert?.followeeId === viewerID && cert.follow && verifyFollowCert(cert);
 }
 
 /** A block of the viewer. */

@@ -39,6 +39,7 @@ export async function commitBlockLocally(cert: api.BlockCert): Promise<boolean> 
   await userInfoRepository.delete(userID);
 
   await dbService.delete('following', userID);
+  await dbService.delete('followCerts', userID);
   await dbService.delete('pendingFollows', userID);
   await dbService.delete('unfollow', userID);
   await userListsRepository.removeMember(userID);

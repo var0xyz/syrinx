@@ -77,6 +77,8 @@ message WSMessage {
     UserUnblockedMessage user_unblocked = 57;
     UserUnblockedAckMessage user_unblocked_ack = 58;
     LedgerEntryMessage ledger_entry = 59;
+    FollowedMessage followed = 60;
+    FollowedAckMessage followed_ack = 61;
   }
 }
 
@@ -155,6 +157,8 @@ enum MessageType {
   USER_UNBLOCKED_ACK = 69;
   LEDGER_ENTRY = 70;
   ADMIN_MENTION = 71;
+  FOLLOWED = 72;
+  FOLLOWED_ACK = 73;
 }
 
 // Ping message
@@ -495,4 +499,14 @@ message PeerServerLostMessage {
 // A new ledger entry, pushed to every connected local member.
 message LedgerEntryMessage {
   LedgerEntry entry = 1;
+}
+
+// A follow or unfollow of the recipient, acked with FOLLOWED_ACK.
+message FollowedMessage {
+  FollowCert cert = 1;
+}
+
+message FollowedAckMessage {
+  string follower_id = 1 [json_name = "followerID"];
+  bool follow = 2;
 }

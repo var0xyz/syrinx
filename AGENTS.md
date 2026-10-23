@@ -231,7 +231,8 @@ same-named root file instead:
 
 - **Server recovery** (`recovery.go`, `RECOVERY_MODE`): operator rebuilt a
   wiped DB; clients report signed evidence *to* the server. Bookkeeping in
-  `ongoing_recoveries` / `unclaimed_accounts` / `pending_follows`.
+  `ongoing_recoveries` / `unclaimed_accounts`; follows come back as signed
+  follow certificates in the records step (`follow_certs`).
 - **Account recovery** (`specs/account_recovery/`; `AccountRecoveryChallenge`/
   `BootstrapAccountRecovery` in `handlers.go` — always root-level functions,
   never a separate package): a single user reconstitutes a client from keys

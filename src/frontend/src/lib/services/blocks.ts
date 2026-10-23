@@ -3,6 +3,7 @@ import { apiService } from './api';
 import { authService } from './auth';
 import { requestSigner } from './request-signer';
 import { buildBlockUserPayload } from './signing';
+import { followersRepository } from '$lib/repositories/followers';
 import {
   blocksRepository,
   pendingBlocksRepository,
@@ -66,6 +67,8 @@ async function flushBlock(record: PendingBlockRecord): Promise<void> {
   try {
     const cert = await apiService.blockUser(record.blockedUserID, record.signature, record.keyId);
     await blocksRepository.put(cert);
+    // The block ends their follow of the viewer.
+    await followersRepository.delete(record.blockedUserID);
     await pendingBlocksRepository.delete(record.blockedUserID);
   } catch (error) {
     console.error('[blocks] could not send block', record.blockedUserID, error);

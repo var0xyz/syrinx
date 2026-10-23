@@ -2672,6 +2672,9 @@ func (rs *realtimeService) handleProtobufMessage(client *realtimeClient, data []
 	case pb.MessageType_USER_BLOCKED_ACK:
 		rs.ackBlockEvent(ctx, client, msg.GetUserBlockedAck().GetUserId(), blockEventBlock)
 
+	case pb.MessageType_FOLLOWED_ACK:
+		rs.ackFollowEvent(ctx, client, msg.GetFollowedAck())
+
 	case pb.MessageType_USER_UNBLOCKED_ACK:
 		rs.ackBlockEvent(ctx, client, msg.GetUserUnblockedAck().GetUserId(), blockEventUnblock)
 
@@ -4272,6 +4275,7 @@ func (rs *realtimeService) handleSyncRequest(ctx context.Context, client *realti
 	}
 	rs.catchUp(ctx, client.userID, requestID)
 	rs.catchUpBlocks(ctx, client.userID)
+	rs.catchUpFollows(ctx, client.userID)
 	rs.dispatchNext(ctx, client.userID)
 	rs.redispatchPendingRequests(ctx, client.userID)
 	// Every SYNC doubles as the keepalive for delivery to peers.

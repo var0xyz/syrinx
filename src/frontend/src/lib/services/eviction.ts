@@ -30,6 +30,7 @@ export async function protectedUserIDs(): Promise<Set<string>> {
   return buildProtectedUserIDs({
     viewerID: localStorage.getItem('userId'),
     following: await dbService.getAll<{ userId: string }>('following'),
+    followers: await dbService.getAll<{ followerId: string }>('followers'),
     userLists: await userListsRepository.getAll(),
     vouches: await dbService.getAll<api.Vouch>('vouches'),
   });

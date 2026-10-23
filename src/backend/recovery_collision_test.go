@@ -11,14 +11,13 @@ import (
 
 // ensureRecoveryCollisionSchema extends the signup-test schema with the
 // tables saveOwnIdentity/savePeerIdentity touch: network_stats (coverage
-// counter), unclaimed_accounts, ongoing_recoveries, pending_follows,
+// counter), unclaimed_accounts, ongoing_recoveries,
 // user_devices (own-claim device binding), username_collisions, and
 // the self server row server_self points at.
 func ensureRecoveryCollisionSchema(db *sql.DB) error {
 	stmts := []string{
 		`DROP TABLE IF EXISTS username_collisions CASCADE`,
 		`DROP TABLE IF EXISTS user_devices CASCADE`,
-		`DROP TABLE IF EXISTS pending_follows CASCADE`,
 		`DROP TABLE IF EXISTS ongoing_recoveries CASCADE`,
 		`DROP TABLE IF EXISTS unclaimed_accounts CASCADE`,
 		`DROP TABLE IF EXISTS network_stats CASCADE`,
@@ -38,12 +37,6 @@ func ensureRecoveryCollisionSchema(db *sql.DB) error {
 		`CREATE TABLE ongoing_recoveries (
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE pending_follows (
-			follower_user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-			following_user_id VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (follower_user_id, following_user_id)
 		)`,
 		`INSERT INTO servers (id, name, self, frontend_url) VALUES ('test', 'test', TRUE, 'https://test.example')`,
 		`INSERT INTO server_self (server_id) VALUES ('test')`,

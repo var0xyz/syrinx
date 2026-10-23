@@ -60,6 +60,7 @@ func TestRecoveryRestoresPeersAndTheirContent(t *testing.T) {
 	bob := b.signup(t, "bob")
 	bobSnap := b.snapshot(t, bob.id)
 	reed := b.post(t, bob, "", "")
+	followOfBob := a.followAs(t, alice, bob.id, true)
 	peeredWith(t, b, a)
 	if err := b.h.services.db.UpsertRemoteIdentity(ctx, alice.id, a.h.services.db.GetServerID()); err != nil {
 		t.Fatal(err)
@@ -109,10 +110,12 @@ func TestRecoveryRestoresPeersAndTheirContent(t *testing.T) {
 		t.Fatalf("alice holds bob's reed = %v (%v)", held, err)
 	}
 
-	expectStatus(t, "following", a2.authed(t, alice, http.MethodPost, "/api/recovery/following", &pb.RecoveryFollowingRequest{UserIds: []string{bob.id}}, nil, a2.h.ReportFollowing), http.StatusNoContent)
-	var follows, pending int
-	if err := a2.db.QueryRow(`SELECT (SELECT COUNT(*) FROM user_following WHERE user_id = $1 AND following_user_id = $2), (SELECT COUNT(*) FROM pending_follows)`, alice.id, bob.id).Scan(&follows, &pending); err != nil || follows != 1 || pending != 0 {
-		t.Fatalf("follow of bob = %d, pending = %d (%v)", follows, pending, err)
+	a2.reportRecords(t, alice, func(yield func(int, *pb.RecoveryRecord) bool) {
+		yield(0, &pb.RecoveryRecord{Record: &pb.RecoveryRecord_Follow{Follow: followOfBob}})
+	})
+	var follows int
+	if err := a2.db.QueryRow(`SELECT COUNT(*) FROM user_following WHERE user_id = $1 AND following_user_id = $2`, alice.id, bob.id).Scan(&follows); err != nil || follows != 1 {
+		t.Fatalf("follow of bob = %d (%v)", follows, err)
 	}
 
 	a2.reportRecords(t, alice, func(yield func(int, *pb.RecoveryRecord) bool) {

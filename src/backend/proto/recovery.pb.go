@@ -136,11 +136,13 @@ func (x *AccountRecoveryBootstrapRequest) GetSignature() string {
 }
 
 type AccountRecoveryBootstrapResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Profile       *User                  `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
-	Following     []string               `protobuf:"bytes,2,rep,name=following,proto3" json:"following,omitempty"`
-	TipReedId     *string                `protobuf:"bytes,3,opt,name=tip_reed_id,json=tipReedID,proto3,oneof" json:"tip_reed_id,omitempty"`
-	ReedIds       []string               `protobuf:"bytes,4,rep,name=reed_ids,json=reedIDs,proto3" json:"reed_ids,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Profile *User                  `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	// The user's active follows, and the follows of them.
+	Follows       []*FollowCert `protobuf:"bytes,2,rep,name=follows,proto3" json:"follows,omitempty"`
+	TipReedId     *string       `protobuf:"bytes,3,opt,name=tip_reed_id,json=tipReedID,proto3,oneof" json:"tip_reed_id,omitempty"`
+	ReedIds       []string      `protobuf:"bytes,4,rep,name=reed_ids,json=reedIDs,proto3" json:"reed_ids,omitempty"`
+	Followers     []*FollowCert `protobuf:"bytes,5,rep,name=followers,proto3" json:"followers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -182,9 +184,9 @@ func (x *AccountRecoveryBootstrapResponse) GetProfile() *User {
 	return nil
 }
 
-func (x *AccountRecoveryBootstrapResponse) GetFollowing() []string {
+func (x *AccountRecoveryBootstrapResponse) GetFollows() []*FollowCert {
 	if x != nil {
-		return x.Following
+		return x.Follows
 	}
 	return nil
 }
@@ -199,6 +201,13 @@ func (x *AccountRecoveryBootstrapResponse) GetTipReedId() string {
 func (x *AccountRecoveryBootstrapResponse) GetReedIds() []string {
 	if x != nil {
 		return x.ReedIds
+	}
+	return nil
+}
+
+func (x *AccountRecoveryBootstrapResponse) GetFollowers() []*FollowCert {
+	if x != nil {
+		return x.Followers
 	}
 	return nil
 }
@@ -825,6 +834,7 @@ type RecoveryRecord struct {
 	//	*RecoveryRecord_LedgerEntry
 	//	*RecoveryRecord_AdminRequest
 	//	*RecoveryRecord_Flag
+	//	*RecoveryRecord_Follow
 	Record        isRecoveryRecord_Record `protobuf_oneof:"record"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -957,6 +967,15 @@ func (x *RecoveryRecord) GetFlag() *ReedFlag {
 	return nil
 }
 
+func (x *RecoveryRecord) GetFollow() *FollowCert {
+	if x != nil {
+		if x, ok := x.Record.(*RecoveryRecord_Follow); ok {
+			return x.Follow
+		}
+	}
+	return nil
+}
+
 type isRecoveryRecord_Record interface {
 	isRecoveryRecord_Record()
 }
@@ -1001,6 +1020,10 @@ type RecoveryRecord_Flag struct {
 	Flag *ReedFlag `protobuf:"bytes,10,opt,name=flag,proto3,oneof"`
 }
 
+type RecoveryRecord_Follow struct {
+	Follow *FollowCert `protobuf:"bytes,11,opt,name=follow,proto3,oneof"`
+}
+
 func (*RecoveryRecord_Like) isRecoveryRecord_Record() {}
 
 func (*RecoveryRecord_Block) isRecoveryRecord_Record() {}
@@ -1020,6 +1043,8 @@ func (*RecoveryRecord_LedgerEntry) isRecoveryRecord_Record() {}
 func (*RecoveryRecord_AdminRequest) isRecoveryRecord_Record() {}
 
 func (*RecoveryRecord_Flag) isRecoveryRecord_Record() {}
+
+func (*RecoveryRecord_Follow) isRecoveryRecord_Record() {}
 
 // POST /recovery/servers: the peer records a device holds, answered with
 // one RecoveryRecordResult each.
@@ -1255,51 +1280,6 @@ func (x *RecoveryPinsRequest) GetReedIds() []string {
 	return nil
 }
 
-// POST /recovery/following.
-type RecoveryFollowingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIDs,proto3" json:"user_ids,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *RecoveryFollowingRequest) Reset() {
-	*x = RecoveryFollowingRequest{}
-	mi := &file_recovery_proto_msgTypes[16]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *RecoveryFollowingRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*RecoveryFollowingRequest) ProtoMessage() {}
-
-func (x *RecoveryFollowingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[16]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use RecoveryFollowingRequest.ProtoReflect.Descriptor instead.
-func (*RecoveryFollowingRequest) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *RecoveryFollowingRequest) GetUserIds() []string {
-	if x != nil {
-		return x.UserIds
-	}
-	return nil
-}
-
 var File_recovery_proto protoreflect.FileDescriptor
 
 const file_recovery_proto_rawDesc = "" +
@@ -1312,12 +1292,13 @@ const file_recovery_proto_rawDesc = "" +
 	"\tchallenge\x18\x01 \x01(\tR\tchallenge\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userID\x12\x15\n" +
 	"\x06key_id\x18\x03 \x01(\tR\x05keyID\x12\x1c\n" +
-	"\tsignature\x18\x04 \x01(\tR\tsignature\"\xb8\x01\n" +
+	"\tsignature\x18\x04 \x01(\tR\tsignature\"\xfa\x01\n" +
 	" AccountRecoveryBootstrapResponse\x12&\n" +
-	"\aprofile\x18\x01 \x01(\v2\f.syrinx.UserR\aprofile\x12\x1c\n" +
-	"\tfollowing\x18\x02 \x03(\tR\tfollowing\x12#\n" +
+	"\aprofile\x18\x01 \x01(\v2\f.syrinx.UserR\aprofile\x12,\n" +
+	"\afollows\x18\x02 \x03(\v2\x12.syrinx.FollowCertR\afollows\x12#\n" +
 	"\vtip_reed_id\x18\x03 \x01(\tH\x00R\ttipReedID\x88\x01\x01\x12\x19\n" +
-	"\breed_ids\x18\x04 \x03(\tR\areedIDsB\x0e\n" +
+	"\breed_ids\x18\x04 \x03(\tR\areedIDs\x120\n" +
+	"\tfollowers\x18\x05 \x03(\v2\x12.syrinx.FollowCertR\tfollowersB\x0e\n" +
 	"\f_tip_reed_id\"\xa9\x03\n" +
 	"\x0fRecoveryProfile\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
@@ -1378,7 +1359,7 @@ const file_recovery_proto_rawDesc = "" +
 	"\vthread_head\x18\a \x01(\tR\n" +
 	"threadHead\x12!\n" +
 	"\fthread_index\x18\b \x01(\rR\vthreadIndex\x12\x1a\n" +
-	"\bmentions\x18\t \x03(\tR\bmentions\"\xa8\x04\n" +
+	"\bmentions\x18\t \x03(\tR\bmentions\"\xd6\x04\n" +
 	"\x0eRecoveryRecord\x12&\n" +
 	"\x04like\x18\x01 \x01(\v2\x10.syrinx.LikeCertH\x00R\x04like\x12)\n" +
 	"\x05block\x18\x02 \x01(\v2\x11.syrinx.BlockCertH\x00R\x05block\x12%\n" +
@@ -1390,7 +1371,8 @@ const file_recovery_proto_rawDesc = "" +
 	"\fledger_entry\x18\b \x01(\v2\x13.syrinx.LedgerEntryH\x00R\vledgerEntry\x12;\n" +
 	"\radmin_request\x18\t \x01(\v2\x14.syrinx.AdminRequestH\x00R\fadminRequest\x12&\n" +
 	"\x04flag\x18\n" +
-	" \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flagB\b\n" +
+	" \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flag\x12,\n" +
+	"\x06follow\x18\v \x01(\v2\x12.syrinx.FollowCertH\x00R\x06followB\b\n" +
 	"\x06record\"O\n" +
 	"\x16RecoveryServersRequest\x125\n" +
 	"\aservers\x18\x01 \x03(\v2\x1b.syrinx.FederatedServerInfoR\aservers\"J\n" +
@@ -1402,9 +1384,7 @@ const file_recovery_proto_rawDesc = "" +
 	"\x17RecoveryRecordsResponse\x126\n" +
 	"\aresults\x18\x01 \x03(\v2\x1c.syrinx.RecoveryRecordResultR\aresults\"0\n" +
 	"\x13RecoveryPinsRequest\x12\x19\n" +
-	"\breed_ids\x18\x01 \x03(\tR\areedIDs\"5\n" +
-	"\x18RecoveryFollowingRequest\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\tR\auserIDsB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
+	"\breed_ids\x18\x01 \x03(\tR\areedIDsB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 
 var (
 	file_recovery_proto_rawDescOnce sync.Once
@@ -1418,7 +1398,7 @@ func file_recovery_proto_rawDescGZIP() []byte {
 	return file_recovery_proto_rawDescData
 }
 
-var file_recovery_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_recovery_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_recovery_proto_goTypes = []any{
 	(*ChallengeResponse)(nil),                // 0: syrinx.ChallengeResponse
 	(*AccountRecoveryBootstrapRequest)(nil),  // 1: syrinx.AccountRecoveryBootstrapRequest
@@ -1436,8 +1416,8 @@ var file_recovery_proto_goTypes = []any{
 	(*RecoveryRecordResult)(nil),             // 13: syrinx.RecoveryRecordResult
 	(*RecoveryRecordsResponse)(nil),          // 14: syrinx.RecoveryRecordsResponse
 	(*RecoveryPinsRequest)(nil),              // 15: syrinx.RecoveryPinsRequest
-	(*RecoveryFollowingRequest)(nil),         // 16: syrinx.RecoveryFollowingRequest
-	(*User)(nil),                             // 17: syrinx.User
+	(*User)(nil),                             // 16: syrinx.User
+	(*FollowCert)(nil),                       // 17: syrinx.FollowCert
 	(*UserSignature)(nil),                    // 18: syrinx.UserSignature
 	(*ServerSignature)(nil),                  // 19: syrinx.ServerSignature
 	(*UserInvite)(nil),                       // 20: syrinx.UserInvite
@@ -1454,39 +1434,42 @@ var file_recovery_proto_goTypes = []any{
 	(*FederatedServerInfo)(nil),              // 31: syrinx.FederatedServerInfo
 }
 var file_recovery_proto_depIdxs = []int32{
-	17, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
-	18, // 1: syrinx.RecoveryProfile.user_signature:type_name -> syrinx.UserSignature
-	19, // 2: syrinx.RecoveryProfile.server_signature:type_name -> syrinx.ServerSignature
-	20, // 3: syrinx.RecoveryProfile.invite:type_name -> syrinx.UserInvite
-	18, // 4: syrinx.RecoveryRevocation.user_signature:type_name -> syrinx.UserSignature
-	19, // 5: syrinx.RecoveryRevocation.server_signature:type_name -> syrinx.ServerSignature
-	19, // 6: syrinx.RecoveryKeyNode.server_signature:type_name -> syrinx.ServerSignature
-	5,  // 7: syrinx.RecoveryKeyNode.revocation:type_name -> syrinx.RecoveryRevocation
-	6,  // 8: syrinx.RecoveryKeyNode.predecessor:type_name -> syrinx.RecoveryKeyNode
-	3,  // 9: syrinx.ClaimIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
-	6,  // 10: syrinx.ClaimIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
-	3,  // 11: syrinx.PeerIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
-	6,  // 12: syrinx.PeerIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
-	18, // 13: syrinx.RecoveryReedRequest.user_signature:type_name -> syrinx.UserSignature
-	19, // 14: syrinx.RecoveryReedRequest.server_signature:type_name -> syrinx.ServerSignature
-	21, // 15: syrinx.RecoveryRecord.like:type_name -> syrinx.LikeCert
-	22, // 16: syrinx.RecoveryRecord.block:type_name -> syrinx.BlockCert
-	23, // 17: syrinx.RecoveryRecord.vouch:type_name -> syrinx.Vouch
-	24, // 18: syrinx.RecoveryRecord.reed_removal:type_name -> syrinx.ReedRemovalCert
-	25, // 19: syrinx.RecoveryRecord.account_removal:type_name -> syrinx.AccountRemovalCert
-	26, // 20: syrinx.RecoveryRecord.thread:type_name -> syrinx.ThreadRecord
-	27, // 21: syrinx.RecoveryRecord.thread_removal:type_name -> syrinx.ThreadRemoval
-	28, // 22: syrinx.RecoveryRecord.ledger_entry:type_name -> syrinx.LedgerEntry
-	29, // 23: syrinx.RecoveryRecord.admin_request:type_name -> syrinx.AdminRequest
-	30, // 24: syrinx.RecoveryRecord.flag:type_name -> syrinx.ReedFlag
-	31, // 25: syrinx.RecoveryServersRequest.servers:type_name -> syrinx.FederatedServerInfo
-	10, // 26: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
-	13, // 27: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	16, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
+	17, // 1: syrinx.AccountRecoveryBootstrapResponse.follows:type_name -> syrinx.FollowCert
+	17, // 2: syrinx.AccountRecoveryBootstrapResponse.followers:type_name -> syrinx.FollowCert
+	18, // 3: syrinx.RecoveryProfile.user_signature:type_name -> syrinx.UserSignature
+	19, // 4: syrinx.RecoveryProfile.server_signature:type_name -> syrinx.ServerSignature
+	20, // 5: syrinx.RecoveryProfile.invite:type_name -> syrinx.UserInvite
+	18, // 6: syrinx.RecoveryRevocation.user_signature:type_name -> syrinx.UserSignature
+	19, // 7: syrinx.RecoveryRevocation.server_signature:type_name -> syrinx.ServerSignature
+	19, // 8: syrinx.RecoveryKeyNode.server_signature:type_name -> syrinx.ServerSignature
+	5,  // 9: syrinx.RecoveryKeyNode.revocation:type_name -> syrinx.RecoveryRevocation
+	6,  // 10: syrinx.RecoveryKeyNode.predecessor:type_name -> syrinx.RecoveryKeyNode
+	3,  // 11: syrinx.ClaimIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
+	6,  // 12: syrinx.ClaimIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
+	3,  // 13: syrinx.PeerIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
+	6,  // 14: syrinx.PeerIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
+	18, // 15: syrinx.RecoveryReedRequest.user_signature:type_name -> syrinx.UserSignature
+	19, // 16: syrinx.RecoveryReedRequest.server_signature:type_name -> syrinx.ServerSignature
+	21, // 17: syrinx.RecoveryRecord.like:type_name -> syrinx.LikeCert
+	22, // 18: syrinx.RecoveryRecord.block:type_name -> syrinx.BlockCert
+	23, // 19: syrinx.RecoveryRecord.vouch:type_name -> syrinx.Vouch
+	24, // 20: syrinx.RecoveryRecord.reed_removal:type_name -> syrinx.ReedRemovalCert
+	25, // 21: syrinx.RecoveryRecord.account_removal:type_name -> syrinx.AccountRemovalCert
+	26, // 22: syrinx.RecoveryRecord.thread:type_name -> syrinx.ThreadRecord
+	27, // 23: syrinx.RecoveryRecord.thread_removal:type_name -> syrinx.ThreadRemoval
+	28, // 24: syrinx.RecoveryRecord.ledger_entry:type_name -> syrinx.LedgerEntry
+	29, // 25: syrinx.RecoveryRecord.admin_request:type_name -> syrinx.AdminRequest
+	30, // 26: syrinx.RecoveryRecord.flag:type_name -> syrinx.ReedFlag
+	17, // 27: syrinx.RecoveryRecord.follow:type_name -> syrinx.FollowCert
+	31, // 28: syrinx.RecoveryServersRequest.servers:type_name -> syrinx.FederatedServerInfo
+	10, // 29: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
+	13, // 30: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_recovery_proto_init() }
@@ -1511,6 +1494,7 @@ func file_recovery_proto_init() {
 		(*RecoveryRecord_LedgerEntry)(nil),
 		(*RecoveryRecord_AdminRequest)(nil),
 		(*RecoveryRecord_Flag)(nil),
+		(*RecoveryRecord_Follow)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1518,7 +1502,7 @@ func file_recovery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recovery_proto_rawDesc), len(file_recovery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

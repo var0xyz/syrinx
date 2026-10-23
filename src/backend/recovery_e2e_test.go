@@ -405,10 +405,7 @@ func (s *e2eServer) post(t *testing.T, u *e2eUser, replyTo, echoing string, ment
 
 func (s *e2eServer) follow(t *testing.T, u *e2eUser, target string) {
 	t.Helper()
-	rr := s.authed(t, u, http.MethodPost, "/api/users/"+target+"/follow", nil, map[string]string{"userID": target}, s.h.FollowUser)
-	if rr.Code != http.StatusOK && rr.Code != http.StatusNoContent {
-		expectStatus(t, "follow", rr, http.StatusNoContent)
-	}
+	s.followAs(t, u, target, true)
 }
 
 // invite creates an invite from u and returns its id and secret.
@@ -440,7 +437,8 @@ type device struct {
 	user      *e2eUser
 	snapshots map[string]recoverySnapshot
 	reeds     []spaReed
-	following []string
+	// follows are the certificates it holds: its own, and of its followers.
+	follows []*pb.FollowCert
 	records   []*pb.RecoveryRecord
 	pins      []string
 	// recordsFirst reports records, newest first, before anything else.
@@ -486,18 +484,13 @@ func (s *e2eServer) deviceOf(t *testing.T, u *e2eUser, known []*e2eUser) device 
 			links:     s.reedLinks(t, att.ID),
 		})
 	}
-	rows, err = s.db.Query(`SELECT following_user_id FROM user_following WHERE user_id = $1 ORDER BY 1`, u.id)
+	certs, err := scanFollowCerts(s.db.Query(followCertSelect+` WHERE f.follower_id = $1 OR f.followee_id = $1`, u.id))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			t.Fatal(err)
-		}
-		d.following = append(d.following, id)
+	for i := range certs {
+		d.follows = append(d.follows, pbFollowCert(&certs[i]))
 	}
-	rows.Close()
 	return d
 }
 
@@ -522,9 +515,14 @@ func (s *e2eServer) recover(t *testing.T, d device) {
 		msg.ReedId, msg.UserSignature, msg.ServerSignature = r.id, r.userSig, r.serverSig
 		expectStatus(t, "reed "+r.id, s.authed(t, u, http.MethodPost, "/api/recovery/reeds", msg, nil, s.h.ReportReed), http.StatusNoContent)
 	}
-	if len(d.following) > 0 {
-		msg := &pb.RecoveryFollowingRequest{UserIds: d.following}
-		expectStatus(t, "following", s.authed(t, u, http.MethodPost, "/api/recovery/following", msg, nil, s.h.ReportFollowing), http.StatusNoContent)
+	if len(d.follows) > 0 {
+		s.reportRecords(t, u, func(yield func(int, *pb.RecoveryRecord) bool) {
+			for i, c := range d.follows {
+				if !yield(i, &pb.RecoveryRecord{Record: &pb.RecoveryRecord_Follow{Follow: c}}) {
+					return
+				}
+			}
+		})
 	}
 	if !d.recordsFirst {
 		s.reportRecords(t, u, slices.All(d.records))
@@ -670,6 +668,10 @@ var recoveryRestoredTables = map[string]string{
 	"pinned_reeds":   `SELECT user_id, reed_id FROM pinned_reeds`,
 	"user_following": `SELECT user_id, following_user_id FROM user_following`,
 	"user_followers": `SELECT user_id, follower_user_id FROM user_followers`,
+	"follow_certs": `SELECT f.follower_id, f.followee_id, f.follow, us.public_key_id, us.signature,
+		ss.private_key_id, ss.signature, ss.signed_at
+		FROM follow_certs f JOIN user_signatures us ON us.id = f.user_signature_id
+		JOIN server_signatures ss ON ss.id = f.server_signature_id`,
 	"network_stats":  `SELECT active_users FROM network_stats`,
 	"reed_stats": `SELECT reed_id, reply_count, echo_count, like_count, holder_count FROM reed_stats
 		WHERE reed_id NOT IN (SELECT reed_id FROM reed_removals)`,
@@ -837,9 +839,6 @@ func TestRecoveryE2E_RebuildsDatabase(t *testing.T) {
 	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM pending_recovery_records`); n[0] != "0" {
 		t.Errorf("pending_recovery_records = %s, want 0", n[0])
 	}
-	if n := queryRows(t, b.db, `SELECT COUNT(*) FROM pending_follows`); n[0] != "0" {
-		t.Errorf("pending_follows = %s, want 0", n[0])
-	}
 
 	// Recovered and complete: the probe says so and the API is open again.
 	rr := httptest.NewRecorder()
@@ -866,15 +865,12 @@ func TestRecoveryE2E_AbsentUserRestoredByPeers(t *testing.T) {
 		b.recover(t, d)
 	}
 
-	// carol's own device, follows, likes and device binding are gone with her.
-	diffRestored(t, sc.a, b, "reed_allocations", "reed_stats", "user_following", "user_followers", "user_devices", "reeds_liked")
+	// carol's own device, likes and device binding are gone with her; her
+	// follows come back from the devices of those she follows.
+	diffRestored(t, sc.a, b, "reed_allocations", "reed_stats", "user_devices", "reeds_liked")
 	expectSameProfiles(t, sc.a, b, sc.everyone)
 	if got := queryRows(t, b.db, `SELECT user_id FROM unclaimed_accounts`); !slices.Equal(got, []string{sc.carol.id}) {
 		t.Errorf("unclaimed_accounts = %v, want only carol", got)
-	}
-	want := queryRows(t, sc.a.db, `SELECT user_id, following_user_id FROM user_following WHERE user_id <> '`+sc.carol.id+`'`)
-	if got := queryRows(t, b.db, `SELECT user_id, following_user_id FROM user_following`); !slices.Equal(want, got) {
-		t.Errorf("user_following = %v, want %v", got, want)
 	}
 
 	// carol comes back later and claims her peer-seeded account.
