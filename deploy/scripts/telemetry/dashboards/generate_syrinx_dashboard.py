@@ -1532,6 +1532,16 @@ abuse = [
         limit=10,
         description="Users whose clients refused the most content, of any kind",
     ),
+    top_table(
+        pid="syrinx_flags_by_reporter",
+        title="Top 10 reporters",
+        stream=FLAGS_CREATED,
+        labels=["reporter_id", "author_id", "reed_id", "origin", "note_has"],
+        keys=[("reporter_id", "Reporter"), ("origin", "Origin")],
+        layout=layout(0, 90, 96, 16, 111),
+        limit=10,
+        description="Members raising the most flags, ours or a peer's; a flood here is someone flagging everything",
+    ),
 ]
 
 dashboard = {
