@@ -8925,6 +8925,104 @@
             "h": 16,
             "i": 101
           }
+        },
+        {
+          "id": "syrinx_flags_by_reporter",
+          "type": "table",
+          "title": "Top 10 reporters",
+          "description": "Members raising the most flags, ours or a peer's; a flood here is someone flagging everything",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT reporter_id, origin, sum(total) AS total FROM ( SELECT reporter_id, author_id, reed_id, origin, note_has, sum(value) AS total FROM syrinx_flags_created GROUP BY reporter_id, author_id, reed_id, origin, note_has ) WHERE reporter_id IS NOT NULL AND reporter_id != '' GROUP BY reporter_id, origin ORDER BY total DESC LIMIT 10",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_created",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Reporter",
+                    "alias": "reporter_id",
+                    "column": "reporter_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "reporter_id",
+                        "function": null,
+                        "alias": "reporter_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Origin",
+                    "alias": "origin",
+                    "column": "origin",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "origin",
+                        "function": null,
+                        "alias": "origin"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Total",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 90,
+            "w": 96,
+            "h": 16,
+            "i": 111
+          }
         }
       ]
     }
