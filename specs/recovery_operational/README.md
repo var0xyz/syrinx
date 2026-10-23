@@ -21,7 +21,7 @@ delivery).
 | 04 | Signed peer records in `/server/info`                                 | Implemented |
 | 05 | Recovery always available; `RECOVERY_MODE=off\|lockdown\|operational`  | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                          | Implemented |
-| 07 | Recovery reports servers, then users, then reeds, local and foreign   | Proposed    |
+| 07 | Recovery reports servers, then users, then reeds, local and foreign   | In progress |
 | 08 | Username collision certificate                                        | Proposed    |
 | 09 | SPA: import decides restore or recover; unclaimed profiles; `/logout` | In progress |
 | 10 | Recovery metrics and dashboard                                        | Proposed    |
@@ -285,20 +285,28 @@ The runner reports, per client:
 2. **Servers.** `POST /api/recovery/servers`, every peer record the device
    holds, with each peer's server key armor. A verifies each record with its
    own key by fingerprint, keeps the newest per peer, and creates the
-   `servers` and `server_mesh` rows. The armor is accepted only when its
-   fingerprint is the record's `keyID`.
+   `servers` and `server_mesh` rows, the peer's key countersigned as
+   approval does. The armor is accepted only when its fingerprint is the
+   record's `keyID`; without it A fetches the key from the peer. A restored
+   peer's delivery starts now: nothing from before the wipe is sent again.
 3. **Users.** Peer identity reports accept users of a known, non-revoked
-   peer, verified against that peer's server key.
+   peer, verified against that peer's server keys. A peer's user is never an
+   account here: only their identity and keys are stored, as live
+   federation caches them.
 4. **Reeds.** `ReportReed` accepts a reed of a known, non-revoked peer,
    verified the same way. Restores its `reed_identities`, the reporter's
-   holding, and its reply, echo, mention and thread links.
+   holding, and the links that stay here: replies to and echoes of our
+   reeds, mentions of our users.
 5. **Follows.** Follow certificates from both ends (step 13). A target on a
    known peer gets its identity and the follow directly, never
    `pending_follows`.
-6. **Records.** Adds `blockedBy`: a block by a peer's user against the
-   reporting user.
+6. **Records.** The device's `blockedBy` blocks too, reported as block
+   records: a block by a peer's user against the reporting user is checked
+   against the blocker's restored key and their server's keys, and waits
+   for the blocker's identity like any record.
 
-A revoked peer's users and reeds are refused (`4xx`; the client skips them).
+A revoked or unknown peer's users and reeds are refused with `422`, which
+the client skips.
 A record countersigned by a peer key A doesn't have is verified after
 fetching that key from the peer, as for any rotated key. A is the one in
 lockdown, so it can still call its peers.

@@ -42,6 +42,18 @@ export async function reportRecoveryReed(reedId: string): Promise<void> {
   });
 }
 
+/** POST the peer records this device holds, so a rebuilt server knows its
+ * peers again before their users and reeds are reported. Refusals (records
+ * a newer one replaced, or a peer whose key isn't held) are skipped. */
+export async function reportRecoveryServers(): Promise<void> {
+  const { federatedServersRepository } = await import('$lib/repositories/federatedServers');
+  const servers = await federatedServersRepository.all();
+  for (let i = 0; i < servers.length; i += 100) {
+    const results = await apiService.reportRecoveryServers(servers.slice(i, i + 100));
+    for (const r of results) if (r.status === 'refused') console.warn('recovery server refused:', r.reason);
+  }
+}
+
 /** POST one page of signed records; returns how many were refused. */
 export async function reportRecoveryRecords(refs: RecoveryRecordRef[]): Promise<number> {
   await dbService.init();

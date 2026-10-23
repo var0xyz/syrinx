@@ -1,4 +1,5 @@
 import type * as api from '$lib/types/api';
+import type { FederatedServer } from '$lib/types/server';
 import { deviceIdHeader } from './deviceId';
 import { requestSigner } from './request-signer';
 import { authService } from './auth';
@@ -105,6 +106,7 @@ import {
   RecoveryPinsRequestSchema,
   RecoveryProfileSchema,
   RecoveryRecordsRequestSchema,
+  RecoveryServersRequestSchema,
   RecoveryRecordsResponseSchema,
   RecoveryReedRequestSchema,
   UserStatusResponseSchema,
@@ -1097,6 +1099,13 @@ export const apiService = {
   /** Authenticated: report a page of following user IDs (≤100). */
   async reportRecoveryFollowing(userIds: string[]): Promise<void> {
     await send('/recovery/following', protoBody('POST', RecoveryFollowingRequestSchema, { userIds }));
+  },
+
+  /** Authenticated: report the peer records this device holds (≤100); one
+   * outcome each. */
+  async reportRecoveryServers(servers: FederatedServer[]): Promise<api.RecoveryRecordResult[]> {
+    const body = protoBody('POST', RecoveryServersRequestSchema, { servers });
+    return (await request('/recovery/servers', body, RecoveryRecordsResponseSchema)).results;
   },
 
   /** Authenticated: report a batch of signed records (≤100); one outcome each. */

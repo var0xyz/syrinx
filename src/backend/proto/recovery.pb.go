@@ -1021,6 +1021,52 @@ func (*RecoveryRecord_AdminRequest) isRecoveryRecord_Record() {}
 
 func (*RecoveryRecord_Flag) isRecoveryRecord_Record() {}
 
+// POST /recovery/servers: the peer records a device holds, answered with
+// one RecoveryRecordResult each.
+type RecoveryServersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Servers       []*FederatedServerInfo `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecoveryServersRequest) Reset() {
+	*x = RecoveryServersRequest{}
+	mi := &file_recovery_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecoveryServersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecoveryServersRequest) ProtoMessage() {}
+
+func (x *RecoveryServersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_recovery_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecoveryServersRequest.ProtoReflect.Descriptor instead.
+func (*RecoveryServersRequest) Descriptor() ([]byte, []int) {
+	return file_recovery_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *RecoveryServersRequest) GetServers() []*FederatedServerInfo {
+	if x != nil {
+		return x.Servers
+	}
+	return nil
+}
+
 // POST /recovery/records.
 type RecoveryRecordsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1031,7 +1077,7 @@ type RecoveryRecordsRequest struct {
 
 func (x *RecoveryRecordsRequest) Reset() {
 	*x = RecoveryRecordsRequest{}
-	mi := &file_recovery_proto_msgTypes[11]
+	mi := &file_recovery_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1043,7 +1089,7 @@ func (x *RecoveryRecordsRequest) String() string {
 func (*RecoveryRecordsRequest) ProtoMessage() {}
 
 func (x *RecoveryRecordsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[11]
+	mi := &file_recovery_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1056,7 +1102,7 @@ func (x *RecoveryRecordsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryRecordsRequest.ProtoReflect.Descriptor instead.
 func (*RecoveryRecordsRequest) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{11}
+	return file_recovery_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *RecoveryRecordsRequest) GetRecords() []*RecoveryRecord {
@@ -1078,7 +1124,7 @@ type RecoveryRecordResult struct {
 
 func (x *RecoveryRecordResult) Reset() {
 	*x = RecoveryRecordResult{}
-	mi := &file_recovery_proto_msgTypes[12]
+	mi := &file_recovery_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1090,7 +1136,7 @@ func (x *RecoveryRecordResult) String() string {
 func (*RecoveryRecordResult) ProtoMessage() {}
 
 func (x *RecoveryRecordResult) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[12]
+	mi := &file_recovery_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1103,7 +1149,7 @@ func (x *RecoveryRecordResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryRecordResult.ProtoReflect.Descriptor instead.
 func (*RecoveryRecordResult) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{12}
+	return file_recovery_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RecoveryRecordResult) GetStatus() string {
@@ -1129,7 +1175,7 @@ type RecoveryRecordsResponse struct {
 
 func (x *RecoveryRecordsResponse) Reset() {
 	*x = RecoveryRecordsResponse{}
-	mi := &file_recovery_proto_msgTypes[13]
+	mi := &file_recovery_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1141,7 +1187,7 @@ func (x *RecoveryRecordsResponse) String() string {
 func (*RecoveryRecordsResponse) ProtoMessage() {}
 
 func (x *RecoveryRecordsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[13]
+	mi := &file_recovery_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1154,7 +1200,7 @@ func (x *RecoveryRecordsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryRecordsResponse.ProtoReflect.Descriptor instead.
 func (*RecoveryRecordsResponse) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{13}
+	return file_recovery_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RecoveryRecordsResponse) GetResults() []*RecoveryRecordResult {
@@ -1174,7 +1220,7 @@ type RecoveryPinsRequest struct {
 
 func (x *RecoveryPinsRequest) Reset() {
 	*x = RecoveryPinsRequest{}
-	mi := &file_recovery_proto_msgTypes[14]
+	mi := &file_recovery_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1186,7 +1232,7 @@ func (x *RecoveryPinsRequest) String() string {
 func (*RecoveryPinsRequest) ProtoMessage() {}
 
 func (x *RecoveryPinsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[14]
+	mi := &file_recovery_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1199,7 +1245,7 @@ func (x *RecoveryPinsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryPinsRequest.ProtoReflect.Descriptor instead.
 func (*RecoveryPinsRequest) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{14}
+	return file_recovery_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *RecoveryPinsRequest) GetReedIds() []string {
@@ -1219,7 +1265,7 @@ type RecoveryFollowingRequest struct {
 
 func (x *RecoveryFollowingRequest) Reset() {
 	*x = RecoveryFollowingRequest{}
-	mi := &file_recovery_proto_msgTypes[15]
+	mi := &file_recovery_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1231,7 +1277,7 @@ func (x *RecoveryFollowingRequest) String() string {
 func (*RecoveryFollowingRequest) ProtoMessage() {}
 
 func (x *RecoveryFollowingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_recovery_proto_msgTypes[15]
+	mi := &file_recovery_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1244,7 +1290,7 @@ func (x *RecoveryFollowingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryFollowingRequest.ProtoReflect.Descriptor instead.
 func (*RecoveryFollowingRequest) Descriptor() ([]byte, []int) {
-	return file_recovery_proto_rawDescGZIP(), []int{15}
+	return file_recovery_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *RecoveryFollowingRequest) GetUserIds() []string {
@@ -1345,7 +1391,9 @@ const file_recovery_proto_rawDesc = "" +
 	"\radmin_request\x18\t \x01(\v2\x14.syrinx.AdminRequestH\x00R\fadminRequest\x12&\n" +
 	"\x04flag\x18\n" +
 	" \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flagB\b\n" +
-	"\x06record\"J\n" +
+	"\x06record\"O\n" +
+	"\x16RecoveryServersRequest\x125\n" +
+	"\aservers\x18\x01 \x03(\v2\x1b.syrinx.FederatedServerInfoR\aservers\"J\n" +
 	"\x16RecoveryRecordsRequest\x120\n" +
 	"\arecords\x18\x01 \x03(\v2\x16.syrinx.RecoveryRecordR\arecords\"F\n" +
 	"\x14RecoveryRecordResult\x12\x16\n" +
@@ -1370,7 +1418,7 @@ func file_recovery_proto_rawDescGZIP() []byte {
 	return file_recovery_proto_rawDescData
 }
 
-var file_recovery_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_recovery_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_recovery_proto_goTypes = []any{
 	(*ChallengeResponse)(nil),                // 0: syrinx.ChallengeResponse
 	(*AccountRecoveryBootstrapRequest)(nil),  // 1: syrinx.AccountRecoveryBootstrapRequest
@@ -1383,59 +1431,62 @@ var file_recovery_proto_goTypes = []any{
 	(*PeerIdentityRequest)(nil),              // 8: syrinx.PeerIdentityRequest
 	(*RecoveryReedRequest)(nil),              // 9: syrinx.RecoveryReedRequest
 	(*RecoveryRecord)(nil),                   // 10: syrinx.RecoveryRecord
-	(*RecoveryRecordsRequest)(nil),           // 11: syrinx.RecoveryRecordsRequest
-	(*RecoveryRecordResult)(nil),             // 12: syrinx.RecoveryRecordResult
-	(*RecoveryRecordsResponse)(nil),          // 13: syrinx.RecoveryRecordsResponse
-	(*RecoveryPinsRequest)(nil),              // 14: syrinx.RecoveryPinsRequest
-	(*RecoveryFollowingRequest)(nil),         // 15: syrinx.RecoveryFollowingRequest
-	(*User)(nil),                             // 16: syrinx.User
-	(*UserSignature)(nil),                    // 17: syrinx.UserSignature
-	(*ServerSignature)(nil),                  // 18: syrinx.ServerSignature
-	(*UserInvite)(nil),                       // 19: syrinx.UserInvite
-	(*LikeCert)(nil),                         // 20: syrinx.LikeCert
-	(*BlockCert)(nil),                        // 21: syrinx.BlockCert
-	(*Vouch)(nil),                            // 22: syrinx.Vouch
-	(*ReedRemovalCert)(nil),                  // 23: syrinx.ReedRemovalCert
-	(*AccountRemovalCert)(nil),               // 24: syrinx.AccountRemovalCert
-	(*ThreadRecord)(nil),                     // 25: syrinx.ThreadRecord
-	(*ThreadRemoval)(nil),                    // 26: syrinx.ThreadRemoval
-	(*LedgerEntry)(nil),                      // 27: syrinx.LedgerEntry
-	(*AdminRequest)(nil),                     // 28: syrinx.AdminRequest
-	(*ReedFlag)(nil),                         // 29: syrinx.ReedFlag
+	(*RecoveryServersRequest)(nil),           // 11: syrinx.RecoveryServersRequest
+	(*RecoveryRecordsRequest)(nil),           // 12: syrinx.RecoveryRecordsRequest
+	(*RecoveryRecordResult)(nil),             // 13: syrinx.RecoveryRecordResult
+	(*RecoveryRecordsResponse)(nil),          // 14: syrinx.RecoveryRecordsResponse
+	(*RecoveryPinsRequest)(nil),              // 15: syrinx.RecoveryPinsRequest
+	(*RecoveryFollowingRequest)(nil),         // 16: syrinx.RecoveryFollowingRequest
+	(*User)(nil),                             // 17: syrinx.User
+	(*UserSignature)(nil),                    // 18: syrinx.UserSignature
+	(*ServerSignature)(nil),                  // 19: syrinx.ServerSignature
+	(*UserInvite)(nil),                       // 20: syrinx.UserInvite
+	(*LikeCert)(nil),                         // 21: syrinx.LikeCert
+	(*BlockCert)(nil),                        // 22: syrinx.BlockCert
+	(*Vouch)(nil),                            // 23: syrinx.Vouch
+	(*ReedRemovalCert)(nil),                  // 24: syrinx.ReedRemovalCert
+	(*AccountRemovalCert)(nil),               // 25: syrinx.AccountRemovalCert
+	(*ThreadRecord)(nil),                     // 26: syrinx.ThreadRecord
+	(*ThreadRemoval)(nil),                    // 27: syrinx.ThreadRemoval
+	(*LedgerEntry)(nil),                      // 28: syrinx.LedgerEntry
+	(*AdminRequest)(nil),                     // 29: syrinx.AdminRequest
+	(*ReedFlag)(nil),                         // 30: syrinx.ReedFlag
+	(*FederatedServerInfo)(nil),              // 31: syrinx.FederatedServerInfo
 }
 var file_recovery_proto_depIdxs = []int32{
-	16, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
-	17, // 1: syrinx.RecoveryProfile.user_signature:type_name -> syrinx.UserSignature
-	18, // 2: syrinx.RecoveryProfile.server_signature:type_name -> syrinx.ServerSignature
-	19, // 3: syrinx.RecoveryProfile.invite:type_name -> syrinx.UserInvite
-	17, // 4: syrinx.RecoveryRevocation.user_signature:type_name -> syrinx.UserSignature
-	18, // 5: syrinx.RecoveryRevocation.server_signature:type_name -> syrinx.ServerSignature
-	18, // 6: syrinx.RecoveryKeyNode.server_signature:type_name -> syrinx.ServerSignature
+	17, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
+	18, // 1: syrinx.RecoveryProfile.user_signature:type_name -> syrinx.UserSignature
+	19, // 2: syrinx.RecoveryProfile.server_signature:type_name -> syrinx.ServerSignature
+	20, // 3: syrinx.RecoveryProfile.invite:type_name -> syrinx.UserInvite
+	18, // 4: syrinx.RecoveryRevocation.user_signature:type_name -> syrinx.UserSignature
+	19, // 5: syrinx.RecoveryRevocation.server_signature:type_name -> syrinx.ServerSignature
+	19, // 6: syrinx.RecoveryKeyNode.server_signature:type_name -> syrinx.ServerSignature
 	5,  // 7: syrinx.RecoveryKeyNode.revocation:type_name -> syrinx.RecoveryRevocation
 	6,  // 8: syrinx.RecoveryKeyNode.predecessor:type_name -> syrinx.RecoveryKeyNode
 	3,  // 9: syrinx.ClaimIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
 	6,  // 10: syrinx.ClaimIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
 	3,  // 11: syrinx.PeerIdentityRequest.profile:type_name -> syrinx.RecoveryProfile
 	6,  // 12: syrinx.PeerIdentityRequest.key:type_name -> syrinx.RecoveryKeyNode
-	17, // 13: syrinx.RecoveryReedRequest.user_signature:type_name -> syrinx.UserSignature
-	18, // 14: syrinx.RecoveryReedRequest.server_signature:type_name -> syrinx.ServerSignature
-	20, // 15: syrinx.RecoveryRecord.like:type_name -> syrinx.LikeCert
-	21, // 16: syrinx.RecoveryRecord.block:type_name -> syrinx.BlockCert
-	22, // 17: syrinx.RecoveryRecord.vouch:type_name -> syrinx.Vouch
-	23, // 18: syrinx.RecoveryRecord.reed_removal:type_name -> syrinx.ReedRemovalCert
-	24, // 19: syrinx.RecoveryRecord.account_removal:type_name -> syrinx.AccountRemovalCert
-	25, // 20: syrinx.RecoveryRecord.thread:type_name -> syrinx.ThreadRecord
-	26, // 21: syrinx.RecoveryRecord.thread_removal:type_name -> syrinx.ThreadRemoval
-	27, // 22: syrinx.RecoveryRecord.ledger_entry:type_name -> syrinx.LedgerEntry
-	28, // 23: syrinx.RecoveryRecord.admin_request:type_name -> syrinx.AdminRequest
-	29, // 24: syrinx.RecoveryRecord.flag:type_name -> syrinx.ReedFlag
-	10, // 25: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
-	12, // 26: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	18, // 13: syrinx.RecoveryReedRequest.user_signature:type_name -> syrinx.UserSignature
+	19, // 14: syrinx.RecoveryReedRequest.server_signature:type_name -> syrinx.ServerSignature
+	21, // 15: syrinx.RecoveryRecord.like:type_name -> syrinx.LikeCert
+	22, // 16: syrinx.RecoveryRecord.block:type_name -> syrinx.BlockCert
+	23, // 17: syrinx.RecoveryRecord.vouch:type_name -> syrinx.Vouch
+	24, // 18: syrinx.RecoveryRecord.reed_removal:type_name -> syrinx.ReedRemovalCert
+	25, // 19: syrinx.RecoveryRecord.account_removal:type_name -> syrinx.AccountRemovalCert
+	26, // 20: syrinx.RecoveryRecord.thread:type_name -> syrinx.ThreadRecord
+	27, // 21: syrinx.RecoveryRecord.thread_removal:type_name -> syrinx.ThreadRemoval
+	28, // 22: syrinx.RecoveryRecord.ledger_entry:type_name -> syrinx.LedgerEntry
+	29, // 23: syrinx.RecoveryRecord.admin_request:type_name -> syrinx.AdminRequest
+	30, // 24: syrinx.RecoveryRecord.flag:type_name -> syrinx.ReedFlag
+	31, // 25: syrinx.RecoveryServersRequest.servers:type_name -> syrinx.FederatedServerInfo
+	10, // 26: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
+	13, // 27: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_recovery_proto_init() }
@@ -1467,7 +1518,7 @@ func file_recovery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_recovery_proto_rawDesc), len(file_recovery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

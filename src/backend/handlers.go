@@ -3901,6 +3901,10 @@ func (h *Handlers) ReportPeerIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
+	if _, subjectServer, ok := parseIdentityID(identityID(req.Profile.ID)); ok && subjectServer != serverID {
+		recorded = h.reportPeerUser(w, r, subjectServer, req)
+		return
+	}
 	active, keys, err := flattenKeysNest(r.Context(), req.Profile, req.Key, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3952,8 +3956,13 @@ func (h *Handlers) ReportReed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	serverID := h.services.db.GetServerID()
-	if author, ok := authorOf(identityID(req.ReedID)); !ok || author.ServerID() != serverID {
-		writeError(w, http.StatusBadRequest, "not a reed of this server")
+	author, ok := authorOf(identityID(req.ReedID))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "malformed reed id")
+		return
+	}
+	if author.ServerID() != serverID {
+		recorded = h.reportPeerReed(w, r, author.ServerID(), caller, req)
 		return
 	}
 	if err := verifyRecoveryReedCountersig(r.Context(), req, serverID, h.services.db.GetServerKeyArmorAt, h.services.crypto); err != nil {
@@ -4012,10 +4021,12 @@ func (h *Handlers) ReportFollowing(w http.ResponseWriter, r *http.Request) {
 // recoveryRecords is what restoring reported records runs against.
 func (h *Handlers) recoveryRecords() *recoveryRecordEnv {
 	return &recoveryRecordEnv{
-		db:        h.services.db.db,
-		serverID:  h.services.db.GetServerID(),
-		serverKey: h.services.db.GetServerKeyArmorAt,
-		verifier:  h.services.crypto,
+		db:         h.services.db.db,
+		serverID:   h.services.db.GetServerID(),
+		serverKey:  h.services.db.GetServerKeyArmorAt,
+		verifier:   h.services.crypto,
+		peerKey:    h.peerKeyLookup,
+		activePeer: h.services.db.IsActivePeer,
 	}
 }
 

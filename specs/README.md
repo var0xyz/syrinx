@@ -501,7 +501,7 @@ refused. Follows become certificates either end can report back.
 | 04 | Signed peer records in `/server/info`                         | Implemented |
 | 05 | Recovery always available; `RECOVERY_MODE` modes              | Implemented |
 | 06 | Delivery: `503` suspends; receive-side fixes                  | Implemented |
-| 07 | Recovery reports servers, users, reeds, local and foreign     | Proposed    |
+| 07 | Recovery reports servers, users, reeds, local and foreign     | In progress |
 | 08 | Username collision certificate                                | Proposed    |
 | 09 | SPA: import decides; unclaimed profiles; drop `/logout`       | In progress |
 | 10 | Recovery metrics and dashboard                                | Proposed    |
