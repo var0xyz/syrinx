@@ -523,10 +523,6 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		return nil, err
 	}
 
-	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignature)
-	if err != nil {
-		return nil, err
-	}
 	serverSignatureID, err := insertServerSignature(ctx, tx,
 		in.ProfileSignature.ID,
 		in.ProfileSignature.Armor,
@@ -563,6 +559,10 @@ func (s *DataService) Signup(ctx context.Context, in SignupInput) (*User, error)
 		) VALUES ($1, $2, $3, $4, $5)
 	`, in.Fingerprint, selfIdentity, in.PublicKeyArmor, in.KeyCreatedAt,
 		keyServerSigID); err != nil {
+		return nil, err
+	}
+	userSignatureID, err := insertUserSignature(ctx, tx, in.Fingerprint, in.UserSignature)
+	if err != nil {
 		return nil, err
 	}
 
