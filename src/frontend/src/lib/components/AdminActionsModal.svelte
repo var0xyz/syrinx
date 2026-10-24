@@ -7,6 +7,7 @@
   import { cryptoService } from '$lib/services/crypto';
   import { myPermissions, openAdminRequest, type AdminAction } from '$lib/services/admin';
   import { readRebindFile } from '$lib/services/rebind';
+  import { isOnline } from '$lib/services/pwa';
   import { formatPermissionSet } from '$lib/utils/permissions';
   import type * as api from '$lib/types/api';
 
@@ -36,6 +37,8 @@
   let tree: api.InviteTreeNode[] = [];
   let loadError = '';
   let loadedFor = '';
+  // Nothing renders until the server answers: admin actions are online only.
+  let loading = true;
 
   let action: AdminAction | null = null;
   let checked = new Set<string>();
@@ -49,20 +52,28 @@
   let submitError = '';
   let done = false;
 
-  $: if (open && userID && loadedFor !== userID) void load(userID);
+  $: if (open && userID && $isOnline && loadedFor !== userID) void load(userID);
 
   async function load(id: string): Promise<void> {
     loadedFor = id;
     loadError = '';
+    loading = true;
+    viewer = null;
+    target = null;
+    tree = [];
     try {
-      [viewer, target, tree] = await Promise.all([
+      const [v, t, nodes] = await Promise.all([
         myPermissions(),
         apiService.getUserPermissions(id),
-        apiService.getInviteTree(id).then((t) => t.nodes),
+        apiService.getInviteTree(id).then((r) => r.nodes),
       ]);
+      if (id !== loadedFor) return;
+      [viewer, target, tree] = [v, t, nodes];
     } catch (err) {
+      if (id !== loadedFor) return;
       loadError = err instanceof Error ? err.message : 'Could not load this user.';
     }
+    loading = false;
   }
 
   $: held = new Set(viewer?.permissions ?? []);
@@ -200,6 +211,10 @@
       <p class="who"><span class="name"><Username {userID} linked={false} color="var(--primary)" /></span></p>
       {#if loadError}
         <p class="warning" role="alert">{loadError}</p>
+      {:else if loading && !$isOnline}
+        <p class="warning" role="alert">You’re offline. Admin actions need a connection to the server.</p>
+      {:else if loading}
+        <p class="loading">Loading…</p>
       {:else}
         <ul class="action-list">
           <li>
@@ -223,7 +238,7 @@
             </li>
           {/each}
         </ul>
-        {#if viewer && actions.length === 0}
+        {#if actions.length === 0}
           <p class="who">You don’t hold a permission for any action on this user.</p>
         {/if}
       {/if}
@@ -348,6 +363,12 @@
     margin: 0;
     font-size: 1.1rem;
     color: var(--fg);
+  }
+
+  .loading {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--muted);
   }
 
   .who {
