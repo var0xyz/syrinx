@@ -169,6 +169,8 @@
       modalError = err instanceof Error ? err.message : 'Failed to accept connection';
     } finally {
       accepting = false;
+      // The server records the attempt even when the handshake fails.
+      await refreshList();
     }
   }
 
