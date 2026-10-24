@@ -151,7 +151,7 @@ To turn it off later, re-run `setup` and answer `off`. A blank answer keeps the 
 
 ### Privacy
 
-Telemetry records **no IP addresses, user agents, device IDs or usernames**. What it does record is pseudonymous: user, reed and key IDs. Reed content is never included.
+The user-facing summary is [Telemetry](/telemetry). Telemetry records **no IP addresses, user agents, device IDs or usernames**. What it does record is pseudonymous: user, reed and key IDs. Reed content is never included.
 
 How that's enforced:
 

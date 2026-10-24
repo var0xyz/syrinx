@@ -52,6 +52,7 @@ The home-deploy scripts put the server behind Cloudflare. With a Cloudflare Tunn
 | [Cryptography](/cryptography)             | Keys, canonical signing, user vs server signatures                                            |
 | [Content distribution](/content)          | Reeds, feeds, relay path, consent and abuse guardrails                                        |
 | [Content privacy](/content_privacy)       | Why the server never sees reed content, and how end-to-end encrypted relay works              |
+| [Telemetry](/telemetry)                   | No client-side telemetry by default; what the server records, by user ID only, and why       |
 | [Relay model](/relay-model)               | Schema-level reference for the relay/allocation machinery and how it crosses server borders   |
 | [Invites](/invites)                       | Invite links, hash-only storage, redeem flow, hijack resistance                               |
 | [Identity, invites & recovery](/identity) | Accounts, signup modes, rebuilding after disaster                                             |
