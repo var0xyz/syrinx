@@ -227,6 +227,8 @@ excepted). No control over individual reeds.
 | 09    | Broadcasts and private messages             | Implemented |
 | 10    | Admin SPA                                   | Implemented |
 | 11    | The @admins mention                         | Implemented |
+| 12    | Admin records on admins' devices            | Implemented |
+| 13    | Withdrawing flags, and an author's history  | Implemented |
 
 ## Federation (explicit peering + cross-server content)
 

@@ -221,7 +221,7 @@ func (s *e2eServer) flag(t *testing.T, u *e2eUser, reedID string) *pb.ReedFlag {
 // dismiss has admin dismiss every open flag on reedID.
 func (s *e2eServer) dismiss(t *testing.T, admin *e2eUser, reedID, reason string) {
 	t.Helper()
-	reporters := queryRows(t, s.db, `SELECT reporter_id FROM reed_flags WHERE reed_id = '`+reedID+`' AND dismissal_id IS NULL ORDER BY reporter_id`)
+	reporters := queryRows(t, s.db, `SELECT reporter_id FROM reed_flags WHERE reed_id = '`+reedID+`' AND dismissal_id IS NULL AND withdrawal_signature_id IS NULL ORDER BY reporter_id`)
 	id := uuid.Must(uuid.NewV7()).String()
 	sig := s.sign(t, admin, buildFlagDismissalPayload(id, reedID, reason, admin.keyID, reporters))
 	msg := &pb.DismissFlagsRequest{Id: id, Reason: reason, Reporters: reporters, Signature: &pb.UserSignature{Id: admin.keyID, Armor: sig}}
@@ -324,7 +324,7 @@ func (s *e2eServer) heldRecords(t *testing.T, u *e2eUser, flags []*pb.ReedFlag) 
 	if !admin {
 		return out
 	}
-	for _, list := range []func(context.Context, string, string, int) ([]*flaggedReed, string, error){ds.ListOpenFlags, ds.ListDismissedFlags} {
+	for _, list := range []func(context.Context, string, string, int) ([]*flaggedReed, string, error){ds.ListOpenFlags, ds.ListDismissedFlags, ds.ListWithdrawnFlags} {
 		reeds, _, err := list(ctx, u.id, "", 1000)
 		if err != nil {
 			t.Fatal(err)

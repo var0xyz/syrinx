@@ -44,6 +44,15 @@ message ReedFlag {
   string note = 3;
   UserSignature signature = 4;
   ServerSignature server_signature = 5;
+  FlagWithdrawal withdrawal = 6;
+}
+
+// The reporter taking back their flag, signed over the flag's signature
+// and countersigned by the reed's server, whose time is the withdrawal's.
+// POST /flags/{reedID}/withdraw sends only the signature.
+message FlagWithdrawal {
+  UserSignature signature = 1;
+  ServerSignature server_signature = 2;
 }
 
 // An admin closing the open flags reporters raised on a reed, signed by
@@ -59,8 +68,8 @@ message FlagDismissal {
   ServerSignature server_signature = 7;
 }
 
-// A reed with flags, for admins: its open ones, or the ones a dismissal
-// closed, with it.
+// A reed with flags, for admins: its open ones, the ones a dismissal
+// closed, with it, or one withdrawn flag.
 message FlaggedReed {
   string reed_id = 1 [json_name = "reedID"];
   string author_id = 2 [json_name = "authorID"];

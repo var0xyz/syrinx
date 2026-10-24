@@ -42,7 +42,7 @@ when schema changes.
 | 00    | Implemented              |
 | 01–11 | Implemented              |
 | 12    | Implemented              |
-| 13    | Proposed                 |
+| 13    | Implemented              |
 
 ## Locked decisions
 

@@ -56,6 +56,8 @@ import {
   buildReedFlagServerPayload,
   buildFlagDismissalPayload,
   buildFlagDismissalServerPayload,
+  buildFlagWithdrawalPayload,
+  buildFlagWithdrawalServerPayload,
   buildAdminRequestOpenedPayload,
 } from '$lib/services/signing';
 import { signedAtHeader, verify } from '$lib/services/verify';
@@ -1054,6 +1056,44 @@ async function verifyReedFlag(flag: api.ReedFlag, label: string): Promise<boolea
   const serverResult = await verify(flag.serverSignature, serverPayload);
   if (serverResult.ok === false) {
     console.error(`[${label}] server signature failed`, serverResult);
+    return false;
+  }
+  return !flag.withdrawal || verifyFlagWithdrawal(flag, label);
+}
+
+/** A reporter's withdrawal of flag, signed over its signature and
+ * countersigned by the reed's server. */
+async function verifyFlagWithdrawal(flag: api.ReedFlag, label: string): Promise<boolean> {
+  const w = flag.withdrawal;
+  if (!w?.signature?.armor || !w.serverSignature) {
+    console.error(`[${label}] withdrawal missing fields`);
+    return false;
+  }
+  const { fingerprint, serverID } = splitServerSignatureId(w.serverSignature.id);
+  if (serverID !== parseCanonicalId(flag.reedId)?.[1]) {
+    console.error(`[${label}] withdrawal not countersigned by the reed's server`);
+    return false;
+  }
+  const key = await resolvePublicKey(flag.reporterId, w.signature.id);
+  if (!key?.armor || key.userId !== flag.reporterId) {
+    console.error(`[${label}] no key of the reporter for the withdrawal`, flag.reporterId);
+    return false;
+  }
+  const userPayload = buildFlagWithdrawalPayload(flag.reedId, flag.reporterId, w.signature.id, flag.signature?.armor ?? '');
+  if (!(await cryptoService.verifySignature(userPayload, w.signature.armor, key.armor))) {
+    console.error(`[${label}] withdrawal signature failed`, flag.reedId);
+    return false;
+  }
+  const serverPayload = buildFlagWithdrawalServerPayload(
+    flag.reedId,
+    flag.reporterId,
+    fingerprint,
+    w.signature.armor,
+    signedAtHeader(w.serverSignature.signedAt)
+  );
+  const result = await verify(w.serverSignature, serverPayload);
+  if (result.ok === false) {
+    console.error(`[${label}] withdrawal server signature failed`, result);
     return false;
   }
   return true;

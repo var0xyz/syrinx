@@ -6994,8 +6994,8 @@
         {
           "id": "syrinx_flags",
           "type": "line",
-          "title": "Flags raised vs dismissed",
-          "description": "Flags from this server's members and from peers', and admin dismissals",
+          "title": "Flags raised, dismissed and withdrawn",
+          "description": "Flags from this server's members and from peers', admin dismissals, and reporters' withdrawals",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -7076,6 +7076,29 @@
               },
               "config": {
                 "promql_legend": "dismissals",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_flags_withdrawn[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_withdrawn",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "withdrawals",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }
@@ -9022,6 +9045,89 @@
             "w": 96,
             "h": 16,
             "i": 111
+          }
+        },
+        {
+          "id": "syrinx_flags_open_by_author",
+          "type": "table",
+          "title": "Top 10 authors with open flags",
+          "description": "Authors with the most flags waiting for an admin, by each one's latest count",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT author_id, value AS total FROM ( SELECT author_id, value, ROW_NUMBER() OVER (PARTITION BY author_id ORDER BY _timestamp DESC) AS rn FROM syrinx_flags_open ) WHERE rn = 1 AND value > 0 AND author_id IS NOT NULL AND author_id != '' ORDER BY total DESC LIMIT 10",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_open",
+                "stream_type": "metrics",
+                "x": [
+                  {
+                    "label": "Author",
+                    "alias": "author_id",
+                    "column": "author_id",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "author_id",
+                        "function": null,
+                        "alias": "author_id"
+                      }
+                    ]
+                  },
+                  {
+                    "label": "Open flags",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 90,
+            "w": 96,
+            "h": 16,
+            "i": 112
           }
         }
       ]

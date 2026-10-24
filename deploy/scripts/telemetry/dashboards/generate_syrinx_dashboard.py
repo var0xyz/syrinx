@@ -317,6 +317,8 @@ ADMIN_SUSPENDED_REFUSALS = metric_stream("syrinx.admin.suspended_refusals")
 ADMIN_MAIL = metric_stream("syrinx.admin.mail.sent")
 FLAGS_CREATED = metric_stream("syrinx.flags.created")
 FLAGS_DISMISSED = metric_stream("syrinx.flags.dismissed")
+FLAGS_WITHDRAWN = metric_stream("syrinx.flags.withdrawn")
+FLAGS_OPEN = metric_stream("syrinx.flags.open")
 LEDGER_APPENDED = metric_stream("syrinx.ledger.appended")
 AUTH_REJECTED = metric_stream("syrinx.auth.rejected")
 WS_HANDSHAKE_REJECTED = metric_stream("syrinx.ws.handshake.rejected")
@@ -1392,13 +1394,14 @@ admin = [
     ),
     promql_panel(
         pid="syrinx_flags",
-        title="Flags raised vs dismissed",
+        title="Flags raised, dismissed and withdrawn",
         queries=[
             *promql_sum_by_values(FLAGS_CREATED, "origin", ["local", "peer"]),
             (f"sum(sum_over_time({FLAGS_DISMISSED}[{WINDOW}]))", "dismissals", FLAGS_DISMISSED),
+            (f"sum(sum_over_time({FLAGS_WITHDRAWN}[{WINDOW}]))", "withdrawals", FLAGS_WITHDRAWN),
         ],
         layout=layout(0, 58, 96, 14, 75),
-        description="Flags from this server's members and from peers', and admin dismissals",
+        description="Flags from this server's members and from peers', admin dismissals, and reporters' withdrawals",
     ),
     top_table(
         pid="syrinx_flags_by_author",
@@ -1541,6 +1544,24 @@ abuse = [
         layout=layout(0, 90, 96, 16, 111),
         limit=10,
         description="Members raising the most flags, ours or a peer's; a flood here is someone flagging everything",
+    ),
+    sql_panel(
+        pid="syrinx_flags_open_by_author",
+        title="Top 10 authors with open flags",
+        ptype="table",
+        sql=(
+            f"SELECT author_id, value AS total FROM ( "
+            f"SELECT author_id, value, ROW_NUMBER() OVER (PARTITION BY author_id ORDER BY _timestamp DESC) AS rn "
+            f"FROM {FLAGS_OPEN} ) "
+            f"WHERE rn = 1 AND value > 0 AND author_id IS NOT NULL AND author_id != '' "
+            f"ORDER BY total DESC LIMIT 10"
+        ),
+        layout=layout(96, 90, 96, 16, 112),
+        x=[axis("Author", "author_id"), axis("Open flags", "total")],
+        y=[],
+        stream=FLAGS_OPEN,
+        stream_type="metrics",
+        description="Authors with the most flags waiting for an admin, by each one's latest count",
     ),
 ]
 

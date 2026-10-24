@@ -4,7 +4,7 @@
   import FlagReedModal from '$lib/components/FlagReedModal.svelte';
   import { shareReed } from '$lib/utils/shareReed';
   import { parseCanonicalId } from '$lib/utils/identityRef';
-  import { flagsChanged, isFlagged } from '$lib/services/flags';
+  import { flagsChanged, ownFlag } from '$lib/services/flags';
 
   /** Reed to share; omit to hide Share (e.g. ripples, which can't be shared). */
   export let reedRef = '';
@@ -19,14 +19,15 @@
   export let extraOptions = [];
 
   let flagging = false;
-  let flagged = false;
+  /** @type {import('$lib/repositories/flags').StoredFlag | null} */
+  let flag = null;
 
   // Root's reeds and the viewer's own can't be flagged.
   $: reedAuthor = reedRef ? parseCanonicalId(reedRef) : null;
   $: viewerID = typeof localStorage !== 'undefined' ? localStorage.getItem('userId') : null;
   $: canFlag =
     !!reedAuthor && !!viewerID && `${reedAuthor[0]}@${reedAuthor[1]}` !== viewerID && reedAuthor[0] !== '1';
-  $: if (canFlag) void $flagsChanged, isFlagged(reedRef).then((v) => (flagged = v));
+  $: if (canFlag) void $flagsChanged, ownFlag(reedRef).then((v) => (flag = v));
 
   $: options = [
     ...(reedRef && showShare
@@ -38,9 +39,7 @@
     ...extraOptions,
     ...(canFlag
       ? [
-          flagged
-            ? { label: 'Already flagged', icon: '/icons/flag-16.svg', disabled: true, onSelect: () => {} }
-            : { label: 'Flag', icon: '/icons/flag-16.svg', onSelect: () => (flagging = true) },
+          { label: flag ? 'Flagged' : 'Flag', icon: '/icons/flag-16.svg', onSelect: () => (flagging = true) },
         ]
       : []),
   ];
@@ -51,5 +50,5 @@
 {/if}
 
 {#if canFlag}
-  <FlagReedModal open={flagging} reedID={reedRef} on:close={() => (flagging = false)} />
+  <FlagReedModal open={flagging} reedID={reedRef} {flag} on:close={() => (flagging = false)} />
 {/if}

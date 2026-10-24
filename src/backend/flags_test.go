@@ -60,7 +60,7 @@ func (f *adminFixture) dismissedFlags(t *testing.T, viewer string) *pb.FlaggedRe
 func (f *adminFixture) dismiss(t *testing.T, viewer, reedID, reason string, reporters ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	if len(reporters) == 0 {
-		rows, err := f.db.Query(`SELECT reporter_id FROM reed_flags WHERE reed_id = $1 AND dismissal_id IS NULL ORDER BY reporter_id`, reedID)
+		rows, err := f.db.Query(`SELECT reporter_id FROM reed_flags WHERE reed_id = $1 AND dismissal_id IS NULL AND withdrawal_signature_id IS NULL ORDER BY reporter_id`, reedID)
 		if err != nil {
 			t.Fatal(err)
 		}

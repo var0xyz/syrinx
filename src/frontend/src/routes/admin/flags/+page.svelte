@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { countCharacters } from '$lib/utils/text';
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import Auth from '$lib/components/Auth.svelte';
@@ -8,39 +7,38 @@
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import ModeSwitch from '$lib/components/ModeSwitch.svelte';
   import AdminActionsModal from '$lib/components/AdminActionsModal.svelte';
-  import Username from '$lib/components/Username.svelte';
-  import { adminRecordsChanged, dismissFlags, syncAdminRecords } from '$lib/services/admin';
+  import FlagCaseCard from '$lib/components/FlagCaseCard.svelte';
+  import type { ReedType } from '$lib/types/reed';
+  import { adminRecordsChanged, syncAdminRecords } from '$lib/services/admin';
   import { flagsRepository, type FlagCase } from '$lib/repositories/flags';
   import { serverConnection } from '$lib/services/serverConnection';
   import { keepInHash } from '$lib/utils/hashMode';
   import { parseCanonicalId } from '$lib/utils/identityRef';
-  import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { adminPermissions, adminTabs, canMail } from '$lib/stores/adminPermissions';
-  import type * as api from '$lib/types/api';
 
   $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
   const modeOptions = [
     { value: 'pending', label: 'Pending' },
     { value: 'dismissed', label: 'Dismissed' },
+    { value: 'withdrawn', label: 'Withdrawn' },
   ];
 
-  let mode: 'pending' | 'dismissed' = $page.url.hash === '#dismissed' ? 'dismissed' : 'pending';
-  $: keepInHash($page.url, mode === 'dismissed' ? '#dismissed' : '');
+  type Mode = 'pending' | 'dismissed' | 'withdrawn';
+  const hashMode = $page.url.hash.slice(1);
+  let mode: Mode = hashMode === 'dismissed' || hashMode === 'withdrawn' ? hashMode : 'pending';
+  $: keepInHash($page.url, mode === 'pending' ? '' : `#${mode}`);
 
   const PAGE = 50;
   // Read from this device's copies, newest first; the sync keeps them current.
   let flags: FlagCase[] = [];
   let dismissed: FlagCase[] = [];
+  let withdrawn: FlagCase[] = [];
   let morePending = false;
   let moreDismissed = false;
-  const MAX_DISMISS_REASON = 140;
-  // One open dismissal form at a time.
-  let dismissing: string | null = null;
-  let dismissReason = '';
-  let dismissError = '';
-  let dismissSubmitting = false;
-  let contents: Record<string, string | null> = {};
+  let moreWithdrawn = false;
+  let reeds: Record<string, ReedType | null> = {};
+  let authorCounts: Record<string, number> = {};
   let loadError = '';
   let flagsLoaded = false;
   let actingOn: string | null = null;
@@ -57,16 +55,20 @@
 
   // Reloads as many cases as are shown, at least a page of each.
   async function loadFlags(): Promise<void> {
-    const [open, done] = await Promise.all([
+    const [open, done, recalled] = await Promise.all([
       flagsRepository.openCases(Math.max(flags.length, PAGE) + 1),
       flagsRepository.dismissedCases(Math.max(dismissed.length, PAGE) + 1),
+      flagsRepository.withdrawnCases(Math.max(withdrawn.length, PAGE) + 1),
     ]);
     morePending = open.length > Math.max(flags.length, PAGE);
     moreDismissed = done.length > Math.max(dismissed.length, PAGE);
+    moreWithdrawn = recalled.length > Math.max(withdrawn.length, PAGE);
     flags = open.slice(0, Math.max(flags.length, PAGE));
     dismissed = done.slice(0, Math.max(dismissed.length, PAGE));
+    withdrawn = recalled.slice(0, Math.max(withdrawn.length, PAGE));
     flagsLoaded = true;
-    fetchContents([...flags, ...dismissed]);
+    fetchContents([...flags, ...dismissed, ...withdrawn]);
+    countFlags([...flags, ...dismissed, ...withdrawn]);
   }
 
   async function loadMorePending(): Promise<void> {
@@ -76,6 +78,7 @@
     morePending = more.length > PAGE;
     flags = [...flags, ...more.slice(0, PAGE)];
     fetchContents(more);
+    countFlags(more);
   }
 
   async function loadMoreDismissed(): Promise<void> {
@@ -83,129 +86,38 @@
     moreDismissed = more.length > PAGE;
     dismissed = [...dismissed, ...more.slice(0, PAGE)];
     fetchContents(more);
+    countFlags(more);
   }
 
-  function fetchContents(reeds: FlagCase[]): void {
-    for (const f of reeds) {
-      if (f.reedId in contents) continue;
-      contents = { ...contents, [f.reedId]: null };
+  async function loadMoreWithdrawn(): Promise<void> {
+    const more = await flagsRepository.withdrawnCases(PAGE + 1, withdrawn[withdrawn.length - 1].flags[0]);
+    moreWithdrawn = more.length > PAGE;
+    withdrawn = [...withdrawn, ...more.slice(0, PAGE)];
+    fetchContents(more);
+    countFlags(more);
+  }
+
+  function fetchContents(cases: FlagCase[]): void {
+    for (const f of cases) {
+      if (f.reedId in reeds) continue;
+      reeds = { ...reeds, [f.reedId]: null };
       serverConnection
         .requestReedContent(f.reedId)
-        .then((reed) => (contents = { ...contents, [f.reedId]: reed.content ?? '' }))
+        .then((reed) => (reeds = { ...reeds, [f.reedId]: reed }))
         .catch(() => {});
     }
   }
 
-  function openDismiss(reedId: string): void {
-    dismissing = reedId;
-    dismissReason = '';
-    dismissError = '';
-  }
-
-  async function submitDismiss(f: FlagCase): Promise<void> {
-    dismissSubmitting = true;
-    dismissError = '';
-    try {
-      await dismissFlags(f.reedId, dismissReason.trim(), f.flags);
-      dismissing = null;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '';
-      if (message === 'flags-changed') {
-        dismissError = 'Someone flagged or dismissed this reed meanwhile. Review the flags and try again.';
-        void syncAdminRecords();
-      } else {
-        dismissError = message || 'Could not dismiss these flags.';
-      }
-    } finally {
-      dismissSubmitting = false;
+  /** Counts every flag on each author's reeds this device holds. */
+  function countFlags(reeds: FlagCase[]): void {
+    for (const authorId of new Set(reeds.map((f) => f.authorId))) {
+      flagsRepository
+        .historyOf(authorId)
+        .then((h) => (authorCounts = { ...authorCounts, [authorId]: h.count }))
+        .catch(() => {});
     }
   }
-
-  /** The server a remote reporter belongs to, null for a local one. */
-  function remoteServer(userID: string): string | null {
-    const server = parseCanonicalId(userID)?.[1];
-    return server && server !== serverID ? server : null;
-  }
-
-  function reedHref(reedId: string): string {
-    return `/reed/${reedId}`;
-  }
 </script>
-
-{#snippet flagCard(f: FlagCase)}
-  {@const reports = f.flags}
-  <li class="flag">
-    <div class="flag-head">
-      <span class="author name"><Username userID={f.authorId} color="var(--primary)" /></span>
-      <span class="report-count">
-        {reports.length} {reports.length === 1 ? 'flag' : 'flags'}
-      </span>
-    </div>
-
-    {#if contents[f.reedId]}
-      <blockquote class="content">{contents[f.reedId]}</blockquote>
-    {:else}
-      <p class="content loading">Retrieving from the network…</p>
-    {/if}
-
-    <ul class="reports">
-      {#each reports as rep (rep.reporterId)}
-        {@const server = remoteServer(rep.reporterId)}
-        <li>
-          <span class="name"><Username userID={rep.reporterId} color="var(--primary)" /></span>{#if server}<span class="server">({server})</span>{/if}
-          {#if rep.note}<span class="note">“{rep.note}”</span>{/if}
-          <span class="report-when">{formatRelativeTime(fromUnix(rep.serverSignature?.signedAt ?? 0) ?? new Date())}</span>
-        </li>
-      {/each}
-    </ul>
-
-    {#if f.dismissal}
-      <blockquote class="reason">{f.dismissal.reason}</blockquote>
-      <p class="meta">
-        Dismissed by
-        {#if f.dismissal.dismissedBy}
-          <span class="name"><Username userID={f.dismissal.dismissedBy} color="var(--primary)" /></span>
-        {:else}
-          a removed account
-        {/if}
-        · {formatRelativeTime(fromUnix(f.dismissal.serverSignature?.signedAt ?? 0) ?? new Date())}
-      </p>
-      <div class="flag-actions">
-        <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
-      </div>
-    {:else if dismissing === f.reedId}
-      <div class="decision-form">
-        <label class="dismiss-field">
-          <span>Why are you dismissing these flags?</span>
-          <textarea bind:value={dismissReason} rows="3"></textarea>
-          <span class="character-counter">{countCharacters(dismissReason)}/{MAX_DISMISS_REASON} characters</span>
-        </label>
-        {#if dismissError}<p class="decision-error" role="alert">{dismissError}</p>{/if}
-        <div class="decision-actions">
-          <button class="btn secondary" type="button" on:click={() => (dismissing = null)}>Cancel</button>
-          <button
-            class="btn primary"
-            type="button"
-            disabled={dismissSubmitting || !dismissReason.trim() || countCharacters(dismissReason) > MAX_DISMISS_REASON}
-            on:click={() => submitDismiss(f)}
-          >
-            Dismiss
-          </button>
-        </div>
-      </div>
-    {:else}
-      <div class="flag-actions">
-        <a class="btn secondary" href={reedHref(f.reedId)}>Open reed</a>
-        <button class="btn secondary" type="button" on:click={() => (actingOn = f.authorId)}>
-          Take action
-        </button>
-        <button class="btn secondary dismiss" type="button" on:click={() => openDismiss(f.reedId)}>
-          Dismiss
-        </button>
-      </div>
-    {/if}
-  </li>
-{/snippet}
 
 <Auth>
   <SideNav currentPage="admin" />
@@ -231,11 +143,38 @@
           {:else}
             <ul class="flag-list">
               {#each flags as f (f.reedId)}
-                {@render flagCard(f)}
+                <FlagCaseCard
+                  flagCase={f}
+                  reed={reeds[f.reedId]}
+                  {serverID}
+                  authorFlagCount={authorCounts[f.authorId]}
+                  on:takeAction={(e) => (actingOn = e.detail)}
+                />
               {/each}
             </ul>
             {#if morePending}
               <button class="btn secondary more" type="button" on:click={loadMorePending}>Load more</button>
+            {/if}
+          {/if}
+        {:else if mode === 'withdrawn'}
+          {#if withdrawn.length === 0}
+            <div class="empty-state">
+              <h3>No withdrawn flags</h3>
+            </div>
+          {:else}
+            <ul class="flag-list">
+              {#each withdrawn as f (`${f.reedId} ${f.flags[0].reporterId}`)}
+                <FlagCaseCard
+                  flagCase={f}
+                  reed={reeds[f.reedId]}
+                  {serverID}
+                  authorFlagCount={authorCounts[f.authorId]}
+                  showStates
+                />
+              {/each}
+            </ul>
+            {#if moreWithdrawn}
+              <button class="btn secondary more" type="button" on:click={loadMoreWithdrawn}>Load more</button>
             {/if}
           {/if}
         {:else if dismissed.length === 0}
@@ -245,7 +184,7 @@
         {:else}
           <ul class="flag-list">
             {#each dismissed as f (f.dismissal?.id)}
-              {@render flagCard(f)}
+              <FlagCaseCard flagCase={f} reed={reeds[f.reedId]} {serverID} authorFlagCount={authorCounts[f.authorId]} />
             {/each}
           </ul>
           {#if moreDismissed}
@@ -306,165 +245,8 @@
     gap: 0.75rem;
   }
 
-  .flag {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding: 1rem;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface);
-    overflow-wrap: anywhere;
-  }
-
-  .flag-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-  }
-
-  .author {
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-
-  .server {
-    margin-left: 0.25rem;
-    color: var(--muted);
-    font-weight: 500;
-  }
-
-  .report-count {
-    white-space: nowrap;
-    flex-shrink: 0;
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 0.25rem 0.5rem;
-    border-radius: 999px;
-    background: var(--input-bg);
-    color: #c0392b;
-  }
-
-  .content {
-    margin: 0;
-    padding: 0.5rem 0.75rem;
-    border-left: 3px solid var(--border);
-    color: var(--fg);
-    font-size: 0.9rem;
-    line-height: 1.5;
-  }
-
-  .content.loading {
-    color: var(--muted);
-    font-style: italic;
-  }
-
-  .reports {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .note {
-    margin-left: 0.25rem;
-  }
-
-  .report-when {
-    margin-left: 0.5rem;
-  }
-
-  .flag-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
-  }
-
-  .dismiss {
-    margin-left: auto;
-  }
-
-  .name {
-    color: var(--primary);
-    font-weight: 600;
-  }
-
-  .reason {
-    margin: 0;
-    padding: 0.5rem 0.75rem;
-    border-left: 3px solid var(--border);
-    color: var(--fg);
-    font-size: 0.9rem;
-    line-height: 1.5;
-  }
-
-  .meta {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .decision-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.25rem;
-  }
-
-  .decision-error {
-    margin: 0;
-    color: var(--error);
-    font-size: 0.85rem;
-  }
-
   .more {
     margin-top: 0.75rem;
-  }
-
-  a.btn {
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .decision-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--border);
-  }
-
-  .dismiss-field {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .dismiss-field textarea {
-    padding: 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--input-bg);
-    color: var(--fg);
-    font-family: inherit;
-    font-size: 0.9rem;
-    resize: vertical;
-  }
-
-  .character-counter {
-    text-align: right;
-    font-size: 0.8rem;
   }
 
   .btn {
@@ -475,16 +257,6 @@
     font-family: inherit;
     font-weight: 600;
     cursor: pointer;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn.primary {
-    background: var(--primary);
-    color: var(--button-text);
   }
 
   .btn.secondary {

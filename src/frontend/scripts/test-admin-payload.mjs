@@ -150,6 +150,22 @@ assert.equal(
   'admin request opened payload'
 );
 
+const { buildFlagWithdrawalPayload, buildFlagWithdrawalServerPayload } = await import('../src/lib/services/signing.ts');
+
+assert.equal(
+  buildFlagWithdrawalPayload('a9@home1234/r1', 'k3@peer5678', 'k3@peer5678/K3', 'FLAGSIG'),
+  '{"flagSignature":"FLAGSIG","keyID":"k3@peer5678/K3","reedID":"a9@home1234/r1",' +
+    '"reporterID":"k3@peer5678","type":"flag-withdrawal"}',
+  'flag withdrawal payload'
+);
+
+assert.equal(
+  buildFlagWithdrawalServerPayload('a9@home1234/r1', 'k3@peer5678', 'SERVERKEY01', 'USERSIG', '2026-10-12T16:00:00Z'),
+  '{"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",' +
+    '"signedAt":"2026-10-12T16:00:00Z","type":"flag-withdrawal","userSignature":"USERSIG"}',
+  'flag withdrawal server payload'
+);
+
 console.log('flag payload parity: ok');
 
 assert.equal(

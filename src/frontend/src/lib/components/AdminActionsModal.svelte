@@ -200,10 +200,17 @@
       <p class="who"><span class="name"><Username {userID} linked={false} color="var(--primary)" /></span></p>
       {#if loadError}
         <p class="warning" role="alert">{loadError}</p>
-      {:else if viewer && actions.length === 0}
-        <p class="who">You don’t hold a permission for any action on this user.</p>
       {:else}
         <ul class="action-list">
+          <li>
+            <a class="action-row" href="/admin/flags/{userID}" on:click={close}>
+              <span class="action-icon" style="--icon: url('/icons/flag-16.svg')" aria-hidden="true"></span>
+              <span class="action-text">
+                <span class="action-label">Flags received</span>
+                <span class="action-hint">Every flag their reeds received</span>
+              </span>
+            </a>
+          </li>
           {#each actions as a (a.id)}
             <li>
               <button type="button" class="action-row" class:danger={a.danger} on:click={() => choose(a.id)}>
@@ -216,6 +223,9 @@
             </li>
           {/each}
         </ul>
+        {#if viewer && actions.length === 0}
+          <p class="who">You don’t hold a permission for any action on this user.</p>
+        {/if}
       {/if}
       <div class="actions">
         <button class="btn btn-secondary" type="button" on:click={close}>Close</button>
@@ -377,6 +387,7 @@
     color: var(--fg);
     font-family: inherit;
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
   }
 

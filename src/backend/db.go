@@ -1612,7 +1612,8 @@ func InitDB(db *sql.DB) error {
 
 	// Signed flags on reeds authored here; reporter_id may be a remote member.
 	// author_id lets visibility be checked without the reed body. created_at
-	// is when this server countersigned the flag.
+	// is when this server countersigned the flag. A flag closes once: by a
+	// dismissal or by its reporter's withdrawal.
 	createReedFlagsTable := `
 	CREATE TABLE IF NOT EXISTS reed_flags (
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
@@ -1624,12 +1625,18 @@ func InitDB(db *sql.DB) error {
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		created_at TIMESTAMP NOT NULL,
 		dismissal_id VARCHAR(255) REFERENCES flag_dismissals(id) ON DELETE CASCADE,
-		PRIMARY KEY (reed_id, reporter_id)
+		withdrawal_signature_id INT REFERENCES user_signatures(id),
+		withdrawal_server_signature_id INT REFERENCES server_signatures(id),
+		PRIMARY KEY (reed_id, reporter_id),
+		CONSTRAINT reed_flags_withdrawal CHECK (
+			(withdrawal_signature_id IS NULL) = (withdrawal_server_signature_id IS NULL)),
+		CONSTRAINT reed_flags_closed_once CHECK (
+			withdrawal_signature_id IS NULL OR dismissal_id IS NULL)
 	);`
 
 	createReedFlagsIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_reed_flags_open
-		ON reed_flags(created_at) WHERE dismissal_id IS NULL;
+		ON reed_flags(created_at) WHERE dismissal_id IS NULL AND withdrawal_signature_id IS NULL;
 	CREATE INDEX IF NOT EXISTS idx_reed_flags_dismissal
 		ON reed_flags(dismissal_id) WHERE dismissal_id IS NOT NULL;
 	CREATE INDEX IF NOT EXISTS idx_flag_dismissals_recent

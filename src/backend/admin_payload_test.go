@@ -157,6 +157,23 @@ func TestFlagDismissalPayloadCanonicalShape(t *testing.T) {
 	}
 }
 
+func TestFlagWithdrawalPayloadCanonicalShape(t *testing.T) {
+	got := buildFlagWithdrawalPayload("a9@home1234/r1", "k3@peer5678", "k3@peer5678/K3", "FLAGSIG")
+	want := `{"flagSignature":"FLAGSIG","keyID":"k3@peer5678/K3","reedID":"a9@home1234/r1",` +
+		`"reporterID":"k3@peer5678","type":"flag-withdrawal"}`
+	if string(got) != want {
+		t.Errorf("flag withdrawal payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+
+	signedAt := time.Date(2026, 10, 12, 16, 0, 0, 0, time.UTC)
+	got = buildFlagWithdrawalServerPayload("a9@home1234/r1", "k3@peer5678", "SERVERKEY01", "USERSIG", signedAt)
+	want = `{"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",` +
+		`"signedAt":"2026-10-12T16:00:00Z","type":"flag-withdrawal","userSignature":"USERSIG"}`
+	if string(got) != want {
+		t.Errorf("flag withdrawal server payload mismatch:\n got=%q\nwant=%q", got, want)
+	}
+}
+
 func TestProfilePayloadSignsPermissions(t *testing.T) {
 	ts := time.Date(2026, 10, 12, 11, 0, 0, 0, time.UTC)
 	got := buildProfilePayload("a1@home1234", "a1", "a1@home1234/K1", "home1234", "SERVERKEY01", "SIG", "",

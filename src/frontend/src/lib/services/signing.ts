@@ -669,3 +669,19 @@ export function buildReedFlagServerPayload(
 ): string {
   return canonicalJSON({ type: 'reed-flag', reedID, reporterID, signedAt, serverKeyFingerprint, userSignature });
 }
+
+/** Mirror of buildFlagWithdrawalPayload in identity.go. */
+export function buildFlagWithdrawalPayload(reedID: string, reporterID: string, keyID: string, flagSignature: string): string {
+  return canonicalJSON({ type: 'flag-withdrawal', reedID, reporterID, keyID, flagSignature });
+}
+
+/** Mirror of buildFlagWithdrawalServerPayload in identity.go. */
+export function buildFlagWithdrawalServerPayload(
+  reedID: string,
+  reporterID: string,
+  serverKeyFingerprint: string,
+  userSignature: string,
+  signedAt: string
+): string {
+  return canonicalJSON({ type: 'flag-withdrawal', reedID, reporterID, signedAt, serverKeyFingerprint, userSignature });
+}

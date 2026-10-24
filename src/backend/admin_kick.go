@@ -19,6 +19,7 @@ import (
 func (h *Handlers) kickExecutor() adminExecutor {
 	var kicked []accountRemovalCert
 	revokedInvites := map[string]int64{}
+	var flagged []string
 	return adminExecutor{
 		execute: func(ctx context.Context, tx *sql.Tx, req *adminRequest) error {
 			serverID := h.services.db.GetServerID()
@@ -36,6 +37,11 @@ func (h *Handlers) kickExecutor() adminExecutor {
 					ServerSignedAt:    now,
 					AdminRequestID:    req.ID,
 				}
+				authors, err := authorsOpenFlaggedByQ(ctx, tx, target)
+				if err != nil {
+					return err
+				}
+				flagged = append(flagged, authors...)
 				if err := storeAccountRemovalTx(ctx, tx, cert, identityID(target)); err != nil {
 					return err
 				}
@@ -52,6 +58,7 @@ func (h *Handlers) kickExecutor() adminExecutor {
 			return nil
 		},
 		after: func(req *adminRequest) {
+			h.reportOpenFlags(context.Background(), flagged...)
 			for _, cert := range kicked {
 				cert.Admin = req
 				h.kickUserDevices(cert.UserID)
