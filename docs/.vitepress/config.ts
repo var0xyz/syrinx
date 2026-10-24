@@ -37,6 +37,7 @@ export default withMermaid(
             { text: 'Cryptography', link: '/cryptography' },
             { text: 'Content distribution', link: '/content' },
             { text: 'Content privacy', link: '/content_privacy' },
+            { text: 'Telemetry', link: '/telemetry' },
             { text: 'Relay model', link: '/relay-model' },
             { text: 'Invites', link: '/invites' },
             { text: 'Identity, invites & recovery', link: '/identity' },
