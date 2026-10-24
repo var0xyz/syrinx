@@ -29,6 +29,7 @@ when schema changes.
 | [10](10_admin_spa.md) | Admin SPA                                    | 01–09                       |
 | [11](11_admins_mention.md) | The @admins mention                     | 09                          |
 | [12](12_admin_records.md) | Admin records on admins' devices          | 01, 08                      |
+| [13](13_flag_withdrawal.md) | Withdrawing flags, and an author's flag history | 08, 12                |
 
 ---
 
@@ -41,6 +42,7 @@ when schema changes.
 | 00    | Implemented              |
 | 01–11 | Implemented              |
 | 12    | Implemented              |
+| 13    | Proposed                 |
 
 ## Locked decisions
 
