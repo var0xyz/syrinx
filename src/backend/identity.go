@@ -892,3 +892,38 @@ func buildFlagDismissalServerPayload(
 		"userSignature":        userSignature,
 	})
 }
+
+// identityTypeFlagWithdrawal is the `type` of a reporter's withdrawal of
+// their flag.
+const identityTypeFlagWithdrawal = "flag-withdrawal"
+
+// buildFlagWithdrawalPayload returns the bytes a reporter signs to take
+// back the flag whose signature is flagSignature.
+func buildFlagWithdrawalPayload(reedID, reporterID, keyID, flagSignature string) []byte {
+	return canonicalJSON(signedFields{
+		"type":          identityTypeFlagWithdrawal,
+		"reedID":        reedID,
+		"reporterID":    reporterID,
+		"keyID":         keyID,
+		"flagSignature": flagSignature,
+	})
+}
+
+// buildFlagWithdrawalServerPayload returns the bytes the reed's home
+// server countersigns for a withdrawal. signedAt is when it was made.
+func buildFlagWithdrawalServerPayload(
+	reedID,
+	reporterID,
+	serverKeyFingerprint,
+	userSignature string,
+	signedAt time.Time,
+) []byte {
+	return canonicalJSON(signedFields{
+		"type":                 identityTypeFlagWithdrawal,
+		"reedID":               reedID,
+		"reporterID":           reporterID,
+		"signedAt":             signedTime(signedAt),
+		"serverKeyFingerprint": serverKeyFingerprint,
+		"userSignature":        userSignature,
+	})
+}

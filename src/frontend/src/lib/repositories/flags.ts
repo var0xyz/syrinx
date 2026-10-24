@@ -13,12 +13,21 @@ export interface FlagOpenCase {
 }
 
 /** A page of cases for the admin flags list: a reed's open flags, or one
- * dismissal and the flags it closed. */
+ * dismissal and the flags it closed. In an author's history, a case
+ * without a dismissal also holds the reed's withdrawn flags. */
 export interface FlagCase {
   reedId: string;
   authorId: string;
   flags: api.ReedFlag[];
   dismissal?: api.FlagDismissal;
+}
+
+/** Every flag an author's reeds received that this device holds. */
+export interface FlagHistory {
+  /** Open and dismissed flags; withdrawn ones are left out. */
+  count: number;
+  /** Newest first. */
+  cases: FlagCase[];
 }
 
 function viewerID(): string {
@@ -38,16 +47,33 @@ function countersigned(flags: StoredFlag[]): api.ReedFlag[] {
   return flags.filter((f): f is api.ReedFlag => !!f.serverSignature);
 }
 
-/** Flags, dismissals, and the open cases derived from them. Flags and
- * dismissals never change once stored; the cases follow them. */
+/** Every key starting with `${authorId}/`, a reed of theirs. */
+function reedsOf(authorId: string): IDBKeyRange {
+  return IDBKeyRange.bound(`${authorId}/`, `${authorId}/\uffff`);
+}
+
+function latestAt(c: FlagCase): number {
+  if (c.dismissal) return c.dismissal.serverSignature?.signedAt ?? 0;
+  return Math.max(0, ...c.flags.map((f) => f.withdrawal?.serverSignature?.signedAt ?? f.serverSignature?.signedAt ?? 0));
+}
+
+/** Flags, dismissals, and the open cases derived from them. A flag changes
+ * only once, when withdrawn; dismissals never do; the cases follow them. */
 export const flagsRepository = {
-  async isFlaggedByViewer(reedId: string): Promise<boolean> {
-    return !!(await dbService.get<StoredFlag>('flaggedReeds', [reedId, viewerID()]));
+  async isWithdrawn(reedId: string, reporterId: string): Promise<boolean> {
+    return !!(await dbService.get<StoredFlag>('flaggedReeds', [reedId, reporterId]))?.withdrawal;
   },
 
-  /** Stores flag unless it's held. */
+  /** The viewer's own flag on reedId, as held. */
+  async ownFlag(reedId: string): Promise<StoredFlag | null> {
+    return dbService.get<StoredFlag>('flaggedReeds', [reedId, viewerID()]);
+  },
+
+  /** Stores flag unless it's held: a withdrawn copy replaces an unwithdrawn
+   * one, never the reverse. */
   async putFlag(flag: StoredFlag): Promise<void> {
-    if (flag.serverSignature && (await dbService.get<StoredFlag>('flaggedReeds', [flag.reedId, flag.reporterId]))?.serverSignature) return;
+    const held = await dbService.get<StoredFlag>('flaggedReeds', [flag.reedId, flag.reporterId]);
+    if (held?.serverSignature && (!flag.serverSignature || held.withdrawal || !flag.withdrawal)) return;
     await dbService.put('flaggedReeds', flag, verifyStoredFlag);
   },
 
@@ -68,10 +94,33 @@ export const flagsRepository = {
     return dbService.getAllByIndex<api.FlagDismissal>('flagDismissals', 'reedId', reedId);
   },
 
-  /** reedId's flags no dismissal closed. */
+  /** reedId's flags no dismissal closed and nobody withdrew. */
   async openFlagsOf(reedId: string): Promise<api.ReedFlag[]> {
     const closed = new Set((await this.dismissalsOf(reedId)).flatMap((d) => d.reporters));
-    return (await this.flagsOf(reedId)).filter((f) => !closed.has(f.reporterId));
+    return (await this.flagsOf(reedId)).filter((f) => !closed.has(f.reporterId) && !f.withdrawal);
+  },
+
+  /** Every flag authorId's reeds received, in cases, newest first. */
+  async historyOf(authorId: string): Promise<FlagHistory> {
+    const [flags, dismissals] = await Promise.all([
+      dbService.getAllByIndex<StoredFlag>('flaggedReeds', 'reedId', reedsOf(authorId)).then(countersigned),
+      dbService.getAllByIndex<api.FlagDismissal>('flagDismissals', 'reedId', reedsOf(authorId)),
+    ]);
+    const cases: FlagCase[] = [];
+    const named = new Set<string>();
+    for (const d of dismissals) {
+      const reporters = new Set(d.reporters);
+      const closed = flags.filter((f) => f.reedId === d.reedId && reporters.has(f.reporterId));
+      for (const f of closed) named.add(`${f.reedId} ${f.reporterId}`);
+      if (closed.length > 0) cases.push({ reedId: d.reedId, authorId, flags: closed, dismissal: d });
+    }
+    const rest = new Map<string, api.ReedFlag[]>();
+    for (const f of flags) {
+      if (!named.has(`${f.reedId} ${f.reporterId}`)) rest.set(f.reedId, [...(rest.get(f.reedId) ?? []), f]);
+    }
+    for (const [reedId, reedFlags] of rest) cases.push({ reedId, authorId, flags: reedFlags });
+    cases.sort((a, b) => latestAt(b) - latestAt(a));
+    return { count: flags.filter((f) => !f.withdrawal).length, cases };
   },
 
   /** Brings reedId's open case in line with its flags and dismissals. */
@@ -116,6 +165,19 @@ export const flagsRepository = {
         return { reedId: d.reedId, authorId: authorOf(d.reedId), flags, dismissal: d };
       })
     );
+  },
+
+  /** Withdrawn flags newest withdrawal first, one per case, after the last
+   * one shown. */
+  async withdrawnCases(limit: number, after?: api.ReedFlag): Promise<FlagCase[]> {
+    const rows = await dbService.getLatestFromIndex<api.ReedFlag>(
+      'flaggedReeds',
+      'byWithdrawal',
+      limit,
+      undefined,
+      after ? [after.withdrawal?.serverSignature?.signedAt ?? 0, after.reedId, after.reporterId] : undefined
+    );
+    return rows.map((f) => ({ reedId: f.reedId, authorId: authorOf(f.reedId), flags: [f] }));
   },
 
   /** Drops a removed account's flags, and the dismissals left with none. */

@@ -1259,6 +1259,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 		ServerFingerprint: serverSignature.ID,
 		ServerSignedAt:    serverSignature.SignedAt,
 	}
+	flagged := h.authorsOpenFlaggedBy(r.Context(), userID)
 	if err := h.services.db.InsertAccountRemoval(r.Context(), cert); err != nil {
 		if errors.Is(err, errRemovalConflict) {
 			existing, getErr := h.services.db.GetAccountRemoval(r.Context(), userID)
@@ -1276,6 +1277,7 @@ func (h *Handlers) DeleteMe(w http.ResponseWriter, r *http.Request) {
 
 	noteHas := strings.TrimSpace(note) != ""
 	h.metrics.UserDeleted(r.Context(), metrics.RemovalSelf, noteHas)
+	h.reportOpenFlags(r.Context(), flagged...)
 
 	h.afterAccountRemoval(r.Context(), userID, cert)
 

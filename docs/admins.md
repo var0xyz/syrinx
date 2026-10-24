@@ -54,6 +54,8 @@ Two things stay out of the ledger:
 
 A member flags a **reed id**, never its content. The server never sees what was flagged; admins load the reed from the network like anyone else. Admins see who filed a flag. A flag on an admin's reed is visible only to the other admins, and root's reeds can't be flagged.
 
+A member flags a reed once. They can withdraw it from the reed's menu until admins have acted on it, but can't flag that reed again. Admins still see a withdrawn flag, under Withdrawn, but no longer its note. Admins act on a flag by dismissing it, with a reason that says what was done, if anything; the member isn't told, and only learns of it if they try to withdraw. Each flag shows how many flags the author's reeds have drawn, with a link to all of them; an admin's toolbox on a profile opens the same list.
+
 To talk to the admins, a member mentions `@admins` in a reed. It reaches every admin of that server at once, and works for a peer server's admins too. It's also how a member answers a message from the admins.
 
 ## Related

@@ -200,6 +200,14 @@ async function syncAdminRecordsNow(): Promise<void> {
       return stored(() => flagsRepository.putDismissal(d), `dismissal ${d.id}`);
     }
   );
+  await pagesUntilKnown(
+    (c) => apiService.listFlags('withdrawn', c).then((p) => ({ items: p.reeds.flatMap((fr) => fr.flags), next: p.nextCursor })),
+    async (f) => {
+      if (await flagsRepository.isWithdrawn(f.reedId, f.reporterId)) return false;
+      touched.add(f.reedId);
+      return stored(() => flagsRepository.putFlag(f), `withdrawn flag on ${f.reedId}`);
+    }
+  );
   for (const reedId of touched) await flagsRepository.settleCase(reedId);
   adminRecordsChanged.update((n) => n + 1);
 }

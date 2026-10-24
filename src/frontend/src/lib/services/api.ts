@@ -40,6 +40,7 @@ import {
   DismissFlagsRequestSchema,
   FlagDismissalSchema,
   FlaggedReedListSchema,
+  FlagWithdrawalSchema,
   InviteTreeSchema,
   LedgerPageSchema,
   ReedFlagSchema,
@@ -880,7 +881,7 @@ export const apiService = {
     return request(`/admin/users/${userId}/permissions`, { method: 'GET' }, UserPermissionsSchema);
   },
 
-  async listFlags(state: 'open' | 'dismissed', cursor = ''): Promise<api.FlaggedReedList> {
+  async listFlags(state: 'open' | 'dismissed' | 'withdrawn', cursor = ''): Promise<api.FlaggedReedList> {
     const query = cursor ? `state=${state}&cursor=${encodeURIComponent(cursor)}` : `state=${state}`;
     return request(`/admin/flags?${query}`, { method: 'GET' }, FlaggedReedListSchema);
   },
@@ -900,6 +901,18 @@ export const apiService = {
    * reed to its home server. */
   async flagReed(flag: MessageInitShape<typeof ReedFlagSchema>): Promise<api.ReedFlag> {
     return request('/flags', protoBody('POST', ReedFlagSchema, flag), ReedFlagSchema);
+  },
+
+  /** The viewer's own flag on reedId, with their withdrawal; it never says
+   * whether admins dismissed it. */
+  async getOwnFlag(reedId: string): Promise<api.ReedFlag> {
+    return request(`/flags/${reedId}`, { method: 'GET' }, ReedFlagSchema);
+  },
+
+  /** Withdraws the viewer's flag; refused with flag-acknowledged once
+   * admins acted on it. */
+  async withdrawFlag(reedId: string, withdrawal: MessageInitShape<typeof FlagWithdrawalSchema>): Promise<api.ReedFlag> {
+    return request(`/flags/${reedId}/withdraw`, protoBody('POST', FlagWithdrawalSchema, withdrawal), ReedFlagSchema);
   },
 
   async likeReed(reedId: string, signature: string, keyId: string): Promise<api.ReedLike> {

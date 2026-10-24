@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -81,6 +81,8 @@ message FlagWithdrawal {
 |-------|------|------|
 | `GET /api/flags/{reedID}` | The reporter | Their own flag on that reed, countersigned, with their withdrawal if they made one. Nothing in it says whether it was dismissed |
 | `POST /api/flags/{reedID}/withdraw` | The reporter | Withdraw it `{signature}`; answers with the flag, withdrawal countersigned |
+| `GET /api/admin/flags?state=withdrawn` | Admin or root | Withdrawn flags they may see, latest withdrawal first, keyset cursor, for catch-up |
+| Peer relay `flag-lookup` | The reporter's home server | Fetches the reporter's flag on a reed of the callee's, as `GET /api/flags/{reedID}` answers it |
 | Peer relay `flag-withdrawal` | The reporter's home server | Hands a withdrawal of a flag on a reed of the callee's to the callee, as `flag` does |
 
 `GET /api/flags/{reedID}` exists for a device that holds only `{reedId,
@@ -106,6 +108,8 @@ endpoint that tells them without withdrawing.
 - `ADMIN_RECORD` carries the withdrawn flag, like any flag. On an admin's
   device a withdrawn copy replaces the unwithdrawn one, never the reverse:
   the same rule as a request's closed copy.
+- Catch-up pages `state=withdrawn` back after the dismissals, until a page
+  holds nothing the device doesn't already hold withdrawn.
 - A withdrawn flag leaves `flagOpenCases`. A case left with no open flags is
   dropped.
 - Recovery restores a withdrawn flag from the reporter's device or an

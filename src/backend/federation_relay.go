@@ -1877,6 +1877,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		ServerFingerprint: req.ServerFingerprint,
 		ServerSignedAt:    timeFromUnix(req.ServerSignedAt),
 	}
+	flagged := h.authorsOpenFlaggedBy(r.Context(), req.UserId)
 	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
 		log.Error().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Failed to store foreign account removal")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
@@ -1889,6 +1890,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		h.realtimeRelay.HandleForeignAccountRemoval(req.UserId, &wire)
 	}
 
+	h.reportOpenFlags(r.Context(), flagged...)
 	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign account removal")
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
 	w.WriteHeader(http.StatusNoContent)
@@ -1925,6 +1927,7 @@ func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, pee
 		ServerSignedAt:    serverSig.SignedAt,
 		Admin:             admin,
 	}
+	flagged := h.authorsOpenFlaggedBy(r.Context(), req.UserId)
 	if err := h.services.db.InsertForeignAccountRemoval(r.Context(), cert); err != nil && !errors.Is(err, errRemovalConflict) {
 		log.Error().Err(err).Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Failed to store foreign kick")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", false)
@@ -1936,6 +1939,7 @@ func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, pee
 		wire := newAccountRemovalWire(peerServerID, cert)
 		h.realtimeRelay.HandleForeignAccountRemoval(req.UserId, &wire)
 	}
+	h.reportOpenFlags(r.Context(), flagged...)
 	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign kick")
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
 	h.metrics.ForeignKick(r.Context(), peerServerID, true)

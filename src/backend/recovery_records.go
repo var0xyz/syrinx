@@ -890,8 +890,8 @@ func (r recoveredFlag) restore(ctx context.Context, tx *sql.Tx, env *recoveryRec
 }
 
 // restoreFlagTx stores f unless it's held, once it checks out: a flag this
-// server took, signed by its reporter, local or a peer's. It returns the
-// flagged reed's author.
+// server took, signed by its reporter, local or a peer's. A withdrawn copy
+// withdraws a held flag no dismissal names. It returns the reed's author.
 func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f reedFlag) (string, error) {
 	author, err := env.localEntity(f.ReedID)
 	if err != nil {
@@ -900,13 +900,7 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 	if author == f.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(f.Note) > maxFlagNoteChars {
 		return "", refuseRecord("flag on %s isn't one this server takes", f.ReedID)
 	}
-	payload := buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note)
-	if env.local(f.ReporterID) == nil {
-		err = env.signedBy(ctx, tx, f.ReporterID, f.Signature, payload)
-	} else {
-		err = env.signedByHeldKey(ctx, tx, f.ReporterID, f.Signature, payload)
-	}
-	if err != nil {
+	if err := env.signedByReporter(ctx, tx, f, f.Signature, buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note)); err != nil {
 		return "", err
 	}
 	if err := env.countersignedHere(ctx, f.ServerSignature, func(fp string) []byte {
@@ -914,11 +908,37 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 	}); err != nil {
 		return "", err
 	}
+	if w := f.Withdrawal; w != nil {
+		if err := env.signedByReporter(ctx, tx, f, w.Signature, f.withdrawalPayload()); err != nil {
+			return "", err
+		}
+		if err := env.countersignedHere(ctx, w.ServerSignature, func(fp string) []byte {
+			return buildFlagWithdrawalServerPayload(f.ReedID, f.ReporterID, fp, w.Signature.Armor, w.ServerSignature.SignedAt)
+		}); err != nil {
+			return "", err
+		}
+		if named, err := existsTx(ctx, tx, `
+			SELECT 1 FROM flag_dismissals d JOIN flag_dismissal_reporters dr ON dr.dismissal_id = d.id
+			WHERE d.reed_id = $1 AND dr.reporter_id = $2
+		`, f.ReedID, f.ReporterID); err != nil || named {
+			if err == nil {
+				err = refuseRecord("flag on %s was dismissed, so it can't be withdrawn", f.ReedID)
+			}
+			return "", err
+		}
+	}
 	// A removed reporter's flags are gone for good.
-	if held, err := existsTx(ctx, tx, `
-		SELECT 1 FROM reed_flags WHERE reed_id = $1 AND reporter_id = $2
-		UNION ALL SELECT 1 FROM account_removals WHERE user_id = $2
-	`, f.ReedID, f.ReporterID); err != nil || held {
+	if gone, err := existsTx(ctx, tx, `SELECT 1 FROM account_removals WHERE user_id = $1`, f.ReporterID); err != nil || gone {
+		return author, err
+	}
+	held, _, err := getFlagQ(ctx, tx, f.ReedID, f.ReporterID, " FOR UPDATE")
+	if err != nil {
+		return "", err
+	}
+	if held != nil {
+		if held.Withdrawal == nil && f.Withdrawal != nil {
+			err = setFlagWithdrawalTx(ctx, tx, f.ReedID, f.ReporterID, *f.Withdrawal)
+		}
 		return author, err
 	}
 	if err := mintIdentityTx(ctx, tx, f.ReporterID); err != nil {
@@ -930,6 +950,9 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 	if err := insertReedFlagTx(ctx, tx, f, author); err != nil {
 		return "", err
 	}
+	if f.Withdrawal != nil {
+		return author, setFlagWithdrawalTx(ctx, tx, f.ReedID, f.ReporterID, *f.Withdrawal)
+	}
 	// A dismissal restored before it closes it now.
 	_, err = tx.ExecContext(ctx, `
 		UPDATE reed_flags SET dismissal_id = (
@@ -940,6 +963,15 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 		WHERE reed_id = $1 AND reporter_id = $2
 	`, f.ReedID, f.ReporterID)
 	return author, err
+}
+
+// signedByReporter checks sig is over payload by a key of f's reporter,
+// local or a peer's held here.
+func (env *recoveryRecordEnv) signedByReporter(ctx context.Context, tx *sql.Tx, f reedFlag, sig UserSignature, payload []byte) error {
+	if env.local(f.ReporterID) == nil {
+		return env.signedBy(ctx, tx, f.ReporterID, sig, payload)
+	}
+	return env.signedByHeldKey(ctx, tx, f.ReporterID, sig, payload)
 }
 
 // signedByHeldKey checks sig is over payload by a key of owner's, a user
