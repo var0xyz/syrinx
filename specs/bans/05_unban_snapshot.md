@@ -18,8 +18,7 @@ state kept on either side.
 
 ## Leg
 
-`POST /api/federation/relay/ban-snapshot`, B → A, sent after B applies an unban
-notice:
+`POST /api/federation/relay/ban-snapshot`, B → A, sent after B records a lift:
 
 ```proto
 message RelayBanSnapshot {
@@ -31,8 +30,23 @@ message RelayBanSnapshot {
 ```
 
 `reeds` holds only the references `relay/new-reed` carries, so the body stays
-small. B owes it in `ban_notices` like any notice and retries it until A answers
-2xx.
+small. B records what it owes in `peer_ban_snapshot_notices`:
+
+```sql
+-- An unban snapshot each banning peer is owed.
+CREATE TABLE IF NOT EXISTS peer_ban_snapshot_notices (
+  server_id VARCHAR(16) NOT NULL REFERENCES server_mesh(server_id) ON DELETE CASCADE,
+  user_id   VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+
+  PRIMARY KEY (server_id, user_id)
+);
+```
+
+- Inserted in the transaction that records the lift.
+- Deleted on a 2xx, and when a new ban of A's for Bob arrives, since A would
+  refuse the snapshot with 409.
+- Retried until A answers 2xx. Nothing about the snapshot is stored: B reads
+  Bob's reeds when it sends it.
 
 ## Reconciling (A)
 

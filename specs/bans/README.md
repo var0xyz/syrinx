@@ -17,16 +17,16 @@ Throughout: **A** is the banning server, **B** is the banned user's home server,
 **Blank slate — no migration, no backwards compatibility.** Recreate the DB when
 schema changes.
 
-| #                          | Title                                       | Depends on                                       |
-| -------------------------- | ------------------------------------------- | ------------------------------------------------ |
-| [01](01_requests.md)       | Ban and unban requests, `user_bans`, ledger | [admin actions](../admin_actions/README.md)      |
-| [02](02_enforcement_a.md)  | Enforcement on A                            | 01                                               |
-| [03](03_notices.md)        | Ban notices A → B, mailbox, B's admin list  | 01                                               |
-| [04](04_enforcement_b.md)  | Enforcement on B                            | 03                                               |
-| [05](05_unban_snapshot.md) | Unban snapshot                              | 03, 04                                           |
-| [06](06_flags.md)          | Flags reach the reporter's server too       | [admin actions 08](../admin_actions/08_flags.md) |
-| [07](07_spa_banned.md)     | SPA, banned side: banner, modal, mailbox    | 03, 04                                           |
-| [08](08_spa_admin.md)      | SPA, admin side: ban action, lists          | 01, 03                                           |
+| #                          | Title                                                    | Depends on                                       |
+| -------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
+| [01](01_requests.md)       | Ban and unban requests, `user_bans`, `peer_bans`, ledger | [admin actions](../admin_actions/README.md)      |
+| [02](02_enforcement_a.md)  | Enforcement on A                                         | 01                                               |
+| [03](03_notices.md)        | Ban notices A → B, mailbox, B's admin list               | 01                                               |
+| [04](04_enforcement_b.md)  | Enforcement on B                                         | 03                                               |
+| [05](05_unban_snapshot.md) | Unban snapshot                                           | 03, 04                                           |
+| [06](06_flags.md)          | Flags reach the reporter's server too                    | [admin actions 08](../admin_actions/08_flags.md) |
+| [07](07_spa_banned.md)     | SPA, banned side: banner, modal, mailbox                 | 03, 04                                           |
+| [08](08_spa_admin.md)      | SPA, admin side: ban action, lists                       | 01, 03                                           |
 
 06 is independent of the rest and can land first.
 
@@ -49,7 +49,8 @@ schema changes.
 | Permission        | **`user.kick`**, for ban and unban. A ban is a kick limited to this server                                                                                     |
 | Approval          | The two-admin rule of every request. The approver can't be the requester or someone the requester invited directly. No invite-tree selection, no root approval |
 | Reason            | Required, public, in the ledger like every request's                                                                                                           |
-| Reversible        | Yes, by an approved **unban** request                                                                                                                          |
+| Reversible        | Yes, by an approved **unban** request, recorded on the ban                                                                                                     |
+| History           | A ban is never deleted. A user banned again gets a new ban, and admins see the earlier ones. B keeps every ban of its users too                                |
 | Reads             | **Never refused.** Bob reads A's profiles, reeds, threads and ripples as before                                                                                |
 | Follows, likes    | **Allowed.** They aren't interactions                                                                                                                          |
 | Replies, echoes   | Bob can still post them on B, and they reach his followers. They never reach A                                                                                 |
@@ -64,7 +65,7 @@ schema changes.
 | One-way           | A's members can always reach Bob: mention, reply, like, echo, ripple on his reeds. Nothing Bob does reaches A. Bob's recourse is a block or his own admins     |
 | Enforcement       | **Both servers.** B refuses at the source; A refuses as a backstop, answering 403 with the certificate. A never depends on B                                   |
 | B not cooperating | B's data goes out of sync with A, A's doesn't                                                                                                                  |
-| Notice            | One notice per ban and per lift, A → B (fold at the border)                                                                                                    |
+| Notice            | One notice per ban, A → B, carrying its lift once there is one (fold at the border)                                                                            |
 | Telling Bob       | B sends a mailbox message with the certificate. Bob's client verifies it                                                                                       |
 | B's admins        | See every ban a peer made of their users, active and lifted                                                                                                    |
 | Out of scope      | Refusing reads; showing admins a peer's kicks of its own users                                                                                                 |
