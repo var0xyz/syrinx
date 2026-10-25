@@ -49,6 +49,7 @@ Each table below has a **Status** column per step. Values:
 | Eviction              | Implemented | —                                                      |
 | Blocking              | Implemented | —                                                      |
 | Admin actions         | Implemented | —                                                      |
+| Bans                  | Proposed    | 01–08                                                  |
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
@@ -229,6 +230,25 @@ excepted). No control over individual reeds.
 | 11    | The @admins mention                         | Implemented |
 | 12    | Admin records on admins' devices            | Implemented |
 | 13    | Withdrawing flags, and an author's history  | Implemented |
+
+## Bans (users of peer servers)
+
+See [`bans/`](bans/README.md). Two admins ban a peer's user from interacting
+with their community: reads, follows and likes still work; replies, echoes,
+mentions and ripples never reach it. Both servers enforce; the user's home
+server gets one notice, tells its admins and its user, and sends a full
+snapshot of the user's interactions when the ban is lifted.
+
+| #   | Title                                           | Status   |
+| --- | ----------------------------------------------- | -------- |
+| 01  | Ban and unban requests, `user_bans`, ledger     | Proposed |
+| 02  | Enforcement on A                                | Proposed |
+| 03  | Ban notices A → B, mailbox, B's admin list      | Proposed |
+| 04  | Enforcement on B                                | Proposed |
+| 05  | Unban snapshot                                  | Proposed |
+| 06  | Flags reach the reporter's server too           | Proposed |
+| 07  | SPA, banned side                                | Proposed |
+| 08  | SPA, admin side                                 | Proposed |
 
 ## Federation (explicit peering + cross-server content)
 
