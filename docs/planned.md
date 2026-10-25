@@ -22,6 +22,14 @@ Same privacy posture as private messaging, for more than two people: encrypted g
 
 Group chat is where most real coordination happens—and where centralized apps harvest the most. The design pressure is higher than DMs: membership changes, sender keys, history for new members, and the temptation to “just keep it on the server.” Syrinx should resist that temptation. Groups inherit the closed-community model: you know who is in the room, the server is not the room’s memory, and leaving or dissolving a group should not require trusting an operator’s delete button alone.
 
+## Town halls
+
+Some conversations don't fit in a feed. A community deciding where to go next, or working through a topic that touches a nerve, needs everyone in one room at the same time, with every voice getting its turn.
+
+Town halls are that room: live audio discussions the community schedules ahead of time, so members can plan to be there. Anyone can listen. If you want to speak, you join the queue, and when it's your turn you have the floor. A moderator keeps it that way, so you can make your point without being talked over.
+
+A town hall is only recorded if its organizers choose to, and you'll know before you join. When it is, the recording is made by the community's admins on their own devices, never by the server, in keeping with Syrinx's rule that the server doesn't hold anything sensitive. Members then help keep the recording, each device holding a small piece of it, so it stays with the community without any single place having to store it all.
+
 ## Command line interface
 
 A terminal client for Syrinx, for members who would rather not live in a browser tab. It would be a full peer, not a thin wrapper around the API: your keys stay on your machine, every reed is verified before it is stored, and the content you keep is held locally, the same as in the web app.

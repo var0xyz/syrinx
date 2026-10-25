@@ -50,6 +50,7 @@ Each table below has a **Status** column per step. Values:
 | Blocking              | Implemented | —                                                      |
 | Admin actions         | Implemented | —                                                      |
 | Bans                  | Proposed    | 01–08                                                  |
+| Town halls            | Proposed    | 00–15                                                  |
 | Attestations          | Implemented | —                                                      |
 | RFC 9421              | Proposed    | 00–05 (not scheduled; 06 deferred)                     |
 | High availability     | Proposed    | 00–13                                                  |
@@ -249,6 +250,33 @@ snapshot of the user's interactions when the ban is lifted.
 | 06  | Flags reach the reporter's server too                    | Proposed |
 | 07  | SPA, banned side                                         | Proposed |
 | 08  | SPA, admin side                                          | Proposed |
+
+## Town halls (scheduled live audio discussions)
+
+See [`townhalls/`](townhalls/README.md). Admins schedule a live audio
+discussion on a topic; everyone is notified and those who RSVP get
+reminders. Host, moderator and panelists have open mics; the audience
+raises hands and the moderator grants the floor, which the server
+enforces. Optional side chat, recording, capacity and peer access.
+
+| #   | Title                                                  | Status   |
+| --- | ------------------------------------------------------ | -------- |
+| 00  | Transport spike: Opus frames over the WebSocket        | Proposed |
+| 01  | Town hall records: schedule, edit, cancel              | Proposed |
+| 02  | Announcement, RSVP, reminders                          | Proposed |
+| 03  | Lifecycle and roles                                    | Proposed |
+| 04  | Audio relay over the WebSocket, server-enforced floor  | Proposed |
+| 05  | Queue and floor                                        | Proposed |
+| 06  | Side chat                                              | Proposed |
+| 07  | Removing someone from a town hall                      | Proposed |
+| 08  | Recording and transcript on admins' devices            | Proposed |
+| 09  | Capacity                                               | Proposed |
+| 10  | Federation: one stream per peer                        | Proposed |
+| 11  | SPA, audience side                                     | Proposed |
+| 12  | SPA, host and moderator side                           | Proposed |
+| 13  | Media host: SFU on a separate host                     | Proposed |
+| 14  | End-to-end encrypted audio                             | Proposed |
+| 15  | Recording backup: chunks held across peers             | Proposed |
 
 ## Federation (explicit peering + cross-server content)
 
