@@ -239,16 +239,16 @@ mentions and ripples never reach it. Both servers enforce; the user's home
 server gets one notice, tells its admins and its user, and sends a full
 snapshot of the user's interactions when the ban is lifted.
 
-| #   | Title                                           | Status   |
-| --- | ----------------------------------------------- | -------- |
-| 01  | Ban and unban requests, `user_bans`, ledger     | Proposed |
-| 02  | Enforcement on A                                | Proposed |
-| 03  | Ban notices A → B, mailbox, B's admin list      | Proposed |
-| 04  | Enforcement on B                                | Proposed |
-| 05  | Unban snapshot                                  | Proposed |
-| 06  | Flags reach the reporter's server too           | Proposed |
-| 07  | SPA, banned side                                | Proposed |
-| 08  | SPA, admin side                                 | Proposed |
+| #   | Title                                                    | Status   |
+| --- | -------------------------------------------------------- | -------- |
+| 01  | Ban and unban requests, `user_bans`, `peer_bans`, ledger | Proposed |
+| 02  | Enforcement on A                                         | Proposed |
+| 03  | Ban notices A → B, mailbox, B's admin list               | Proposed |
+| 04  | Enforcement on B                                         | Proposed |
+| 05  | Unban snapshot                                           | Proposed |
+| 06  | Flags reach the reporter's server too                    | Proposed |
+| 07  | SPA, banned side                                         | Proposed |
+| 08  | SPA, admin side                                          | Proposed |
 
 ## Federation (explicit peering + cross-server content)
 

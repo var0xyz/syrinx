@@ -10,7 +10,7 @@ Proposed.
 
 ## Context
 
-A enforces a ban on its own, from its `user_bans` rows, whatever B does. Every
+A enforces a ban on its own, from its active `user_bans` rows, whatever B does. Every
 refusal answers **403** with the ban certificate, as a block answers 403 with
 its own, so B learns of a ban whose notice it never got
 ([04](04_enforcement_b.md)).

@@ -43,7 +43,9 @@ instead ([05](05_unban_snapshot.md)).
 
 B handles a 403 from A carrying a ban certificate as a ban notice it missed: it
 verifies and stores it, as in [03](03_notices.md), mails Bob, and answers the
-original request with the same 403.
+original request with the same 403. If B still holds another active ban of A's
+for Bob, whose lift hasn't arrived yet, it stores nothing and leaves it to A's
+owed notices.
 
 ## Tests
 
