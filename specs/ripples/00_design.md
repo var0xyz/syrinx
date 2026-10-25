@@ -415,17 +415,14 @@ that user's `reeds` rows. This has two distinct, independent consequences
 for ripples:
 
 - **A removed user's own past responses, posted on other people's reeds,
-  are unaffected.** They persist exactly as posted — same content, same
-  position, same thread — until the reed they're on naturally reaches the
-  end of its own 30-day shared-activity window, same as any other response
-  on that reed. Account removal does not force early cleanup of a user's
-  own comment history elsewhere; the client renders the response as usual,
-  substituting a neutral "removed account" label for the author's username
-  (see [04](04_spa_ripples_section.md)). Note this has no bearing on
-  signature verification: the response's signatures remain valid
-  regardless of the author's current account-removal state — a removed
-  account's key was valid at the time of signing, which is all
-  verification checks (see Client-side verification above).
+  are tombstoned.** A trigger on `account_removals` inserts sets `deleted`
+  and replaces the content with `[ACCOUNT REMOVED]` for a self-removal or
+  `[USER KICKED]` for a kick; responses the user already deleted keep
+  `[DELETED]`. The author can no longer answer for, defend or delete them,
+  so they don't stay readable. They keep their place in the thread, and
+  replies to them still resolve, until the reed's 30-day sweep. The client
+  shows the tombstone text, and only one of the three known ones: the
+  content of a tombstone is unsigned.
 - **The ripples section on a removed user's *own* reeds becomes
   inaccessible immediately** — `GET`/`POST .../ripples` for a reed authored
   by a removed account returns the same not-found/removed response a

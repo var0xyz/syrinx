@@ -561,8 +561,8 @@ func TestGetRipples_Handler_IncludesTombstonesAndRemovedAccounts(t *testing.T) {
 	if body.Responses[0].UserSignature.Armor == "" {
 		t.Error("tombstoned response must still carry its original userSignature")
 	}
-	if body.Responses[1].UserID != canonicalCommenter2 || body.Responses[1].Deleted {
-		t.Errorf("removed-account response not rendered unfiltered: %+v", body.Responses[1])
+	if r := body.Responses[1]; r.UserID != canonicalCommenter2 || !r.Deleted || r.Content != "[ACCOUNT REMOVED]" {
+		t.Errorf("removed-account response not tombstoned: %+v", r)
 	}
 }
 
@@ -706,5 +706,34 @@ func TestDeleteRipple_Handler_AlreadyDeletedIdempotent(t *testing.T) {
 	}
 	if rr := deleteRipple(h, canonicalCommenter1, reed1ID, resp.ID); rr.Code != http.StatusNoContent {
 		t.Fatalf("second delete status = %d, want 204 (idempotent)", rr.Code)
+	}
+}
+
+func TestAccountRemoval_PushesRippleTombstones(t *testing.T) {
+	db := openRipplesTestDB(t)
+	insertRipplesTestUser(t, db, "author1", "author1")
+	insertRipplesTestUser(t, db, "commenter1", "commenter1")
+	insertRipplesTestReed(t, db, "author1", "reed1")
+	key := newRippleTestKey(t, db, "commenter1")
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
+	h := ripplesTestHandlers(svc)
+	pushes := make(chan realtimeBroadcastMessage, 10)
+	h.broadcastChan = pushes
+
+	live := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "hello", nil, time.Now())
+	gone := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "bye", nil, time.Now())
+	if _, _, err := svc.SoftDeleteRipple(context.Background(), gone.ID, canonicalCommenter1); err != nil {
+		t.Fatalf("SoftDeleteRipple: %v", err)
+	}
+	insertAccountRemoval(t, db, "commenter1")
+
+	h.pushAccountRemovalRipples(context.Background(), canonicalCommenter1)
+	if n := len(pushes); n != 1 {
+		t.Fatalf("got %d pushes, want 1 (the ripple the removal tombstoned)", n)
+	}
+	msg := <-pushes
+	if msg.Type != realtimeRippleUpdated || msg.Ripple == nil || msg.Ripple.Hash != live.ID ||
+		msg.Ripple.Content != "[ACCOUNT REMOVED]" || msg.UserID != canonicalAuthor1 || msg.ReedID != "reed1" {
+		t.Errorf("unexpected push: %+v", msg)
 	}
 }

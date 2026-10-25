@@ -172,10 +172,10 @@ actual `DELETE FROM reeds`, an account removal by itself never triggers
 the cascade at all. Concretely:
 
 - A removed user's own past responses, posted on other people's reeds,
-  are completely unaffected by the removal — they simply live out their
-  reed's normal shared 30-day window like any other response, and their
-  signatures remain valid and re-verifiable regardless of the author's
-  current account-removal state (see [00](00_design.md)).
+  are tombstoned by the `account_removals_ripples_insert` trigger
+  (`[ACCOUNT REMOVED]`, or `[USER KICKED]` when no user signature backs
+  the removal), then live out their reed's 30-day window like any other
+  response.
 - The ripples section on a removed user's *own* reeds becomes
   inaccessible (410) immediately, but this is enforced one layer up, at
   the HTTP handler's existing parent-reed lookup (see

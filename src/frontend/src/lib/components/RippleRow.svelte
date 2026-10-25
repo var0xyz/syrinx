@@ -4,6 +4,7 @@
   // held-while-composer-open pending list, without duplicating it.
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
+  import { rippleTombstone } from '$lib/utils/ripples';
   import { createEventDispatcher } from 'svelte';
 
   /** @type {import('$lib/types/api').Ripple} */
@@ -68,7 +69,7 @@
       </p>
     {/if}
     {#if ripple.deleted}
-      <p class="ripple-content ripple-content-deleted">[DELETED]</p>
+      <p class="ripple-content ripple-content-deleted">{rippleTombstone(ripple)}</p>
     {:else}
       <p class="ripple-content">
         {ripple.content}

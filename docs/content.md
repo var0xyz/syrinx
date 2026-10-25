@@ -28,7 +28,7 @@ A like is a signed certificate: “this member liked this reed”, user-signed a
 
 A **ripple** is a comment on a reed, and the one kind of content the server *does* hold. Ripples are never relayed or kept by peers; the server is the only copy. They are signed like reeds, but stored on the server in the clear.
 
-Ripples are meant to be conversation, not archive. A reed's ripples disappear **30 days** after the last ripple on that reed; any new one resets the clock for all of them. Deleting your own ripple replaces its text with `[DELETED]`.
+Ripples are meant to be conversation, not archive. A reed's ripples disappear **30 days** after the last ripple on that reed; any new one resets the clock for all of them. Deleting your own ripple replaces its text with `[DELETED]`. When an account is removed, its ripples are replaced with `[ACCOUNT REMOVED]`, or `[USER KICKED]` after a kick, since nobody is left to answer for them.
 
 ## How content moves
 

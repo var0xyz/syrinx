@@ -5278,6 +5278,35 @@ func (s *DataService) GetRipple(ctx context.Context, id string) (*Ripple, error)
 	return r, nil
 }
 
+// ListAccountRemovalRipples loads the live ripples an account removal
+// tombstoned for userID, to push their update.
+func (s *DataService) ListAccountRemovalRipples(ctx context.Context, userID string) ([]*Ripple, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT rr.id, rr.reed_id, rr.thread_id, rr.user_id,
+		       rr.content, rr.replying_to, rr.deleted, rr.posted_at,
+		       us.public_key_id, us.signature, ss.private_key_id, ss.signature, ss.signed_at
+		FROM ripple_responses rr
+		JOIN user_signatures us ON us.id = rr.user_signature_id
+		JOIN server_signatures ss ON ss.id = rr.server_signature_id
+		JOIN ripples p ON p.reed_id = rr.reed_id AND p.last_activity_at > `+rippleCutoffSQL+`
+		WHERE rr.user_id = $1 AND rr.deleted AND rr.content IN ('[ACCOUNT REMOVED]', '[USER KICKED]')
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ripples []*Ripple
+	for rows.Next() {
+		r, err := scanRipple(rows)
+		if err != nil {
+			return nil, err
+		}
+		r.ServerSignature.ID = r.serverFingerprint
+		ripples = append(ripples, r)
+	}
+	return ripples, rows.Err()
+}
+
 // rippleRowScanner abstracts *sql.Row/*sql.Rows so scanRipple works for
 // both GetRipple's single-row query and ListRipples' multi-row query.
 type rippleRowScanner interface {

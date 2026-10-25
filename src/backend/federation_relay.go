@@ -1889,6 +1889,7 @@ func (h *Handlers) AccountRemovalNotifyFromPeer(w http.ResponseWriter, r *http.R
 		wire := newAccountRemovalWire(peerServerID, cert)
 		h.realtimeRelay.HandleForeignAccountRemoval(req.UserId, &wire)
 	}
+	h.pushAccountRemovalRipples(r.Context(), req.UserId)
 
 	h.reportOpenFlags(r.Context(), flagged...)
 	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign account removal")
@@ -1939,6 +1940,7 @@ func (h *Handlers) acceptForeignKick(w http.ResponseWriter, r *http.Request, pee
 		wire := newAccountRemovalWire(peerServerID, cert)
 		h.realtimeRelay.HandleForeignAccountRemoval(req.UserId, &wire)
 	}
+	h.pushAccountRemovalRipples(r.Context(), req.UserId)
 	h.reportOpenFlags(r.Context(), flagged...)
 	log.Info().Str("userID", req.UserId).Str("peerServerID", peerServerID).Msg("Stored foreign kick")
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "account-removal-notify", true)
