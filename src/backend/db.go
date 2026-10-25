@@ -239,6 +239,25 @@ type VouchWithdrawal struct {
 	ServerSignature ServerSignature `json:"serverSignature"`
 }
 
+// accountRemovalRippleTrigger tombstones a removed account's ripples,
+// saying why: the author can no longer answer for them. Ripples they
+// deleted keep [DELETED].
+const accountRemovalRippleTrigger = `
+	CREATE OR REPLACE FUNCTION account_removal_ripple_trigger() RETURNS TRIGGER AS $$
+	BEGIN
+		UPDATE ripple_responses
+		SET deleted = TRUE,
+			content = CASE WHEN NEW.user_signature_id IS NULL THEN '[USER KICKED]' ELSE '[ACCOUNT REMOVED]' END
+		WHERE user_id = NEW.user_id AND NOT deleted;
+		RETURN NULL;
+	END;
+	$$ LANGUAGE plpgsql;
+	DROP TRIGGER IF EXISTS account_removals_ripples_insert ON account_removals;
+	CREATE TRIGGER account_removals_ripples_insert
+		AFTER INSERT ON account_removals
+		FOR EACH ROW EXECUTE FUNCTION account_removal_ripple_trigger();
+	`
+
 // /////// //
 //   P2P   //
 // /////// //
@@ -881,6 +900,8 @@ func InitDB(db *sql.DB) error {
 		ON ripple_responses (reed_id, thread_id, posted_at);
 	CREATE INDEX IF NOT EXISTS idx_ripple_responses_thread_posted
 		ON ripple_responses (thread_id, posted_at);
+	CREATE INDEX IF NOT EXISTS idx_ripple_responses_user_live
+		ON ripple_responses (user_id) WHERE NOT deleted;
 	`
 
 	// ////////// //
@@ -1899,6 +1920,7 @@ func InitDB(db *sql.DB) error {
 
 		createAccountRemovalReplyCountTriggerFunction,
 		createAccountRemovalReplyCountTrigger,
+		accountRemovalRippleTrigger,
 
 		createEchoCountTriggerFunction,
 		createEchoCountTriggers,

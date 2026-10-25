@@ -133,7 +133,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 			user_id VARCHAR(255) PRIMARY KEY REFERENCES identities(id),
 			note TEXT NOT NULL DEFAULT '',
 			public_key_id VARCHAR(255) NOT NULL DEFAULT '',
-			user_signature_id INT NOT NULL REFERENCES user_signatures(id),
+			user_signature_id INT REFERENCES user_signatures(id),
 			admin_request_id VARCHAR(255),
 			admin_authorization BYTEA,
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id)
@@ -197,6 +197,7 @@ func ensureRipplesSchema(db *sql.DB) error {
 			FOREIGN KEY (reed_id) REFERENCES ripples(reed_id)
 				ON DELETE CASCADE
 		)`,
+		accountRemovalRippleTrigger,
 	}
 	for _, stmt := range stmts {
 		if _, err := db.Exec(stmt); err != nil {
@@ -869,12 +870,12 @@ func TestListRipples_IncludesRemovedAccountAuthorsUnfiltered(t *testing.T) {
 	if len(list.Ripples) != 1 || list.Ripples[0].ID != resp.ID {
 		t.Fatalf("removed account's response missing from list results")
 	}
-	if list.Ripples[0].Deleted {
-		t.Error("account removal must not implicitly soft-delete the response")
+	if !list.Ripples[0].Deleted || list.Ripples[0].Content != "[ACCOUNT REMOVED]" {
+		t.Errorf("removed account's response not tombstoned: Deleted=%v Content=%q", list.Ripples[0].Deleted, list.Ripples[0].Content)
 	}
 }
 
-func TestPostRipple_AccountRemovalDoesNotCascade(t *testing.T) {
+func TestAccountRemoval_TombstonesRipples(t *testing.T) {
 	db := openRipplesTestDB(t)
 	insertRipplesTestUser(t, db, "author1", "author")
 	insertRipplesTestUser(t, db, "commenter1", "commenter")
@@ -890,7 +891,45 @@ func TestPostRipple_AccountRemovalDoesNotCascade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRipple: %v", err)
 	}
-	if got.Deleted || got.Content != "hello" {
-		t.Errorf("response mutated by account removal: Deleted=%v Content=%q", got.Deleted, got.Content)
+	if !got.Deleted || got.Content != "[ACCOUNT REMOVED]" {
+		t.Errorf("self-removal tombstone: Deleted=%v Content=%q", got.Deleted, got.Content)
+	}
+}
+
+func TestKick_TombstonesRipples(t *testing.T) {
+	db := openRipplesTestDB(t)
+	insertRipplesTestUser(t, db, "author1", "author")
+	insertRipplesTestUser(t, db, "commenter1", "commenter")
+	insertRipplesTestReed(t, db, "author1", "reed1")
+	key := newRippleTestKey(t, db, "commenter1")
+
+	svc := &DataService{db: db, serverID: ripplesTestServerID}
+	live := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "hello", nil, time.Now())
+	gone := postTestRipple(t, svc, key, reed1ID, canonicalCommenter1, "bye", nil, time.Now())
+	if _, _, err := svc.SoftDeleteRipple(context.Background(), gone.ID, canonicalCommenter1); err != nil {
+		t.Fatalf("SoftDeleteRipple: %v", err)
+	}
+
+	var serverSigID int
+	if err := db.QueryRow(
+		`INSERT INTO server_signatures (private_key_id, signature, signed_at) VALUES ('kick-fp', 'sig', now()) RETURNING id`,
+	).Scan(&serverSigID); err != nil {
+		t.Fatalf("insert server_signatures: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO account_removals (user_id, admin_authorization, server_signature_id) VALUES ($1, 'auth', $2)`,
+		canonicalCommenter1, serverSigID,
+	); err != nil {
+		t.Fatalf("insert kick: %v", err)
+	}
+
+	for id, want := range map[string]string{live.ID: "[USER KICKED]", gone.ID: "[DELETED]"} {
+		got, err := svc.GetRipple(context.Background(), id)
+		if err != nil {
+			t.Fatalf("GetRipple: %v", err)
+		}
+		if !got.Deleted || got.Content != want {
+			t.Errorf("ripple %s: Deleted=%v Content=%q, want %q", id, got.Deleted, got.Content, want)
+		}
 	}
 }

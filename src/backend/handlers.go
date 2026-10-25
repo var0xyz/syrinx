@@ -1295,6 +1295,7 @@ func (h *Handlers) afterAccountRemoval(ctx context.Context, userID string, cert 
 	if err := h.services.db.DeleteMentionsByAuthor(ctx, userID); err != nil {
 		log.Error().Str("userID", userID).Err(err).Msg("Error clearing mention index for removed account")
 	}
+	h.pushAccountRemovalRipples(ctx, userID)
 
 	affectedTargets, err := h.services.db.DeleteEchoesByAuthor(ctx, userID)
 	if err != nil {
@@ -6043,10 +6044,15 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 			Msg("Failed to load tombstoned ripple for RIPPLE_UPDATED broadcast")
 		return
 	}
+	h.pushRippleUpdated(r.Context(), tombstoned)
+}
+
+// pushRippleUpdated tells the viewers of a tombstoned ripple's reed.
+func (h *Handlers) pushRippleUpdated(ctx context.Context, tombstoned *Ripple) {
 	wire := rippleWire(tombstoned)
 	_, _, bareReedID, ok := parseKeyFingerprint(identityID(tombstoned.ReedID))
 	if !ok {
-		h.services.log.GetLogger(r.Context()).Error().Str("reedID", tombstoned.ReedID).Msg("Malformed reed id on tombstoned ripple")
+		h.services.log.GetLogger(ctx).Error().Str("reedID", tombstoned.ReedID).Msg("Malformed reed id on tombstoned ripple")
 		return
 	}
 	h.broadcastChan <- realtimeBroadcastMessage{
@@ -6054,6 +6060,19 @@ func (h *Handlers) DeleteRipple(w http.ResponseWriter, r *http.Request) {
 		UserID: tombstoned.ReedAuthorID,
 		ReedID: bareReedID,
 		Ripple: &wire,
+	}
+}
+
+// pushAccountRemovalRipples pushes the tombstones an account removal left
+// on userID's ripples.
+func (h *Handlers) pushAccountRemovalRipples(ctx context.Context, userID string) {
+	ripples, err := h.services.db.ListAccountRemovalRipples(ctx, userID)
+	if err != nil {
+		h.services.log.GetLogger(ctx).Error().Str("userID", userID).Err(err).Msg("Failed to load ripples tombstoned by account removal")
+		return
+	}
+	for _, ripple := range ripples {
+		h.pushRippleUpdated(ctx, ripple)
 	}
 }
 

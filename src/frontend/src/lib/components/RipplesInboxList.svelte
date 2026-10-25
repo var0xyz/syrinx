@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import Avatar from '$lib/components/Avatar.svelte';
   import Username from '$lib/components/Username.svelte';
+  import { rippleTombstone } from '$lib/utils/ripples';
   import ReedActionsMenu from '$lib/components/ReedActionsMenu.svelte';
   import { apiService } from '$lib/services/api';
   import { userRepository } from '$lib/repositories/user';
@@ -111,7 +112,7 @@
                 <span class="inbox-meta-text">{formatRelativeTime(fromUnix(ripple.postedAt))}</span>
               </p>
               {#if ripple.deleted}
-                <p class="inbox-content inbox-content-deleted">[DELETED]</p>
+                <p class="inbox-content inbox-content-deleted">{rippleTombstone(ripple)}</p>
               {:else}
                 <p class="inbox-content">{ripple.content}</p>
               {/if}
