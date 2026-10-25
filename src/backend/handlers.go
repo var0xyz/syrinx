@@ -5055,8 +5055,8 @@ func (h *Handlers) RejectFederationAttempt(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	reason := strings.TrimSpace(body.GetReason())
-	if reason == "" {
-		writeError(w, http.StatusBadRequest, "reason is required")
+	if reason == "" || countCharacters(reason) > MaxReedVisibleChars {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("A reason of 1 to %d characters is required", MaxReedVisibleChars))
 		return
 	}
 
@@ -5108,8 +5108,8 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 		return
 	}
 	reason := strings.TrimSpace(body.GetReason())
-	if reason == "" {
-		writeError(w, http.StatusBadRequest, "reason is required")
+	if reason == "" || countCharacters(reason) > MaxReedVisibleChars {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("A reason of 1 to %d characters is required", MaxReedVisibleChars))
 		return
 	}
 

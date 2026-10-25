@@ -12,6 +12,8 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
+  import { countCharacters } from '$lib/utils/text';
+  import { MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
 
   $: serverId = $page.params.serverId;
 
@@ -336,12 +338,13 @@
             spellcheck="true"
             placeholder="e.g. No longer an active partner"
           ></textarea>
+          <span class="character-counter">{countCharacters(revokeReason)}/{MAX_REED_VISIBLE_CHARS} characters</span>
         </label>
         <div class="modal-actions">
           <button class="btn secondary" disabled={requesting} on:click={dismissRevokeModal}>
             Cancel
           </button>
-          <button class="btn danger" disabled={requesting || !revokeReason.trim()} on:click={requestDisconnect}>
+          <button class="btn danger" disabled={requesting || !revokeReason.trim() || countCharacters(revokeReason) > MAX_REED_VISIBLE_CHARS} on:click={requestDisconnect}>
             {requesting ? 'Requesting…' : 'Request disconnect'}
           </button>
         </div>
@@ -613,6 +616,11 @@
     border: 1px solid var(--border);
     background: var(--input-bg);
     color: var(--fg);
+  }
+
+  .character-counter {
+    text-align: right;
+    font-size: 0.8rem;
   }
 
   .field textarea {

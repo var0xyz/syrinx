@@ -87,3 +87,17 @@ func TestLongTextFits(t *testing.T) {
 		}
 	}
 }
+
+func TestTruncateCharacters(t *testing.T) {
+	if got := truncateCharacters("short", 140); got != "short" {
+		t.Errorf("short text changed: %q", got)
+	}
+	exact := strings.Repeat("a", 140)
+	if got := truncateCharacters(exact, 140); got != exact {
+		t.Errorf("text at the limit changed")
+	}
+	got := truncateCharacters(strings.Repeat("👍🏽", 141), 140)
+	if countCharacters(got) != 140 || got != strings.Repeat("👍🏽", 139)+"…" {
+		t.Errorf("got %d characters, want 139 and an ellipsis", countCharacters(got))
+	}
+}
