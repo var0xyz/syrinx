@@ -28,3 +28,12 @@ export function countCharacters(text: string): number {
   for (const _ of graphemes.segment(text)) n++;
   return n;
 }
+
+/** A long text (an admin reason, a mailbox message) holds three reeds'
+ * visible characters, within one reed's raw length. Mirrors utils.go. */
+export const MAX_LONG_TEXT_CHARS = 420;
+export const MAX_LONG_TEXT_RAW_CHARS = 1400;
+
+export function longTextFits(text: string): boolean {
+  return countCharacters(text) <= MAX_LONG_TEXT_CHARS && text.length <= MAX_LONG_TEXT_RAW_CHARS;
+}

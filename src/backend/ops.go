@@ -383,6 +383,9 @@ func parseRotateKeyArgs(args []string) (reason string, compromised bool, err err
 			reason = arg
 		}
 	}
+	if !longTextFits(reason) {
+		return "", false, fmt.Errorf("the reason can't exceed %d characters", maxLongTextChars)
+	}
 	return reason, compromised, nil
 }
 

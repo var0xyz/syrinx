@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { countCharacters } from '$lib/utils/text';
+  import { MAX_LONG_TEXT_CHARS, countCharacters, longTextFits } from '$lib/utils/text';
   import { createEventDispatcher, onDestroy } from 'svelte';
   import Username from '$lib/components/Username.svelte';
   import PermissionPicker from '$lib/components/PermissionPicker.svelte';
@@ -14,8 +14,6 @@
   export let open = false;
   export let userID: string;
 
-  const MAX_MESSAGE = 140;
-  const MAX_REASON = 1000;
   const dispatch = createEventDispatcher<{ close: void }>();
 
   // The page behind stays put while the modal is open; the modal scrolls.
@@ -114,11 +112,11 @@
   $: picksTargets = action === 'suspend' || action === 'kick';
   $: picksPermissions = action === 'promote' || action === 'permissions';
   $: needsReason = action !== 'unicast';
-  $: reasonOk = reason.trim().length > 0 && countCharacters(reason) <= MAX_REASON;
+  $: reasonOk = reason.trim().length > 0 && longTextFits(reason);
   $: canSubmit =
     !submitting &&
     (action === 'unicast'
-      ? message.trim().length > 0 && countCharacters(message) <= MAX_MESSAGE
+      ? message.trim().length > 0 && longTextFits(message)
       : reasonOk && (!picksTargets || checked.size > 0) && (action !== 'rebind' || !!keyArmor));
 
   /** Whether the viewer may pick node for the chosen action. */
@@ -294,13 +292,13 @@
         <label class="field">
           <span>Message</span>
           <textarea bind:value={message} rows="4"></textarea>
-          <span class="character-counter">{countCharacters(message)}/{MAX_MESSAGE} characters</span>
+          <span class="character-counter">{countCharacters(message)}/{MAX_LONG_TEXT_CHARS} characters</span>
         </label>
       {:else}
         <label class="field">
           <span>Reason</span>
           <textarea bind:value={reason} rows="3"></textarea>
-          <span class="character-counter">{countCharacters(reason)}/{MAX_REASON} characters</span>
+          <span class="character-counter">{countCharacters(reason)}/{MAX_LONG_TEXT_CHARS} characters</span>
         </label>
       {/if}
 

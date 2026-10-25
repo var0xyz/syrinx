@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +65,25 @@ func TestCountCharactersVectors(t *testing.T) {
 	for _, v := range vectors {
 		if got := countCharacters(v.Text); got != v.Count {
 			t.Errorf("%s: got %d, want %d", v.Name, got, v.Count)
+		}
+	}
+}
+
+func TestLongTextFits(t *testing.T) {
+	family := "👨‍👩‍👧‍👦" // one character, 11 UTF-16 units
+	cases := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{"at the visible limit", strings.Repeat("a", maxLongTextChars), true},
+		{"over the visible limit", strings.Repeat("a", maxLongTextChars+1), false},
+		{"within both", strings.Repeat(family, 127), true},
+		{"over the raw limit", strings.Repeat(family, 128), false},
+	}
+	for _, c := range cases {
+		if got := longTextFits(c.text); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
 }

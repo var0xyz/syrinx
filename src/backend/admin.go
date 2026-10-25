@@ -126,7 +126,7 @@ const (
 )
 
 // maxAdminReasonChars caps a request's public reason.
-const maxAdminReasonChars = 1000
+const maxAdminReasonChars = maxLongTextChars
 
 // adminRequestClockSkew bounds how far a request's signed createdAt may be
 // from the server's clock.
@@ -725,17 +725,16 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 	}
 
 	noReason := req.Action == adminActionBroadcast || req.Action == adminActionUnicast
-	reasonLen := countCharacters(req.Reason)
 	if noReason && req.Reason != "" {
 		return refuse(http.StatusBadRequest, "bad_reason", "A %s has no reason", req.Action)
 	}
-	if !noReason && (strings.TrimSpace(req.Reason) == "" || reasonLen > maxAdminReasonChars) {
+	if !noReason && (strings.TrimSpace(req.Reason) == "" || !longTextFits(req.Reason)) {
 		return refuse(http.StatusBadRequest, "bad_reason", "A reason of 1 to %d characters is required", maxAdminReasonChars)
 	}
 
 	switch req.Action {
 	case adminActionBroadcast, adminActionUnicast:
-		if strings.TrimSpace(req.Body) == "" || countCharacters(req.Body) > MaxMailboxMessageChars {
+		if strings.TrimSpace(req.Body) == "" || !longTextFits(req.Body) {
 			return refuse(http.StatusBadRequest, "bad_message", "A message of 1 to %d characters is required", MaxMailboxMessageChars)
 		}
 	case adminActionPromote, adminActionPermissions:
