@@ -72,6 +72,6 @@ when schema changes.
 | Flags              | Users flag a **reed ID** only; admins load content from the network. Server never sees content                                                                                              |
 | Flag visibility    | Admins see the reporter. Flags on an admin's reed are visible only to **other** admins. Root's reeds can't be flagged                                                                       |
 | Flags vs actions   | No link: an action is taken on an account, never "because of a flag"                                                                                                                        |
-| Broadcasts         | Admin message (≤140 characters) to every **local** member's mailbox; needs approval; never leaves the instance; logged                                                                      |
+| Broadcasts         | Admin message (≤420 characters) to every **local** member's mailbox; needs approval; never leaves the instance; logged                                                                      |
 | Private messages   | Admin message to **one** local member's mailbox; needs approval like a broadcast; **not** logged                                                                                            |
 | Federation         | No admin action reaches into another server. Refusing a remote user's content is **out of scope**                                                                                           |

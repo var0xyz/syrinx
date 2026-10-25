@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+	"unicode/utf16"
 
 	"github.com/gowebpki/jcs"
 	"github.com/rivo/uniseg"
@@ -16,6 +17,12 @@ import (
 // emoji with a skin tone or a ZWJ sequence counts once. Mirrors the SPA's.
 func countCharacters(s string) int {
 	return uniseg.GraphemeClusterCount(s)
+}
+
+// longTextFits reports whether s is within a long text's limits. Its raw
+// length is in UTF-16 units, as the SPA's text.length counts it.
+func longTextFits(s string) bool {
+	return countCharacters(s) <= maxLongTextChars && len(utf16.Encode([]rune(s))) <= maxLongTextRawChars
 }
 
 // trimInvisibleChars removes invisible characters from a string

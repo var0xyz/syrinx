@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { countCharacters } from '$lib/utils/text';
+  import { MAX_LONG_TEXT_CHARS, countCharacters, longTextFits } from '$lib/utils/text';
   import { page } from '$app/stores';
   import Auth from '$lib/components/Auth.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
@@ -13,7 +13,6 @@
   import { keepInHash } from '$lib/utils/hashMode';
   import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
 
-  const MAX_LENGTH = 140;
 
   $: tabs = adminTabs(canMail($page.data?.user, $adminPermissions));
 
@@ -44,7 +43,7 @@
   $: canSend =
     !sending &&
     message.trim().length > 0 &&
-    countCharacters(message) <= MAX_LENGTH &&
+    longTextFits(message) &&
     (recipientMode === 'broadcast' || username.trim().length > 0);
 
   /** The local member named name, case-insensitively; never root. */
@@ -111,7 +110,7 @@
           {#if error}<p class="error" role="alert">{error}</p>{/if}
 
           <div class="composer-footer">
-            <span class="char-count">{countCharacters(message)}/{MAX_LENGTH}</span>
+            <span class="char-count">{countCharacters(message)}/{MAX_LONG_TEXT_CHARS}</span>
             <button class="btn primary" type="submit" disabled={!canSend}>
               {sending ? 'Sending…' : 'Send for approval'}
             </button>

@@ -18,12 +18,11 @@ var ErrNoActiveKey = errors.New("recipient has no active public key")
 // which cannot see services.go's declaration.
 var ErrMailboxRecipientNotFound = errors.New("recipient user not found")
 
-// ErrMailboxMessageTooLong means message exceeds MaxMailboxMessageChars.
-var ErrMailboxMessageTooLong = errors.New("mailbox message exceeds 140 characters")
+// ErrMailboxMessageTooLong means message exceeds a long text's limits.
+var ErrMailboxMessageTooLong = errors.New("mailbox message exceeds 420 characters")
 
-// MaxMailboxMessageChars mirrors MaxRippleContentChars/MaxReedVisibleChars
-// (handlers.go) — the same 140-char limit used elsewhere in this app.
-const MaxMailboxMessageChars = 140
+// MaxMailboxMessageChars is a long text's visible limit.
+const MaxMailboxMessageChars = maxLongTextChars
 
 // MailboxPayload is JSON-marshaled then encrypted to the recipient's active
 // public key before storage. Link is an
@@ -50,7 +49,7 @@ type MailboxPayload struct {
 // (the server never mails a foreign user), so there's no ambiguity to
 // resolve a bare id against.
 func SendMailboxMessage(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, userID, kind, message, link string, meta any) (id, ciphertext string, err error) {
-	if countCharacters(message) > MaxMailboxMessageChars {
+	if !longTextFits(message) {
 		return "", "", ErrMailboxMessageTooLong
 	}
 

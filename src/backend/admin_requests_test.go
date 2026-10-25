@@ -197,7 +197,7 @@ func TestOpenAdminRequest_Validation(t *testing.T) {
 		{"root target", f.request(t, "a1", adminActionKick, "Spam", "", "root"), http.StatusForbidden},
 		{"no reason", f.request(t, "a1", adminActionKick, "", "", "u1"), http.StatusBadRequest},
 		{"broadcast with a reason", f.request(t, "root", adminActionBroadcast, "Why", "Hi"), http.StatusBadRequest},
-		{"broadcast too long", f.request(t, "root", adminActionBroadcast, "", string(make([]byte, 141))), http.StatusBadRequest},
+		{"broadcast too long", f.request(t, "root", adminActionBroadcast, "", strings.Repeat("a", maxLongTextChars+1)), http.StatusBadRequest},
 		{"message with two targets", f.request(t, "root", adminActionUnicast, "", "Hi", "u1", "u2"), http.StatusBadRequest},
 		{"unknown permission", f.request(t, "root", adminActionPromote, "Helps", "user.fly", "u1"), http.StatusBadRequest},
 		{"unsorted permissions", f.request(t, "root", adminActionPromote, "Helps", "user.kick,admin.create", "u1"), http.StatusBadRequest},

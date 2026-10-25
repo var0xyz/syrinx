@@ -18,7 +18,7 @@ instance. Both kinds need a second admin's approval.
 ## Request
 
 `action = broadcast`, no targets, no reason, `body` = the message (UTF-8,
-≤140 characters, the mailbox limit). The ledger entry for the opened
+≤420 characters, the mailbox limit). The ledger entry for the opened
 request carries the message as its `content`. Requester and approver need
 `message.broadcast`.
 

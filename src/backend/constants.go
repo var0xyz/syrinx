@@ -24,6 +24,13 @@ const peerServerIDKey contextKey = "peerServerID"
 // build tag, needs it across all three binary variants.
 const rootUserID = "1"
 
+// A long text (an admin reason, a key rotation reason, a mailbox message)
+// holds three reeds' visible characters, within one reed's raw length.
+const (
+	maxLongTextChars    = 420
+	maxLongTextRawChars = 1400
+)
+
 // reservedUsernames can't be signed up with or renamed to, by anyone, nor
 // can the server's own name. "admins" is the @admins handle.
 var reservedUsernames = []string{"admins", "admin", "__root__", "webmaster", "syrinx"}
