@@ -19,6 +19,20 @@ func countCharacters(s string) int {
 	return uniseg.GraphemeClusterCount(s)
 }
 
+// truncateCharacters cuts s to at most n characters, ending it with an
+// ellipsis when it had more.
+func truncateCharacters(s string, n int) string {
+	if countCharacters(s) <= n {
+		return s
+	}
+	var b strings.Builder
+	g := uniseg.NewGraphemes(s)
+	for i := 0; i < n-1 && g.Next(); i++ {
+		b.WriteString(g.Str())
+	}
+	return b.String() + "…"
+}
+
 // longTextFits reports whether s is within a long text's limits. Its raw
 // length is in UTF-16 units, as the SPA's text.length counts it.
 func longTextFits(s string) bool {

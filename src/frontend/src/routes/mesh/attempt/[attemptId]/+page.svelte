@@ -12,6 +12,8 @@
   import SideNav from '$lib/components/SideNav.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
+  import { countCharacters } from '$lib/utils/text';
+  import { MAX_REED_VISIBLE_CHARS } from '$lib/utils/reedContent';
 
   $: attemptId = $page.params.attemptId;
 
@@ -206,12 +208,13 @@
             spellcheck="true"
             placeholder="e.g. Unexpected connection request"
           ></textarea>
+          <span class="character-counter">{countCharacters(rejectReason)}/{MAX_REED_VISIBLE_CHARS} characters</span>
         </label>
         <div class="modal-actions">
           <button class="btn secondary" disabled={rejecting} on:click={dismissRejectModal}>
             Cancel
           </button>
-          <button class="btn danger" disabled={rejecting || !rejectReason.trim()} on:click={reject}>
+          <button class="btn danger" disabled={rejecting || !rejectReason.trim() || countCharacters(rejectReason) > MAX_REED_VISIBLE_CHARS} on:click={reject}>
             {rejecting ? 'Rejecting…' : 'Reject'}
           </button>
         </div>
@@ -430,6 +433,11 @@
     flex-direction: column;
     gap: 0.35rem;
     margin-bottom: 1rem;
+  }
+
+  .character-counter {
+    text-align: right;
+    font-size: 0.8rem;
   }
 
   .field textarea {

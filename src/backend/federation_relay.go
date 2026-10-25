@@ -1369,7 +1369,10 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	reason := fmt.Sprintf("Peer-initiated disconnect: %s", strings.TrimSpace(req.Reason))
+	reason := "Peer-initiated disconnect"
+	if peerReason := strings.TrimSpace(req.Reason); peerReason != "" {
+		reason += ": " + truncateCharacters(peerReason, MaxReedVisibleChars)
+	}
 	err := h.services.db.RevokeFederationServer(r.Context(), peerServerID, nil, reason, time.Now().UTC().Truncate(time.Second))
 	if err != nil && !errors.Is(err, errFederationServerAlreadyRevoked) {
 		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to auto-revoke peer on disconnect notify")
