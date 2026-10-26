@@ -62,6 +62,7 @@ type Handlers struct {
 	// Nil means stash all extracted tags (tests / no realtime).
 	filterPipeTags func([]string) []string
 	kickUserWS     func(userID string)
+	closeRemovedWS func(userID string)
 	// federationHTTPClientOverride lets tests substitute a client that
 	// trusts an httptest.NewTLSServer's certificate. Nil means production
 	// default (see federationHTTPClient).
@@ -148,6 +149,10 @@ func (h *Handlers) SetPipeTagFilter(filter func([]string) []string) {
 
 func (h *Handlers) SetKickUserWS(kick func(userID string)) {
 	h.kickUserWS = kick
+}
+
+func (h *Handlers) SetCloseRemovedUserWS(close func(userID string)) {
+	h.closeRemovedWS = close
 }
 
 // SetRealtimeRelay installs the realtimeService the cross-server
@@ -3489,6 +3494,14 @@ func (h *Handlers) BindDevice(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) kickUserDevices(userID string) {
 	if h.kickUserWS != nil {
 		h.kickUserWS(userID)
+	}
+}
+
+// signOutRemovedUser closes a removed user's sockets so their devices
+// learn of the removal and sign out.
+func (h *Handlers) signOutRemovedUser(userID string) {
+	if h.closeRemovedWS != nil {
+		h.closeRemovedWS(userID)
 	}
 }
 

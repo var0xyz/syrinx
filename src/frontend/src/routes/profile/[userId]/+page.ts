@@ -32,6 +32,7 @@ export async function load({ params, parent }) {
       status: 'tombstone',
       profileUser: null,
       tombstoneNote: removedCert.note ?? '',
+      tombstoneReason: removedCert.admin?.request?.reason ?? '',
       fromCache: true,
       accountRemoved: true,
     };

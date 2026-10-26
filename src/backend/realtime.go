@@ -809,16 +809,21 @@ func (cm *realtimeConnectionManager) unregisterClient(client *realtimeClient) bo
 // DisconnectUser closes every active WebSocket for userID, here and on
 // every other replica (e.g. after a device rebind or a suspension).
 func (cm *realtimeConnectionManager) DisconnectUser(userID string) {
-	cm.disconnectLocal(userID)
+	cm.CloseUser(userID, 0)
+}
+
+// CloseUser is DisconnectUser sending closeCode first, when it isn't zero.
+func (cm *realtimeConnectionManager) CloseUser(userID string, closeCode int) {
+	cm.disconnectLocal(userID, closeCode)
 	if cm.bus != nil {
-		if err := cm.bus.PublishDisconnect(userID); err != nil {
+		if err := cm.bus.PublishDisconnect(userID, closeCode); err != nil {
 			log.Error().Err(err).Str("userID", userID).Msg("Failed to publish disconnect")
 		}
 	}
 }
 
 // disconnectLocal closes userID's sockets held by this replica.
-func (cm *realtimeConnectionManager) disconnectLocal(userID string) {
+func (cm *realtimeConnectionManager) disconnectLocal(userID string, closeCode int) {
 	cm.mutex.Lock()
 	userConns, exists := cm.userConnections[userID]
 	if !exists || len(userConns) == 0 {
@@ -834,6 +839,9 @@ func (cm *realtimeConnectionManager) disconnectLocal(userID string) {
 	cm.mutex.Unlock()
 
 	for _, client := range clients {
+		if closeCode != 0 {
+			writeCloseCode(client.conn, closeCode)
+		}
 		client.conn.Close()
 	}
 
@@ -1121,6 +1129,18 @@ func (rs *realtimeService) BroadcastReedCoverage(reedID string, msg *pb.WSMessag
 // code for metrics.
 type wsAuthRefusal struct{ reason, message string }
 
+// realtimeCloseAccountRemoved closes a removed account's sockets, so its
+// device fetches the removal certificate and signs out.
+const realtimeCloseAccountRemoved = 4410
+
+// writeCloseCode sends a close frame with code before the socket closes.
+func writeCloseCode(conn *websocket.Conn, code int) {
+	msg := websocket.FormatCloseMessage(code, "")
+	if err := conn.WriteControl(websocket.CloseMessage, msg, time.Now().Add(time.Second)); err != nil {
+		log.Debug().Err(err).Int("code", code).Msg("Failed to send WebSocket close code")
+	}
+}
+
 func (e *wsAuthRefusal) Error() string { return e.message }
 
 func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoService) (string, error) {
@@ -1194,14 +1214,6 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 		return "", &wsAuthRefusal{"not_user_key", "not a user key"}
 	}
 	selfIdentity := canonicalID(db.GetServerID(), userID)
-	removed, err := hasAccountRemoval(r.Context(), db.db, userID, db.GetServerID())
-	if err != nil {
-		return "", fmt.Errorf("error checking account removal: %w", err)
-	}
-	if removed {
-		log.Error().Str("userID", string(selfIdentity)).Msg("WebSocket auth rejected: account removed")
-		return "", &wsAuthRefusal{"account_removed", "account removed"}
-	}
 
 	// Decode base64 signature first
 	decodedSignature, err := base64Decode(signature)
@@ -1232,6 +1244,16 @@ func authenticateWebSocket(r *http.Request, db *DataService, cryptoSvc *cryptoSe
 	if !fresh {
 		log.Error().Str("publicKeyId", publicKeyID).Msg("WebSocket auth rejected: nonce already used")
 		return "", &wsAuthRefusal{"replayed_nonce", "nonce already used"}
+	}
+
+	// Checked once the caller proved it holds the key: only they learn why.
+	removed, err := hasAccountRemoval(r.Context(), db.db, userID, db.GetServerID())
+	if err != nil {
+		return "", fmt.Errorf("error checking account removal: %w", err)
+	}
+	if removed {
+		log.Error().Str("userID", string(selfIdentity)).Msg("WebSocket auth rejected: account removed")
+		return "", &wsAuthRefusal{"account_removed", "account removed"}
 	}
 
 	log.Info().
@@ -1497,6 +1519,12 @@ func (rs *realtimeService) SetForeignKeyRevocationHook(hook realtimeForeignKeyRe
 // home server revoked it; the caller has already verified rev.
 func (rs *realtimeService) HandleForeignKeyRevocation(rev KeyRevocation) {
 	rs.fanoutKeyRevocation(rev.ID, &rev)
+}
+
+// CloseRemovedUser closes userID's sockets, telling their devices the
+// account was removed.
+func (rs *realtimeService) CloseRemovedUser(userID string) {
+	rs.connManager.CloseUser(userID, realtimeCloseAccountRemoved)
 }
 
 // DisconnectUser closes all of userID's WebSocket connections, on every
@@ -2220,6 +2248,14 @@ func (rs *realtimeService) reapStalePresence() {
 	}
 }
 
+func (rs *realtimeService) upgrader() *websocket.Upgrader {
+	return &websocket.Upgrader{
+		CheckOrigin:     rs.checkOrigin,
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
+}
+
 // HandleWebSocket handles WebSocket connections.
 func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	log.Info().Msg("WebSocket connection attempt")
@@ -2234,6 +2270,14 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 			reason = refusal.reason
 		}
 		rs.metrics.WSHandshakeRejected(r.Context(), keyID, "", reason)
+		if reason == "account_removed" {
+			// A refused upgrade carries no reason the browser can read.
+			if conn, err := rs.upgrader().Upgrade(w, r, nil); err == nil {
+				writeCloseCode(conn, realtimeCloseAccountRemoved)
+				conn.Close()
+			}
+			return
+		}
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -2274,13 +2318,7 @@ func (rs *realtimeService) HandleWebSocket(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	upgrader := websocket.Upgrader{
-		CheckOrigin:     rs.checkOrigin,
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-	}
-
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := rs.upgrader().Upgrade(w, r, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to upgrade connection to WebSocket")
 		return

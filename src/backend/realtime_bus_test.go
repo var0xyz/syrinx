@@ -124,3 +124,22 @@ func TestRealtimeBusRoundTripsProtobufFrame(t *testing.T) {
 		t.Fatal("frame did not survive the bus round trip")
 	}
 }
+
+// A disconnect envelope closes the user's sockets with its close code.
+func TestRealtimeBusHandleDisconnectCarriesCloseCode(t *testing.T) {
+	var gotUser string
+	gotCode := -1
+	bus := &realtimeBus{disconnect: func(userID string, closeCode int) {
+		gotUser, gotCode = userID, closeCode
+	}}
+
+	payload, err := json.Marshal(realtimeBusEnvelope{UserID: "viewer@testserver", Disconnect: true, CloseCode: realtimeCloseAccountRemoved})
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	bus.handle(string(payload))
+
+	if gotUser != "viewer@testserver" || gotCode != realtimeCloseAccountRemoved {
+		t.Fatalf("disconnect(%q, %d), want viewer@testserver and %d", gotUser, gotCode, realtimeCloseAccountRemoved)
+	}
+}

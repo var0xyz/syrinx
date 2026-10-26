@@ -1168,8 +1168,11 @@ export async function verifyFlagDismissal(d: api.FlagDismissal): Promise<boolean
 
 const MAX_ACCOUNT_NOTE_LEN = 140;
 
-export async function verifyAccountRemoval(cert: api.AccountRemoval): Promise<boolean> {
-  if (cert?.admin) return verifyKick(cert);
+export async function verifyAccountRemoval(
+  cert: api.AccountRemoval,
+  opts: { cachedKeysOnly?: boolean } = {}
+): Promise<boolean> {
+  if (cert?.admin) return verifyKick(cert, opts);
   if (!cert || cert.$typeName !== 'syrinx.AccountRemovalCert' || !cert.userSignature?.armor || !cert.serverSignature) {
     console.error('[verifyAccountRemoval] missing fields or wrong type', cert?.$typeName);
     return false;
@@ -1546,7 +1549,7 @@ export async function verifyClosedAdminRequest(
 
 /** A kick: an account removal two admins signed in place of the user, and
  * their server countersigned. */
-async function verifyKick(cert: api.AccountRemoval): Promise<boolean> {
+async function verifyKick(cert: api.AccountRemoval, opts: { cachedKeysOnly?: boolean }): Promise<boolean> {
   const req = cert.admin?.request;
   if (!req?.decision || !cert.serverSignature || cert.note) {
     console.error('[verifyKick] missing fields');
@@ -1556,7 +1559,7 @@ async function verifyKick(cert: api.AccountRemoval): Promise<boolean> {
     console.error('[verifyKick] the kicked user isn’t a target of the request', cert.userId);
     return false;
   }
-  if (!(await verifyAdminAuthorization(cert.admin, 'kick'))) return false;
+  if (!(await verifyAdminAuthorization(cert.admin, 'kick', opts))) return false;
   const { fingerprint, serverID } = splitServerSignatureId(cert.serverSignature.id);
   if (serverID !== cert.serverId) {
     console.error('[verifyKick] not countersigned by the kicked user’s server');

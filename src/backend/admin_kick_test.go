@@ -5,11 +5,16 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"google.golang.org/protobuf/proto"
 
 	pb "syrinx/proto"
@@ -56,7 +61,7 @@ func TestKick_RemovesTargetsSignedByBothAdmins(t *testing.T) {
 	ctx := context.Background()
 	invite := f.unclaimedInvite(t, "u1")
 	var kicked []string
-	f.h.SetKickUserWS(func(userID string) { kicked = append(kicked, userID) })
+	f.h.SetCloseRemovedUserWS(func(userID string) { kicked = append(kicked, userID) })
 
 	req := f.kick(t, "u1", "u2")
 
@@ -227,5 +232,43 @@ func TestForeignKick_KeptOnTheRemovalNotAsARequest(t *testing.T) {
 	if err != nil || stored.Admin == nil || stored.Admin.ID != req.ID || stored.AdminRequestID != "" ||
 		stored.Admin.Decision == nil || stored.Admin.ServerSignature == nil {
 		t.Fatalf("stored = %+v err=%v, want the peer's signed approval", stored, err)
+	}
+}
+
+// A kicked user's signed requests carry the kick's certificate, and their
+// handshake is closed with the removed-account code, so a device that was
+// offline at the kick still learns why.
+func TestKick_KickedUserIsToldWhy(t *testing.T) {
+	f := newAdminFixture(t)
+	f.useRealExecutors(adminActionKick)
+	f.kick(t, "u1")
+
+	rr := f.serve(t, f.h.GetLedger, http.MethodGet, "/api/ledger", "u1", nil, nil)
+	var refusal pb.Error
+	if rr.Code != http.StatusGone || proto.Unmarshal(rr.Body.Bytes(), &refusal) != nil {
+		t.Fatalf("kicked user's request: %d %s, want 410", rr.Code, rr.Body.String())
+	}
+	if got := refusal.GetAccountRemoval().GetAdmin().GetRequest().GetReason(); got != "Scam links" {
+		t.Fatalf("refusal reason = %q, want the kick's", got)
+	}
+
+	rs := newRealtimeService(f.ds, f.h.services.crypto, "https://syrinx.test")
+	srv := httptest.NewServer(http.HandlerFunc(rs.HandleWebSocket))
+	t.Cleanup(srv.Close)
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	nonce := "kicked-handshake-nonce"
+	payload := string(buildRealtimeAuthPayload(f.srv, f.ids["u1"], ts, nonce))
+	sig, err := f.h.services.crypto.sign(context.Background(), payload, f.keys["u1"].PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := url.Values{"publicKeyId": {f.keyID("u1")}, "timestamp": {ts}, "nonce": {nonce}, "signature": {base64Encode(sig)}}
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http")+"/?"+q.Encode(), http.Header{"Origin": {"https://syrinx.test"}})
+	if err != nil {
+		t.Fatalf("kicked handshake: %v, want an upgrade that closes", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, realtimeCloseAccountRemoved) {
+		t.Fatalf("kicked socket: %v, want close code %d", err, realtimeCloseAccountRemoved)
 	}
 }
