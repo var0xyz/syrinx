@@ -4707,7 +4707,7 @@
           "id": "syrinx_ws_in_types",
           "type": "line",
           "title": "Inbound by message type",
-          "description": "Client \u2192 server frames (ws.direction=in)",
+          "description": "Client \u2192 server frames (ws.direction=in), excluding PING/PONG",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -4724,7 +4724,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum by (ws_message_type) (sum_over_time(syrinx_ws_messages{ws_direction=\"in\"}[5m]))",
+              "query": "sum by (ws_message_type) (sum_over_time(syrinx_ws_messages{ws_direction=\"in\",ws_message_type!~\"PING|PONG\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4759,7 +4759,7 @@
           "id": "syrinx_ws_out_types",
           "type": "line",
           "title": "Outbound by message type",
-          "description": "Server \u2192 client frames (ws.direction=out)",
+          "description": "Server \u2192 client frames (ws.direction=out), excluding PING/PONG",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -4776,7 +4776,7 @@
           "queryType": "promql",
           "queries": [
             {
-              "query": "sum by (ws_message_type) (sum_over_time(syrinx_ws_messages{ws_direction=\"out\"}[5m]))",
+              "query": "sum by (ws_message_type) (sum_over_time(syrinx_ws_messages{ws_direction=\"out\",ws_message_type!~\"PING|PONG\"}[5m]))",
               "vrlFunctionQuery": null,
               "customQuery": true,
               "fields": {
@@ -4802,9 +4802,61 @@
           "layout": {
             "x": 0,
             "y": 14,
-            "w": 192,
+            "w": 96,
             "h": 14,
             "i": 52
+          }
+        },
+        {
+          "id": "syrinx_ws_heartbeats",
+          "type": "line",
+          "title": "Heartbeats (PING/PONG)",
+          "description": "PING/PONG frames by direction, kept apart so they don't bury the rest",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (ws_direction, ws_message_type) (sum_over_time(syrinx_ws_messages{ws_message_type=~\"PING|PONG\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_ws_messages",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{ws_direction}: {ws_message_type}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 14,
+            "w": 96,
+            "h": 14,
+            "i": 109
           }
         },
         {

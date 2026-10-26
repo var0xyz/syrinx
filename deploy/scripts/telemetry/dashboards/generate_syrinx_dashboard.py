@@ -258,13 +258,28 @@ def promql_labeled_queries(
     return [promql_labeled(metric, attr, value, legend) for value, legend in pairs]
 
 
+WS_HEARTBEAT_TYPES = "PING|PONG"
+
+
 def promql_ws_by_type(direction: str) -> list[tuple[str, str, str]]:
-    """One line per message type seen, so new types (and PING/PONG) appear
-    without listing them here."""
+    """One line per non-heartbeat message type seen, so new types appear
+    without listing them here. PING/PONG get their own panel."""
     return [
         (
-            f'sum by (ws_message_type) (sum_over_time({WS_MESSAGES}{{ws_direction="{direction}"}}[{WINDOW}]))',
+            f'sum by (ws_message_type) (sum_over_time({WS_MESSAGES}{{ws_direction="{direction}",'
+            f'ws_message_type!~"{WS_HEARTBEAT_TYPES}"}}[{WINDOW}]))',
             "{ws_message_type}",
+            WS_MESSAGES,
+        )
+    ]
+
+
+def promql_ws_heartbeats() -> list[tuple[str, str, str]]:
+    return [
+        (
+            f'sum by (ws_direction, ws_message_type) (sum_over_time('
+            f'{WS_MESSAGES}{{ws_message_type=~"{WS_HEARTBEAT_TYPES}"}}[{WINDOW}]))',
+            "{ws_direction}: {ws_message_type}",
             WS_MESSAGES,
         )
     ]
@@ -1149,14 +1164,21 @@ websocket = [
         title="Inbound by message type",
         queries=promql_ws_by_type("in"),
         layout=layout(96, 0, 96, 14, 51),
-        description="Client → server frames (ws.direction=in)",
+        description="Client → server frames (ws.direction=in), excluding PING/PONG",
     ),
     promql_panel(
         pid="syrinx_ws_out_types",
         title="Outbound by message type",
         queries=promql_ws_by_type("out"),
-        layout=layout(0, 14, 192, 14, 52),
-        description="Server → client frames (ws.direction=out)",
+        layout=layout(0, 14, 96, 14, 52),
+        description="Server → client frames (ws.direction=out), excluding PING/PONG",
+    ),
+    promql_panel(
+        pid="syrinx_ws_heartbeats",
+        title="Heartbeats (PING/PONG)",
+        queries=promql_ws_heartbeats(),
+        layout=layout(96, 14, 96, 14, 109),
+        description="PING/PONG frames by direction, kept apart so they don't bury the rest",
     ),
     sql_panel(
         pid="syrinx_ws_work",
