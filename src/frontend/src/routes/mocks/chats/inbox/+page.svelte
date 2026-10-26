@@ -1,6 +1,5 @@
 <script>
   import { goto } from '$app/navigation';
-  import Auth from '$lib/components/Auth.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import { formatRelativeTime } from '$lib/utils/time';
   import MockSideNav from '../MockSideNav.svelte';
@@ -22,7 +21,6 @@
   }
 </script>
 
-<Auth>
   <MockSideNav currentPage="chats" />
   <div class="mock-container">
     <div class="mock-content">
@@ -102,7 +100,6 @@
     </div>
     <MockToolbar currentPage="chats" />
   </div>
-</Auth>
 
 <style>
   .mock-container {

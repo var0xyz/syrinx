@@ -94,6 +94,8 @@
 
   let user = null;
   $: headerLink = user ? '/reeds' : '/welcome';
+  // UI mockups never ship: no server key, session or toolbar needed.
+  $: isMock = $page.url.pathname === '/mocks' || $page.url.pathname.startsWith('/mocks/');
 
   let serverKeyTrusted = hasTrustedServerKey();
   let trustedSessionStarted = false;
@@ -467,7 +469,14 @@
   });
 </script>
 
-{#if !serverKeyTrusted || $serverKeyRejected}
+{#if isMock}
+<div class="app-shell">
+  <header>
+    <h1><a href="/mocks">💫 Syrinx</a></h1>
+  </header>
+  <slot />
+</div>
+{:else if !serverKeyTrusted || $serverKeyRejected}
   <ServerKeyGate
     rejected={$serverKeyRejected}
     compromisedReason={$serverKeyCompromise?.reason ?? null}

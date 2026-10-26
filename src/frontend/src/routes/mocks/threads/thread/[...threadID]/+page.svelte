@@ -1,5 +1,4 @@
 <script>
-  import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -11,7 +10,6 @@
   const total = thread.length;
 </script>
 
-<Auth>
   <SideNav currentPage="reeds" />
   <div class="thread-container">
     <div class="thread-content">
@@ -64,7 +62,6 @@
     </div>
     <BottomToolbar currentPage="reeds" />
   </div>
-</Auth>
 
 <style>
   .thread-container {

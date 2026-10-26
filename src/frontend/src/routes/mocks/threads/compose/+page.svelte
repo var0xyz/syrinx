@@ -1,7 +1,6 @@
 <script>
   import { tick } from 'svelte';
   import { goto } from '$app/navigation';
-  import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
@@ -89,7 +88,6 @@
   }
 </script>
 
-<Auth>
   <SideNav currentPage="reeds" />
   <div class="mock-container">
     <div class="mock-content">
@@ -195,7 +193,6 @@
       </form>
     </div>
   {/if}
-</Auth>
 
 <style>
   .mock-container {

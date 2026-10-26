@@ -1,7 +1,6 @@
 <script>
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
@@ -37,7 +36,6 @@
 
 <svelte:window on:keydown={onKeydown} />
 
-<Auth>
   <SideNav currentPage="reeds" />
   <div class="reed-detail-container">
     <div class="reed-content">
@@ -148,7 +146,6 @@
     </div>
     <BottomToolbar currentPage="reeds" />
   </div>
-</Auth>
 
 <style>
   .reed-detail-container {

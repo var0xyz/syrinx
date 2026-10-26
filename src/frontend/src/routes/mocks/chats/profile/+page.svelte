@@ -1,7 +1,6 @@
 <script>
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import Auth from '$lib/components/Auth.svelte';
   import Avatar from '$lib/components/Avatar.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import MockSideNav from '../MockSideNav.svelte';
@@ -15,7 +14,6 @@
   let following = true;
 </script>
 
-<Auth>
   <MockSideNav />
   <div class="mock-container">
     <div class="mock-content">
@@ -57,7 +55,6 @@
     </div>
     <MockToolbar />
   </div>
-</Auth>
 
 <style>
   .mock-container {

@@ -1,6 +1,5 @@
 <script>
   import { goto } from '$app/navigation';
-  import Auth from '$lib/components/Auth.svelte';
   import SideNav from '$lib/components/SideNav.svelte';
   import BottomToolbar from '$lib/components/BottomToolbar.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
@@ -19,7 +18,6 @@
   }
 </script>
 
-<Auth>
   <SideNav currentPage="reeds" />
   <div class="mock-container">
     <div class="mock-content">
@@ -85,7 +83,6 @@
     </div>
     <BottomToolbar currentPage="reeds" />
   </div>
-</Auth>
 
 <style>
   .mock-container {
