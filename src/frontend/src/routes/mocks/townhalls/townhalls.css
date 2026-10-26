@@ -1,0 +1,221 @@
+/* Shared by every town halls mock page; every class is th- prefixed. */
+.th-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+@media (min-width: 768px) {
+  .th-container {
+    padding-left: var(--sidenav-width);
+  }
+}
+
+.th-content {
+  flex: 1;
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 1rem;
+  box-sizing: border-box;
+  color: var(--fg);
+}
+
+.th-content.wide {
+  max-width: 1100px;
+}
+
+@media (max-width: 768px) {
+  .th-content {
+    padding: 0.5rem;
+  }
+}
+
+.th-note {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.th-note a,
+.th-link {
+  color: var(--primary);
+}
+
+.th-title {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+}
+
+.th-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0 0.5rem;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.th-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.th-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.th-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.th-chip.live {
+  border-color: var(--error);
+  background: var(--error);
+  color: #fff;
+}
+
+.th-chip.rec {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.th-chip.ok {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.th-chip.primary {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.th-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  animation: th-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes th-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.th-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.th-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+
+.th-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.th-btn.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--button-text);
+}
+
+.th-btn.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.th-btn.small {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.th-server {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.th-server.peer {
+  color: #d29922;
+}
+
+.th-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.th-modal {
+  max-width: 440px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  color: var(--fg);
+}
+
+.th-modal h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.th-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.th-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 5rem;
+  z-index: 300;
+  transform: translateX(-50%);
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.85rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}

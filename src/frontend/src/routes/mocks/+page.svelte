@@ -4,6 +4,7 @@
   <ul>
     <li><a href="/mocks/threads">Threads</a> — composing, listing and reading a thread of reeds</li>
     <li><a href="/mocks/chats">Chats</a> — private one-to-one chats between members</li>
+    <li><a href="/mocks/townhalls">Town halls</a> — scheduled live audio discussions</li>
   </ul>
 </main>
 
