@@ -37,7 +37,12 @@ export class RipplesRepository {
    * verification section, not as an error to surface to the user.
    */
   async storeRipple(ripple: api.Ripple, reedID: string): Promise<boolean> {
-    if (await this.hasRipple(ripple.hash)) {
+    const cached = await this.getRipple(ripple.hash);
+    if (cached) {
+      // A tombstone is the only change a ripple can go through.
+      if (ripple.deleted && !cached.deleted) {
+        await this.db.put('ripples', ripple, (r) => verifyRipple(r, reedID));
+      }
       return true;
     }
 
