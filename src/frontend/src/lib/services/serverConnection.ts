@@ -87,6 +87,7 @@ export enum ServerEvent {
   Mentioned            = 'MENTION',
   AdminMentioned       = 'ADMIN_MENTION',
   PageAck              = 'PAGE_ACK',
+  Ping                 = 'PING',
   PipeReed             = 'PIPE_REED',
   PublishReadyAck      = 'PUBLISH_READY_ACK',
   ReedCoverage         = 'REED_COVERAGE',
@@ -353,7 +354,8 @@ class ServerConnection {
             return;
           }
           const message = decodeMessage(event.data);
-          if (!message) return;
+          // A PING only proves the socket is alive, which lastReceivedAt records.
+          if (!message || message.type === ServerEvent.Ping) return;
           console.log('ServerConnection: message received:', message.type);
 
           if (message.type === ServerEvent.Sigterm) {
