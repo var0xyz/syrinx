@@ -27,11 +27,11 @@ Sending the whole ban each time means B never misses one, even when the lift
 comes before the ban's first notice gets through. One notice per ban for one of
 B's users: one delivery per peer.
 
-A records what it owes in `user_ban_notices`:
+A records what it owes in `user_ban_event_queue`:
 
 ```sql
 -- The bans whose current state each banned user's home server is owed.
-CREATE TABLE IF NOT EXISTS user_ban_notices (
+CREATE TABLE IF NOT EXISTS user_ban_event_queue (
   request_id VARCHAR(255) NOT NULL,
   user_id    VARCHAR(255) NOT NULL,
 
