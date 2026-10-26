@@ -2,8 +2,7 @@
 
 ## Status
 
-Proposed. Lands after [10](10_peer_event_queue.md), and after the branches
-pending merge.
+Proposed. Lands after [10](10_peer_event_queue.md).
 
 ## Depends on
 

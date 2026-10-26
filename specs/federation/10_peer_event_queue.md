@@ -2,9 +2,7 @@
 
 ## Status
 
-Proposed. Not to be started before the branches pending merge land: it
-touches most of `federation_relay.go`, `federation_delivery.go`, `blocks.go`,
-`follows.go` and `realtime.go`.
+Proposed.
 
 ## Depends on
 
@@ -52,7 +50,7 @@ So a peer gets one row per event, deleted when it accepts it.
 
 | Topic | Decision |
 |---|---|
-| Shape | One table, `peer_events`, one row per (peer, event). Deleted when the peer answers |
+| Shape | One table, `peer_event_queue`, one row per (peer, event). Deleted when the peer answers |
 | Rows | Name a kind and its subject only. The payload is built from existing tables at send time, as `buildNewReedPayload` does today |
 | Recipients | **Every peer** for new reeds, reed and thread removals, account removals, user key revocations and server key rotations. **Only the server concerned** for blocks (the blocked user's home) and follows (the followee's home): who blocks or follows whom is nobody else's business, and noise to them |
 | Enqueued for | Every peer that isn't revoked, down ones included. A down peer's rows wait for its boot notice |
@@ -71,7 +69,7 @@ So a peer gets one row per event, deleted when it accepts it.
 ```sql
 -- What each peer is owed, oldest first. Rows name a subject; the payload
 -- is built when the row is sent.
-CREATE TABLE IF NOT EXISTS peer_events (
+CREATE TABLE IF NOT EXISTS peer_event_queue (
   id BIGSERIAL PRIMARY KEY,
   server_id VARCHAR(16) NOT NULL REFERENCES server_mesh(server_id) ON DELETE CASCADE,
   kind VARCHAR(32) NOT NULL CHECK (kind IN (
@@ -84,7 +82,7 @@ CREATE TABLE IF NOT EXISTS peer_events (
   UNIQUE NULLS NOT DISTINCT (server_id, kind, subject_id, object_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_peer_events_server ON peer_events (server_id, id);
+CREATE INDEX IF NOT EXISTS idx_peer_event_queue_server ON peer_event_queue (server_id, id);
 ```
 
 `server_mesh` gains one column, operational and outside the signed peering
@@ -120,7 +118,7 @@ a crash between the two can't lose one. Every-peer kinds insert one row per
 non-revoked peer:
 
 ```sql
-INSERT INTO peer_events (server_id, kind, subject_id)
+INSERT INTO peer_event_queue (server_id, kind, subject_id)
 SELECT server_id, $1, $2 FROM server_mesh WHERE revoked_at IS NULL
 ON CONFLICT DO NOTHING
 ```
@@ -139,9 +137,10 @@ After the commit, the writer triggers a drain for every peer (see
 | `key_revocation` | the transaction inserting a **local** user key's `public_key_revocations` row (`AddPublicKey`'s rotation path in `services.go`, the rebind executor in `admin_rebind.go`); recovery's `insertRecoveryKeys` enqueues nothing | `notifyPeersOfKeyRevocation` |
 | `server_key` | `insertServerKeyRevocationTx` (`server_key.go`), run by `ops rotate-key`. The ops binary only writes rows; the server drains them on its next boot | `notifyPeersOfServerKey` + `PeersAwaitingKey` at boot |
 
-`block_notices` and `follow_notices` keep their local half: a local blocked
+`block_event_queue` and `follow_event_queue` (today's `block_notices` and
+`follow_notices`, see [Naming](#naming)) keep their local half: a local blocked
 user's client and a local followee's client are still owed through them, by
-SYNC. Only rows for foreign users move to `peer_events`.
+SYNC. Only rows for foreign users move to `peer_event_queue`.
 
 ## Draining
 
@@ -156,7 +155,7 @@ One function, `drainPeerEvents(peerID)`, replaces `drainPeerStream`,
 
    ```sql
    SELECT e.id, e.kind, e.subject_id, e.object_id, s.base_url
-   FROM peer_events e
+   FROM peer_event_queue e
    JOIN server_mesh m ON m.server_id = e.server_id
    JOIN servers s ON s.id = e.server_id
    WHERE e.server_id = $1 AND m.down_at IS NULL AND m.revoked_at IS NULL
@@ -198,13 +197,35 @@ non-revoked peer when `peerID` is empty. The claim makes extra triggers free.
 | Every SYNC from a local client | `drainPeers("")`, replacing `deliverBehindHook` (the keepalive that retries a peer stuck on an earlier failure) |
 | A peer's approval | `drainPeers(peer)`, in case anything was queued between the `server_mesh` insert and the commit |
 
+## Naming
+
+A durable list of what a recipient is owed until it accepts is an **event
+queue**, named `<thing>_event_queue`. `pending_events` stays as it is: its
+rows are in flight to an online user and go when they disconnect.
+
+| Today | Becomes |
+|---|---|
+| `block_notices` | `block_event_queue` (step 0); its peer half moves to `peer_event_queue` in step 4 |
+| `follow_notices` | `follow_event_queue` (step 0); its peer half moves to `peer_event_queue` in step 5 |
+| `account_removal_peer_notices` | retired by step 3 |
+
 ## Steps
 
 Each step builds, passes `make test`, and leaves delivery working.
 
+### 0. Names
+
+- Rename `block_notices` to `block_event_queue` and `follow_notices` to
+  `follow_event_queue` in `InitDB` and every query (`blocks.go`,
+  `follows.go`, `services.go`, their tests), with their indexes
+  (`idx_block_notices_blocked` → `idx_block_event_queue_blocked`,
+  `idx_follow_notices_followee` → `idx_follow_event_queue_followee`).
+  Go identifiers keep their names.
+- Later steps refer to the new names.
+
 ### 1. Queue, drain, triggers
 
-- `InitDB`: `peer_events`, its index, `server_mesh.delivery_claimed_at`.
+- `InitDB`: `peer_event_queue`, its index, `server_mesh.delivery_claimed_at`.
 - `federation_delivery.go`: `enqueuePeerEventTx` (every-peer and one-peer
   variants), `drainPeers`, `drainPeerEvents`, the kind table as a
   `map[kind]peerEventSender` with build, success and refusal functions.
@@ -252,7 +273,7 @@ Each step builds, passes `make test`, and leaves delivery working.
 ### 4. Blocks
 
 - `oweBlockEventTx`: for a foreign blocked user, enqueue `block` for their
-  home server instead of writing `block_notices`.
+  home server instead of writing `block_event_queue`.
 - Drop `sendBlockNoticesFor`, `sendOwedBlockNotices`, `blockNoticeLocks`,
   `notifyPeersOfOwedBlockNotices`, `BlockNoticesOwedTo` and the peer
   branch of `DeleteBlockNotice`.
@@ -262,7 +283,7 @@ Each step builds, passes `make test`, and leaves delivery working.
 ### 5. Follows
 
 - `oweFollowCertTx`: for a foreign followee, enqueue `follow` for their home
-  server instead of writing `follow_notices`.
+  server instead of writing `follow_event_queue`.
 - The refusal step undoes the follow, as `SettleFollowNotice` does.
 - Drop `sendOwedFollowNotices`, `followNoticeLocks`,
   `notifyPeersOfOwedFollowNotices`, `FollowNoticesOwedTo` and the peer

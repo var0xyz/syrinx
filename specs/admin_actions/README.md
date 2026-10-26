@@ -30,6 +30,7 @@ when schema changes.
 | [11](11_admins_mention.md) | The @admins mention                     | 09                          |
 | [12](12_admin_records.md) | Admin records on admins' devices          | 01, 08                      |
 | [13](13_flag_withdrawal.md) | Withdrawing flags, and an author's flag history | 08, 12                |
+| [14](14_flag_cases.md) | Flag cases: dismissals close a case, cleanup after 6 months | 08, 12, 13 |
 
 ---
 
@@ -43,6 +44,7 @@ when schema changes.
 | 01–11 | Implemented              |
 | 12    | Implemented              |
 | 13    | Implemented              |
+| 14    | Proposed                 |
 
 ## Locked decisions
 
