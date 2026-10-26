@@ -166,6 +166,13 @@ export function setSuspendedReporter(reporter: SuspendedReporter): void {
   suspendedReporter = reporter;
 }
 
+/** Called with every account removal a request was refused with. */
+export type RemovedReporter = (cert: api.AccountRemoval) => void;
+let removedReporter: RemovedReporter | null = null;
+export function setRemovedReporter(reporter: RemovedReporter): void {
+  removedReporter = reporter;
+}
+
 /** Decodes a protobuf response body as schema. */
 export async function readMessage<Desc extends DescMessage>(res: Response, schema: Desc): Promise<MessageShape<Desc>> {
   return fromBinary(schema, new Uint8Array(await res.clone().arrayBuffer()));
@@ -330,6 +337,9 @@ async function requestRaw(
       err.status = 403;
       err.detail = error.detail;
       throw err;
+    }
+    if (res.status === 410 && isMessage(error?.detail, AccountRemovalCertSchema)) {
+      removedReporter?.(error.detail);
     }
     if (res.status === 403 && isMessage(error?.detail, AdminAuthorizationSchema)) {
       suspendedReporter?.(error.detail);

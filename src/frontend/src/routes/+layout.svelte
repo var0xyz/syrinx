@@ -52,7 +52,8 @@
   import { receiveLedgerEntry } from '$lib/services/ledger';
   import { storeAdminRecord, syncAdminRecords } from '$lib/services/admin';
   import { syncPendingBlocks } from '$lib/services/blocks';
-  import { setBlockedReporter, setSuspendedReporter } from '$lib/services/api';
+  import { setBlockedReporter, setRemovedReporter, setSuspendedReporter } from '$lib/services/api';
+  import { probeOwnRemoval, signOutRemovedAccount } from '$lib/services/removedSession';
   import { receiveSuspension, suspension } from '$lib/services/suspension';
   import SuspendedScreen from '$lib/components/SuspendedScreen.svelte';
   import { checkOwnUsername, lostUsername } from '$lib/services/usernameCollision';
@@ -402,6 +403,8 @@
     });
     setBlockedReporter((cert) => void receiveBlock(cert));
     setSuspendedReporter((cert) => void receiveSuspension(cert));
+    setRemovedReporter((cert) => void signOutRemovedAccount(cert));
+    serverConnection.onAccountRemovedClose(() => void probeOwnRemoval());
     serverConnection.on(ServerEvent.KeyRevoked, async (data) => {
       const eventId = data.id;
       if (data.revocation && (await applyKeyRevocation(data.revocation))) {

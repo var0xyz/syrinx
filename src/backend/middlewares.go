@@ -322,6 +322,18 @@ func (h *Handlers) recordPeerApproval(ctx context.Context, serverID string) {
 	}
 }
 
+// writeOwnRemoval answers a removed user's request with their removal
+// certificate, which tells their device why it is being signed out.
+func (h *Handlers) writeOwnRemoval(w http.ResponseWriter, r *http.Request, userID string) {
+	removal, err := h.services.db.GetAccountRemoval(r.Context(), userID)
+	if err != nil || removal == nil {
+		h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", userID).Msg("Error loading account removal")
+		writeError(w, http.StatusGone, "Account removed")
+		return
+	}
+	writeAccountGone(w, h.accountRemovalWire(removal))
+}
+
 // unauthenticatedExactPaths are the routes under prefix that skip
 // signature auth outright, requiring proof of the server key fingerprint
 // instead (see serverKeyProofMiddleware). Shared with
@@ -495,7 +507,7 @@ func (h *Handlers) signatureAuthMiddleware(prefix string) func(http.Handler) htt
 					if !(r.Method == http.MethodDelete && (path == prefix+"/users/me" || strings.HasSuffix(path, "/users/me"))) {
 						log.Info().Str("userID", userID).Str("path", path).Msg("Rejected auth for removed account")
 						h.authRejected(r, publicKeyIDHeader, userID, "account_removed")
-						writeError(w, http.StatusGone, "Account removed")
+						h.writeOwnRemoval(w, r, userID)
 						return
 					}
 				}

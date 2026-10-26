@@ -235,6 +235,7 @@ func main() {
 	recordServerKeyRevocations(db, h.metrics)
 	h.SetPipeTagFilter(rtService.FilterSubscribedPipeTags)
 	h.SetKickUserWS(rtService.DisconnectUser)
+	h.SetCloseRemovedUserWS(rtService.CloseRemovedUser)
 	h.SetRealtimeRelay(rtService)
 	rtService.SetForeignRequestReedHook(h.relayRequestToPeer)
 	rtService.SetForeignRequestThreadHook(h.relayThreadRequestToPeer)

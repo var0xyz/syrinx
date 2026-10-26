@@ -61,7 +61,7 @@ func (h *Handlers) kickExecutor() adminExecutor {
 			h.reportOpenFlags(context.Background(), flagged...)
 			for _, cert := range kicked {
 				cert.Admin = req
-				h.kickUserDevices(cert.UserID)
+				h.signOutRemovedUser(cert.UserID)
 				h.afterAccountRemoval(context.Background(), cert.UserID, cert)
 				h.metrics.UserDeleted(context.Background(), metrics.RemovalKick, false)
 				h.recordInvitesRevoked(req.Action, cert.UserID, revokedInvites[cert.UserID])

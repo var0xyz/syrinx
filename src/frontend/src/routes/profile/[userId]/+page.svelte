@@ -55,6 +55,8 @@
   let expectContent = data.expectContent ?? false;
   let profileSubscriptionActive = false;
   let tombstoneNote = data.tombstoneNote;
+  // Set when admins removed the account: the reason their request gave.
+  let tombstoneReason = data.tombstoneReason ?? '';
   /** Account removal cert is local — never re-fetch profile from server. */
   let accountRemoved = data.accountRemoved ?? data.status === 'tombstone';
 
@@ -231,6 +233,7 @@
     isFollowing = next.isFollowing;
     profileUser = next.profileUser;
     tombstoneNote = next.tombstoneNote;
+    tombstoneReason = next.tombstoneReason ?? '';
     blockCert = next.blockCert ?? null;
     accountRemoved = next.accountRemoved ?? next.status === 'tombstone';
     if (accountRemoved || next.status === 'tombstone') {
@@ -402,6 +405,7 @@
     const cert = await removedAccountsRepository.get(userId);
     if (!cert) return;
     tombstoneNote = cert.note ?? '';
+    tombstoneReason = cert.admin?.request?.reason ?? '';
     accountRemoved = true;
     profileUser = null;
     status = 'tombstone';
@@ -450,11 +454,13 @@
         return;
       }
       tombstoneNote = removal.note ?? '';
+      tombstoneReason = removal.admin?.request?.reason ?? '';
       accountRemoved = true;
     } else {
       await reedsService.deleteReedsByAuthor(userId);
       await userRepository.writeTombstone(userId);
       tombstoneNote = '';
+      tombstoneReason = '';
     }
     profileUser = null;
     status = 'tombstone';
@@ -555,8 +561,10 @@
     {:else if status === 'tombstone'}
       <div class="state-message">
         <div class="state-icon">🪦</div>
-        <h3>Account deleted</h3>
-        {#if tombstoneNote}
+        <h3>{tombstoneReason ? 'Account removed by the admins' : 'Account deleted'}</h3>
+        {#if tombstoneReason}
+          <p class="tombstone-note">{tombstoneReason}</p>
+        {:else if tombstoneNote}
           <p class="tombstone-note">{tombstoneNote}</p>
         {:else}
           <p>This account no longer exists.</p>

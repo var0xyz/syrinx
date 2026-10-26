@@ -35,6 +35,7 @@ type realtimeBusEnvelope struct {
 	UserID     string `json:"userID"`
 	Frame      string `json:"frame,omitempty"`
 	Disconnect bool   `json:"disconnect,omitempty"`
+	CloseCode  int    `json:"closeCode,omitempty"`
 }
 
 // realtimeBus forwards WS deliveries between replicas over Postgres
@@ -44,13 +45,13 @@ type realtimeBus struct {
 	listener   *pq.Listener
 	db         *sql.DB
 	deliver    func(userID string, frame []byte) bool
-	disconnect func(userID string)
+	disconnect func(userID string, closeCode int)
 	done       chan struct{}
 }
 
 // newRealtimeBus opens a dedicated listener connection. pq.Listener needs
 // its own connection and cannot come from the shared *sql.DB pool.
-func newRealtimeBus(dbURL string, db *sql.DB, deliver func(userID string, frame []byte) bool, disconnect func(userID string)) (*realtimeBus, error) {
+func newRealtimeBus(dbURL string, db *sql.DB, deliver func(userID string, frame []byte) bool, disconnect func(userID string, closeCode int)) (*realtimeBus, error) {
 	bus := &realtimeBus{db: db, deliver: deliver, disconnect: disconnect, done: make(chan struct{})}
 
 	bus.listener = pq.NewListener(dbURL, realtimeBusMinReconnect, realtimeBusMaxReconnect, func(ev pq.ListenerEventType, err error) {
@@ -104,7 +105,7 @@ func (b *realtimeBus) handle(payload string) {
 		return
 	}
 	if env.UserID != "" && env.Disconnect {
-		b.disconnect(env.UserID)
+		b.disconnect(env.UserID, env.CloseCode)
 		return
 	}
 	if env.UserID == "" || env.Frame == "" {
@@ -137,9 +138,10 @@ func (b *realtimeBus) Publish(userID string, frame []byte) error {
 	return err
 }
 
-// PublishDisconnect has every replica close userID's sockets.
-func (b *realtimeBus) PublishDisconnect(userID string) error {
-	payload, err := json.Marshal(realtimeBusEnvelope{UserID: userID, Disconnect: true})
+// PublishDisconnect has every replica close userID's sockets, with
+// closeCode when it isn't zero.
+func (b *realtimeBus) PublishDisconnect(userID string, closeCode int) error {
+	payload, err := json.Marshal(realtimeBusEnvelope{UserID: userID, Disconnect: true, CloseCode: closeCode})
 	if err != nil {
 		return err
 	}

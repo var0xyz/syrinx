@@ -32,6 +32,9 @@ const PONG_INTERVAL_MS = 60_000;
 // were missed and the socket can't be trusted.
 export const SILENT_SOCKET_MS = 75_000;
 
+/** Close code the server sends a removed account's sockets. */
+const ACCOUNT_REMOVED_CLOSE = 4410;
+
 function encodeRequestReed(requestId: string, reedId: string): Uint8Array {
   const msg = create(WSMessageSchema, {
     type: MessageType.REQUEST_REED,
@@ -150,6 +153,12 @@ class ServerConnection {
   /** Id of the "lost connection" notice raised by handleSigterm, so it can
    * be dismissed once a retry reconnects. */
   private sigtermNotificationId: string | null = null;
+  private accountRemovedHandler: (() => void) | null = null;
+
+  /** Called when the server closes the socket because the account was removed. */
+  onAccountRemovedClose(handler: () => void): void {
+    this.accountRemovedHandler = handler;
+  }
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
@@ -424,6 +433,7 @@ class ServerConnection {
 
       this.ws.onclose = (event) => {
         console.log('ServerConnection: connection closed', event.code, event.reason);
+        if (event.code === ACCOUNT_REMOVED_CLOSE) this.accountRemovedHandler?.();
         if (this.ws === event.target) {
           this.ws = null;
           this.stopHeartbeat();
