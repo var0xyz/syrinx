@@ -27,6 +27,8 @@ established peers. `serverID` in signed envelopes prepares for foreign
 | [07](07_presence_delivery.md) | Server presence (`online`/`offline`/`ping`) + durable event delivery (mentions, deletions) | 06 |
 | [08](08_server_reset.md) | Server reset notice: peers forget shared realtime state on shutdown/boot, `servers.down_at` | 05, 06 |
 | [09](09_reed_delivery.md) | Durable reed delivery: `new-reed`/`reed-removal` to every peer via per-(peer, author) cursors; content, stats and profiles folded at the border | 06, 08 |
+| [10](10_peer_event_queue.md) | One event queue per peer: every event a peer is owed, one row each, deleted when it accepts | 08, 09 |
+| [11](11_peering_record.md) | The peering is the signed record: signed on write, restored whole | 10 |
 
 Related: [`roles/`](../roles/README.md) (admin UI + admin invites);
 conversations foreign refs [`conversations/01`](../conversations/01_publish_and_refs.md).
@@ -58,6 +60,8 @@ shipped-vs-designed diff.
 | 05   | **Implemented**, with two deviations: revocation is active rather than purely local (the disconnecting server notifies the peer, which auto-revokes back), and a root-only hard purge (delete the server row and all its local data) was added beyond this doc's scope |
 | 06   | **Implemented**, via purpose-built per-operation endpoints (`federation_relay.go`) rather than this doc's generic relay endpoints |
 | 07   | **Out of scope for v1, by design.** Fire-and-forget (signed HTTP, short timeout, swallowed-on-failure) is the accepted permanent v1 behavior, not a gap to close later — no `servers.online`, no ping, no backlog/replay planned. |
+| 10   | Proposed |
+| 11   | Proposed |
 
 Beyond this doc set, `federation_relay.go` also implements mentions,
 federated user search, and reed-stats/like propagation — none of these
