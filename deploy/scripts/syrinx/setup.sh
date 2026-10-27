@@ -688,7 +688,23 @@ cloudflare_tunnel_healthy() {
     esac
 }
 
+# Debian's package lags upstream; Cloudflare's repo has no per-release
+# suites, only "any". Installs or upgrades, restarting a running tunnel.
+install_cloudflared() {
+    local before after
+    before="$(cloudflared --version 2>/dev/null || true)"
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg -o /usr/share/keyrings/cloudflare-public-v2.gpg
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+    APT_LISTCHANGES_FRONTEND=none apt update
+    APT_LISTCHANGES_FRONTEND=none apt install -y cloudflared
+    after="$(cloudflared --version 2>/dev/null || true)"
+    if [ "$before" != "$after" ] && systemctl is-active --quiet cloudflared; then
+        systemctl restart cloudflared
+    fi
+}
+
 echo -e "\n☁️  Checking Cloudflare tunnel..."
+install_cloudflared
 
 FORCE_CF="${FORCE_CF:-0}"
 if [ "$FORCE_CF" != "1" ] && cloudflare_tunnel_healthy; then
@@ -699,13 +715,6 @@ else
         echo "🔹 FORCE_CF=1 — reconfiguring cloudflared"
     else
         echo "🔹 Tunnel missing or unhealthy — configuring cloudflared"
-    fi
-
-    if ! command -v cloudflared &> /dev/null; then
-        ARCH="$(dpkg --print-architecture)"
-        wget -q "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb" -O /tmp/cf.deb
-        dpkg -i /tmp/cf.deb
-        rm -f /tmp/cf.deb
     fi
 
     mkdir -p /etc/cloudflared
@@ -732,7 +741,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel run --token $CF_TOKEN
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token $CF_TOKEN
 Restart=always
 RestartSec=5s
 
