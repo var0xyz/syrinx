@@ -820,6 +820,21 @@ telemetry_wait_for_tunnel_route() {
     return 1
 }
 
+# Debian's package lags upstream; Cloudflare's repo has no per-release
+# suites, only "any". Installs or upgrades, restarting a running tunnel.
+telemetry_install_cloudflared() {
+    local before after
+    before="$(cloudflared --version 2>/dev/null || true)"
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg -o /usr/share/keyrings/cloudflare-public-v2.gpg
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+    DEBIAN_FRONTEND=noninteractive apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y cloudflared
+    after="$(cloudflared --version 2>/dev/null || true)"
+    if [ "$before" != "$after" ] && systemctl is-active --quiet cloudflared; then
+        systemctl restart cloudflared
+    fi
+}
+
 # Expose OpenObserve at https://$domain via a Cloudflare Zero Trust tunnel —
 # no inbound port opened. Idempotent; pass force=1 to rewrite a healthy
 # tunnel (e.g. after rotating the token).
@@ -831,6 +846,8 @@ telemetry_setup_cloudflare_tunnel() {
         return 1
     fi
 
+    telemetry_install_cloudflared
+
     if [ "$force" != "1" ] && telemetry_cloudflare_tunnel_healthy "$domain" "$token"; then
         echo "✅ Cloudflare tunnel already up for https://${domain} — skipping reconfigure"
         echo "   (set FORCE_CF=1 to force rewrite of cloudflared unit/config)"
@@ -841,15 +858,6 @@ telemetry_setup_cloudflare_tunnel() {
         echo "🔹 FORCE_CF=1 — reconfiguring cloudflared"
     else
         echo "🔹 Tunnel missing or unhealthy — configuring cloudflared"
-    fi
-
-    if ! command -v cloudflared >/dev/null 2>&1; then
-        local arch
-        arch="$(dpkg --print-architecture)"
-        echo "⬇️  Installing cloudflared (${arch})..."
-        curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${arch}.deb" -o /tmp/cf.deb
-        dpkg -i /tmp/cf.deb
-        rm -f /tmp/cf.deb
     fi
 
     mkdir -p /etc/cloudflared
@@ -875,7 +883,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/cloudflared --no-autoupdate tunnel run --token $token
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token $token
 Restart=always
 RestartSec=5s
 
