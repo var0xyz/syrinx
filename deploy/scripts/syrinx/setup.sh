@@ -552,6 +552,12 @@ $NO_CLIENT_IP
         try_files \$uri =404;
     }
 
+    # Probes (assetlinks.json, security.txt, ...) get a real 404, not the
+    # SPA shell; give a file served here its own exact-match block.
+    location /.well-known/ {
+        return 404;
+    }
+
     # SPA assets + client-side router fallback
     location / {
         try_files \$uri \$uri/ /index.html;
