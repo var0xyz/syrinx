@@ -320,7 +320,8 @@ syrinx_ensure_root_bootstrap() {
     echo ""
     echo "   Read the passphrase with: sudo cat $passphrase_file"
     echo "   Import via SPA /import → \"I only have my keys\", then store the"
-    echo "   .sxi.gpg somewhere safe. Losing it loses control of root."
+    echo "   .sxi.gpg somewhere only you can reach. Whoever holds it and its"
+    echo "   passphrase controls root, and with it the whole community."
     echo "   Temporary write access has been revoked from the systemd unit."
     echo "   ⚠️  Once you've copied both files off the server, delete"
     echo "   $passphrase_file — it is the only copy of this passphrase and"
@@ -331,7 +332,7 @@ syrinx_ensure_root_bootstrap() {
 # The server refuses to start until its identity (server id + every signing
 # key) is exported, and again after a new signing key. When the check fails,
 # export it next to the root export, with a generated password in a
-# .passphrase sidecar, for the operator to copy off with cp-root-creds.sh.
+# .passphrase sidecar, for the operator to copy off with `syrinx.sh server-identity`.
 syrinx_ensure_identity_backup() {
     local ops export_dir out password
     ops="/usr/local/bin/${APP_NAME}-ops"
@@ -368,7 +369,7 @@ syrinx_ensure_identity_backup() {
     echo "🔐 Passphrase file: ${out}.passphrase"
     echo ""
     echo "   This is the one thing a recovery can't rebuild from users. Copy"
-    echo "   both off the server (./deploy/scripts/syrinx/cp-root-creds.sh),"
+    echo "   both off the server (./deploy/syrinx.sh server-identity <dir>),"
     echo "   keep them apart, then delete them here."
     echo "------------------------------------------------------------------"
 }

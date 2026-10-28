@@ -60,8 +60,8 @@ runs all three on one host, which reproduces today's install exactly.
    `REPLICA_ID=<host short name>`, `DB_HOST=<DB LAN IP>`,
    `GATEWAY_ADDR=<LB LAN IP>:8071`.
 6. First install only: start app 1 alone with `ROOT_KEY_EXPORT_PASSPHRASE`
-   to mint the root identity, exactly as today; then `cp-root-creds.sh`
-   pulls it from app 1.
+   to mint the root identity, exactly as today; then
+   `syrinx.sh root-creds <dir>` pulls it from app 1.
 7. Start the app hosts one at a time, waiting for each `/api/health`.
 8. `setup-lb.sh` on `LB_HOST`: nginx, then the gateway, which resets
    realtime state on its first start; then the Cloudflare route check or

@@ -127,8 +127,8 @@ On a terminal it prompts as today. `federation-dev-up.sh` exports this way.
 The deploy scripts build and install the `ops` binary too. On every
 `setup` and `update`, after the root bootstrap, `ops check-identity-backup`
 decides whether to export; when it does, the bundle and a generated
-password go next to the root credentials, and `cp-root-creds.sh` fetches
-both.
+password go next to the root credentials, and `syrinx.sh server-identity <dir>`
+fetches both.
 
 ## 03 — `servers` / `server_mesh` / `server_self`
 

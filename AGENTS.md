@@ -405,8 +405,9 @@ interactively in a real terminal. `wipe-db --force` and `update`/`restart` are
 already non-interactive by flag/design and need no such trick.
 
 After `setup`, fetch the (re)minted root identity export with
-`deploy/scripts/syrinx/cp-root-creds.sh` — also non-interactive once the host
-is saved (it only prompts y/N about deleting the remote copy, default No).
+`./deploy/syrinx.sh root-creds <dir>`, and the server identity bundle with
+`./deploy/syrinx.sh server-identity <dir>` — each only prompts y/N about
+deleting the remote copy (default No).
 
 ### Telemetry host (OpenObserve dashboard)
 
