@@ -1313,10 +1313,8 @@ type realtimeService struct {
 	relayTimersMu sync.Mutex
 	relayTimers   map[string]*time.Timer
 
-	// Peer reed delivery: drain one author's streams, or
-	// every stream that is behind.
-	deliverAuthorHook func(authorID string)
-	deliverBehindHook func()
+	// Drains every peer's event queue.
+	drainPeersHook func()
 
 	// Cross-server REQUEST_REED relay hooks: realtimeService has no signing
 	// key, HTTP client, or federation-table access of its own, so the
@@ -3727,11 +3725,10 @@ type realtimeForeignReedStatsSnapshot struct {
 // (mirrors the local ReedExists guard).
 type realtimeForeignSubscribeReedHook func(ctx context.Context, reedID, requesterUserID string) (snapshot realtimeForeignReedStatsSnapshot, ok bool, err error)
 
-// SetPeerDeliveryHooks installs the triggers for durable reed delivery:
-// one author's streams on publish, and every stream behind on SYNC.
-func (rs *realtimeService) SetPeerDeliveryHooks(deliverAuthor func(authorID string), deliverBehind func()) {
-	rs.deliverAuthorHook = deliverAuthor
-	rs.deliverBehindHook = deliverBehind
+// SetDrainPeersHook installs what drains every peer's event queue, run on
+// publish and on SYNC.
+func (rs *realtimeService) SetDrainPeersHook(drain func()) {
+	rs.drainPeersHook = drain
 }
 
 // SetForeignSubscribeReedHook installs the leg-8 (subscribe-reed) hook.
@@ -4320,8 +4317,8 @@ func (rs *realtimeService) handleSyncRequest(ctx context.Context, client *realti
 	rs.dispatchNext(ctx, client.userID)
 	rs.redispatchPendingRequests(ctx, client.userID)
 	// Every SYNC doubles as the keepalive for delivery to peers.
-	if rs.deliverBehindHook != nil {
-		go rs.deliverBehindHook()
+	if rs.drainPeersHook != nil {
+		go rs.drainPeersHook()
 	}
 }
 
@@ -4516,8 +4513,8 @@ func (rs *realtimeService) handlePublishReady(ctx context.Context, client *realt
 			go rs.fanoutNewReedNoBroadcast(reedID, tags, excludeFromFollowers)
 		}
 		go rs.notifyParentSubscribersOfReply(ctx, reedID)
-		if rs.deliverAuthorHook != nil {
-			go rs.deliverAuthorHook(authorUserID)
+		if rs.drainPeersHook != nil {
+			go rs.drainPeersHook()
 		}
 		go rs.notifyParentAuthorOfReply(ctx, reedID)
 		go rs.notifyMentionedUsers(ctx, reedID)

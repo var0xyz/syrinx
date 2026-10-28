@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"syrinx/observability/metrics"
 	"testing"
 	"time"
@@ -90,163 +89,88 @@ func (f *deliveryFixture) remove(t *testing.T, reedID string, at time.Time) {
 	}
 }
 
-// recorder stands in for the peer: it answers each item with the next
-// scripted status and records what it was sent.
-type recorder struct {
-	sent     []peerStreamItem
-	statuses []int
-}
-
-func (r *recorder) send(_ context.Context, _ PeerServer, item peerStreamItem) (int, error) {
-	r.sent = append(r.sent, item)
-	status := 204
-	if len(r.statuses) > 0 {
-		status, r.statuses = r.statuses[0], r.statuses[1:]
-	}
-	if status == 0 {
-		return 0, errors.New("connection refused")
-	}
-	return status, nil
-}
-
 func at(minutesAgo int) *time.Time {
 	t := time.Now().UTC().Add(-time.Duration(minutesAgo) * time.Minute)
 	return &t
 }
 
-// A stream goes out in publish order, and a removal after its creation.
-func TestDrainDeliversInOrder(t *testing.T) {
-	f := newDeliveryFixture(t)
-	second := f.reed(t, at(10))
-	first := f.reed(t, at(20))
-	f.remove(t, first, *at(5))
-	f.reed(t, nil) // unpublished: never streamed
-
-	rec := &recorder{}
-	f.h.drainPeerStreamWith(f.peer, f.author, rec.send)
-
-	if len(rec.sent) != 3 {
-		t.Fatalf("sent %d items, want 3: %+v", len(rec.sent), rec.sent)
+// queuedKinds lists what peerID is owed, oldest first, as kind:subject.
+func (f *deliveryFixture) queuedKinds(t *testing.T, peerID string) []string {
+	t.Helper()
+	rows, err := f.db.Query(`SELECT kind, subject_id FROM peer_event_queue WHERE server_id = $1 ORDER BY id`, peerID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	want := []struct {
-		reed string
-		kind int
-	}{{first, streamKindCreation}, {second, streamKindCreation}, {first, streamKindRemoval}}
-	for i, w := range want {
-		if rec.sent[i].ReedID != w.reed || rec.sent[i].Kind != w.kind {
-			t.Fatalf("item %d = %+v, want %s kind %d", i, rec.sent[i], w.reed, w.kind)
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var kind, subject string
+		if err := rows.Scan(&kind, &subject); err != nil {
+			t.Fatal(err)
 		}
+		out = append(out, kind+":"+subject)
 	}
+	return out
 }
 
-// A failure stops the stream; the next drain resumes where it stopped.
-func TestDrainStopsOnFailureAndResumes(t *testing.T) {
-	f := newDeliveryFixture(t)
-	f.reed(t, at(20))
-	second := f.reed(t, at(10))
-
-	rec := &recorder{statuses: []int{204, 503}}
-	f.h.drainPeerStreamWith(f.peer, f.author, rec.send)
-	if len(rec.sent) != 2 {
-		t.Fatalf("first drain sent %d items, want 2 (the second failed)", len(rec.sent))
-	}
-
-	rec = &recorder{}
-	f.h.drainPeerStreamWith(f.peer, f.author, rec.send)
-	if len(rec.sent) != 1 || rec.sent[0].ReedID != second {
-		t.Fatalf("resumed drain sent %+v, want only %s", rec.sent, second)
-	}
-}
-
-// A transport error behaves like a 5xx; a 4xx is skipped for good.
-func TestDrainSkipsRefusedItem(t *testing.T) {
-	f := newDeliveryFixture(t)
-	f.reed(t, at(20))
-	f.reed(t, at(10))
-
-	rec := &recorder{statuses: []int{400, 204}}
-	f.h.drainPeerStreamWith(f.peer, f.author, rec.send)
-	if len(rec.sent) != 2 {
-		t.Fatalf("sent %d items, want both (the refused one skipped)", len(rec.sent))
-	}
-	behind, err := f.h.services.db.BehindAuthors(context.Background(), deliveryPeerID)
-	if err != nil {
-		t.Fatalf("BehindAuthors: %v", err)
-	}
-	if len(behind) != 0 {
-		t.Fatalf("behind = %v, want nothing left owed", behind)
-	}
-
-	f.reed(t, at(1))
-	rec = &recorder{statuses: []int{0}}
-	f.h.drainPeerStreamWith(f.peer, f.author, rec.send)
-	behind, _ = f.h.services.db.BehindAuthors(context.Background(), deliveryPeerID)
-	if len(behind) != 1 {
-		t.Fatalf("after a transport error behind = %v, want the author still owed", behind)
-	}
-}
-
-// Only one drain holds a stream; a stale claim is taken over; a peer that
-// is down can't be claimed.
-func TestClaimPeerStream(t *testing.T) {
-	f := newDeliveryFixture(t)
-	ctx := context.Background()
-	db := f.h.services.db
-
-	if ok, err := db.ClaimPeerStream(ctx, deliveryPeerID, f.author); err != nil || !ok {
-		t.Fatalf("first claim = %v, %v; want true", ok, err)
-	}
-	if ok, _ := db.ClaimPeerStream(ctx, deliveryPeerID, f.author); ok {
-		t.Fatal("a live claim was taken twice")
-	}
-	if _, err := f.db.Exec(`UPDATE peer_author_cursors SET claimed_at = NOW() - INTERVAL '2 minutes'`); err != nil {
-		t.Fatalf("age claim: %v", err)
-	}
-	if ok, _ := db.ClaimPeerStream(ctx, deliveryPeerID, f.author); !ok {
-		t.Fatal("a stale claim was not taken over")
-	}
-
-	if err := db.ReleasePeerStream(ctx, deliveryPeerID, f.author); err != nil {
-		t.Fatalf("ReleasePeerStream: %v", err)
-	}
-	if err := db.SetPeerDown(ctx, deliveryPeerID, true); err != nil {
-		t.Fatalf("SetPeerDown: %v", err)
-	}
-	if ok, _ := db.ClaimPeerStream(ctx, deliveryPeerID, f.author); ok {
-		t.Fatal("claimed a stream to a peer that is down")
-	}
-}
-
-// A reed from before the peer was approved is not owed to it.
-func TestNewPeerGetsNoHistory(t *testing.T) {
-	f := newDeliveryFixture(t)
-	f.reed(t, at(120))
-
-	behind, err := f.h.services.db.BehindAuthors(context.Background(), deliveryPeerID)
-	if err != nil {
-		t.Fatalf("BehindAuthors: %v", err)
-	}
-	if len(behind) != 0 {
-		t.Fatalf("behind = %v, want nothing from before approval", behind)
-	}
-}
-
-// Publishing is what enters a reed into the stream.
-func TestClaimPendingFanoutPublishes(t *testing.T) {
-	f := newDeliveryFixture(t)
-	reedID := f.reed(t, nil)
+func (f *deliveryFixture) publish(t *testing.T, reedID string) {
+	t.Helper()
 	if _, err := f.db.Exec(`INSERT INTO pending_fanout (reed_id, tags) VALUES ($1, '{}')`, reedID); err != nil {
 		t.Fatalf("insert pending fanout: %v", err)
 	}
 	if _, _, err := f.h.services.db.ClaimPendingFanout(context.Background(), reedID); err != nil {
 		t.Fatalf("ClaimPendingFanout: %v", err)
 	}
-	behind, err := f.h.services.db.BehindAuthors(context.Background(), deliveryPeerID)
-	if err != nil {
-		t.Fatalf("BehindAuthors: %v", err)
+}
+
+func (f *deliveryFixture) removal(reedID string) reedRemovalCert {
+	return reedRemovalCert{
+		ReedID: reedID, UserID: f.author, UserKeyID: f.pubKeyID, UserSignature: "sig-" + reedID,
+		ServerSignature: "ssig-" + reedID, ServerFingerprint: "sfp1", ServerSignedAt: time.Now().UTC(),
 	}
-	if len(behind) != 1 || behind[0] != f.author {
-		t.Fatalf("behind = %v, want the author once published", behind)
+}
+
+// Publishing a reed owes every peer its announcement, and removing it
+// afterwards its removal, in that order.
+func TestPublishAndRemovalQueueForPeers(t *testing.T) {
+	f := newDeliveryFixture(t)
+	reedID := f.reed(t, nil)
+	f.publish(t, reedID)
+	if err := f.h.services.db.InsertReedRemoval(context.Background(), f.removal(reedID)); err != nil {
+		t.Fatalf("InsertReedRemoval: %v", err)
+	}
+	want := []string{peerEventNewReed + ":" + reedID, peerEventReedRemoval + ":" + reedID}
+	if got := f.queuedKinds(t, deliveryPeerID); !equalStrings(got, want) {
+		t.Fatalf("queued %v, want %v", got, want)
+	}
+}
+
+// A reed never published here was never announced, so its removal isn't
+// either.
+func TestRemovalOfUnpublishedReedQueuesNothing(t *testing.T) {
+	f := newDeliveryFixture(t)
+	reedID := f.reed(t, nil)
+	if err := f.h.services.db.InsertReedRemoval(context.Background(), f.removal(reedID)); err != nil {
+		t.Fatalf("InsertReedRemoval: %v", err)
+	}
+	if got := f.queuedKinds(t, deliveryPeerID); len(got) != 0 {
+		t.Fatalf("queued %v, want nothing", got)
+	}
+}
+
+// The real senders turn queued reeds and removals into their relay calls.
+func TestDrainSendsReedEvents(t *testing.T) {
+	f := newDeliveryFixture(t)
+	reedID := f.reed(t, nil)
+	f.publish(t, reedID)
+	if err := f.h.services.db.InsertReedRemoval(context.Background(), f.removal(reedID)); err != nil {
+		t.Fatalf("InsertReedRemoval: %v", err)
+	}
+	calls := &peerCalls{}
+	f.h.drainPeerEventsWith(deliveryPeerID, f.h.peerEventSenderFor, calls.call)
+	want := []string{"/api/federation/relay/new-reed", "/api/federation/relay/reed-removal"}
+	if !equalStrings(calls.paths, want) || f.queued(t, deliveryPeerID) != 0 {
+		t.Fatalf("sent %v, want %v", calls.paths, want)
 	}
 }
 

@@ -239,10 +239,17 @@ func TestThreadRemovalFromPeer(t *testing.T) {
 }
 
 // A published thread and its removal each cross to peers once, as the head.
-func TestThreadRemoval_PeerStreamCarriesHeadOnce(t *testing.T) {
+func TestThreadRemoval_PeerQueueCarriesHeadOnce(t *testing.T) {
 	f := newThreadFixture(t)
 	ctx := context.Background()
 	ds := f.h.services.db
+	peer := "peer5678"
+	if _, err := ds.db.Exec(`
+		INSERT INTO servers (id, name, self, base_url, frontend_url)
+		VALUES ($1, $1, FALSE, 'https://peer.example', 'https://peer.example')`, peer); err != nil {
+		t.Fatal(err)
+	}
+	peerTestMesh(t, ds.db, peer)
 	ids, threadSig := f.seedSignedThread(t, 3)
 	if _, _, err := ds.ClaimPendingFanout(ctx, ids[0]); err != nil {
 		t.Fatal(err)
@@ -251,24 +258,23 @@ func TestThreadRemoval_PeerStreamCarriesHeadOnce(t *testing.T) {
 		t.Fatalf("status %d", rr.Code)
 	}
 
-	rows, err := ds.db.Query(peerStreamSQL+` SELECT kind, reed_id FROM stream WHERE author_id = $1 ORDER BY at, kind`, f.author)
+	rows, err := ds.db.Query(`SELECT kind, subject_id FROM peer_event_queue WHERE server_id = $1 ORDER BY id`, peer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rows.Close()
-	var items []string
+	var kinds []string
 	for rows.Next() {
-		var kind int
-		var reedID string
-		if err := rows.Scan(&kind, &reedID); err != nil {
+		var kind, subject string
+		if err := rows.Scan(&kind, &subject); err != nil {
 			t.Fatal(err)
 		}
-		if reedID != ids[0] {
-			t.Fatalf("stream carries part %s, want only the head", reedID)
+		if subject != ids[0] {
+			t.Fatalf("queue carries part %s, want only the head", subject)
 		}
-		items = append(items, reedID)
+		kinds = append(kinds, kind)
 	}
-	if len(items) != 2 {
-		t.Fatalf("stream = %v, want the head's creation and its removal", items)
+	if !equalStrings(kinds, []string{peerEventNewReed, peerEventThreadRemoval}) {
+		t.Fatalf("queue = %v, want the head's creation and its removal", kinds)
 	}
 }

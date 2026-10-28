@@ -2763,7 +2763,7 @@
           "id": "syrinx_fed_backlog",
           "type": "line",
           "title": "Delivery backlog by peer",
-          "description": "Author streams still owed to each peer",
+          "description": "Events still queued for each peer",
           "config": {
             "show_legends": true,
             "legends_position": null,

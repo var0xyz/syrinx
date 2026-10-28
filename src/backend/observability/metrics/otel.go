@@ -609,8 +609,8 @@ func (r *OTEL) FederationPending(ctx context.Context, direction Direction, peerS
 	))
 }
 
-// FederationDeliveryBacklog reports how many author streams to a peer are
-// behind, sampled each time the behind streams are retried.
+// FederationDeliveryBacklog reports how many events a peer is owed,
+// sampled whenever its queue starts draining.
 func (r *OTEL) FederationDeliveryBacklog(ctx context.Context, peerServerID string, items int) {
 	set(ctx, r.federationDeliveryOwed, int64(items), str("peer.server_id", peerServerID))
 }
