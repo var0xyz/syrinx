@@ -3351,6 +3351,11 @@ func (h *Handlers) GetUserFollowing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Only the user's home server holds every edge of theirs.
+	if handled, _ := h.proxyIfForeign(w, r, userID); handled {
+		return
+	}
+
 	limit := 50
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
@@ -3394,6 +3399,11 @@ func (h *Handlers) GetUserFollowers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.refuseIfBlocked(w, r, userID) {
+		return
+	}
+
+	// Only the user's home server holds every edge of theirs.
+	if handled, _ := h.proxyIfForeign(w, r, userID); handled {
 		return
 	}
 
