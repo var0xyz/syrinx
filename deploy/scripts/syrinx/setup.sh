@@ -96,6 +96,11 @@ FRONTEND_PATH="src/frontend"
 #     reaches any app code. Requires the operator to port-forward 443 and
 #     accept a rotating-public-IP DDNS updater (see ddns.sh) if their ISP
 #     doesn't give a static IP.
+# A tunnel token is base64 JSON {"a":account,"t":tunnel-uuid,"s":secret}.
+cf_token_valid() {
+    { printf '%s' "$1" | base64 -d 2>/dev/null || true; } | grep -qE '"t":"[0-9a-fA-F-]{36}"'
+}
+
 edge_prompt_default="${EDGE_MODE:-cloudflare}"
 read -r -p "🔹 Public edge mode: cloudflare/mtls [${edge_prompt_default}] (cloudflare = Tunnel, NAT-friendly, no port-forwarding; mtls = nginx on 443 with required client certs, needs port-forwarding): " EDGE_MODE_INPUT
 EDGE_MODE="${EDGE_MODE_INPUT:-$edge_prompt_default}"
@@ -105,12 +110,18 @@ case "$EDGE_MODE" in
 esac
 
 if [ "$EDGE_MODE" = "cloudflare" ]; then
-    if [ -n "$CF_TOKEN" ]; then
-        read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token [saved]: " CF_TOKEN_INPUT
-    else
-        read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token: " CF_TOKEN_INPUT
-    fi
-    CF_TOKEN="${CF_TOKEN_INPUT:-$CF_TOKEN}"
+    while :; do
+        if [ -n "$CF_TOKEN" ]; then
+            read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token [saved]: " CF_TOKEN_INPUT || true
+        else
+            read -p "🔹 Enter your Cloudflare Zero Trust Tunnel Token: " CF_TOKEN_INPUT || true
+        fi
+        CF_TOKEN="${CF_TOKEN_INPUT:-$CF_TOKEN}"
+        # Empty falls through to the required-token error below.
+        [ -z "$CF_TOKEN" ] || cf_token_valid "$CF_TOKEN" && break
+        echo "⚠️  That doesn't look like a tunnel token (the long eyJ… string from the tunnel's install command)."
+        CF_TOKEN=""
+    done
 else
     CF_TOKEN=""
     echo "🔹 mTLS edge selected — nginx will terminate TLS on 443 directly."
@@ -695,6 +706,8 @@ install_cloudflared() {
     before="$(cloudflared --version 2>/dev/null || true)"
     curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg -o /usr/share/keyrings/cloudflare-public-v2.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+    # apt verifies as the _apt user; don't inherit an earlier umask 077.
+    chmod 644 /usr/share/keyrings/cloudflare-public-v2.gpg /etc/apt/sources.list.d/cloudflared.list
     APT_LISTCHANGES_FRONTEND=none apt update
     APT_LISTCHANGES_FRONTEND=none apt install -y cloudflared
     after="$(cloudflared --version 2>/dev/null || true)"

@@ -54,20 +54,25 @@ else
 fi
 ZO_ROOT_USER_EMAIL="${EMAIL_INPUT:-${ZO_ROOT_USER_EMAIL:-admin@telemetry.local}}"
 
-if [ -n "${ZO_ROOT_USER_PASSWORD:-}" ]; then
-    read -r -s -p "🔹 OpenObserve admin password [saved — Enter to keep]: " PASS_INPUT
-    echo ""
-    ZO_ROOT_USER_PASSWORD="${PASS_INPUT:-$ZO_ROOT_USER_PASSWORD}"
-else
-    read -r -s -p "🔹 OpenObserve admin password (leave empty to generate): " PASS_INPUT
-    echo ""
-    if [ -n "$PASS_INPUT" ]; then
-        ZO_ROOT_USER_PASSWORD="$PASS_INPUT"
+while :; do
+    if [ -n "${ZO_ROOT_USER_PASSWORD:-}" ]; then
+        read -r -s -p "🔹 OpenObserve admin password [saved — Enter to keep]: " PASS_INPUT || true
+        echo ""
+        ZO_ROOT_USER_PASSWORD="${PASS_INPUT:-$ZO_ROOT_USER_PASSWORD}"
     else
-        ZO_ROOT_USER_PASSWORD="$(telemetry_generate_secret)"
-        echo "🔹 Generated OpenObserve admin password"
+        read -r -s -p "🔹 OpenObserve admin password (leave empty to generate): " PASS_INPUT || true
+        echo ""
+        if [ -n "$PASS_INPUT" ]; then
+            ZO_ROOT_USER_PASSWORD="$PASS_INPUT"
+        else
+            ZO_ROOT_USER_PASSWORD="$(telemetry_generate_secret)"
+            echo "🔹 Generated OpenObserve admin password"
+        fi
     fi
-fi
+    [ "${#ZO_ROOT_USER_PASSWORD}" -ge 6 ] && break
+    echo "⚠️  The password must be at least 6 characters."
+    ZO_ROOT_USER_PASSWORD=""
+done
 
 # Always ingest into the built-in default org (custom orgs are optional / unused).
 ZO_ORG="default"
@@ -88,16 +93,21 @@ case "$DOMAIN_INPUT" in
 esac
 
 if [ -n "$TELEMETRY_DOMAIN" ]; then
-    if [ -n "${CF_TOKEN:-}" ]; then
-        read -r -p "🔹 Cloudflare Zero Trust Tunnel Token [saved]: " CF_TOKEN_INPUT
-    else
-        read -r -p "🔹 Cloudflare Zero Trust Tunnel Token: " CF_TOKEN_INPUT
-    fi
-    CF_TOKEN="${CF_TOKEN_INPUT:-${CF_TOKEN:-}}"
-    if [ -z "$CF_TOKEN" ]; then
-        echo "❌ Error: a Cloudflare Tunnel Token is required when a public domain is set."
-        exit 1
-    fi
+    while :; do
+        if [ -n "${CF_TOKEN:-}" ]; then
+            read -r -p "🔹 Cloudflare Zero Trust Tunnel Token [saved]: " CF_TOKEN_INPUT || true
+        else
+            read -r -p "🔹 Cloudflare Zero Trust Tunnel Token: " CF_TOKEN_INPUT || true
+        fi
+        CF_TOKEN="${CF_TOKEN_INPUT:-${CF_TOKEN:-}}"
+        if [ -z "$CF_TOKEN" ]; then
+            echo "❌ Error: a Cloudflare Tunnel Token is required when a public domain is set."
+            exit 1
+        fi
+        telemetry_cf_token_valid "$CF_TOKEN" && break
+        echo "⚠️  That doesn't look like a tunnel token (the long eyJ… string from the tunnel's install command)."
+        CF_TOKEN=""
+    done
     echo "☁️  Remote access: https://${TELEMETRY_DOMAIN} → 127.0.0.1:5080"
 else
     CF_TOKEN=""
