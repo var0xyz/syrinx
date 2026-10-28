@@ -26,7 +26,8 @@ Import the root identity file the first boot wrote at `/import` to sign in as th
 ```bash
 ./deploy/syrinx.sh setup      # interactive first install; safe to re-run
 ./deploy/syrinx.sh update     # pull, rebuild, restart
-deploy/scripts/syrinx/cp-root-creds.sh   # fetch the minted root identity
+./deploy/syrinx.sh root-creds <dir>         # fetch the minted root identity
+./deploy/syrinx.sh server-identity <dir>    # fetch the server identity bundle
 ```
 
 Both `setup` and `update` build from the official repository, [`var0xyz/syrinx`](https://github.com/var0xyz/syrinx), on its default branch. To run your own fork, or a branch other than the default, pass `--repo` and `--branch`:
@@ -78,7 +79,7 @@ make export-identity
 
 You get an encrypted bundle (`.sxi.gpg`). Protect the **bundle password** (password manager). It is **not** stored in the keychain. The **server-key passphrase** still unwraps key armor inside; keep that too.
 
-**The server refuses to start until its identity is exported**, and again after a new signing key (`ops rotate-key`) until it's exported once more. `ops check-identity-backup` says whether it would. The deploy scripts check on every `setup` and `update` and, when needed, export the bundle with a generated password next to the root credentials; fetch both with `deploy/scripts/syrinx/cp-root-creds.sh`, store them apart, and delete them from the host.
+**The server refuses to start until its identity is exported**, and again after a new signing key (`ops rotate-key`) until it's exported once more. `ops check-identity-backup` says whether it would. The deploy scripts check on every `setup` and `update` and, when needed, export the bundle with a generated password next to the root credentials; fetch it with `./deploy/syrinx.sh server-identity <dir>`, store the bundle and password apart, and delete them from the host.
 
 Without a terminal, `ops` reads the bundle password as one line from stdin, never from an environment variable:
 

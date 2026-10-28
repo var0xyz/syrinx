@@ -18,6 +18,12 @@
 #   wipe-db [--force]           sudo ./wipe-db.sh [--force]
 #                                (interactive confirmation unless --force)
 #
+# Commands that copy files down to this machine instead:
+#   root-creds <dir>            the root identity export + its .passphrase
+#   server-identity <dir>       the server identity bundle + its .passphrase
+#   Each fetches the newest one from /var/lib/$APP_NAME/root-export/ into
+#   <dir> (mode 600), then asks whether to delete it from the host.
+#
 # Examples:
 #   ./syrinx.sh setup
 #   DEPLOY_HOST=pi@10.0.0.50 ./syrinx.sh update
@@ -28,6 +34,8 @@
 #   ./syrinx.sh server-key
 #   ./syrinx.sh wipe-db
 #   ./syrinx.sh wipe-db --force
+#   ./syrinx.sh root-creds ~/syrinx-creds
+#   ./syrinx.sh server-identity /Volumes/backup/syrinx
 #
 # Only `setup` prompts for the host address — it's the one command allowed
 # to establish or change it, saved to deploy/scripts/syrinx/deploy.env
@@ -41,11 +49,6 @@
 # Root-requiring remote scripts (setup, update, restart, ...) are run with
 # sudo; wipe-db and psql prompt interactively (unless wipe-db gets --force),
 # and those prompts pass straight through your terminal.
-#
-# After the first root identity mint, run
-# ./deploy/scripts/syrinx/cp-root-creds.sh separately to copy the export
-# file + passphrase down from the host (it runs locally, like this script,
-# and shares the same deploy.env).
 
 set -euo pipefail
 
@@ -59,11 +62,13 @@ REMOTE_DIR="${REMOTE_DIR:-syrinx}"
 SUDO_PROMPT="[sudo] password for %u on %h (the remote machine, not this computer): "
 
 die() { echo "Error: $*" >&2; exit 1; }
+# shellcheck source=scripts/remote-sudo.sh
+. "$SCRIPT_DIR/scripts/remote-sudo.sh"
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,45p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,51p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -133,6 +138,58 @@ load_saved_host_or_die() {
     normalize_host "$host"
 }
 
+# Copies the newest export matching $1, plus its .passphrase sidecar, into
+# $2 over sudo cat (nothing is chmod'd on the host), then offers to delete
+# both there. Losing every copy before importing loses the identity.
+fetch_export() {
+    local pattern="$1" out_dir="$2" export_dir remote passphrase base
+    DEPLOY_HOST="$(load_saved_host_or_die)"
+    remote_sudo_init
+
+    # setup.env is root-owned 600 (it holds CF_TOKEN), hence sudo.
+    APP_NAME="$(remote_sudo "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
+    [ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run './syrinx.sh setup' first"
+    export_dir="/var/lib/${APP_NAME}/root-export"
+
+    remote="$(remote_sudo "sudo find $(printf '%q' "$export_dir") -maxdepth 1 -type f -name '$pattern' 2>/dev/null | sort | tail -n1" || true)"
+    [ -n "$remote" ] || die "No $pattern in $export_dir on $DEPLOY_HOST — has setup run, or was it already deleted?"
+    passphrase="${remote}.passphrase"
+    remote_sudo "sudo test -f $(printf '%q' "$passphrase")" \
+        || die "Found $remote but its .passphrase sidecar is missing on $DEPLOY_HOST — cannot import without it"
+
+    base="$(basename "$remote")"
+    (
+        umask 077
+        mkdir -p "$out_dir"
+        remote_sudo "sudo cat $(printf '%q' "$remote")" > "$out_dir/$base"
+        remote_sudo "sudo cat $(printf '%q' "$passphrase")" > "$out_dir/$base.passphrase"
+    )
+    chmod 600 "$out_dir/$base" "$out_dir/$base.passphrase"
+    ok "Saved $out_dir/$base (+ .passphrase)"
+    FETCHED_FILE="$out_dir/$base"
+    FETCHED_REMOTE=("$remote" "$passphrase")
+}
+
+# Prints the stakes ($1), then asks before deleting what fetch_export
+# copied; defaults to keeping it.
+offer_remote_delete() {
+    local answer red="" reset=""
+    if [ -t 1 ]; then red=$'\033[1;31m'; reset=$'\033[0m'; fi
+    echo ""
+    echo "${red}$1${reset}"
+    echo "   Keep the file and its passphrase apart, somewhere only you can"
+    echo "   reach, and don't leave them lying around on the host either."
+    echo ""
+    read -r -p "Delete them from ${DEPLOY_HOST} now? [y/N]: " answer || true
+    case "${answer:-N}" in
+        y|Y)
+            remote_sudo "sudo rm -f $(printf '%q' "${FETCHED_REMOTE[0]}") $(printf '%q' "${FETCHED_REMOTE[1]}")"
+            ok "Deleted from $DEPLOY_HOST"
+            ;;
+        *) info "Left in place on $DEPLOY_HOST" ;;
+    esac
+}
+
 [ $# -ge 1 ] || { usage; exit 2; }
 CMD="$1"
 shift
@@ -146,6 +203,22 @@ case "$CMD" in
     psql)          REMOTE_SCRIPT="psql.sh" ;;
     server-key)    REMOTE_SCRIPT="server-key.sh" ;;
     wipe-db)       REMOTE_SCRIPT="wipe-db.sh" ;;
+    root-creds)
+        [ $# -eq 1 ] && [ -n "$1" ] || die "Usage: $0 root-creds <dir>"
+        fetch_export 'syrinx-1-*.sxi.gpg' "$1"
+        echo "   Import it via the SPA's /import → \"I only have my keys\","
+        echo "   using the passphrase in $(basename "$FETCHED_FILE").passphrase."
+        offer_remote_delete "Whoever holds these controls the root account, and with it the whole community."
+        exit 0
+        ;;
+    server-identity)
+        [ $# -eq 1 ] && [ -n "$1" ] || die "Usage: $0 server-identity <dir>"
+        fetch_export 'syrinx-identity-*.sxi.gpg' "$1"
+        echo "   A recovery is rebuilt from this bundle:"
+        echo "   ${APP_NAME}-ops import-identity <bundle> < <bundle>.passphrase"
+        offer_remote_delete "Whoever holds these can sign as this server and impersonate it to every user and peer."
+        exit 0
+        ;;
     -h|--help|help) usage; exit 0 ;;
     *) die "Unknown command: $CMD (run '$0 --help' for the list)" ;;
 esac

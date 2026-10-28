@@ -16,9 +16,6 @@ permissions and are never committed to git.
   requested script there via `ssh` (as root, with `sudo`), so you don't have
   to manually copy files over and log in yourself first. See "Deploying
   without a manual copy" below.
-- **`cp-root-creds.sh`** — run from your Mac/laptop. Downloads the root
-  identity's export file + passphrase from the host and offers to delete
-  them there afterward. See "Root identity bootstrap" below.
 - **`cp-client-cert.sh <name>`** — run from your Mac/laptop. Downloads a
   device's mTLS client certificate (issued via `mtls_issue_client_cert`) and
   offers to delete it from the host afterward. Only relevant when
@@ -291,10 +288,11 @@ Both files are mode 600, owned by `$APP_USER`. Fetch them from your
 Mac/laptop instead of SSHing in and `sudo cat`-ing by hand:
 
 ```
-./cp-root-creds.sh
-DEPLOY_HOST=pi@10.0.0.50 ./cp-root-creds.sh
-OUT_DIR=~/Desktop ./cp-root-creds.sh   # default: ./root-creds (gitignored)
+./deploy/syrinx.sh root-creds ~/syrinx-creds        # the root identity export
+./deploy/syrinx.sh server-identity ~/syrinx-creds   # the server identity bundle
 ```
+
+The directory is required; it's created (mode 700) if missing.
 
 It reads `APP_NAME` from `~/syrinx/setup.env` on the host (so run
 `./syrinx.sh setup` there at least once first), finds the latest export via
