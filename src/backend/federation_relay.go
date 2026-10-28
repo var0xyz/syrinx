@@ -1618,16 +1618,12 @@ const (
 	realtimeResetBoot     = "boot"
 )
 
-// realtimeResetTimeout bounds the whole fan-out, so a dead peer can't
-// hold up this server's shutdown.
-const realtimeResetTimeout = 5 * time.Second
-
 // notifyPeersOfRealtimeReset tells every connected peer to forget all
 // realtime state tied to this server. reason is shutdown or boot; boot
-// covers a crash that never sent the shutdown notice.
+// covers a crash that never sent the shutdown notice. Each call is capped
+// by the federation client, so a dead peer can't hold up shutdown.
 func (h *Handlers) notifyPeersOfRealtimeReset(reason string) {
-	ctx, cancel := context.WithTimeout(context.Background(), realtimeResetTimeout)
-	defer cancel()
+	ctx := context.Background()
 	log := h.services.log.GetLogger(ctx)
 
 	peers, err := h.services.db.ListConnectedPeers(ctx)

@@ -22,10 +22,6 @@ import (
 
 const vouchReferencePath = "/api/federation/relay/vouch-reference"
 
-// vouchDeliveryTimeout bounds one call to the subject's server; the user
-// is waiting on the other end.
-const vouchDeliveryTimeout = 10 * time.Second
-
 // errVouchSubjectUnreachable means the subject's server could not be asked
 // (unknown, unreachable, or failing); trying again later may work.
 var errVouchSubjectUnreachable = errors.New("subject's server could not be reached")
@@ -59,8 +55,6 @@ func (h *Handlers) callSubjectServer(ctx context.Context, subjectUserID, path st
 	if err != nil || peer == nil {
 		return fmt.Errorf("%w: %s is not a connected peer", errVouchSubjectUnreachable, serverID)
 	}
-	ctx, cancel := context.WithTimeout(ctx, vouchDeliveryTimeout)
-	defer cancel()
 	status, err := h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, path, payload, nil)
 	switch {
 	case err != nil:
