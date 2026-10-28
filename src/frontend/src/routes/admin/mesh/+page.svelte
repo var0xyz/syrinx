@@ -12,6 +12,7 @@
   import SectionTabs from '$lib/components/SectionTabs.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import FederationInfoModal from '$lib/components/FederationInfoModal.svelte';
   import Username from '$lib/components/Username.svelte';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { adminPermissions, adminTabs, canMail, holds } from '$lib/stores/adminPermissions';
@@ -36,6 +37,13 @@
   let acceptConnectionString = '';
   let accepting = false;
   let modalError = '';
+  let showFederationInfo = false;
+  let showActions = false;
+
+  function runAction(action: () => void) {
+    showActions = false;
+    action();
+  }
 
   onMount(async () => {
     if (!isAdmin) return;
@@ -256,6 +264,8 @@
   }
 </script>
 
+<svelte:window on:keydown={(e) => e.key === 'Escape' && (showActions = false)} />
+
 <Auth>
   <SideNav currentPage="admin" />
   <div class="mesh-container">
@@ -264,29 +274,6 @@
       {#if !isAdmin}
         <p class="error" role="alert">Admin access required.</p>
       {:else}
-        <div class="lead-row">
-          <p class="lead">Federate with other Syrinx instances</p>
-          <div class="lead-actions">
-            <button
-              class="btn secondary lead-action-btn"
-              disabled={!$serverInfo?.serverKeyId}
-              on:click={copyOwnPublicKey}
-            >
-              <span class="icon-copy" aria-hidden="true"></span>
-              Copy this server’s public key
-            </button>
-            {#if holds(viewer, $adminPermissions, 'mesh.connect')}
-              <button
-                class="btn secondary lead-action-btn"
-                on:click={openAcceptModal}
-              >
-                <span class="icon-connect" aria-hidden="true"></span>
-                Paste connection string
-              </button>
-            {/if}
-          </div>
-        </div>
-
         {#if loaded && invitations.length === 0 && attempts.length === 0 && servers.length === 0}
           <div class="empty-state">
             <div class="empty-icon">🔗</div>
@@ -402,26 +389,94 @@
           </ul>
         {/if}
 
-        {#if holds(viewer, $adminPermissions, 'mesh.invite')}
+        {#if showActions}
           <button
-            class="floating-create-btn"
-            disabled={creating}
-            on:click={openCreateModal}
-            aria-label={creating ? 'Creating invite' : 'Create federation invite'}
-          >
-            {#if creating}
-              <span class="icon">…</span>
-            {:else}
-              <span class="icon icon-link"></span>
-            {/if}
-          </button>
-
-          <div class="desktop-create">
-            <button class="btn primary" disabled={creating} on:click={openCreateModal}>
-              {creating ? 'Creating…' : 'New connection'}
-            </button>
-          </div>
+            type="button"
+            class="actions-scrim"
+            aria-label="Close actions"
+            on:click={() => (showActions = false)}
+          ></button>
         {/if}
+
+        <div class="speed-dial">
+          {#if showActions}
+            <ul id="mesh-actions" class="speed-dial-actions">
+              <li>
+                <button
+                  type="button"
+                  class="speed-dial-action"
+                  disabled={!$serverInfo?.serverKeyId}
+                  on:click={() => runAction(copyOwnPublicKey)}
+                >
+                  <span class="action-label">Copy this server’s public key</span>
+                  <span class="action-icon"><span class="icon-copy" aria-hidden="true"></span></span>
+                </button>
+              </li>
+              {#if holds(viewer, $adminPermissions, 'mesh.connect')}
+                <li>
+                  <button type="button" class="speed-dial-action" on:click={() => runAction(openAcceptModal)}>
+                    <span class="action-label">Paste a connection string</span>
+                    <span class="action-icon"><span class="icon-connect" aria-hidden="true"></span></span>
+                  </button>
+                </li>
+              {/if}
+              {#if holds(viewer, $adminPermissions, 'mesh.invite')}
+                <li>
+                  <button
+                    type="button"
+                    class="speed-dial-action"
+                    disabled={creating}
+                    on:click={() => runAction(openCreateModal)}
+                  >
+                    <span class="action-label">Invite a server to connect</span>
+                    <span class="action-icon"><span class="icon-link-small" aria-hidden="true"></span></span>
+                  </button>
+                </li>
+              {/if}
+            </ul>
+          {/if}
+
+          <button
+            type="button"
+            class="floating-create-btn"
+            class:open={showActions}
+            aria-label="Federation actions"
+            aria-haspopup="true"
+            aria-expanded={showActions}
+            aria-controls="mesh-actions"
+            on:click={() => (showActions = !showActions)}
+          >
+            <span class="icon icon-link"></span>
+          </button>
+        </div>
+
+        <div class="desktop-actions">
+          <button
+            class="btn secondary"
+            disabled={!$serverInfo?.serverKeyId}
+            on:click={copyOwnPublicKey}
+          >
+            <span class="icon-copy" aria-hidden="true"></span>
+            Copy this server’s public key
+          </button>
+          {#if holds(viewer, $adminPermissions, 'mesh.connect')}
+            <button class="btn secondary" on:click={openAcceptModal}>
+              <span class="icon-connect" aria-hidden="true"></span>
+              Paste a connection string
+            </button>
+          {/if}
+          {#if holds(viewer, $adminPermissions, 'mesh.invite')}
+            <button class="btn primary" disabled={creating} on:click={openCreateModal}>
+              <span class="icon-link-small" aria-hidden="true"></span>
+              {creating ? 'Creating…' : 'Invite a server to connect'}
+            </button>
+          {/if}
+        </div>
+
+        <button type="button" class="explain-btn" on:click={() => (showFederationInfo = true)}>
+          About federation
+          <span class="info-icon" aria-hidden="true"></span>
+        </button>
       {/if}
     </div>
 
@@ -442,9 +497,6 @@
         <h2 id="create-invite-title">New connection</h2>
         <p class="modal-lead">
           Paste the remote server&apos;s OpenPGP public key (exchanged out-of-band).
-        </p>
-        <p class="modal-note">
-          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, one with many active users can overload a smaller one.
         </p>
         <label class="field">
           <span>Name</span>
@@ -497,9 +549,6 @@
         <h2 id="accept-connection-title">Accept connection</h2>
         <p class="modal-lead">
           Paste the connection string another server&apos;s admin shared with you out-of-band.
-        </p>
-        <p class="modal-note">
-          Ask the other admin about their server&apos;s hardware and load first. Connected servers exchange requests constantly, one with many active users can overload a smaller one.
         </p>
         <label class="field">
           <span>Connection string</span>
@@ -573,6 +622,8 @@
       on:cancel={() => (revokeTarget = null)}
     />
   {/if}
+
+  <FederationInfoModal open={showFederationInfo} on:close={() => (showFederationInfo = false)} />
 </Auth>
 
 <style>
@@ -603,25 +654,33 @@
     padding: 1rem;
   }
 
-  .lead {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.9rem;
+  /* The speed dial covers these on mobile. */
+  .desktop-actions {
+    display: none;
   }
 
-  .lead-row p {
-    margin-bottom: 1rem;
-  }
+  @media (min-width: 768px) {
+    .desktop-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
 
-  .lead-row {
-    align-items: center;
-    margin-bottom: 1rem;
-  }
+    .desktop-actions .btn {
+      width: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
 
-  .lead-action-btn {
-    font-size: 0.85rem;
-    padding: 0.4rem 0.75rem;
-    width: calc(50% - 0.5rem);
+    .desktop-actions .icon-connect,
+    .desktop-actions .icon-copy,
+    .desktop-actions .icon-link-small {
+      width: 1rem;
+      height: 1rem;
+    }
   }
 
   .empty-state {
@@ -775,23 +834,117 @@
     text-decoration: none;
   }
 
-  .modal-note {
-    margin: 0 0 1rem;
-    padding: 0.6rem 0.75rem;
-    border-left: 3px solid var(--border);
+  .explain-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    width: auto;
+    margin: 1rem auto 0;
+    padding: 0;
+    background: none;
+    border: none;
+    font-size: 0.8rem;
     color: var(--muted);
-    font-size: 0.85rem;
-    line-height: 1.5;
+    cursor: pointer;
+  }
+
+  .explain-btn:hover {
+    color: var(--fg);
+  }
+
+  .info-icon {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.9rem;
+    background-color: currentColor;
+    -webkit-mask-image: url('/icons/info-16.svg');
+    mask-image: url('/icons/info-16.svg');
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
   }
 
   .error {
     color: #b91c1c;
   }
 
-  .floating-create-btn {
+  .speed-dial {
     position: fixed;
     bottom: 5rem;
     right: 1.5rem;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1rem;
+  }
+
+  .actions-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: default;
+  }
+
+  .speed-dial-actions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+  }
+
+  .speed-dial-action {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    /* Lines the 40px icon up with the 56px floating button's center. */
+    margin-right: 0.5rem;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--fg);
+    cursor: pointer;
+  }
+
+  .speed-dial-action:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .action-label {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg);
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .action-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  }
+
+  .speed-dial-action:hover:not(:disabled) .action-icon {
+    background: var(--input-bg);
+  }
+
+  .floating-create-btn {
     width: 56px;
     height: 56px;
     border-radius: 50%;
@@ -801,45 +954,26 @@
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(88, 166, 255, 0.3);
     transition: all 0.2s ease;
-    z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  /* Desktop has room for a regular button; the floating one is for mobile. */
-  .desktop-create {
-    display: none;
-  }
-
-  @media (min-width: 768px) {
-    .floating-create-btn {
-      display: none;
-    }
-
-    .desktop-create {
-      display: flex;
-      justify-content: center;
-      margin-top: 1rem;
-    }
-
-    .desktop-create .btn {
-      width: auto;
-    }
-  }
-
-  .floating-create-btn:hover:not(:disabled) {
+  .floating-create-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(88, 166, 255, 0.4);
   }
 
-  .floating-create-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
+  .floating-create-btn.open .icon-link {
+    transform: rotate(45deg);
   }
 
-  .floating-create-btn .icon {
-    font-size: 1.5rem;
+  /* Floating buttons are a mobile pattern; desktop has .desktop-actions. */
+  @media (min-width: 768px) {
+    .speed-dial,
+    .actions-scrim {
+      display: none;
+    }
   }
 
   .floating-create-btn .icon.icon-link {
@@ -855,23 +989,15 @@
     mask-size: contain;
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
-  }
-
-  .lead-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    justify-content: space-between;
+    transition: transform 0.2s ease;
   }
 
   .icon-connect,
-  .icon-copy {
+  .icon-copy,
+  .icon-link-small {
     display: inline-block;
-    width: 1rem;
-    height: 1rem;
-    margin-right: 0.35rem;
-    vertical-align: middle;
+    width: 1.25rem;
+    height: 1.25rem;
     background-color: currentColor;
     -webkit-mask-position: center;
     mask-position: center;
@@ -889,6 +1015,11 @@
   .icon-copy {
     -webkit-mask-image: url('/icons/copy-24.svg');
     mask-image: url('/icons/copy-24.svg');
+  }
+
+  .icon-link-small {
+    -webkit-mask-image: url('/icons/link-24.svg');
+    mask-image: url('/icons/link-24.svg');
   }
 
   .field {
@@ -926,7 +1057,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    /* Above .floating-create-btn (z-index: 1000) so the modal covers it
+    /* Above .speed-dial (z-index: 1000) so the modal covers it
        instead of the button floating over it. */
     z-index: 1100;
     padding: 1rem;
@@ -1008,18 +1139,6 @@
   @media (max-width: 768px) {
     .mesh-content {
       padding: 0.5rem;
-    }
-
-    .lead-actions {
-      display: block;
-    }
-
-    .lead-action-btn{
-      width: 100%;
-    }
-
-    .lead-action-btn:first-child {
-      margin-bottom: 1rem;
     }
   }
 </style>
