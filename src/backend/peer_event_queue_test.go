@@ -38,7 +38,7 @@ func queueSender(refused *[]string) func(string) (peerEventSender, bool) {
 				}
 				return "/" + ev.SubjectID, nil, nil
 			},
-			refused: func(_ context.Context, _ string, ev peerEvent) {
+			refused: func(_ context.Context, _ string, ev peerEvent, _ proto.Message) {
 				if refused != nil {
 					*refused = append(*refused, ev.SubjectID)
 				}

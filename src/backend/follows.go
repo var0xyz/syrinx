@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -218,6 +217,9 @@ func (s *DataService) setFollowEdgesTx(ctx context.Context, tx *sql.Tx, follower
 // oweFollowCertTx owes the pair's certificate to the followee: their
 // client when they are local, their home server otherwise.
 func (s *DataService) oweFollowCertTx(ctx context.Context, tx *sql.Tx, followerID, followeeID string) error {
+	if _, serverID, ok := parseIdentityID(identityID(followeeID)); ok && serverID != s.serverID {
+		return enqueuePeerEventForTx(ctx, tx, serverID, peerEventFollow, followerID, followeeID)
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO follow_event_queue (follower_id, followee_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
 	`, followerID, followeeID)
@@ -234,8 +236,56 @@ func dropSettledUnfollowTx(ctx context.Context, tx *sql.Tx, followerID, followee
 		DELETE FROM follow_certs f
 		WHERE f.follower_id = $1 AND f.followee_id = $2 AND NOT f.follow
 			AND NOT EXISTS (SELECT 1 FROM follow_event_queue n WHERE n.follower_id = f.follower_id AND n.followee_id = f.followee_id)
+			AND NOT EXISTS (SELECT 1 FROM peer_event_queue e
+				WHERE e.kind = 'follow' AND e.subject_id = f.follower_id AND e.object_id = f.followee_id)
 	`, followerID, followeeID)
 	return err
+}
+
+// DropSettledUnfollow is dropSettledUnfollowTx on its own, once a peer has
+// the pair's certificate.
+func (s *DataService) DropSettledUnfollow(ctx context.Context, followerID, followeeID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := dropSettledUnfollowTx(ctx, tx, followerID, followeeID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UndoRefusedFollow undoes a follow the followee's server refused, unless
+// a newer certificate than the one it refused replaced it meanwhile.
+func (s *DataService) UndoRefusedFollow(ctx context.Context, followerID, followeeID string, signedAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var current time.Time
+	err = tx.QueryRowContext(ctx, `
+		SELECT ss.signed_at FROM follow_certs f JOIN server_signatures ss ON ss.id = f.server_signature_id
+		WHERE f.follower_id = $1 AND f.followee_id = $2 AND f.follow
+		FOR UPDATE OF f
+	`, followerID, followeeID).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !current.UTC().Equal(signedAt.UTC().Truncate(time.Second)) {
+		return nil
+	}
+	if err := s.setFollowEdgesTx(ctx, tx, followerID, followeeID, false); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM follow_certs WHERE follower_id = $1 AND followee_id = $2`, followerID, followeeID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // FollowEventsFor returns the certificates followeeID's client is owed,
@@ -262,49 +312,6 @@ func (s *DataService) AckFollowEvent(ctx context.Context, followerID, followeeID
 		return err
 	}
 	if err := dropSettledUnfollowTx(ctx, tx, followerID, followeeID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// FollowNoticesOwedTo returns the certificates serverID hasn't accepted,
-// oldest first.
-func (s *DataService) FollowNoticesOwedTo(ctx context.Context, serverID string) ([]FollowCert, error) {
-	return scanFollowCerts(s.db.QueryContext(ctx, followCertSelect+`
-		JOIN follow_event_queue n ON n.follower_id = f.follower_id AND n.followee_id = f.followee_id
-		JOIN identities i ON i.id = n.followee_id
-		WHERE i.server_id = $1 ORDER BY ss.signed_at`, serverID))
-}
-
-// SettleFollowNotice drops a notice the peer answered, unless a newer
-// certificate replaced it meanwhile. A refused follow is undone here.
-func (s *DataService) SettleFollowNotice(ctx context.Context, cert FollowCert, refused bool) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `
-		DELETE FROM follow_event_queue n USING follow_certs f, server_signatures ss
-		WHERE n.follower_id = $1 AND n.followee_id = $2
-			AND f.follower_id = n.follower_id AND f.followee_id = n.followee_id
-			AND ss.id = f.server_signature_id AND ss.signed_at = $3
-	`, cert.FollowerID, cert.FolloweeID, cert.ServerSignature.SignedAt.UTC().Truncate(time.Second))
-	if err != nil {
-		return err
-	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
-		return err
-	}
-	if refused && cert.Follow {
-		if err := s.setFollowEdgesTx(ctx, tx, cert.FollowerID, cert.FolloweeID, false); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM follow_certs WHERE follower_id = $1 AND followee_id = $2`, cert.FollowerID, cert.FolloweeID); err != nil {
-			return err
-		}
-	}
-	if err := dropSettledUnfollowTx(ctx, tx, cert.FollowerID, cert.FolloweeID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -421,7 +428,7 @@ func (h *Handlers) signFollow(w http.ResponseWriter, r *http.Request, follow boo
 		return
 	}
 	if foreign && owe {
-		go h.sendOwedFollowNotices(peerID)
+		h.drainPeers(peerID)
 	} else if !foreign && h.realtimeRelay != nil {
 		h.realtimeRelay.pushFollow(&cert)
 	}
@@ -501,57 +508,6 @@ func (rs *realtimeService) ackFollowEvent(ctx context.Context, client *realtimeC
 // its status and body.
 func (h *Handlers) sendFollowNotice(ctx context.Context, peerID, baseURL string, cert FollowCert) (int, []byte, error) {
 	return h.callPeerRelayEndpointRaw(ctx, peerID, baseURL, "/api/federation/relay/follow-notify", pbFollowCert(&cert))
-}
-
-// followNoticeLocks serializes sends to each peer, so a follow and its
-// unfollow can't cross on the wire.
-var followNoticeLocks sync.Map
-
-// sendOwedFollowNotices sends peerID every certificate it hasn't accepted.
-// One it refuses is dropped, and a refused follow undone.
-func (h *Handlers) sendOwedFollowNotices(peerID string) {
-	lock, _ := followNoticeLocks.LoadOrStore(peerID, &sync.Mutex{})
-	lock.(*sync.Mutex).Lock()
-	defer lock.(*sync.Mutex).Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	log := h.services.log.GetLogger(ctx)
-
-	certs, err := h.services.db.FollowNoticesOwedTo(ctx, peerID)
-	if err != nil {
-		log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list follows owed to peer")
-		return
-	}
-	if len(certs) == 0 {
-		return
-	}
-	peer, err := h.services.db.GetServerByID(ctx, peerID)
-	if err != nil || peer == nil {
-		return
-	}
-	for _, cert := range certs {
-		status, _, err := h.sendFollowNotice(ctx, peerID, peer.BaseURL, cert)
-		if err != nil || status >= 500 || status == http.StatusTooManyRequests {
-			log.Warn().Err(err).Int("status", status).Str("peerServerID", peerID).Msg("Peer did not take follow notice")
-			continue
-		}
-		if err := h.services.db.SettleFollowNotice(ctx, cert, status >= 300); err != nil {
-			log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to clear follow notice")
-		}
-	}
-}
-
-// notifyPeersOfOwedFollowNotices retries, at boot, every follow notice a
-// connected peer hasn't accepted yet.
-func (h *Handlers) notifyPeersOfOwedFollowNotices() {
-	peers, err := h.services.db.ListConnectedPeers(context.Background())
-	if err != nil {
-		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed follow notices")
-		return
-	}
-	for _, peer := range peers {
-		h.sendOwedFollowNotices(peer.ID)
-	}
 }
 
 // errFollowRefused marks a peer's follow that failed verification.
