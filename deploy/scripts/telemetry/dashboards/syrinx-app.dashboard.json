@@ -3387,12 +3387,290 @@
             "h": 14,
             "i": 37
           }
+        }
+      ]
+    },
+    {
+      "tabId": "recovery",
+      "name": "Recovery",
+      "panels": [
+        {
+          "id": "syrinx_stat_recovery_claims",
+          "type": "metric",
+          "title": "First claims",
+          "description": "Accounts that came back with their owner's claim in the window",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_server_recovery WHERE stage = 'claim' AND ok = 'true' AND first = 'true'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "First claims",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 113
+          }
+        },
+        {
+          "id": "syrinx_stat_recovery_stored",
+          "type": "metric",
+          "title": "Records stored",
+          "description": "Signed records devices reported back that this server now holds",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_server_recovery_records WHERE outcome = 'stored'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Records stored",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 48,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 114
+          }
+        },
+        {
+          "id": "syrinx_stat_recovery_refused",
+          "type": "metric",
+          "title": "Records refused",
+          "description": "Records that won't ever verify or don't belong here",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_server_recovery_records WHERE outcome = 'refused'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Records refused",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 115
+          }
+        },
+        {
+          "id": "syrinx_stat_recovery_dropped_flags",
+          "type": "metric",
+          "title": "Flags dropped",
+          "description": "Flags from before the wipe reported once the server left lockdown, or whose removed reporter's case was never dismissed. Taken, not kept",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "sql",
+          "queries": [
+            {
+              "query": "SELECT sum(value) AS total FROM syrinx_server_recovery_records WHERE record_kind = 'flag' AND outcome = 'dropped'",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [
+                  {
+                    "label": "Flags dropped",
+                    "alias": "total",
+                    "column": "total",
+                    "color": null,
+                    "aggregationFunction": null,
+                    "sortBy": null,
+                    "args": [
+                      {
+                        "field": "total",
+                        "function": null,
+                        "alias": "total"
+                      }
+                    ]
+                  }
+                ],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 144,
+            "y": 0,
+            "w": 48,
+            "h": 6,
+            "i": 116
+          }
         },
         {
           "id": "syrinx_recovery_claims",
           "type": "line",
           "title": "Recovery claims",
-          "description": "Accounts coming back to a rebuilt server. Once first claims stay at zero for a few days, most of the community is back: time to open signups",
+          "description": "Accounts coming back from their owners' devices. After a rebuild, once first claims stay at zero for a few days, most of the community is back",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -3480,7 +3758,7 @@
           ],
           "layout": {
             "x": 0,
-            "y": 42,
+            "y": 6,
             "w": 96,
             "h": 14,
             "i": 109
@@ -3578,10 +3856,529 @@
           ],
           "layout": {
             "x": 96,
-            "y": 42,
+            "y": 6,
             "w": 96,
             "h": 14,
             "i": 110
+          }
+        },
+        {
+          "id": "syrinx_recovery_records_stored",
+          "type": "line",
+          "title": "Records stored, by kind",
+          "description": "Imports are taken in every recovery mode, not only after a rebuild: follows, blocks, likes, flags, ledger entries and the rest",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (record_kind) (sum_over_time(syrinx_server_recovery_records{outcome=\"stored\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{record_kind}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 20,
+            "w": 96,
+            "h": 14,
+            "i": 117
+          }
+        },
+        {
+          "id": "syrinx_recovery_records_outcome",
+          "type": "line",
+          "title": "Record outcomes",
+          "description": "stored, pending (parked until what it names comes back), refused, dropped (taken but not kept) and error (the batch failed)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (outcome) (sum_over_time(syrinx_server_recovery_records[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{outcome}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 20,
+            "w": 96,
+            "h": 14,
+            "i": 118
+          }
+        },
+        {
+          "id": "syrinx_recovery_records_refused",
+          "type": "line",
+          "title": "Records refused, by kind",
+          "description": "A steady stream of one kind points at a client building it wrong",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (record_kind) (sum_over_time(syrinx_server_recovery_records{outcome=\"refused\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{record_kind}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 34,
+            "w": 96,
+            "h": 14,
+            "i": 119
+          }
+        },
+        {
+          "id": "syrinx_recovery_flags_dropped",
+          "type": "line",
+          "title": "Flags dropped",
+          "description": "not_lockdown: a pre-wipe flag reported once lockdown ended, when what the server holds is final. reporter_removed: the reporter was kicked or left, and their case was never dismissed",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (drop_reason, recovery_mode) (sum_over_time(syrinx_server_recovery_records{record_kind=\"flag\",outcome=\"dropped\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{drop_reason} ({recovery_mode})",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 34,
+            "w": 96,
+            "h": 14,
+            "i": 120
+          }
+        },
+        {
+          "id": "syrinx_recovery_records_mode",
+          "type": "line",
+          "title": "Records by recovery mode",
+          "description": "RECOVERY_MODE the server ran in when each record came in (off, lockdown, operational)",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum by (recovery_mode) (sum_over_time(syrinx_server_recovery_records[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery_records",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "{recovery_mode}",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 0,
+            "y": 48,
+            "w": 96,
+            "h": 14,
+            "i": 121
+          }
+        },
+        {
+          "id": "syrinx_recovery_stages",
+          "type": "line",
+          "title": "Import steps",
+          "description": "Peer records, peers' identities, reeds, pins and finished imports. The records themselves are counted above",
+          "config": {
+            "show_legends": true,
+            "legends_position": null,
+            "unit": null,
+            "base_map": {
+              "type": "osm"
+            },
+            "map_view": {
+              "zoom": 1.0,
+              "lat": 0.0,
+              "lng": 0.0
+            }
+          },
+          "queryType": "promql",
+          "queries": [
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"servers\",ok=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "servers",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"servers\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "servers failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"peer_identity\",ok=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "peer_identity",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"peer_identity\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "peer_identity failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"reed\",ok=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"reed\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "reed failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"pins\",ok=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "pins",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"pins\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "pins failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"complete\",ok=\"true\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "complete",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_server_recovery{stage=\"complete\",ok=\"false\"}[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_server_recovery",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "complete failed",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            }
+          ],
+          "layout": {
+            "x": 96,
+            "y": 48,
+            "w": 96,
+            "h": 14,
+            "i": 122
           }
         }
       ]

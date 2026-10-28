@@ -3,12 +3,23 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"syrinx/observability/metrics"
 	pb "syrinx/proto"
 )
+
+// recoveryRecorder keeps each reported record's metric, one line each.
+type recoveryRecorder struct{ adminRecorder }
+
+func (r *recoveryRecorder) RecoveryRecord(_ context.Context, mode, kind, outcome, dropReason string) {
+	r.add("%s %s %s %s", mode, kind, outcome, dropReason)
+}
+
+var _ metrics.Recorder = (*recoveryRecorder)(nil)
 
 // In lockdown, flags from before the wipe come back frozen, their
 // dismissals with them; once operational they can be acted on, and a
@@ -44,10 +55,13 @@ func TestRecoveryE2E_FlagCasesFrozenThenFinal(t *testing.T) {
 
 	c := restoreIdentity(t, sc.a)
 	c.h.cfg.RecoveryMode = string(recoveryModeOperational)
+	rec := &recoveryRecorder{}
+	c.h.metrics = rec
 	for _, u := range sc.everyone {
 		c.recover(t, sc.deviceOf(t, u))
 	}
 	if got := queryRows(t, c.db, `SELECT COUNT(*) FROM reed_flags`); got[0] != "0" {
 		t.Errorf("flags restored once operational = %s, want none", got[0])
 	}
+	rec.has(t, "operational flag dropped not_lockdown")
 }

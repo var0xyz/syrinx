@@ -307,6 +307,7 @@ SERVER_RECOVERY = metric_stream("syrinx.server_recovery")
 RECOVERY_USERS = metric_stream("syrinx.server_recovery.users")
 RECOVERY_UNCLAIMED = metric_stream("syrinx.server_recovery.unclaimed")
 RECOVERY_ONGOING = metric_stream("syrinx.server_recovery.ongoing")
+RECOVERY_RECORDS = metric_stream("syrinx.server_recovery.records")
 REEDS_PUBLISHED = metric_stream("syrinx.reeds.published")
 REEDS_TAGS = metric_stream("syrinx.reeds.tags")
 REEDS_DELETED = metric_stream("syrinx.reeds.deleted")
@@ -968,6 +969,59 @@ users = [
             "of the same kind (identity or full)"
         ),
     ),
+]
+
+RECOVERY_STAGES = ["servers", "peer_identity", "reed", "pins", "complete"]
+
+
+def promql_records_by(attr: str, where: str) -> list[tuple[str, str, str]]:
+    """One line per value of attr, so new record kinds appear unlisted."""
+    selector = f"{RECOVERY_RECORDS}{{{where}}}" if where else RECOVERY_RECORDS
+    return [
+        (
+            f"sum by ({attr}) (sum_over_time({selector}[{WINDOW}]))",
+            f"{{{attr}}}",
+            RECOVERY_RECORDS,
+        )
+    ]
+
+
+recovery = [
+    metric_tile(
+        pid="syrinx_stat_recovery_claims",
+        title="First claims",
+        stream=SERVER_RECOVERY,
+        where="stage = 'claim' AND ok = 'true' AND first = 'true'",
+        layout=layout(0, 0, 48, 6, 113),
+        description="Accounts that came back with their owner's claim in the window",
+    ),
+    metric_tile(
+        pid="syrinx_stat_recovery_stored",
+        title="Records stored",
+        stream=RECOVERY_RECORDS,
+        where="outcome = 'stored'",
+        layout=layout(48, 0, 48, 6, 114),
+        description="Signed records devices reported back that this server now holds",
+    ),
+    metric_tile(
+        pid="syrinx_stat_recovery_refused",
+        title="Records refused",
+        stream=RECOVERY_RECORDS,
+        where="outcome = 'refused'",
+        layout=layout(96, 0, 48, 6, 115),
+        description="Records that won't ever verify or don't belong here",
+    ),
+    metric_tile(
+        pid="syrinx_stat_recovery_dropped_flags",
+        title="Flags dropped",
+        stream=RECOVERY_RECORDS,
+        where="record_kind = 'flag' AND outcome = 'dropped'",
+        layout=layout(144, 0, 48, 6, 116),
+        description=(
+            "Flags from before the wipe reported once the server left lockdown, "
+            "or whose removed reporter's case was never dismissed. Taken, not kept"
+        ),
+    ),
     promql_panel(
         pid="syrinx_recovery_claims",
         title="Recovery claims",
@@ -976,10 +1030,10 @@ users = [
             promql_filter(SERVER_RECOVERY, {"stage": "claim", "ok": "true", "first": "false"}, "repeat claims"),
             promql_filter(SERVER_RECOVERY, {"stage": "claim", "ok": "false"}, "failed"),
         ],
-        layout=layout(0, 42, 96, 14, 109),
+        layout=layout(0, 6, 96, 14, 109),
         description=(
-            "Accounts coming back to a rebuilt server. Once first claims stay at "
-            "zero for a few days, most of the community is back: time to open signups"
+            "Accounts coming back from their owners' devices. After a rebuild, once "
+            "first claims stay at zero for a few days, most of the community is back"
         ),
     ),
     promql_panel(
@@ -990,10 +1044,79 @@ users = [
             (f"max({RECOVERY_UNCLAIMED})", "never claimed", RECOVERY_UNCLAIMED),
             (f"max({RECOVERY_ONGOING})", "mid-import", RECOVERY_ONGOING),
         ],
-        layout=layout(96, 42, 96, 14, 110),
+        layout=layout(96, 6, 96, 14, 110),
         description=(
             "Accounts recorded here, those recorded only from someone else's cache "
             "and never claimed by their owner, and those still reporting back"
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_recovery_records_stored",
+        title="Records stored, by kind",
+        queries=promql_records_by("record_kind", 'outcome="stored"'),
+        layout=layout(0, 20, 96, 14, 117),
+        description=(
+            "Imports are taken in every recovery mode, not only after a rebuild: "
+            "follows, blocks, likes, flags, ledger entries and the rest"
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_recovery_records_outcome",
+        title="Record outcomes",
+        queries=promql_records_by("outcome", ""),
+        layout=layout(96, 20, 96, 14, 118),
+        description=(
+            "stored, pending (parked until what it names comes back), refused, "
+            "dropped (taken but not kept) and error (the batch failed)"
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_recovery_records_refused",
+        title="Records refused, by kind",
+        queries=promql_records_by("record_kind", 'outcome="refused"'),
+        layout=layout(0, 34, 96, 14, 119),
+        description="A steady stream of one kind points at a client building it wrong",
+    ),
+    promql_panel(
+        pid="syrinx_recovery_flags_dropped",
+        title="Flags dropped",
+        queries=[
+            (
+                f'sum by (drop_reason, recovery_mode) (sum_over_time({RECOVERY_RECORDS}'
+                f'{{record_kind="flag",outcome="dropped"}}[{WINDOW}]))',
+                "{drop_reason} ({recovery_mode})",
+                RECOVERY_RECORDS,
+            )
+        ],
+        layout=layout(96, 34, 96, 14, 120),
+        description=(
+            "not_lockdown: a pre-wipe flag reported once lockdown ended, when what "
+            "the server holds is final. reporter_removed: the reporter was kicked "
+            "or left, and their case was never dismissed"
+        ),
+    ),
+    promql_panel(
+        pid="syrinx_recovery_records_mode",
+        title="Records by recovery mode",
+        queries=promql_records_by("recovery_mode", ""),
+        layout=layout(0, 48, 96, 14, 121),
+        description="RECOVERY_MODE the server ran in when each record came in (off, lockdown, operational)",
+    ),
+    promql_panel(
+        pid="syrinx_recovery_stages",
+        title="Import steps",
+        queries=[
+            q
+            for stage in RECOVERY_STAGES
+            for q in (
+                promql_filter(SERVER_RECOVERY, {"stage": stage, "ok": "true"}, stage),
+                promql_filter(SERVER_RECOVERY, {"stage": stage, "ok": "false"}, f"{stage} failed"),
+            )
+        ],
+        layout=layout(96, 48, 96, 14, 122),
+        description=(
+            "Peer records, peers' identities, reeds, pins and finished imports. "
+            "The records themselves are counted above"
         ),
     ),
 ]
@@ -1607,6 +1730,7 @@ dashboard = {
         {"tabId": "crypto", "name": "Crypto", "panels": crypto},
         {"tabId": "federation", "name": "Federation", "panels": federation},
         {"tabId": "users", "name": "Users", "panels": users},
+        {"tabId": "recovery", "name": "Recovery", "panels": recovery},
         {"tabId": "reeds", "name": "Reeds", "panels": reeds},
         {"tabId": "websocket", "name": "WebSocket", "panels": websocket},
         {"tabId": "relay", "name": "Relay", "panels": relay},

@@ -77,6 +77,7 @@ type OTEL struct {
 	recoveryRecorded       metric.Int64Gauge
 	recoveryUnclaimed      metric.Int64Gauge
 	recoveryOngoing        metric.Int64Gauge
+	recoveryRecords        metric.Int64Counter
 	mailbox                metric.Int64Counter
 	userSearches           metric.Int64Counter
 	federationLifecycle    metric.Int64Counter
@@ -195,6 +196,7 @@ func New(m metric.Meter) *OTEL {
 	r.recoveryRecorded = gauge("syrinx.server_recovery.users")
 	r.recoveryUnclaimed = gauge("syrinx.server_recovery.unclaimed")
 	r.recoveryOngoing = gauge("syrinx.server_recovery.ongoing")
+	r.recoveryRecords = counter("syrinx.server_recovery.records")
 	r.mailbox = counter("syrinx.mailbox")
 	r.userSearches = counter("syrinx.search.users")
 	r.federationLifecycle = counter("syrinx.federation.lifecycle")
@@ -582,6 +584,11 @@ func (r *OTEL) ServerRecoveryState(ctx context.Context, recorded, unclaimed, ong
 	set(ctx, r.recoveryRecorded, int64(recorded))
 	set(ctx, r.recoveryUnclaimed, int64(unclaimed))
 	set(ctx, r.recoveryOngoing, int64(ongoing))
+}
+
+func (r *OTEL) RecoveryRecord(ctx context.Context, mode, kind, outcome, dropReason string) {
+	add(ctx, r.recoveryRecords, str("recovery.mode", mode), str("record.kind", kind),
+		str("outcome", outcome), str("drop.reason", dropReason))
 }
 
 func (r *OTEL) ServerRecovery(ctx context.Context, stage string, ok bool) {

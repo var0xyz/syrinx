@@ -3877,6 +3877,9 @@ func (h *Handlers) recoveryRecords() *recoveryRecordEnv {
 		peerKey:    h.peerKeyLookup,
 		activePeer: h.services.db.IsActivePeer,
 		lockdown:   h.cfg.RecoveryMode == string(recoveryModeLockdown),
+		observe: func(ctx context.Context, kind, outcome, dropReason string) {
+			h.metrics.RecoveryRecord(ctx, h.cfg.RecoveryMode, kind, outcome, dropReason)
+		},
 	}
 }
 
@@ -3910,11 +3913,9 @@ func (h *Handlers) ReportRecords(w http.ResponseWriter, r *http.Request) {
 		status, reason, err := env.restoreRecord(r.Context(), record)
 		if err != nil {
 			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("userID", caller).Msg("Recovery record failed")
-			h.metrics.ServerRecovery(r.Context(), "record", false)
 			internalServerError(w)
 			return
 		}
-		h.metrics.ServerRecovery(r.Context(), "record", status != recoveryRecordRefused)
 		out.Results = append(out.Results, &pb.RecoveryRecordResult{Status: status, Reason: reason})
 	}
 	writeResponse(w, http.StatusOK, out)
