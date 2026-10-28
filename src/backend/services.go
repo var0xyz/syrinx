@@ -1378,6 +1378,9 @@ func (s *DataService) AddPublicKey(ctx context.Context, in AddPublicKeyInput) (*
 		`, predecessor, in.RevocationReason, revUserSigID, revServerSigID); err != nil {
 			return nil, err
 		}
+		if err := enqueuePeerEventTx(ctx, tx, peerEventKeyRevocation, predecessor); err != nil {
+			return nil, err
+		}
 	case err != nil:
 		return nil, err
 	default:
@@ -8550,41 +8553,6 @@ func (s *DataService) MarkAllocatedKeyRevoked(ctx context.Context, keyID string)
 		UPDATE public_key_allocations SET revoked = TRUE
 		WHERE key_id = $1 AND NOT revoked
 	`, keyID)
-	return err
-}
-
-// AllocatePublicKeyToServer records that peer serverID fetched keyID for one
-// of its users.
-func (s *DataService) AllocatePublicKeyToServer(ctx context.Context, serverID, keyID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO public_key_server_allocations (server_id, key_id) VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`, serverID, keyID)
-	return err
-}
-
-// PublicKeyServerHolders returns the peers that fetched keyID.
-func (s *DataService) PublicKeyServerHolders(ctx context.Context, keyID string) ([]string, error) {
-	return s.queryStrings(ctx, `SELECT server_id FROM public_key_server_allocations WHERE key_id = $1`, keyID)
-}
-
-// RevokedKeysOwedToServer returns the revoked keys peer serverID still has
-// allocated, each owed a revocation notice.
-func (s *DataService) RevokedKeysOwedToServer(ctx context.Context, serverID string) ([]string, error) {
-	return s.queryStrings(ctx, `
-		SELECT psa.key_id
-		FROM public_key_server_allocations psa
-		JOIN public_key_revocations rv ON rv.key_id = psa.key_id
-		WHERE psa.server_id = $1
-	`, serverID)
-}
-
-// DeletePublicKeyServerAllocation drops peer serverID's allocation of keyID,
-// once it has accepted the revocation notice.
-func (s *DataService) DeletePublicKeyServerAllocation(ctx context.Context, serverID, keyID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM public_key_server_allocations WHERE server_id = $1 AND key_id = $2
-	`, serverID, keyID)
 	return err
 }
 

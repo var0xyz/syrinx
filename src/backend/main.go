@@ -713,7 +713,6 @@ func main() {
 		}
 	}()
 	go h.notifyPeersOfServerKey()
-	go h.notifyPeersOfOwedKeyRevocations()
 	go h.drainPeers("")
 
 	// Wait for shutdown signal

@@ -1699,7 +1699,6 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	}
 	// Back up: send what piled up for it while it was down.
 	if req.Reason == realtimeResetBoot {
-		go h.sendOwedKeyRevocations(peerServerID)
 		h.drainPeers(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
@@ -2088,72 +2087,6 @@ func (h *Handlers) notifyPeersOfServerKey() {
 // ///////////////////////////////////////// //
 //   key-revocation: a user key was revoked    //
 // ///////////////////////////////////////// //
-
-// notifyPeersOfKeyRevocation sends keyID's revocation once to each peer that
-// fetched it for its users. A peer that accepts it drops its allocation and
-// tells its own users; one that doesn't is retried when it next boots.
-func (h *Handlers) notifyPeersOfKeyRevocation(keyID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	log := h.services.log.GetLogger(ctx)
-
-	peerIDs, err := h.services.db.PublicKeyServerHolders(ctx, keyID)
-	if err != nil {
-		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to list peers holding a revoked key")
-		return
-	}
-	for _, peerID := range peerIDs {
-		h.sendKeyRevocationToPeer(ctx, peerID, keyID)
-	}
-}
-
-// sendOwedKeyRevocations sends peerID every revocation it is still owed.
-func (h *Handlers) sendOwedKeyRevocations(peerID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	keyIDs, err := h.services.db.RevokedKeysOwedToServer(ctx, peerID)
-	if err != nil {
-		h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list key revocations owed to peer")
-		return
-	}
-	for _, keyID := range keyIDs {
-		h.sendKeyRevocationToPeer(ctx, peerID, keyID)
-	}
-}
-
-// notifyPeersOfOwedKeyRevocations retries, at boot, every revocation a
-// connected peer hasn't accepted yet.
-func (h *Handlers) notifyPeersOfOwedKeyRevocations() {
-	peers, err := h.services.db.ListConnectedPeers(context.Background())
-	if err != nil {
-		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed key revocations")
-		return
-	}
-	for _, peer := range peers {
-		h.sendOwedKeyRevocations(peer.ID)
-	}
-}
-
-func (h *Handlers) sendKeyRevocationToPeer(ctx context.Context, peerID, keyID string) {
-	log := h.services.log.GetLogger(ctx)
-	rev, err := h.services.db.GetKeyRevocation(ctx, keyID)
-	if err != nil || rev == nil {
-		log.Error().Err(err).Str("keyID", keyID).Msg("Failed to load key revocation for peer")
-		return
-	}
-	peer, err := h.services.db.GetServerByID(ctx, peerID)
-	if err != nil || peer == nil {
-		return
-	}
-	status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, "/api/federation/relay/key-revocation", pbKeyRevocation(rev), nil)
-	if err != nil || status < 200 || status >= 300 {
-		log.Warn().Err(err).Int("status", status).Str("peerServerID", peerID).Str("keyID", keyID).Msg("Peer did not accept key revocation")
-		return
-	}
-	if err := h.services.db.DeletePublicKeyServerAllocation(ctx, peerID, keyID); err != nil {
-		log.Error().Err(err).Str("peerServerID", peerID).Str("keyID", keyID).Msg("Failed to clear peer key allocation")
-	}
-}
 
 // KeyRevocationFromPeer receives a revocation of one of the calling peer's
 // users' keys. It is verified, marked on the local allocations of that key,

@@ -227,31 +227,51 @@ func homeWithPeer(t *testing.T, status int) (*Handlers, string, *int32) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("peer GET key: status %d", rr.Code)
 	}
-	if holders, _ := f.ds.PublicKeyServerHolders(context.Background(), f.aliceKey); !slices.Equal(holders, []string{"peer5678"}) {
-		t.Fatalf("peer holders = %v", holders)
-	}
 	f.revoke(t, f.aliceKey)
+	if err := enqueuePeerEventTx(context.Background(), f.db, peerEventKeyRevocation, f.aliceKey); err != nil {
+		t.Fatal(err)
+	}
 	return f.h, f.aliceKey, &notices
 }
 
 func TestNotifyPeersOfKeyRevocation(t *testing.T) {
 	h, key, notices := homeWithPeer(t, http.StatusNoContent)
-	h.notifyPeersOfKeyRevocation(key)
+	h.drainPeerEvents("peer5678")
 	if atomic.LoadInt32(notices) != 1 {
 		t.Fatalf("sent %d notices, want 1", atomic.LoadInt32(notices))
 	}
-	if holders, _ := h.services.db.PublicKeyServerHolders(context.Background(), key); len(holders) != 0 {
-		t.Fatalf("peer allocation kept after it accepted: %v", holders)
+	if n, _ := h.services.db.CountPeerEvents(context.Background(), "peer5678"); n != 0 {
+		t.Fatalf("revocation of %s still owed after it was accepted", key)
 	}
 }
 
 func TestNotifyPeersOfKeyRevocationRetriesUntilAccepted(t *testing.T) {
 	h, key, notices := homeWithPeer(t, http.StatusInternalServerError)
-	h.notifyPeersOfKeyRevocation(key)
+	h.drainPeerEvents("peer5678")
 	if atomic.LoadInt32(notices) != 1 {
 		t.Fatalf("sent %d notices, want 1", atomic.LoadInt32(notices))
 	}
-	if owed, _ := h.services.db.RevokedKeysOwedToServer(context.Background(), "peer5678"); !slices.Equal(owed, []string{key}) {
-		t.Fatalf("owed to peer = %v, want [%s]", owed, key)
+	if n, _ := h.services.db.CountPeerEvents(context.Background(), "peer5678"); n != 1 {
+		t.Fatalf("revocation of %s owed %d times, want 1", key, n)
+	}
+}
+
+// Rotating a key queues its revocation for every peer, whether or not
+// one of its users ever fetched it.
+func TestKeyRotationQueuesRevocationForEveryPeer(t *testing.T) {
+	s := newE2EServer(t, newTestDatabase(t, InitDB), false)
+	for _, id := range []string{"peer5678", "peerb999"} {
+		if _, err := s.db.Exec(`INSERT INTO servers (id, name, base_url, frontend_url) VALUES ($1, $1, 'https://p.example', 'https://p.example')`, id); err != nil {
+			t.Fatal(err)
+		}
+		peerTestMesh(t, s.db, id)
+	}
+	ann := s.signup(t, "ann")
+	old := ann.keyID
+	s.rotate(t, ann)
+	for _, id := range []string{"peer5678", "peerb999"} {
+		if n := countRows(t, s, `SELECT COUNT(*) FROM peer_event_queue WHERE server_id = $1 AND kind = $2 AND subject_id = $3`, id, peerEventKeyRevocation, old); n != 1 {
+			t.Fatalf("%s owed %d revocations of %s, want 1", id, n, old)
+		}
 	}
 }

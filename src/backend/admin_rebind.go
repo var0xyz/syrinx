@@ -76,6 +76,9 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 			`, revokedKeyID, keyRevocationReasonLost, req.ID, revocationSigID); err != nil {
 				return fmt.Errorf("revoke lost key: %w", err)
 			}
+			if err := enqueuePeerEventTx(ctx, tx, peerEventKeyRevocation, revokedKeyID); err != nil {
+				return err
+			}
 
 			keySig, err := h.countersign(ctx, buildPublicKeyPayload(serverID, target, newKeyID, h.signingKey.Fingerprint, req.Body, now), now)
 			if err != nil {
@@ -113,7 +116,7 @@ func (h *Handlers) rebindExecutor() adminExecutor {
 		after: func(req *adminRequest) {
 			h.kickUserDevices(req.Targets[0])
 			h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyID}
-			go h.notifyPeersOfKeyRevocation(revokedKeyID)
+			h.drainPeers("")
 			h.metrics.KeyRevoked(context.Background(), metrics.RevocationRebind)
 			h.recordInvitesRevoked(req.Action, req.Targets[0], revokedInvites)
 		},

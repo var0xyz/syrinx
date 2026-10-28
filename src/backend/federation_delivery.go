@@ -181,6 +181,17 @@ func (h *Handlers) peerEventSenderFor(kind string) (peerEventSender, bool) {
 				}
 			},
 		}, true
+	case peerEventKeyRevocation:
+		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
+			rev, err := h.services.db.GetKeyRevocation(ctx, ev.SubjectID)
+			if err != nil {
+				return "", nil, err
+			}
+			if rev == nil {
+				return "", nil, errPeerEventGone
+			}
+			return "/api/federation/relay/key-revocation", pbKeyRevocation(rev), nil
+		}}, true
 	case peerEventThreadRemoval:
 		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
 			rm, err := h.services.db.GetThreadRemoval(ctx, ev.SubjectID)

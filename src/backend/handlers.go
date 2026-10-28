@@ -293,11 +293,6 @@ func (h *Handlers) allocateServedKey(r *http.Request, key *Key) {
 			log.Error().Str("keyID", key.ID).Err(err).Msg("Error allocating public key")
 		}
 	}
-	if peerID, _ := r.Context().Value(peerServerIDKey).(string); peerID != "" {
-		if err := h.services.db.AllocatePublicKeyToServer(r.Context(), peerID, key.ID); err != nil {
-			log.Error().Str("keyID", key.ID).Err(err).Msg("Error allocating public key to peer")
-		}
-	}
 }
 
 // proxyKeyToForeign forwards GET /keys/{id} for a foreign key to its home
@@ -1816,7 +1811,7 @@ func (h *Handlers) AddPublicKey(w http.ResponseWriter, r *http.Request) {
 
 	h.metrics.KeyRevoked(r.Context(), metrics.RevocationRotation)
 	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeKeyRevoked, KeyID: revokedKeyFingerprint}
-	go h.notifyPeersOfKeyRevocation(revokedKeyFingerprint)
+	h.drainPeers("")
 
 	writeResponse(w, http.StatusOK, pbKey(publicKey))
 }
