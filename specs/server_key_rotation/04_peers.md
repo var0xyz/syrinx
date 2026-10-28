@@ -37,9 +37,9 @@ a burst of requests costs the peer one round.
 A rotated server tells each peer once, after it starts listening (the peer
 calls back for the revocations): `POST /api/federation/relay/server-key`, an empty
 request signed with the new key. Authentication on the peer does the
-re-pin; the handler only answers 204. `servers.peer_key_ack` (new column,
-home side) records the key a peer last accepted, so the notice is sent once
-per key and retried on later boots until it succeeds. A peer that misses it
+re-pin; the handler only answers 204. The notice waits in each peer's event
+queue ([federation 10](../federation/10_peer_event_queue.md)), queued by the
+rotation, until the peer accepts it. A peer that misses it
 re-pins on the next request it gets anyway.
 
 ## Tests

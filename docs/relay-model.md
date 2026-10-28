@@ -183,9 +183,13 @@ Status. Every path that crosses the border folds:
 - Content requests: a request for a foreign reed is served by a local
   holder when one is online, and otherwise crosses only while fewer than
   three copies are in flight (`openForeignEvent`, `promoteWaitingForeign`).
-- New reeds and removals: one `new-reed` / `reed-removal` per peer, made
-  durable by per-(peer, author) cursors (`federation_delivery.go`,
-  [`specs/federation/09_reed_delivery.md`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/09_reed_delivery.md)).
+- Events a peer is owed: new reeds, reed and thread removals, account
+  removals, key revocations and server key rotations go to every peer;
+  blocks and follows of a peer's user go to that user's server alone. Each
+  is one row in that peer's queue, written with the event and deleted once
+  the peer answers. A peer that is down keeps its queue until it boots, and
+  a slow one holds up only its own (`federation_delivery.go`,
+  [`specs/federation/10_peer_event_queue.md`](https://github.com/var0xyz/syrinx/tree/main/specs/federation/10_peer_event_queue.md)).
   The peer dispatches to its own followers, mentioned users, subscribers
   and thread viewers.
 - Profile pages: the author's server returns one page of reed ids and the
@@ -197,8 +201,8 @@ Status. Every path that crosses the border folds:
   more, and its subscriptions to that reed are dropped.
 - Blocks: a block of a user on a peer concerns only that one user, so it
   crosses once, to their home server (`block-notify` / `unblock-notify`),
-  owed until accepted. The peer delivers it to its user and enforces it
-  locally ([`specs/blocking/`](https://github.com/var0xyz/syrinx/tree/main/specs/blocking)).
+  through that server's queue. The peer delivers it to its user and
+  enforces it locally ([`specs/blocking/`](https://github.com/var0xyz/syrinx/tree/main/specs/blocking)).
 
 ## Related
 

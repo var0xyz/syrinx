@@ -18,7 +18,7 @@ Three things serialize work inside one process today:
 | `deploy/jobs/ripples-cleanup.cron` | Expired ripples swept by one job |
 | `deploy/jobs/challenges-cleanup.cron` | Expired challenges swept by one job |
 
-Peer reed streams already use a DB lease (`peer_author_cursors.claimed_at`)
+Peer event queues already use a DB lease (`server_mesh.delivery_claimed_at`)
 and are fine.
 
 ## Change

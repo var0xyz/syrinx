@@ -154,7 +154,7 @@ constant primary key, `one BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (one)`):
 `server_mesh` holds what a peering is, one row per peer, from our approval
 on: `server_id` (PK, references `servers`), `connected`,
 `invited_by`/`invited_at` (when we sent the invitation),
-`approved_by`/`approved_at`, `peer_approved_at`, `peer_key_ack`,
+`approved_by`/`approved_at`, `peer_approved_at`,
 `revoked_at/by/reason`, `disconnect_requested_at/by`, `disconnect_reason`,
 `down_at`, `purged_at`. `federation_server_log` hangs off it. A peer's
 delivery streams start at `approved_at`.
@@ -269,10 +269,10 @@ opening them early costs.
 `X-Syrinx-Recovering: lockdown` from a peer sets that peer's `down_at` and
 stops: events keep being written, nothing is sent. Any other `503` (an
 overloaded or unreachable server) is an ordinary failure, retried as before.
-The peer's boot notice clears `down_at` and delivers everything behind: reed
-streams, block notices, key revocations and account removals. Account
-removals were fire-and-forget; they now wait in `account_removal_peer_notices`
-like block notices until the peer accepts them.
+The peer's boot notice clears `down_at` and drains its event queue
+([federation 10](../federation/10_peer_event_queue.md)): reeds, removals,
+blocks, follows, key revocations and account removals wait there until the
+peer accepts them.
 
 **Receive-side fixes:**
 
