@@ -141,6 +141,11 @@ telemetry_o2_binary_tag() {
     esac
 }
 
+# A tunnel token is base64 JSON {"a":account,"t":tunnel-uuid,"s":secret}.
+telemetry_cf_token_valid() {
+    { printf '%s' "$1" | base64 -d 2>/dev/null || true; } | grep -qE '"t":"[0-9a-fA-F-]{36}"'
+}
+
 telemetry_generate_secret() {
     openssl rand -base64 18 | tr -dc 'a-zA-Z0-9'
 }
@@ -827,6 +832,8 @@ telemetry_install_cloudflared() {
     before="$(cloudflared --version 2>/dev/null || true)"
     curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg -o /usr/share/keyrings/cloudflare-public-v2.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+    # apt verifies as the _apt user; don't inherit an earlier umask 077.
+    chmod 644 /usr/share/keyrings/cloudflare-public-v2.gpg /etc/apt/sources.list.d/cloudflared.list
     DEBIAN_FRONTEND=noninteractive apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y cloudflared
     after="$(cloudflared --version 2>/dev/null || true)"
