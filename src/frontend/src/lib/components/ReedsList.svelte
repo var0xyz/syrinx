@@ -9,6 +9,7 @@
   import { removeThreadAsAuthor } from '$lib/services/threadRemoval';
   import { pendingRemovalSynced } from '$lib/repositories/pendingRemoval';
   import NewReedModal from '$lib/components/NewReedModal.svelte';
+  import NewReedsBanner from '$lib/components/NewReedsBanner.svelte';
   import Quote from '$lib/components/Quote.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
@@ -511,11 +512,10 @@
 {/if}
 
 {#if showNewReedBanner}
-  <div class="new-reed-banner">
-    <div class="new-reed-msg">New reed available</div>
-    <button on:click={() => { showNewReedBanner = false; void refreshPages(); }}>Show</button>
-    <button class="dismiss" on:click={() => (showNewReedBanner = false)}>✕</button>
-  </div>
+  <NewReedsBanner
+    on:show={() => { showNewReedBanner = false; void refreshPages(); }}
+    on:dismiss={() => (showNewReedBanner = false)}
+  />
 {/if}
 
 <div class="reeds-list" class:with-write-button={showWriteButton}>
@@ -648,51 +648,6 @@
 {/if}
 
 <style>
-  .new-reed-banner {
-    position: fixed;
-    top: 1rem;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: var(--surface);
-    border: 1px solid var(--primary);
-    border-radius: 8px;
-    font-size: 0.9rem;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    width: calc(100vw - 2.5rem);
-  }
-
-  .new-reed-banner .new-reed-msg {
-    flex-grow: 1;
-    color: var(--fg);
-  }
-
-  .new-reed-banner button {
-    flex-shrink: 0;
-    background: var(--primary);
-    color: var(--button-text);
-    border: none;
-    border-radius: 4px;
-    padding: 0.25rem 0.75rem;
-    cursor: pointer;
-    font-size: 0.85rem;
-    white-space: nowrap;
-    width: 5rem;
-  }
-
-  .new-reed-banner button.dismiss {
-    flex-shrink: 0;
-    background: none;
-    color: var(--muted);
-    padding: 0.25rem;
-    cursor: pointer;
-    width: 2rem;
-  }
-
   .floating-write-btn {
     position: fixed;
     bottom: 80px;

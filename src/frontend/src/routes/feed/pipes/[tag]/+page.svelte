@@ -5,6 +5,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import LocalPagination from '$lib/components/LocalPagination.svelte';
+  import NewReedsBanner from '$lib/components/NewReedsBanner.svelte';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
   import { pipeReedQueue, reedsService } from '$lib/repositories/reeds';
   import { serverConnection } from '$lib/services/serverConnection';
@@ -27,8 +28,12 @@
   let lastHandledPipeReedId = '';
   let subscribedTag = '';
   let pinned = false;
+  /** While shown, arrivals stay off screen until the user asks for them,
+   * even if they scroll back to the top. */
+  let showNewReedBanner = false;
 
   $: tag = data.tag;
+  $: tag, (showNewReedBanner = false);
   $: displayName = data.displayName;
 
   /** @param {string | undefined} after */
@@ -63,7 +68,7 @@
   }
 
   // A pipe reed is stored before it's announced, so re-reading the pages
-  // shown picks it up in publication order.
+  // shown picks it up in publication order. Off the top, it waits for the banner.
   async function onLiveReed(reed, username) {
     if (!reed?.tags?.some((t) => t.toLowerCase() === tag)) return;
 
@@ -79,7 +84,18 @@
       };
     }
 
+    if (showNewReedBanner) return;
+    if (window.scrollY !== 0) {
+      showNewReedBanner = true;
+      return;
+    }
     await pagination?.reload();
+  }
+
+  async function showNewReeds() {
+    showNewReedBanner = false;
+    await pagination?.reload();
+    window.scrollTo({ top: 0 });
   }
 
   async function switchPipeSubscription(nextTag) {
@@ -99,6 +115,14 @@
     }
   });
 </script>
+
+{#if showNewReedBanner}
+  <NewReedsBanner
+    message="New reeds available"
+    on:show={showNewReeds}
+    on:dismiss={() => (showNewReedBanner = false)}
+  />
+{/if}
 
 <div class="pipe-header">
   <h2 class="pipe-sub">#{displayName}</h2>
