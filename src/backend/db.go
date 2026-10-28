@@ -317,6 +317,8 @@ func InitDB(db *sql.DB) error {
 		-- Set by the peer's shutdown notice, cleared by its boot notice.
 		down_at TIMESTAMP,
 		purged_at TIMESTAMP,
+		-- Held by the drain sending this peer its queue; free after a minute.
+		delivery_claimed_at TIMESTAMP,
 		-- The record we last countersigned for this peer, and what it covered,
 		-- so it is signed again only when that changes.
 		record_signature_id INT REFERENCES server_signatures(id),
@@ -1750,6 +1752,24 @@ func InitDB(db *sql.DB) error {
 		PRIMARY KEY (server_id, log_id)
 	);`
 
+	// What each peer is owed, oldest first. A row names its subject; the
+	// payload is built when it's sent, and the row deleted once answered.
+	createPeerEventQueueTable := `
+	CREATE TABLE IF NOT EXISTS peer_event_queue (
+		id BIGSERIAL PRIMARY KEY,
+		server_id VARCHAR(16) NOT NULL REFERENCES server_mesh(server_id) ON DELETE CASCADE,
+		kind VARCHAR(32) NOT NULL CHECK (kind IN (
+			'new_reed', 'reed_removal', 'thread_removal', 'account_removal',
+			'block', 'follow', 'key_revocation', 'server_key')),
+		subject_id VARCHAR(255) NOT NULL,
+		-- The other side of a pair (the blocked user, the followee).
+		object_id VARCHAR(255),
+
+		UNIQUE NULLS NOT DISTINCT (server_id, kind, subject_id, object_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_peer_event_queue_server
+		ON peer_event_queue (server_id, id);`
+
 	// Device binding — append-only history; exactly one active row per user.
 	createUserDevicesTable := `
 	CREATE TABLE IF NOT EXISTS user_devices (
@@ -1962,6 +1982,7 @@ func InitDB(db *sql.DB) error {
 		createFederationAttemptLogTable,
 
 		createFederationServerLogTable,
+		createPeerEventQueueTable,
 
 		// Admin
 		createLedgerEntriesTable,

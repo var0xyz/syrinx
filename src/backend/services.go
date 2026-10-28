@@ -4397,16 +4397,20 @@ func (s *DataService) RevokeFederationServer(ctx context.Context, serverID strin
 }
 
 func revokeFederationServerQ(ctx context.Context, q adminQuerier, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
-	res, err := q.ExecContext(ctx, `
-		UPDATE server_mesh
-		SET revoked_at = $2, revoked_by = $3, revoked_reason = $4,
-			disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL
-		WHERE server_id = $1 AND revoked_at IS NULL
-	`, serverID, revokedAt.UTC(), revokedBy, reason)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
+	// A revoked peer is owed nothing: reconnecting starts it empty.
+	var n int
+	err := q.QueryRowContext(ctx, `
+		WITH revoked AS (
+			UPDATE server_mesh
+			SET revoked_at = $2, revoked_by = $3, revoked_reason = $4,
+				disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL
+			WHERE server_id = $1 AND revoked_at IS NULL
+			RETURNING server_id
+		), emptied AS (
+			DELETE FROM peer_event_queue WHERE server_id IN (SELECT server_id FROM revoked)
+		)
+		SELECT COUNT(*) FROM revoked
+	`, serverID, revokedAt.UTC(), revokedBy, reason).Scan(&n)
 	if err != nil {
 		return err
 	}
@@ -10314,6 +10318,109 @@ func (s *DataService) SetPeerRecord(ctx context.Context, serverID, fields string
 		}
 	}
 	return tx.Commit()
+}
+
+// peerEvent is one row of a peer's event queue, with where to send it.
+type peerEvent struct {
+	ID        int64
+	Kind      string
+	SubjectID string
+	ObjectID  string
+	BaseURL   string
+}
+
+// enqueuePeerEventTx owes kind about subject to every peer not revoked,
+// down ones included.
+func enqueuePeerEventTx(ctx context.Context, q adminQuerier, kind, subjectID string) error {
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO peer_event_queue (server_id, kind, subject_id)
+		SELECT server_id, $1, $2 FROM server_mesh WHERE revoked_at IS NULL
+		ON CONFLICT DO NOTHING
+	`, kind, subjectID)
+	return err
+}
+
+// enqueuePeerEventForTx owes kind about the (subject, object) pair to
+// serverID alone, unless it is revoked or not a peer.
+func enqueuePeerEventForTx(ctx context.Context, q adminQuerier, serverID, kind, subjectID, objectID string) error {
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO peer_event_queue (server_id, kind, subject_id, object_id)
+		SELECT server_id, $2, $3, $4 FROM server_mesh WHERE server_id = $1 AND revoked_at IS NULL
+		ON CONFLICT DO NOTHING
+	`, serverID, kind, subjectID, objectID)
+	return err
+}
+
+// ClaimPeerEvents takes peerID's queue for one drain. It fails while the
+// peer is down or revoked, or another drain claimed it under a minute ago.
+func (s *DataService) ClaimPeerEvents(ctx context.Context, peerID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE server_mesh SET delivery_claimed_at = CURRENT_TIMESTAMP
+		WHERE server_id = $1 AND revoked_at IS NULL AND down_at IS NULL
+		  AND (delivery_claimed_at IS NULL OR delivery_claimed_at < CURRENT_TIMESTAMP - INTERVAL '1 minute')
+	`, peerID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// RefreshPeerEventsClaim keeps a drain's claim from expiring.
+func (s *DataService) RefreshPeerEventsClaim(ctx context.Context, peerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE server_mesh SET delivery_claimed_at = CURRENT_TIMESTAMP WHERE server_id = $1
+	`, peerID)
+	return err
+}
+
+// ReleasePeerEvents ends a drain's claim.
+func (s *DataService) ReleasePeerEvents(ctx context.Context, peerID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE server_mesh SET delivery_claimed_at = NULL WHERE server_id = $1
+	`, peerID)
+	return err
+}
+
+// NextPeerEvent returns peerID's oldest queued event, or nil when it has
+// none or is down or revoked.
+func (s *DataService) NextPeerEvent(ctx context.Context, peerID string) (*peerEvent, error) {
+	var ev peerEvent
+	err := s.db.QueryRowContext(ctx, `
+		SELECT e.id, e.kind, e.subject_id, COALESCE(e.object_id, ''), COALESCE(s.base_url, '')
+		FROM peer_event_queue e
+		JOIN server_mesh m ON m.server_id = e.server_id
+		JOIN servers s ON s.id = e.server_id
+		WHERE e.server_id = $1 AND m.down_at IS NULL AND m.revoked_at IS NULL
+		ORDER BY e.id
+		LIMIT 1
+	`, peerID).Scan(&ev.ID, &ev.Kind, &ev.SubjectID, &ev.ObjectID, &ev.BaseURL)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ev, nil
+}
+
+// DeletePeerEvent drops an event the peer answered.
+func (s *DataService) DeletePeerEvent(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM peer_event_queue WHERE id = $1`, id)
+	return err
+}
+
+// CountPeerEvents returns how many events peerID is owed.
+func (s *DataService) CountPeerEvents(ctx context.Context, peerID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM peer_event_queue WHERE server_id = $1`, peerID).Scan(&n)
+	return n, err
+}
+
+// ListPeersOwedEvents returns the peers not revoked, the ones a drain of
+// everyone visits.
+func (s *DataService) ListPeersOwedEvents(ctx context.Context) ([]string, error) {
+	return s.queryStrings(ctx, `SELECT server_id FROM server_mesh WHERE revoked_at IS NULL`)
 }
 
 // ListDeliveryPeers returns connected peers that have not announced a

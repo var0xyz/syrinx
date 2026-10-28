@@ -1707,6 +1707,7 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 		go h.sendOwedBlockNotices(peerServerID)
 		go h.sendOwedFollowNotices(peerServerID)
 		go h.sendOwedAccountRemovals(peerServerID)
+		h.drainPeers(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
 	w.WriteHeader(http.StatusNoContent)
