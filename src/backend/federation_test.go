@@ -57,7 +57,16 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			disconnect_requested_by VARCHAR(255),
 			disconnect_reason TEXT,
 			down_at TIMESTAMP,
-			purged_at TIMESTAMP
+			purged_at TIMESTAMP,
+			delivery_claimed_at TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS peer_event_queue (
+			id BIGSERIAL PRIMARY KEY,
+			server_id VARCHAR(255) NOT NULL REFERENCES server_mesh(server_id) ON DELETE CASCADE,
+			kind VARCHAR(32) NOT NULL,
+			subject_id VARCHAR(255) NOT NULL,
+			object_id VARCHAR(255),
+			UNIQUE NULLS NOT DISTINCT (server_id, kind, subject_id, object_id)
 		)`,
 		`CREATE TABLE IF NOT EXISTS identities (
 			id VARCHAR(255) PRIMARY KEY,

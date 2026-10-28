@@ -4,8 +4,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	pb "syrinx/proto"
 )
@@ -202,4 +206,147 @@ func (h *Handlers) buildReedRemovalPayload(ctx context.Context, reedID string) (
 		payload.ParentReedId = parent
 	}
 	return payload, nil
+}
+
+// Event kinds a peer's queue holds.
+const (
+	peerEventNewReed        = "new_reed"
+	peerEventReedRemoval    = "reed_removal"
+	peerEventThreadRemoval  = "thread_removal"
+	peerEventAccountRemoval = "account_removal"
+	peerEventBlock          = "block"
+	peerEventFollow         = "follow"
+	peerEventKeyRevocation  = "key_revocation"
+	peerEventServerKey      = "server_key"
+)
+
+// errPeerEventGone means an event's subject no longer exists, so there is
+// nothing left to send.
+var errPeerEventGone = errors.New("peer event subject is gone")
+
+// peerEventSender builds an event's call and, optionally, handles the
+// peer refusing it for good.
+type peerEventSender struct {
+	build   func(ctx context.Context, ev peerEvent) (path string, body proto.Message, err error)
+	refused func(ctx context.Context, peerID string, ev peerEvent)
+}
+
+// peerEventSenderFor returns how to send kind, or false for one nothing
+// sends.
+func (h *Handlers) peerEventSenderFor(kind string) (peerEventSender, bool) {
+	switch kind {
+	}
+	return peerEventSender{}, false
+}
+
+// peerEventCall sends one event's body to a peer and returns its status.
+type peerEventCall func(ctx context.Context, peerID, baseURL, path string, body proto.Message) (int, error)
+
+func (h *Handlers) callPeerEvent(ctx context.Context, peerID, baseURL, path string, body proto.Message) (int, error) {
+	return h.callPeerRelayEndpoint(ctx, peerID, baseURL, path, body, nil)
+}
+
+// drainPeers drains peerID's queue, or every peer's when it is empty.
+// Each drains in its own goroutine, so a slow peer holds up only itself.
+func (h *Handlers) drainPeers(peerID string) {
+	if peerID != "" {
+		go h.drainPeerEvents(peerID)
+		return
+	}
+	ctx := context.Background()
+	peers, err := h.services.db.ListPeersOwedEvents(ctx)
+	if err != nil {
+		h.services.log.GetLogger(ctx).Error().Err(err).Msg("Failed to list peers to drain")
+		return
+	}
+	for _, id := range peers {
+		go h.drainPeerEvents(id)
+	}
+}
+
+func (h *Handlers) drainPeerEvents(peerID string) {
+	h.drainPeerEventsWith(peerID, h.peerEventSenderFor, h.callPeerEvent)
+}
+
+// drainPeerEventsWith sends peerID its queue, oldest first. A 2xx or a
+// refusal (4xx but 429) settles an event; anything else stops the drain,
+// and the next trigger resumes from the same event.
+func (h *Handlers) drainPeerEventsWith(peerID string, senderFor func(kind string) (peerEventSender, bool), call peerEventCall) {
+	ctx := context.Background()
+	log := h.services.log.GetLogger(ctx).With().Str("peerServerID", peerID).Logger()
+	db := h.services.db
+
+	claimed, err := db.ClaimPeerEvents(ctx, peerID)
+	if err != nil {
+		log.Error().Err(err).Msg("Failed to claim peer event queue")
+		return
+	}
+	if !claimed {
+		return
+	}
+	defer func() {
+		if err := db.ReleasePeerEvents(ctx, peerID); err != nil {
+			log.Error().Err(err).Msg("Failed to release peer event queue")
+		}
+	}()
+	if n, err := db.CountPeerEvents(ctx, peerID); err == nil {
+		h.metrics.FederationDeliveryBacklog(ctx, peerID, n)
+	}
+
+	for {
+		ev, err := db.NextPeerEvent(ctx, peerID)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to read peer event queue")
+			return
+		}
+		if ev == nil {
+			return
+		}
+		evLog := log.With().Str("kind", ev.Kind).Str("subjectID", ev.SubjectID).Str("objectID", ev.ObjectID).Logger()
+		settle := func() bool {
+			if err := db.DeletePeerEvent(ctx, ev.ID); err != nil {
+				evLog.Error().Err(err).Msg("Failed to delete peer event")
+				return false
+			}
+			return true
+		}
+		sender, ok := senderFor(ev.Kind)
+		if !ok {
+			evLog.Error().Msg("No sender for peer event kind, dropping it")
+			if !settle() {
+				return
+			}
+			continue
+		}
+		path, body, err := sender.build(ctx, *ev)
+		if errors.Is(err, errPeerEventGone) {
+			evLog.Warn().Msg("Peer event subject is gone, dropping it")
+			if !settle() {
+				return
+			}
+			continue
+		}
+		if err != nil {
+			evLog.Error().Err(err).Msg("Failed to build peer event")
+			return
+		}
+		status, err := call(ctx, peerID, ev.BaseURL, path, body)
+		switch {
+		case err != nil || status >= 500 || status == http.StatusTooManyRequests:
+			evLog.Warn().Err(err).Int("status", status).Msg("Peer didn't take event, will retry")
+			return
+		case status >= 400:
+			evLog.Error().Int("status", status).Msg("Peer refused event, dropping it")
+			if sender.refused != nil {
+				sender.refused(ctx, peerID, *ev)
+			}
+		}
+		if !settle() {
+			return
+		}
+		if err := db.RefreshPeerEventsClaim(ctx, peerID); err != nil {
+			log.Error().Err(err).Msg("Failed to refresh peer event queue claim")
+			return
+		}
+	}
 }

@@ -5039,6 +5039,7 @@ func (h *Handlers) ApproveFederationAttempt(w http.ResponseWriter, r *http.Reque
 		h.logFederationServerAsync(serverID, federationLogInfo,
 			fmt.Sprintf("Approved by %s", caller))
 		h.metrics.FederationLifecycle(r.Context(), "attempt_approved", serverID, caller)
+		h.drainPeers(serverID)
 		writeResponse(w, http.StatusOK, &pb.FederationActionResponse{AttemptId: attemptID, ServerId: serverID, Status: "approved", Established: established})
 	}
 }
