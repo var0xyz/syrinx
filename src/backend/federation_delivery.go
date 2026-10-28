@@ -79,18 +79,6 @@ func (h *Handlers) buildReedRemovalPayload(ctx context.Context, reedID string) (
 	return payload, nil
 }
 
-// Event kinds a peer's queue holds.
-const (
-	peerEventNewReed        = "new_reed"
-	peerEventReedRemoval    = "reed_removal"
-	peerEventThreadRemoval  = "thread_removal"
-	peerEventAccountRemoval = "account_removal"
-	peerEventBlock          = "block"
-	peerEventFollow         = "follow"
-	peerEventKeyRevocation  = "key_revocation"
-	peerEventServerKey      = "server_key"
-)
-
 // errPeerEventGone means an event's subject no longer exists, so there is
 // nothing left to send.
 var errPeerEventGone = errors.New("peer event subject is gone")
@@ -191,6 +179,11 @@ func (h *Handlers) peerEventSenderFor(kind string) (peerEventSender, bool) {
 				return "", nil, errPeerEventGone
 			}
 			return "/api/federation/relay/key-revocation", pbKeyRevocation(rev), nil
+		}}, true
+	case peerEventServerKey:
+		// The call itself, signed with our current key, is the notice.
+		return peerEventSender{build: func(context.Context, peerEvent) (string, proto.Message, error) {
+			return "/api/federation/relay/server-key", nil, nil
 		}}, true
 	case peerEventThreadRemoval:
 		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {

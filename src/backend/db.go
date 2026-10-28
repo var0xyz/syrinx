@@ -305,9 +305,6 @@ func InitDB(db *sql.DB) error {
 		approved_at TIMESTAMP,
 		-- Set once the peer is seen to have approved us too.
 		peer_approved_at TIMESTAMP,
-		-- The key of ours this peer last accepted, so a rotation is announced
-		-- to each peer once.
-		peer_key_ack VARCHAR(255),
 		revoked_at TIMESTAMP,
 		revoked_by VARCHAR(255),
 		revoked_reason TEXT,

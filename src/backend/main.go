@@ -712,7 +712,6 @@ func main() {
 			log.Fatal().Err(err).Msg("[ERR] Server failed to start")
 		}
 	}()
-	go h.notifyPeersOfServerKey()
 	go h.drainPeers("")
 
 	// Wait for shutdown signal

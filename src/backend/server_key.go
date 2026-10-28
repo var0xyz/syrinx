@@ -146,6 +146,10 @@ func revokeServerKey(ctx context.Context, db *sql.DB, cryptoSvc *cryptoService, 
 	if err := insertServerKeyRevocationTx(ctx, tx, rev); err != nil {
 		return nil, err
 	}
+	// Each peer is told of the new key, signed with it, on the next boot.
+	if err := enqueuePeerEventTx(ctx, tx, peerEventServerKey, next.KeyID); err != nil {
+		return nil, err
+	}
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE private_keys SET revoked_at = $2 WHERE id = $1`, oldKeyID, rev.SignedAt,
 	); err != nil {
