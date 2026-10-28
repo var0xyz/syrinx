@@ -2048,42 +2048,6 @@ func (h *Handlers) logFederationEvent(peerServerID, level, message string) {
 	}
 }
 
-// notifyPeersOfServerKey tells each connected peer that hasn't accepted the
-// current key about it, once. The notice is signed with the new key, which
-// is what makes the peer walk our revocations.
-func (h *Handlers) notifyPeersOfServerKey() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	log := h.services.log.GetLogger(ctx)
-
-	rotated, err := h.services.db.HasServerKeyRevocations(ctx)
-	if err != nil || !rotated {
-		return
-	}
-	current := string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint))
-	peers, err := h.services.db.PeersAwaitingKey(ctx, current)
-	if err != nil {
-		log.Error().Err(err).Msg("Failed to list peers awaiting the server key")
-		return
-	}
-	var wg sync.WaitGroup
-	for _, peer := range peers {
-		wg.Add(1)
-		go func(peer PeerServer) {
-			defer wg.Done()
-			status, err := h.callPeerRelayEndpoint(ctx, peer.ID, peer.BaseURL, "/api/federation/relay/server-key", nil, nil)
-			if err != nil || status < 200 || status >= 300 {
-				log.Warn().Err(err).Int("status", status).Str("peerServerID", peer.ID).Msg("Peer did not accept the new server key")
-				return
-			}
-			if err := h.services.db.SetPeerKeyAck(ctx, peer.ID, current); err != nil {
-				log.Error().Err(err).Str("peerServerID", peer.ID).Msg("Failed to record peer key ack")
-			}
-		}(peer)
-	}
-	wg.Wait()
-}
-
 // ///////////////////////////////////////// //
 //   key-revocation: a user key was revoked    //
 // ///////////////////////////////////////// //

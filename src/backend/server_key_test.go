@@ -296,3 +296,37 @@ func TestRotationIsLoggedAndRetiresTheOldSigner(t *testing.T) {
 		t.Fatalf("append with the retired key = %v, want errLedgerSignerRotated", err)
 	}
 }
+
+// A rotation queues the new key's notice for every peer not revoked.
+func TestRevokeServerKeyQueuesNoticeForPeers(t *testing.T) {
+	db, _, _ := newServerKeyTestDB(t)
+	for _, id := range []string{"peer5678", "peerb999"} {
+		if _, err := db.Exec(`INSERT INTO servers (id, name, base_url, frontend_url) VALUES ($1, $1, 'https://p.example', 'https://p.example')`, id); err != nil {
+			t.Fatal(err)
+		}
+		peerTestMesh(t, db, id)
+	}
+	if _, err := db.Exec(`UPDATE server_mesh SET revoked_at = NOW() WHERE server_id = 'peerb999'`); err != nil {
+		t.Fatal(err)
+	}
+	rev, err := revokeServerKey(context.Background(), db, newCryptoService(), serverKeyTestPassphrase, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subjects []string
+	rows, err := db.Query(`SELECT server_id || ' ' || subject_id FROM peer_event_queue WHERE kind = $1`, peerEventServerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		subjects = append(subjects, s)
+	}
+	if len(subjects) != 1 || subjects[0] != "peer5678 "+rev.Successor {
+		t.Fatalf("queued %v, want one notice of %s for peer5678", subjects, rev.Successor)
+	}
+}

@@ -49,7 +49,6 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			approved_by VARCHAR(255),
 			approved_at TIMESTAMP,
 			peer_approved_at TIMESTAMP,
-			peer_key_ack VARCHAR(255),
 			revoked_at TIMESTAMP,
 			revoked_by VARCHAR(255),
 			revoked_reason TEXT,

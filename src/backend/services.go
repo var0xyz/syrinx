@@ -3925,37 +3925,6 @@ func (s *DataService) ClearPeerPin(ctx context.Context, peerServerID string) err
 	return err
 }
 
-// PeersAwaitingKey returns connected peers that haven't accepted keyID yet.
-func (s *DataService) PeersAwaitingKey(ctx context.Context, keyID string) ([]PeerServer, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.base_url FROM servers s
-		JOIN server_mesh m ON m.server_id = s.id
-		WHERE m.revoked_at IS NULL AND m.connected = TRUE
-		  AND s.base_url IS NOT NULL AND s.base_url != ''
-		  AND m.peer_key_ack IS DISTINCT FROM $1
-	`, keyID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var peers []PeerServer
-	for rows.Next() {
-		var p PeerServer
-		if err := rows.Scan(&p.ID, &p.BaseURL); err != nil {
-			return nil, err
-		}
-		peers = append(peers, p)
-	}
-	return peers, rows.Err()
-}
-
-// SetPeerKeyAck records that a peer accepted keyID.
-func (s *DataService) SetPeerKeyAck(ctx context.Context, peerServerID, keyID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE server_mesh SET peer_key_ack = $2 WHERE server_id = $1`, peerServerID, keyID)
-	return err
-}
-
 // HasServerKeyRevocations reports whether this server has ever replaced a key.
 func (s *DataService) HasServerKeyRevocations(ctx context.Context) (bool, error) {
 	var exists bool
@@ -4295,7 +4264,7 @@ func (s *DataService) ApproveFederationAttempt(
 		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE, key_id = EXCLUDED.key_id,
 			invited_by = EXCLUDED.invited_by, invited_at = EXCLUDED.invited_at,
 			approved_by = EXCLUDED.approved_by, approved_at = EXCLUDED.approved_at,
-			peer_approved_at = NULL, peer_key_ack = NULL,
+			peer_approved_at = NULL,
 			revoked_at = NULL, revoked_by = NULL, revoked_reason = NULL,
 			disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL,
 			down_at = NULL, purged_at = NULL
@@ -10233,44 +10202,6 @@ type peerEvent struct {
 	SubjectID string
 	ObjectID  string
 	BaseURL   string
-}
-
-// enqueuePeerEventTx owes kind about subject to every peer not revoked,
-// down ones included.
-func enqueuePeerEventTx(ctx context.Context, q adminQuerier, kind, subjectID string) error {
-	_, err := q.ExecContext(ctx, `
-		INSERT INTO peer_event_queue (server_id, kind, subject_id)
-		SELECT server_id, $1, $2 FROM server_mesh WHERE revoked_at IS NULL
-		ON CONFLICT DO NOTHING
-	`, kind, subjectID)
-	return err
-}
-
-// enqueuePublishedRemovalTx owes every peer the removal of reedID when it
-// is a reed published here: peers never heard of any other.
-func enqueuePublishedRemovalTx(ctx context.Context, q adminQuerier, kind, reedID string) error {
-	_, err := q.ExecContext(ctx, `
-		INSERT INTO peer_event_queue (server_id, kind, subject_id)
-		SELECT m.server_id, $1, $2::varchar FROM server_mesh m
-		WHERE m.revoked_at IS NULL
-		  AND EXISTS (SELECT 1 FROM reeds r WHERE r.id = $2::varchar AND r.published_at IS NOT NULL)
-		ON CONFLICT DO NOTHING
-	`, kind, reedID)
-	return err
-}
-
-// enqueuePeerEventForTx owes kind about the (subject, object) pair to
-// serverID alone, unless it is revoked or not a peer. The pair's state is
-// read when it's sent, so one already waiting just moves to the back:
-// a drain answering the old id then leaves it queued.
-func enqueuePeerEventForTx(ctx context.Context, q adminQuerier, serverID, kind, subjectID, objectID string) error {
-	_, err := q.ExecContext(ctx, `
-		INSERT INTO peer_event_queue (server_id, kind, subject_id, object_id)
-		SELECT server_id, $2, $3, $4 FROM server_mesh WHERE server_id = $1 AND revoked_at IS NULL
-		ON CONFLICT (server_id, kind, subject_id, object_id)
-		DO UPDATE SET id = nextval(pg_get_serial_sequence('peer_event_queue', 'id'))
-	`, serverID, kind, subjectID, objectID)
-	return err
 }
 
 // ClaimPeerEvents takes peerID's queue for one drain. It fails while the
