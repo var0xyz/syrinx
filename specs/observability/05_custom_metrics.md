@@ -103,6 +103,7 @@ stream as host metrics today.
 | `syrinx.devices.bound` | Counter | `BindDevice` or account-recovery bootstrap | — |
 | `syrinx.account_recovery` | Counter | Challenge issued, bootstrap attempted | `stage`, `ok`, `reason` |
 | `syrinx.server_recovery` | Counter | `/recovery/*` handlers (`RECOVERY_MODE`) | `stage`, `ok` |
+| `syrinx.server_recovery.records` | Counter | Each record a device reports back, parked ones again when woken | `recovery.mode`, `record.kind`, `outcome` (`stored`/`pending`/`refused`/`dropped`/`error`), `drop.reason` |
 | `syrinx.mailbox` | Counter | Mailbox message sent or acked | `op`, `kind` (send only) |
 | `syrinx.search.users` | Counter | Local search, or a peer's fan-out | `remote` |
 

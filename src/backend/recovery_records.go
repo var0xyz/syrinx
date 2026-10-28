@@ -39,6 +39,12 @@ type recoveryRefusal struct{ reason string }
 
 func (r recoveryRefusal) Error() string { return r.reason }
 
+// recoveryDrop is a record taken but not kept, so the device won't report
+// it again.
+type recoveryDrop struct{ reason string }
+
+func (d recoveryDrop) Error() string { return "dropped: " + d.reason }
+
 func refuseRecord(format string, args ...any) error {
 	return recoveryRefusal{reason: fmt.Sprintf(format, args...)}
 }
@@ -65,6 +71,8 @@ type recoveryRecordEnv struct {
 	// lockdown is RECOVERY_MODE=lockdown: flags from before the wipe are
 	// still restored, frozen; past it they are dropped.
 	lockdown bool
+	// observe counts each record by kind and outcome, and why it was dropped.
+	observe func(ctx context.Context, kind, outcome, dropReason string)
 }
 
 func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
@@ -98,34 +106,56 @@ func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
 // restoreRecord restores msg, or parks it when it names something not
 // restored yet. Waking what a stored record unblocks is wake's job.
 func (env *recoveryRecordEnv) restoreRecord(ctx context.Context, msg *pb.RecoveryRecord) (status, reason string, err error) {
+	status, reason, dropped, err := env.tryRestoreRecord(ctx, msg)
+	if env.observe != nil {
+		outcome := status
+		switch {
+		case err != nil:
+			outcome = "error"
+		case dropped != "":
+			outcome = "dropped"
+		}
+		kind := "unknown"
+		if f := msg.ProtoReflect().WhichOneof(msg.ProtoReflect().Descriptor().Oneofs().ByName("record")); f != nil {
+			kind = string(f.Name())
+		}
+		env.observe(ctx, kind, outcome, dropped)
+	}
+	return status, reason, err
+}
+
+func (env *recoveryRecordEnv) tryRestoreRecord(ctx context.Context, msg *pb.RecoveryRecord) (status, reason, dropped string, err error) {
 	rec, err := recoveredRecordOf(msg)
 	if err != nil {
-		return recoveryRecordRefused, err.Error(), nil
+		return recoveryRecordRefused, err.Error(), "", nil
 	}
 	tx, err := env.db.BeginTx(ctx, nil)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	defer tx.Rollback()
 	err = rec.restore(ctx, tx, env)
 	var waiting recoveryWaiting
 	var refusal recoveryRefusal
+	var drop recoveryDrop
 	switch {
 	case errors.As(err, &waiting):
 		tx.Rollback()
-		return recoveryRecordPending, waiting.Error(), env.park(ctx, waiting.on, msg)
+		return recoveryRecordPending, waiting.Error(), "", env.park(ctx, waiting.on, msg)
 	case errors.As(err, &refusal):
-		return recoveryRecordRefused, refusal.reason, nil
+		return recoveryRecordRefused, refusal.reason, "", nil
+	case errors.As(err, &drop):
+		return recoveryRecordStored, "", drop.reason, nil
 	case err != nil:
-		return "", "", err
+		return "", "", "", err
 	}
 	if err := tx.Commit(); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if entry, ok := rec.(recoveredLedgerEntry); ok {
-		return recoveryRecordStored, "", env.wake(ctx, ledgerWaitKey(entry.GetId()))
+		return recoveryRecordStored, "", "", env.wake(ctx, ledgerWaitKey(entry.GetId()))
 	}
-	return recoveryRecordStored, "", nil
+	return recoveryRecordStored, "", "", nil
 }
 
 // park keeps msg until on is restored. Identical copies park once.
@@ -902,7 +932,7 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 		return "", err
 	}
 	if !env.lockdown {
-		return author, nil
+		return "", recoveryDrop{"not_lockdown"}
 	}
 	if author == f.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(f.Note) > maxFlagNoteChars || f.CaseID == "" {
 		return "", refuseRecord("flag on %s isn't one this server takes", f.ReedID)
@@ -958,8 +988,11 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 	}
 	if gone && d == nil {
 		dismissed, err := existsTx(ctx, tx, `SELECT 1 FROM flag_cases WHERE id = $1 AND dismissed_at IS NOT NULL`, f.CaseID)
-		if err != nil || !dismissed {
-			return author, err
+		if err != nil {
+			return "", err
+		}
+		if !dismissed {
+			return "", recoveryDrop{"reporter_removed"}
 		}
 	}
 
