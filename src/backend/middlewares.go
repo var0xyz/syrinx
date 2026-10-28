@@ -317,7 +317,7 @@ func (h *Handlers) authenticateAsPeer(w http.ResponseWriter, r *http.Request, ne
 // recordPeerApproval notes that serverID approved us: a peer can only sign
 // requests to us once it has, since it only signs to peers it approved.
 func (h *Handlers) recordPeerApproval(ctx context.Context, serverID string) {
-	if err := h.services.db.MarkPeerApproved(ctx, serverID); err != nil {
+	if err := h.services.db.MarkPeerApproved(ctx, serverID, h.signerFor(ctx)); err != nil {
 		h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", serverID).Msg("failed to record peer approval")
 	}
 }

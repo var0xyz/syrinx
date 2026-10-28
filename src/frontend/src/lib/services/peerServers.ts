@@ -1,5 +1,17 @@
 import { federatedServersRepository } from '$lib/repositories/federatedServers';
+import type { FederatedServer } from '$lib/types/server';
 import { parseCanonicalId } from '$lib/utils/identityRef';
+
+/** Where a peering stands, from its signed record. */
+export function peerStatus(peer: FederatedServer): 'connected' | 'revoked' | 'purged' {
+  if (peer.purgedAt) return 'purged';
+  return peer.revokedAt ? 'revoked' : 'connected';
+}
+
+/** Connected and approved by both servers. */
+export function isEstablished(peer: FederatedServer): boolean {
+  return peerStatus(peer) === 'connected' && !!peer.peerApprovedAt;
+}
 
 /** The server a user lives on, or null when it is this server. */
 export function foreignServerOf(userID: string): string | null {

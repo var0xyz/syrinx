@@ -211,7 +211,7 @@ func TestPeerEventQueue_SlowPeerDelaysOnlyItself(t *testing.T) {
 func TestPeerEventQueue_RevokeAndPurgeEmptyIt(t *testing.T) {
 	f := newQueueFixture(t)
 	f.enqueue(t, "one")
-	if err := f.h.services.db.RevokeFederationServer(context.Background(), deliveryPeerID, nil, "bye", time.Now()); err != nil {
+	if err := f.h.services.db.RevokeFederationServer(context.Background(), deliveryPeerID, nil, "bye", time.Now(), fakePeeringSigner); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 	f.enqueue(t, "two")

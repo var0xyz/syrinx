@@ -103,7 +103,7 @@ func peerTestMesh(t testing.TB, db *sql.DB, serverID string) {
 	if _, err := db.Exec(`
 		INSERT INTO server_mesh (server_id, approved_at, peer_approved_at)
 		VALUES ($1, NOW() - INTERVAL '1 hour', NOW())
-		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE,
+		ON CONFLICT (server_id) DO UPDATE SET revoked_at = NULL,
 			approved_at = COALESCE(server_mesh.approved_at, EXCLUDED.approved_at),
 			peer_approved_at = COALESCE(server_mesh.peer_approved_at, EXCLUDED.peer_approved_at)
 	`, serverID); err != nil {

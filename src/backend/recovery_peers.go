@@ -64,9 +64,12 @@ func (h *Handlers) restorePeerRecord(ctx context.Context, rec *pb.FederatedServe
 	if !ok || sigServerID != self || sig.GetArmor() == "" || sig.GetSignedAt() == 0 {
 		return "not countersigned by this server", nil
 	}
-	status := rec.GetStatus()
-	if rec.GetId() == "" || rec.GetId() == self || (status != peerRecordConnected && status != peerRecordRevoked && status != peerRecordPurged) {
+	if rec.GetId() == "" || rec.GetId() == self {
 		return "not a peer record", nil
+	}
+	p := peeringFromPB(rec)
+	if p.PurgedAt != nil && p.RevokedAt == nil {
+		return "a purged peering that was never revoked", nil
 	}
 	signedAt := timeFromUnix(sig.GetSignedAt())
 	armor, err := h.services.db.GetServerKeyArmorAt(ctx, fp, signedAt)
@@ -76,7 +79,7 @@ func (h *Handlers) restorePeerRecord(ctx context.Context, rec *pb.FederatedServe
 	if armor == "" {
 		return "unknown server key " + fp, nil
 	}
-	payload := buildPeerRecordPayload(self, rec.GetId(), rec.GetName(), rec.GetKeyId(), rec.GetBaseUrl(), rec.GetFrontendUrl(), status, signedAt)
+	payload := buildPeerRecordPayload(self, p, signedAt)
 	if err := h.services.crypto.verifySignature(ctx, string(payload), sig.GetArmor(), armor); err != nil {
 		return "bad countersignature", nil
 	}
@@ -104,16 +107,13 @@ func (h *Handlers) restorePeerRecord(ctx context.Context, rec *pb.FederatedServe
 	if err != nil {
 		return "", err
 	}
-	srv := FederatedServerInfo{
-		ID: rec.GetId(), Name: rec.GetName(), KeyID: rec.GetKeyId(),
-		BaseURL: rec.GetBaseUrl(), FrontendURL: rec.GetFrontendUrl(), Revoked: status != peerRecordConnected, Purged: status == peerRecordPurged,
-	}
 	return "", h.services.db.RestorePeer(ctx, restoredPeer{
-		FederatedServerInfo: srv,
-		KeyArmor:            keyArmor,
-		KeySignature:        keySig,
-		Record:              ServerSignature{ID: sig.GetId(), Armor: sig.GetArmor(), SignedAt: signedAt},
-		RecordFields:        srv.recordFields(),
+		FederatedServerInfo: FederatedServerInfo{
+			peering:         p,
+			KeyArmor:        keyArmor,
+			ServerSignature: ServerSignature{ID: sig.GetId(), Armor: sig.GetArmor(), SignedAt: signedAt},
+		},
+		KeySignature: keySig,
 	})
 }
 
@@ -251,15 +251,12 @@ func savePeerRecoveryReed(ctx context.Context, db *sql.DB, selfID, peerID string
 // here as approval does.
 type restoredPeer struct {
 	FederatedServerInfo
-	KeyArmor     string
 	KeySignature ServerSignature
-	Record       ServerSignature
-	RecordFields string
 }
 
-// RestorePeer stores p unless a record of the peer signed at the same time
-// or later is already held. A restored peer's delivery starts now: nothing
-// from before the wipe is sent again.
+// RestorePeer stores p's peering as signed, with its signature, unless one
+// signed at the same time or later is already held. A restored peer's
+// event queue starts empty: nothing from before the wipe is sent again.
 func (s *DataService) RestorePeer(ctx context.Context, p restoredPeer) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -270,25 +267,25 @@ func (s *DataService) RestorePeer(ctx context.Context, p restoredPeer) error {
 	var heldSigID sql.NullInt64
 	var heldAt sql.NullTime
 	err = tx.QueryRowContext(ctx, `
-		SELECT m.record_signature_id, ss.signed_at
+		SELECT m.server_signature_id, ss.signed_at
 		FROM server_mesh m
-		LEFT JOIN server_signatures ss ON ss.id = m.record_signature_id
+		LEFT JOIN server_signatures ss ON ss.id = m.server_signature_id
 		WHERE m.server_id = $1
 		FOR UPDATE OF m
-	`, p.ID).Scan(&heldSigID, &heldAt)
+	`, p.PeerID).Scan(&heldSigID, &heldAt)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if heldAt.Valid && !p.Record.SignedAt.After(heldAt.Time.UTC()) {
+	if heldAt.Valid && !p.ServerSignature.SignedAt.After(heldAt.Time.UTC()) {
 		return tx.Commit()
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, base_url, frontend_url)
-		VALUES ($1, $2, FALSE, $3, $4)
+		VALUES ($1, $2, FALSE, NULLIF($3, ''), $4)
 		ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name,
 			base_url = EXCLUDED.base_url, frontend_url = EXCLUDED.frontend_url
-	`, p.ID, p.Name, p.BaseURL, p.FrontendURL); err != nil {
+	`, p.PeerID, p.Name, p.BaseURL, p.FrontendURL); err != nil {
 		return fmt.Errorf("restore peer server: %w", err)
 	}
 	var keyHeld bool
@@ -308,25 +305,31 @@ func (s *DataService) RestorePeer(ctx context.Context, p restoredPeer) error {
 		}
 	}
 
-	recordSigID, err := insertServerSignature(ctx, tx, p.Record.ID, p.Record.Armor, p.Record.SignedAt)
+	sigID, err := insertServerSignature(ctx, tx, p.ServerSignature.ID, p.ServerSignature.Armor, p.ServerSignature.SignedAt)
 	if err != nil {
 		return err
 	}
-	var revokedAt, purgedAt sql.NullTime
-	if p.Revoked {
-		revokedAt = sql.NullTime{Time: p.Record.SignedAt, Valid: true}
-	}
-	if p.Purged {
-		purgedAt = revokedAt
-	}
+	r := p.peering
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO server_mesh (server_id, key_id, approved_at, peer_approved_at, revoked_at, purged_at, record_signature_id, record_fields)
-		VALUES ($1, $6, CURRENT_TIMESTAMP, CASE WHEN $2::timestamp IS NULL THEN CURRENT_TIMESTAMP END, $2, $5, $3, $4)
-		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE, key_id = EXCLUDED.key_id,
-			revoked_at = EXCLUDED.revoked_at, revoked_by = NULL, revoked_reason = NULL, purged_at = EXCLUDED.purged_at,
-			peer_approved_at = COALESCE(server_mesh.peer_approved_at, EXCLUDED.peer_approved_at),
-			record_signature_id = EXCLUDED.record_signature_id, record_fields = EXCLUDED.record_fields
-	`, p.ID, revokedAt, recordSigID, p.RecordFields, purgedAt, p.KeyID); err != nil {
+		INSERT INTO server_mesh (server_id, key_id, invited_by, invited_at, approved_by, approved_at,
+			peer_approved_at, disconnect_requested_by, disconnect_requested_at, disconnect_reason,
+			revoked_by, revoked_at, revoked_reason, purged_at, server_signature_id)
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6,
+			$7, NULLIF($8, ''), $9, NULLIF($10, ''),
+			NULLIF($11, ''), $12, NULLIF($13, ''), $14, $15)
+		ON CONFLICT (server_id) DO UPDATE SET key_id = EXCLUDED.key_id,
+			invited_by = EXCLUDED.invited_by, invited_at = EXCLUDED.invited_at,
+			approved_by = EXCLUDED.approved_by, approved_at = EXCLUDED.approved_at,
+			peer_approved_at = EXCLUDED.peer_approved_at,
+			disconnect_requested_by = EXCLUDED.disconnect_requested_by,
+			disconnect_requested_at = EXCLUDED.disconnect_requested_at,
+			disconnect_reason = EXCLUDED.disconnect_reason,
+			revoked_by = EXCLUDED.revoked_by, revoked_at = EXCLUDED.revoked_at,
+			revoked_reason = EXCLUDED.revoked_reason, purged_at = EXCLUDED.purged_at,
+			server_signature_id = EXCLUDED.server_signature_id
+	`, r.PeerID, r.KeyID, r.InvitedBy, r.InvitedAt, r.ApprovedBy, r.ApprovedAt,
+		r.PeerApprovedAt, r.DisconnectRequestedBy, r.DisconnectRequestedAt, r.DisconnectReason,
+		r.RevokedBy, r.RevokedAt, r.RevokedReason, r.PurgedAt, sigID); err != nil {
 		return fmt.Errorf("restore peering: %w", err)
 	}
 	if heldSigID.Valid {

@@ -31,7 +31,7 @@ Each table below has a **Status** column per step. Values:
 | Ripples               | Implemented | —                                                      |
 | Notifications         | In progress | 01 (`@everyone` handle)                                |
 | Load testing          | Proposed    | 00–03                                                  |
-| Federation            | In progress | 11 (07 out of scope by design)                         |
+| Federation            | Implemented | — (07 out of scope by design)                          |
 | Protobuf wire         | Implemented | —                                                      |
 | Depackaging           | Implemented | —                                                      |
 | Publish ready         | Implemented | —                                                      |
@@ -297,7 +297,7 @@ table is just the rollup.
 | 06  | Cross-instance content relay                     | Implemented, via a per-operation "leg" pattern (`federation_relay.go`) instead of this doc's generic relay endpoints                                                                                    |
 | 07  | Server presence + durable event delivery         | Out of scope for v1 by design: fire-and-forget notifies, no presence or backlog |
 | 10  | One event queue per peer                         | Implemented |
-| 11  | The peering is the signed record                 | Proposed |
+| 11  | The peering is the signed record                 | Implemented |
 
 Beyond this doc set's original scope, `federation_relay.go` also covers
 mentions, federated user search, reed-stats/like-count propagation, account

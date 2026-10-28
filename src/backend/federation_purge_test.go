@@ -29,17 +29,17 @@ func TestPurgeKeepsTheRevokedRecord(t *testing.T) {
 	insertTeardownIdentity(t, db, string(canonicalID(teardownPeerID, "bob")), teardownPeerID)
 	peer := federationPeer{ServerID: teardownPeerID, ServerName: teardownPeerID, BaseURL: "https://peer.example", FrontendURL: "https://peer.example", Fingerprint: fp, PublicKeyArmor: "armor"}
 
-	if err := ds.PurgeFederationServer(ctx, teardownPeerID); !errors.Is(err, errFederationServerNotRevoked) {
+	if err := ds.PurgeFederationServer(ctx, teardownPeerID, fakePeeringSigner); !errors.Is(err, errFederationServerNotRevoked) {
 		t.Fatalf("purge of a live peer = %v, want not revoked", err)
 	}
-	if err := ds.RevokeFederationServer(ctx, teardownPeerID, nil, "gone", time.Now()); err != nil {
+	if err := ds.RevokeFederationServer(ctx, teardownPeerID, nil, "gone", time.Now(), fakePeeringSigner); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ds.CreateFederationAttempt(ctx, peer, time.Now()); !errors.Is(err, errFederationServerAlreadyKnown) {
 		t.Fatalf("handshake with a revoked, unpurged peer = %v, want already known", err)
 	}
 
-	if err := ds.PurgeFederationServer(ctx, teardownPeerID); err != nil {
+	if err := ds.PurgeFederationServer(ctx, teardownPeerID, fakePeeringSigner); err != nil {
 		t.Fatal(err)
 	}
 	var identities int

@@ -412,26 +412,60 @@ func buildServerKeyRevocationPayload(
 // server knew about a peer when it signed it.
 const identityTypePeerRecord = "peer-record"
 
-// A peer record's status.
-const (
-	peerRecordConnected = "connected"
-	peerRecordRevoked   = "revoked"
-	peerRecordPurged    = "purged"
-)
+// peering is what this server signs about a peer: the peer itself and every
+// decision made about the connection. Live state (down_at) isn't in it.
+type peering struct {
+	PeerID                string
+	Name                  string
+	BaseURL               string
+	FrontendURL           string
+	KeyID                 string
+	InvitedBy             string
+	InvitedAt             *time.Time
+	ApprovedBy            string
+	ApprovedAt            *time.Time
+	PeerApprovedAt        *time.Time
+	DisconnectRequestedBy string
+	DisconnectRequestedAt *time.Time
+	DisconnectReason      string
+	RevokedBy             string
+	RevokedAt             *time.Time
+	RevokedReason         string
+	PurgedAt              *time.Time
+}
+
+// signedTimeOrAbsent is signedTime, or "" (dropped from the payload) for nil.
+func signedTimeOrAbsent(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return signedTime(*t)
+}
 
 // buildPeerRecordPayload returns the bytes this server countersigns for a
-// peer. Mirrored by buildPeerRecordPayload in signing.ts.
-func buildPeerRecordPayload(serverID, peerID, name, keyID, baseURL, frontendURL, status string, signedAt time.Time) []byte {
+// peering. Mirrored by buildPeerRecordPayload in signing.ts.
+func buildPeerRecordPayload(serverID string, p peering, signedAt time.Time) []byte {
 	return canonicalJSON(signedFields{
-		"type":        identityTypePeerRecord,
-		"serverID":    serverID,
-		"peerID":      peerID,
-		"name":        name,
-		"keyID":       keyID,
-		"baseURL":     baseURL,
-		"frontendURL": frontendURL,
-		"status":      status,
-		"signedAt":    signedTime(signedAt),
+		"type":                  identityTypePeerRecord,
+		"serverID":              serverID,
+		"peerID":                p.PeerID,
+		"name":                  p.Name,
+		"baseURL":               p.BaseURL,
+		"frontendURL":           p.FrontendURL,
+		"keyID":                 p.KeyID,
+		"invitedBy":             p.InvitedBy,
+		"invitedAt":             signedTimeOrAbsent(p.InvitedAt),
+		"approvedBy":            p.ApprovedBy,
+		"approvedAt":            signedTimeOrAbsent(p.ApprovedAt),
+		"peerApprovedAt":        signedTimeOrAbsent(p.PeerApprovedAt),
+		"disconnectRequestedBy": p.DisconnectRequestedBy,
+		"disconnectRequestedAt": signedTimeOrAbsent(p.DisconnectRequestedAt),
+		"disconnectReason":      p.DisconnectReason,
+		"revokedBy":             p.RevokedBy,
+		"revokedAt":             signedTimeOrAbsent(p.RevokedAt),
+		"revokedReason":         p.RevokedReason,
+		"purgedAt":              signedTimeOrAbsent(p.PurgedAt),
+		"signedAt":              signedTime(signedAt),
 	})
 }
 

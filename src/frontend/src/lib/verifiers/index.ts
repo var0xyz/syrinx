@@ -293,14 +293,28 @@ async function isKeyValidAt(
 export async function verifyPeerRecord(record: FederatedServer): Promise<boolean> {
   const serverID = localStorage.getItem('serverId');
   if (!serverID || !record.serverSignature?.signedAt) return false;
+  const at = (s: number) => (s ? signedAtHeader(s) : '');
   const payload = buildPeerRecordPayload(
     serverID,
-    record.id,
-    record.name,
-    record.keyId,
-    record.baseUrl,
-    record.frontendUrl,
-    record.status,
+    {
+      peerID: record.id,
+      name: record.name,
+      baseURL: record.baseUrl,
+      frontendURL: record.frontendUrl,
+      keyID: record.keyId,
+      invitedBy: record.invitedBy,
+      invitedAt: at(record.invitedAt),
+      approvedBy: record.approvedBy,
+      approvedAt: at(record.approvedAt),
+      peerApprovedAt: at(record.peerApprovedAt),
+      disconnectRequestedBy: record.disconnectRequestedBy,
+      disconnectRequestedAt: at(record.disconnectRequestedAt),
+      disconnectReason: record.disconnectReason,
+      revokedBy: record.revokedBy,
+      revokedAt: at(record.revokedAt),
+      revokedReason: record.revokedReason,
+      purgedAt: at(record.purgedAt),
+    },
     signedAtHeader(record.serverSignature.signedAt)
   );
   const result = await verify(record.serverSignature, payload);

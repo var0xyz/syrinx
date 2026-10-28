@@ -84,38 +84,73 @@ type Handlers struct {
 // FederatedServerInfo is one established peer as /server/info lists it.
 // FrontendURL is where its users open links, as agreed in the handshake.
 type FederatedServerInfo struct {
-	ID           string
-	Name         string
-	KeyID        string
-	CreatedAt    time.Time
-	BaseURL      string
-	FrontendURL  string
-	Revoked      bool
-	Purged       bool
-	Established  bool
-	KeyArmor     string
-	Record       ServerSignature
-	RecordFields string
+	peering
+	KeyArmor        string
+	ServerSignature ServerSignature
 }
 
-// status is what a peer record says about the peering.
-func (srv FederatedServerInfo) status() string {
-	if srv.Purged {
-		return peerRecordPurged
+// unixOrZeroAt is unixOrZero for an optional time.
+func unixOrZeroAt(t *time.Time) uint32 {
+	if t == nil {
+		return 0
 	}
-	if srv.Revoked {
-		return peerRecordRevoked
-	}
-	return peerRecordConnected
+	return unixOrZero(*t)
 }
 
-// recordFields is what a peer record covers, without its timestamp: when it
-// changes, the record is signed again.
-func (srv FederatedServerInfo) recordFields() string {
-	return string(canonicalJSON(signedFields{
-		"peerID": srv.ID, "name": srv.Name, "keyID": srv.KeyID,
-		"baseURL": srv.BaseURL, "frontendURL": srv.FrontendURL, "status": srv.status(),
-	}))
+// timeAtOrNil is timeFromUnix for an optional time: nil for 0.
+func timeAtOrNil(s uint32) *time.Time {
+	if s == 0 {
+		return nil
+	}
+	t := timeFromUnix(s)
+	return &t
+}
+
+func pbFederatedServerInfo(srv FederatedServerInfo) *pb.FederatedServerInfo {
+	p := srv.peering
+	return &pb.FederatedServerInfo{
+		Id:                    p.PeerID,
+		Name:                  p.Name,
+		KeyId:                 p.KeyID,
+		BaseUrl:               p.BaseURL,
+		FrontendUrl:           p.FrontendURL,
+		InvitedBy:             p.InvitedBy,
+		InvitedAt:             unixOrZeroAt(p.InvitedAt),
+		ApprovedBy:            p.ApprovedBy,
+		ApprovedAt:            unixOrZeroAt(p.ApprovedAt),
+		PeerApprovedAt:        unixOrZeroAt(p.PeerApprovedAt),
+		DisconnectRequestedBy: p.DisconnectRequestedBy,
+		DisconnectRequestedAt: unixOrZeroAt(p.DisconnectRequestedAt),
+		DisconnectReason:      p.DisconnectReason,
+		RevokedBy:             p.RevokedBy,
+		RevokedAt:             unixOrZeroAt(p.RevokedAt),
+		RevokedReason:         p.RevokedReason,
+		PurgedAt:              unixOrZeroAt(p.PurgedAt),
+		ServerSignature:       pbServerSignature(srv.ServerSignature),
+		KeyArmor:              srv.KeyArmor,
+	}
+}
+
+func peeringFromPB(m *pb.FederatedServerInfo) peering {
+	return peering{
+		PeerID:                m.GetId(),
+		Name:                  m.GetName(),
+		BaseURL:               m.GetBaseUrl(),
+		FrontendURL:           m.GetFrontendUrl(),
+		KeyID:                 m.GetKeyId(),
+		InvitedBy:             m.GetInvitedBy(),
+		InvitedAt:             timeAtOrNil(m.GetInvitedAt()),
+		ApprovedBy:            m.GetApprovedBy(),
+		ApprovedAt:            timeAtOrNil(m.GetApprovedAt()),
+		PeerApprovedAt:        timeAtOrNil(m.GetPeerApprovedAt()),
+		DisconnectRequestedBy: m.GetDisconnectRequestedBy(),
+		DisconnectRequestedAt: timeAtOrNil(m.GetDisconnectRequestedAt()),
+		DisconnectReason:      m.GetDisconnectReason(),
+		RevokedBy:             m.GetRevokedBy(),
+		RevokedAt:             timeAtOrNil(m.GetRevokedAt()),
+		RevokedReason:         m.GetRevokedReason(),
+		PurgedAt:              timeAtOrNil(m.GetPurgedAt()),
+	}
 }
 
 // ///////////// //
@@ -203,44 +238,9 @@ func (h *Handlers) GetServerInfo(w http.ResponseWriter, r *http.Request) {
 		ServerKeyId:       string(canonicalID(h.services.db.GetServerID(), h.signingKey.Fingerprint)),
 	}
 	for _, srv := range federation {
-		record, err := h.currentPeerRecord(r.Context(), srv)
-		if err != nil {
-			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("peerServerID", srv.ID).Msg("Failed to sign peer record")
-			continue
-		}
-		info.Federation = append(info.Federation, &pb.FederatedServerInfo{
-			Id:              srv.ID,
-			Name:            srv.Name,
-			KeyId:           srv.KeyID,
-			CreatedAt:       unixOrZero(srv.CreatedAt),
-			FrontendUrl:     srv.FrontendURL,
-			BaseUrl:         srv.BaseURL,
-			Status:          srv.status(),
-			Established:     srv.Established,
-			ServerSignature: pbServerSignature(record),
-			KeyArmor:        srv.KeyArmor,
-		})
+		info.Federation = append(info.Federation, pbFederatedServerInfo(srv))
 	}
 	writeResponse(w, http.StatusOK, info)
-}
-
-// currentPeerRecord returns the record countersigned for srv, signing a new
-// one first when what it covers changed since the last.
-func (h *Handlers) currentPeerRecord(ctx context.Context, srv FederatedServerInfo) (ServerSignature, error) {
-	fields := srv.recordFields()
-	if srv.Record.Armor != "" && srv.RecordFields == fields {
-		return srv.Record, nil
-	}
-	now := time.Now().UTC().Truncate(time.Second)
-	payload := buildPeerRecordPayload(h.services.db.GetServerID(), srv.ID, srv.Name, srv.KeyID, srv.BaseURL, srv.FrontendURL, srv.status(), now)
-	sig, err := h.countersign(ctx, payload, now)
-	if err != nil {
-		return ServerSignature{}, err
-	}
-	if err := h.services.db.SetPeerRecord(ctx, srv.ID, fields, sig); err != nil {
-		return ServerSignature{}, err
-	}
-	return sig, nil
 }
 
 // GetServerPublicKey returns the armored public half of a server signing
@@ -5122,7 +5122,7 @@ func (h *Handlers) RequestFederationServerDisconnect(w http.ResponseWriter, r *h
 		return
 	}
 
-	err := h.services.db.RequestFederationServerDisconnect(r.Context(), serverID, caller, reason, time.Now().UTC().Truncate(time.Second))
+	err := h.services.db.RequestFederationServerDisconnect(r.Context(), serverID, caller, reason, time.Now().UTC().Truncate(time.Second), h.signerFor(r.Context()))
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
 		writeError(w, http.StatusNotFound, "Server not found")
@@ -5167,7 +5167,7 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 
 	entry := &ledgerEntry{Kind: ledgerKindMesh, UserID: caller, Message: fmt.Sprintf("Disconnected from %s", serverID)}
 	reason, err := h.services.db.ConfirmFederationServerDisconnect(r.Context(), serverID, caller, time.Now().UTC().Truncate(time.Second), callerIsRoot,
-		func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) })
+		h.signerFor(r.Context()), func(tx *sql.Tx) error { return h.appendLedgerTx(r.Context(), tx, entry) })
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
 		writeError(w, http.StatusNotFound, "Server not found")
@@ -5217,7 +5217,7 @@ func (h *Handlers) CancelFederationServerDisconnect(w http.ResponseWriter, r *ht
 		return
 	}
 
-	err := h.services.db.CancelFederationServerDisconnect(r.Context(), serverID)
+	err := h.services.db.CancelFederationServerDisconnect(r.Context(), serverID, h.signerFor(r.Context()))
 	switch {
 	case errors.Is(err, errFederationDisconnectNotRequested):
 		writeError(w, http.StatusConflict, "No disconnect request is pending for this server")
@@ -5257,7 +5257,7 @@ func (h *Handlers) PurgeFederationServer(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	err = h.services.db.PurgeFederationServer(r.Context(), serverID)
+	err = h.services.db.PurgeFederationServer(r.Context(), serverID, h.signerFor(r.Context()))
 	switch {
 	case errors.Is(err, errFederationServerNotFound):
 		writeError(w, http.StatusNotFound, "Server not found")

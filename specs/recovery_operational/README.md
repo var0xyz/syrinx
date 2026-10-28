@@ -183,35 +183,40 @@ non-removed account); an anonymous request gets the rest of
 `/server/info` and an empty `federation`. The SPA signs the fetch whenever
 it has an active key. Same endpoint, no separate route:
 
+The record is the whole peering
+([federation 11](../federation/11_peering_record.md)): the peer, its key and
+URLs, and every decision about the connection, who made it, when and why.
+
 ```
-serverID, peerID, name, keyID, baseURL, frontendURL,
-status: connected | revoked | purged, signedAt
+serverID, peerID, name, baseURL, frontendURL, keyID,
+invitedBy, invitedAt, approvedBy, approvedAt, peerApprovedAt,
+disconnectRequestedBy, disconnectRequestedAt, disconnectReason,
+revokedBy, revokedAt, revokedReason, purgedAt, signedAt
 ```
 
 A peer's row is never deleted, so a purged peer keeps being listed: its
-`purged` record is what certifies that nothing of it is held anymore.
-A new record is signed whenever one of those fields changes: approval,
-revocation, a purge, a peer key rotation, a URL or name change. `/server/info`
-compares what the stored record covers (`server_mesh.record_fields`) with
-the peer's current state and signs again only on a difference, so every
-change is covered without a hook at each one; the replaced signature row is
-deleted. Payload builder in `identity.go`, mirrored in `signing.ts`, through
-`canonicalJSON`, with golden bytes in `peer_record_payload_test.go` and
-`test:peer-record-payload`.
+record with `purgedAt` is what certifies that nothing of it is held
+anymore. Every write to one of those fields signs the peering again in its
+own transaction (`server_mesh.server_signature_id`), and `/server/info`
+only returns what is stored. Payload builder in `identity.go`, mirrored in
+`signing.ts`, through `canonicalJSON`, with golden bytes in
+`peer_record_payload_test.go` and `test:peer-record-payload`.
 
-Next to the record go two unsigned fields: `established` (approved on both
-sides), and the peer's server key armor, which the SPA keeps only when its
-fingerprint is the signed `keyID`'s.
+Next to the record goes the peer's server key armor, unsigned, which the
+SPA keeps only when its fingerprint is the signed `keyID`'s.
 
 The SPA verifies each record before storing it in `federatedServers` and
 keeps the newest per peer. It never deletes one: a rebuilt server lists
 nothing until devices report back. Picking where a verification link opens
-filters to `connected` and `established`.
+filters to peerings neither revoked nor purged that the peer approved too.
 
 A revoked record is never removed, purge included, until a new connection
 with that peer replaces it. There is no record for "no peer", so this keeps
 something to report: a device that saw the revocation reports it, and it
 beats the older `connected` most devices hold.
+
+Recovery writes every field back as signed, `approvedAt` included: delivery
+to a peer starts from its event queue, which a rebuilt server holds empty.
 
 When no device saw it, recovery restores the peer as connected. That is
 harmless: the revocation was sent to the peer, which revoked back

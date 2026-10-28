@@ -18,6 +18,7 @@
   import QRCodeModal from '$lib/components/QRCodeModal.svelte';
   import VouchServerPicker from '$lib/components/VouchServerPicker.svelte';
   import { federatedServersRepository } from '$lib/repositories/federatedServers';
+  import { isEstablished } from '$lib/services/peerServers';
   import TrustSection from '$lib/components/TrustSection.svelte';
   import TrustMark from '$lib/components/TrustMark.svelte';
   import { vouchLinkFor } from '$lib/services/vouchVerify';
@@ -75,7 +76,7 @@
     };
     let peers = [];
     try {
-      peers = (await federatedServersRepository.all()).filter((peer) => peer.status === 'connected' && peer.established);
+      peers = (await federatedServersRepository.all()).filter(isEstablished);
     } catch (error) {
       console.error('Could not read federated servers', error);
     }
