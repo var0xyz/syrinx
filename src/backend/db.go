@@ -1381,16 +1381,6 @@ func InitDB(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_public_key_allocations_key
 		ON public_key_allocations(key_id);`
 
-	// Peers that fetched one of this server's user keys for their users, so
-	// a revocation reaches each once. Deleted when the peer accepts it.
-	createPublicKeyServerAllocationsTable := `
-	CREATE TABLE IF NOT EXISTS public_key_server_allocations (
-		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-		key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id) ON DELETE CASCADE,
-		allocated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		PRIMARY KEY (server_id, key_id)
-	);`
-
 	// Originating-server bookkeeping: maps a local pending event to the
 	// outstanding peer registration on the reed's home server (which peer
 	// to call back, and what id THEY know this event by).
@@ -1898,7 +1888,6 @@ func InitDB(db *sql.DB) error {
 		createPendingAccountEventsTable,
 		createPendingKeyEventsTable,
 		createPublicKeyAllocationsTable,
-		createPublicKeyServerAllocationsTable,
 
 		createForeignPendingEventsTable,
 		createForeignPendingEventsIndexes,
