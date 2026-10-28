@@ -95,11 +95,12 @@ const (
 // nothing left to send.
 var errPeerEventGone = errors.New("peer event subject is gone")
 
-// peerEventSender builds an event's call and, optionally, handles the
-// peer refusing it for good.
+// peerEventSender builds an event's call. refused, when set, handles the
+// peer refusing body for good; settled runs once the event leaves the queue.
 type peerEventSender struct {
 	build   func(ctx context.Context, ev peerEvent) (path string, body proto.Message, err error)
-	refused func(ctx context.Context, peerID string, ev peerEvent)
+	refused func(ctx context.Context, peerID string, ev peerEvent, body proto.Message)
+	settled func(ctx context.Context, ev peerEvent)
 }
 
 // peerEventSenderFor returns how to send kind, or false for one nothing
@@ -153,6 +154,33 @@ func (h *Handlers) peerEventSenderFor(kind string) (peerEventSender, bool) {
 			}
 			return "/api/federation/relay/unblock-notify", &pb.RelayUnblockPayload{UserId: ev.SubjectID, BlockedUserId: ev.ObjectID}, nil
 		}}, true
+	case peerEventFollow:
+		return peerEventSender{
+			build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
+				cert, err := h.services.db.GetFollowCert(ctx, ev.SubjectID, ev.ObjectID)
+				if err != nil {
+					return "", nil, err
+				}
+				if cert == nil {
+					return "", nil, errPeerEventGone
+				}
+				return "/api/federation/relay/follow-notify", pbFollowCert(cert), nil
+			},
+			refused: func(ctx context.Context, peerID string, ev peerEvent, body proto.Message) {
+				sent, ok := body.(*pb.FollowCert)
+				if !ok || !sent.GetFollow() {
+					return
+				}
+				if err := h.services.db.UndoRefusedFollow(ctx, ev.SubjectID, ev.ObjectID, timeFromUnix(sent.GetServerSignature().GetSignedAt())); err != nil {
+					h.services.log.GetLogger(ctx).Error().Err(err).Str("peerServerID", peerID).Msg("Failed to undo refused follow")
+				}
+			},
+			settled: func(ctx context.Context, ev peerEvent) {
+				if err := h.services.db.DropSettledUnfollow(ctx, ev.SubjectID, ev.ObjectID); err != nil {
+					h.services.log.GetLogger(ctx).Error().Err(err).Msg("Failed to drop delivered unfollow")
+				}
+			},
+		}, true
 	case peerEventThreadRemoval:
 		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
 			rm, err := h.services.db.GetThreadRemoval(ctx, ev.SubjectID)
@@ -267,11 +295,14 @@ func (h *Handlers) drainPeerEventsWith(peerID string, senderFor func(kind string
 		case status >= 400:
 			evLog.Error().Int("status", status).Msg("Peer refused event, dropping it")
 			if sender.refused != nil {
-				sender.refused(ctx, peerID, *ev)
+				sender.refused(ctx, peerID, *ev, body)
 			}
 		}
 		if !settle() {
 			return
+		}
+		if sender.settled != nil {
+			sender.settled(ctx, *ev)
 		}
 		if err := db.RefreshPeerEventsClaim(ctx, peerID); err != nil {
 			log.Error().Err(err).Msg("Failed to refresh peer event queue claim")

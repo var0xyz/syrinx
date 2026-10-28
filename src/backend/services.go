@@ -10292,12 +10292,15 @@ func enqueuePublishedRemovalTx(ctx context.Context, q adminQuerier, kind, reedID
 }
 
 // enqueuePeerEventForTx owes kind about the (subject, object) pair to
-// serverID alone, unless it is revoked or not a peer.
+// serverID alone, unless it is revoked or not a peer. The pair's state is
+// read when it's sent, so one already waiting just moves to the back:
+// a drain answering the old id then leaves it queued.
 func enqueuePeerEventForTx(ctx context.Context, q adminQuerier, serverID, kind, subjectID, objectID string) error {
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO peer_event_queue (server_id, kind, subject_id, object_id)
 		SELECT server_id, $2, $3, $4 FROM server_mesh WHERE server_id = $1 AND revoked_at IS NULL
-		ON CONFLICT DO NOTHING
+		ON CONFLICT (server_id, kind, subject_id, object_id)
+		DO UPDATE SET id = nextval(pg_get_serial_sequence('peer_event_queue', 'id'))
 	`, serverID, kind, subjectID, objectID)
 	return err
 }
