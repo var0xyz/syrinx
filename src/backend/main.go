@@ -482,6 +482,8 @@ func main() {
 	api.HandleFunc("/invites", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/invites/check", h.CheckInvite).Methods("GET")
 	api.HandleFunc("/invites/check", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/invites/quota", h.GetInviteQuota).Methods("GET")
+	api.HandleFunc("/invites/quota", h.noop).Methods("OPTIONS")
 	// {id} is "userID@serverID/reedID"-shaped and carries a "/", so it needs
 	// a greedy path variable ({id:.+}) — a plain {id} stops at the first "/"
 	// and never matches (see /keys/{id:.+} above for the same gotcha).

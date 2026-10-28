@@ -20,7 +20,8 @@ locally and poll status-by-id while pending.
 
 - `invites.RegisterRoutes` mounted from `main` under `/api`.
 - Handlers: create (signed), status, revoke, check.
-- Enforce `MAX_INVITES_PER_USER` on create.
+- Enforce `MAX_INVITES_PER_USER` on create, plus the creator's invite grants;
+  root is exempt ([admin actions 15](../admin_actions/15_invite_grants.md)).
 - Enforce `SIGNUP_MODE=closed` → create returns 403 (status/revoke remain).
 - Allowlist `GET /api/invites/check` in signature-auth middleware.
 - Identity helpers: `BuildInviteUserPayload` / `BuildInviteServerPayload`.

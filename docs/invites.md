@@ -16,7 +16,7 @@ Operators set `SIGNUP_MODE`:
 
 This table assumes `RECOVERY_MODE` is `off`. **`lockdown` and `operational` override every row above**: no new signups and no invite redemption at signup time, regardless of `SIGNUP_MODE`, until `RECOVERY_MODE` is `off` again — see [Identity, invites & recovery](/identity).
 
-`MAX_INVITES_PER_USER` limits how many invites each user may create over the lifetime of their account (used and revoked invites count toward the cap). `/api/server/info` exposes the mode and quota so the client can show the right buttons without guessing.
+`MAX_INVITES_PER_USER` limits how many invites each user may create over the lifetime of their account (used and revoked invites count toward the cap). Root has no limit. Admins holding `user.invites` can give a member more, through a request another admin approves; it's recorded in the ledger with its reason. `/api/server/info` exposes the mode and quota so the client can show the right buttons without guessing.
 
 The **first account** on a fresh instance is created while the server is in `open` mode; the operator then switches to `invite` or `closed`.
 

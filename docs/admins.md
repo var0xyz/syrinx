@@ -12,7 +12,7 @@ everything they do with the power they've been given.
 | **Member** | Everyone else                                           | Read the ledger, flag reeds, reach the admins with `@admins` |
 
 Permissions are granted one by one: `admin.create`, `admin.demote`, `user.kick`,
-`user.suspend`, `user.rebind`, `message.unicast`, `message.broadcast`,
+`user.suspend`, `user.rebind`, `user.invites`, `message.unicast`, `message.broadcast`,
 `mesh.invite`, `mesh.connect`, `mesh.disconnect`. Nobody can grant a permission
 they don't hold. An admin's permissions are signed into their profile, next to
 their role.
@@ -28,8 +28,8 @@ their role.
 
 ## Two admins per action
 
-Kicks, suspensions, reinstatements, promotions, demotions, key rebinds,
-broadcasts and private messages are opened by one admin and approved by another.
+Kicks, suspensions, reinstatements, promotions, demotions, key rebinds, invite
+grants, broadcasts and private messages are opened by one admin and approved by another.
 Both need the action's permission. The server refuses an approval from the
 requester, from a target, or—on a kick or a permission change—from someone the
 requester invited directly.
@@ -68,6 +68,7 @@ Two things stay out of the ledger:
 | **Suspend / reinstate** | Reversible and local. The server refuses the member's signed operations, ledger reads and connection until an approved reinstatement. Peer servers see no change.                                                                                                                                                         |
 | **Promote / demote**    | Member ↔ admin. A promotion carries its permission set; changing it later is a separate request.                                                                                                                                                                                                                          |
 | **Rebind a lost key**   | A member who lost every device mints a new key on the lost-device page and hands the public key to an admin out of band. The old key is revoked as lost, so old reeds stay valid, and the new key can only sign a rotation to a fresh one.                                                                                |
+| **Give more invites**   | Adds 1 to 100 invites to one member's limit, on top of `MAX_INVITES_PER_USER`. Grants add up and can't be taken back. Only offered on servers with a cap; root never has a limit.                                                                                                                                   |
 | **Broadcast**           | A message of up to 420 characters to every local member's mailbox.                                                                                                                                                                                                                                                        |
 | **Private message**     | The same, to one member. Not in the ledger, but visible to every admin.                                                                                                                                                                                                                                                   |
 | **Admin invites**       | An admin invite expires after 24 hours and is logged once it's claimed. See [Invites](/invites#admin-invites-expire).                                                                                                                                                                                                     |

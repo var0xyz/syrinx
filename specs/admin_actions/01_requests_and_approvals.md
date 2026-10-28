@@ -28,6 +28,7 @@ them when they were promoted or invited, or by a later permissions change.
 | `user.kick`         | `kick`                                               |
 | `user.suspend`      | `suspend`, `reinstate`                               |
 | `user.rebind`       | `rebind` (add a key)                                 |
+| `user.invites`      | `invites` (more invites, [15](15_invite_grants.md))  |
 | `message.unicast`   | `unicast` (private message)                          |
 | `message.broadcast` | `broadcast`                                          |
 | `mesh.invite`       | Creating and canceling server invites                |
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS admin_requests (
   id                    VARCHAR(255) PRIMARY KEY,
   action                VARCHAR(32) NOT NULL
     CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-                      'permissions', 'rebind', 'broadcast', 'unicast')),
+                      'permissions', 'rebind', 'invites', 'broadcast', 'unicast')),
   requester_id          VARCHAR(255) NOT NULL REFERENCES identities(id),
   requester_key_id      VARCHAR(255) NOT NULL REFERENCES public_keys(id),
   requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -104,7 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_request_targets_user
   has at least one.
 - A broadcast or unicast has no reason; every other action needs one.
 - `admin_request_content.body` holds a broadcast's or message's text, a
-  rebind's armored key, or the permission set of a `promote` or
+  rebind's armored key, an `invites` grant's count, or the permission set of a `promote` or
   `permissions` request. Other actions have no row there.
 - A permission set is written as the permission names, sorted and joined
   with commas (`message.broadcast,user.kick`), with no duplicates. The

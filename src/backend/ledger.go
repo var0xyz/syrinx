@@ -160,6 +160,8 @@ func ledgerApprovedEntry(req *adminRequest, approverID, rebindKeyID string) *led
 		e.Content = req.Body
 	case adminActionRebind:
 		e.Message = fmt.Sprintf("[%s] Key rebind to %s. Reason: %s", req.ID, rebindKeyID, req.Reason)
+	case adminActionInvites:
+		e.Message = fmt.Sprintf("[%s] Invite grant: %s more. Reason: %s", req.ID, req.Body, req.Reason)
 	case adminActionPromote, adminActionPermissions:
 		e.Message = fmt.Sprintf("[%s] %s. Reason: %s", req.ID, ledgerActionNames[req.Action], req.Reason)
 		e.Content = req.Body

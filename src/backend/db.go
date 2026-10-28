@@ -426,7 +426,7 @@ func InitDB(db *sql.DB) error {
 		id VARCHAR(255) PRIMARY KEY,
 		action VARCHAR(32) NOT NULL
 			CHECK (action IN ('suspend', 'reinstate', 'kick', 'promote', 'demote',
-				'permissions', 'rebind', 'broadcast', 'unicast')),
+				'permissions', 'rebind', 'invites', 'broadcast', 'unicast')),
 		requester_id VARCHAR(255) NOT NULL REFERENCES identities(id),
 		requester_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
 		requester_signature_id INT NOT NULL REFERENCES user_signatures(id),
@@ -504,7 +504,7 @@ func InitDB(db *sql.DB) error {
 		user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 		permission VARCHAR(32) NOT NULL
 			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
-				'user.rebind', 'message.unicast', 'message.broadcast',
+				'user.rebind', 'user.invites', 'message.unicast', 'message.broadcast',
 				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
 		PRIMARY KEY (user_id, permission)
 	);`
@@ -515,7 +515,7 @@ func InitDB(db *sql.DB) error {
 		invite_id VARCHAR(255) NOT NULL REFERENCES invites(id) ON DELETE CASCADE,
 		permission VARCHAR(32) NOT NULL
 			CHECK (permission IN ('admin.create', 'admin.demote', 'user.kick', 'user.suspend',
-				'user.rebind', 'message.unicast', 'message.broadcast',
+				'user.rebind', 'user.invites', 'message.unicast', 'message.broadcast',
 				'mesh.invite', 'mesh.connect', 'mesh.disconnect')),
 		PRIMARY KEY (invite_id, permission)
 	);`

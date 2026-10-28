@@ -64,6 +64,7 @@ admin can only grant permissions they hold. Root holds every permission.
 | `user.kick`         | Kicking                                              |
 | `user.suspend`      | Suspending and reinstating                           |
 | `user.rebind`       | Adding a key                                         |
+| `user.invites`      | Giving a member more invites                         |
 | `message.unicast`   | Private messages                                     |
 | `message.broadcast` | Broadcasts                                           |
 | `mesh.invite`       | Creating and canceling server invites                |

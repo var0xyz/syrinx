@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
   import { authService } from '$lib/services/auth';
+  import { apiService } from '$lib/services/api';
   import type * as api from '$lib/types/api';
   import {
     createSignedInvite,
@@ -54,7 +55,10 @@
   let claimerUsernames: Record<string, string> = {};
   let claimerDefunct: Record<string, boolean> = {};
 
-  $: maxInvites = $serverInfo?.maxInvitesPerUser ?? -1;
+  // The server's cap until it answers with ours, which grants may raise.
+  let ownLimit: number | null = null;
+  $: isRoot = user?.role === 'root';
+  $: maxInvites = isRoot ? -1 : (ownLimit ?? $serverInfo?.maxInvitesPerUser ?? -1);
   $: usedInvites = invites.length;
   $: atQuota = maxInvites !== -1 && usedInvites >= maxInvites;
   $: canCreate = !$isSignupClosed && !atQuota;
@@ -62,7 +66,9 @@
     maxInvites === -1 ? null : Math.max(0, maxInvites - usedInvites);
   $: quotaSummary =
     maxInvites === -1
-      ? 'No invite limit on this server.'
+      ? isRoot
+        ? 'You have no invite limit.'
+        : 'No invite limit on this server.'
       : invitesRemaining === 0
         ? `You’ve used all ${maxInvites} invite${maxInvites === 1 ? '' : 's'}. Revoking unused invites does not free quota.`
         : `You can create ${maxInvites} invite${maxInvites === 1 ? '' : 's'} (including revoked) — ${invitesRemaining} left.`;
@@ -81,6 +87,9 @@
     }
 
     void refreshServerInfo();
+    if (get(isOnline)) {
+      void apiService.getInviteLimit().then((limit) => (ownLimit = limit)).catch(() => {});
+    }
     void resolveClaimerUsernames(invites);
     await refreshPendingStatuses();
   });

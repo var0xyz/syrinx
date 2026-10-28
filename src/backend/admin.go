@@ -31,6 +31,7 @@ const (
 	permUserKick         = "user.kick"
 	permUserSuspend      = "user.suspend"
 	permUserRebind       = "user.rebind"
+	permUserInvites      = "user.invites"
 	permMessageUnicast   = "message.unicast"
 	permMessageBroadcast = "message.broadcast"
 	permMeshInvite       = "mesh.invite"
@@ -41,7 +42,7 @@ const (
 // adminPermissions lists every permission, in display order.
 var adminPermissions = []string{
 	permAdminCreate, permAdminDemote,
-	permUserKick, permUserSuspend, permUserRebind,
+	permUserKick, permUserSuspend, permUserRebind, permUserInvites,
 	permMessageUnicast, permMessageBroadcast,
 	permMeshInvite, permMeshConnect, permMeshDisconnect,
 }
@@ -80,6 +81,7 @@ const (
 	adminActionDemote      = "demote"
 	adminActionPermissions = "permissions"
 	adminActionRebind      = "rebind"
+	adminActionInvites     = "invites"
 	adminActionBroadcast   = "broadcast"
 	adminActionUnicast     = "unicast"
 )
@@ -93,6 +95,7 @@ var adminActionPermission = map[string]string{
 	adminActionPromote:   permAdminCreate,
 	adminActionDemote:    permAdminDemote,
 	adminActionRebind:    permUserRebind,
+	adminActionInvites:   permUserInvites,
 	adminActionBroadcast: permMessageBroadcast,
 	adminActionUnicast:   permMessageUnicast,
 }
@@ -254,6 +257,8 @@ func (h *Handlers) adminExecutor(action string) *adminExecutor {
 		ex = h.demoteExecutor()
 	case adminActionRebind:
 		ex = h.rebindExecutor()
+	case adminActionInvites:
+		ex = h.invitesExecutor()
 	case adminActionBroadcast:
 		ex = h.broadcastExecutor()
 	case adminActionUnicast:
@@ -604,7 +609,8 @@ func targetCountFits(action string, n int) bool {
 	switch action {
 	case adminActionBroadcast:
 		return n == 0
-	case adminActionUnicast, adminActionPromote, adminActionDemote, adminActionPermissions, adminActionRebind:
+	case adminActionUnicast, adminActionPromote, adminActionDemote, adminActionPermissions, adminActionRebind,
+		adminActionInvites:
 		return n == 1
 	}
 	return n >= 1
@@ -744,6 +750,10 @@ func (h *Handlers) validateNewAdminRequest(ctx context.Context, req *adminReques
 	case adminActionRebind:
 		if strings.TrimSpace(req.Body) == "" {
 			return refuse(http.StatusBadRequest, "bad_body", "A public key is required")
+		}
+	case adminActionInvites:
+		if _, err := parseInviteGrant(req.Body); err != nil {
+			return refuse(http.StatusBadRequest, "bad_body", "Invalid invite count: %v", err)
 		}
 	default:
 		if req.Body != "" {

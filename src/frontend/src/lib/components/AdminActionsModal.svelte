@@ -8,6 +8,7 @@
   import { myPermissions, openAdminRequest, type AdminAction } from '$lib/services/admin';
   import { readRebindFile } from '$lib/services/rebind';
   import { isOnline } from '$lib/services/pwa';
+  import { serverInfo } from '$lib/services/serverInfo';
   import { formatPermissionSet } from '$lib/utils/permissions';
   import type * as api from '$lib/types/api';
 
@@ -15,6 +16,9 @@
   export let userID: string;
 
   const dispatch = createEventDispatcher<{ close: void }>();
+
+  /** Mirrors maxInviteGrant in admin_invites.go. */
+  const MAX_INVITE_GRANT = 100;
 
   // The page behind stays put while the modal is open; the modal scrolls.
   $: if (typeof document !== 'undefined') document.documentElement.style.overflow = open ? 'hidden' : '';
@@ -43,6 +47,7 @@
   let reason = '';
   let message = '';
   let granted = new Set<string>();
+  let inviteCount = 1;
   let keyArmor = '';
   let keyFingerprint = '';
   let keyError = '';
@@ -93,6 +98,9 @@
     ...(held.has('user.rebind')
       ? [{ id: 'rebind', icon: 'key', label: 'Add a key', hint: 'For a member who lost their device and has no backup' }]
       : []),
+    ...(held.has('user.invites') && ($serverInfo?.maxInvitesPerUser ?? -1) !== -1
+      ? [{ id: 'invites', icon: 'invite', label: 'Give more invites', hint: 'Raise their invite limit' }]
+      : []),
     ...(held.has('message.unicast')
       ? [{ id: 'unicast', icon: 'mail', label: 'Send a private message', hint: 'Delivered to their mailbox only' }]
       : []),
@@ -113,11 +121,15 @@
   $: picksPermissions = action === 'promote' || action === 'permissions';
   $: needsReason = action !== 'unicast';
   $: reasonOk = reason.trim().length > 0 && longTextFits(reason);
+  $: inviteCountOk = Number.isInteger(inviteCount) && inviteCount >= 1 && inviteCount <= MAX_INVITE_GRANT;
   $: canSubmit =
     !submitting &&
     (action === 'unicast'
       ? message.trim().length > 0 && longTextFits(message)
-      : reasonOk && (!picksTargets || checked.size > 0) && (action !== 'rebind' || !!keyArmor));
+      : reasonOk &&
+        (!picksTargets || checked.size > 0) &&
+        (action !== 'rebind' || !!keyArmor) &&
+        (action !== 'invites' || inviteCountOk));
 
   /** Whether the viewer may pick node for the chosen action. */
   function selectable(n: api.InviteTreeNode): boolean {
@@ -131,6 +143,7 @@
     checked = new Set([userID]);
     reason = '';
     message = '';
+    inviteCount = 1;
     keyArmor = '';
     keyFingerprint = '';
     keyError = '';
@@ -175,7 +188,15 @@
     try {
       const targets = picksTargets ? [...checked] : [userID];
       const body =
-        action === 'unicast' ? message.trim() : action === 'rebind' ? keyArmor : picksPermissions ? formatPermissionSet(granted) : '';
+        action === 'unicast'
+          ? message.trim()
+          : action === 'rebind'
+            ? keyArmor
+            : action === 'invites'
+              ? String(inviteCount)
+              : picksPermissions
+                ? formatPermissionSet(granted)
+                : '';
       await openAdminRequest(action, targets, needsReason ? reason.trim() : '', body);
       done = true;
     } catch (err) {
@@ -286,6 +307,13 @@
             <code>{keyFingerprint}</code>
           </div>
         {/if}
+      {/if}
+
+      {#if action === 'invites'}
+        <label class="field">
+          <span>Extra invites</span>
+          <input type="number" min="1" max={MAX_INVITE_GRANT} step="1" bind:value={inviteCount} />
+        </label>
       {/if}
 
       {#if action === 'unicast'}
@@ -528,7 +556,8 @@
     color: var(--muted);
   }
 
-  .field textarea {
+  .field textarea,
+  .field input[type='number'] {
     padding: 0.5rem;
     border: 1px solid var(--border);
     border-radius: 8px;
