@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed.
+Implemented (`peer_event_queue.go`, `federation_delivery.go`). Step 0's
+renames were folded into the commits that introduced the two tables.
 
 ## Depends on
 

@@ -18,7 +18,9 @@ A user on a peer fetches a foreign key through its own server, which proxies
   verify), and allocates it to its user in `public_key_allocations`, same
   rules as for a local key: not revoked, not their own. A key that fails
   verification is not passed on.
-- **The home server** records that the peer holds the key:
+- **The home server** records that the peer holds the key. Superseded by
+  [federation 10](../federation/10_peer_event_queue.md): a revocation goes
+  to every peer through its event queue, and this table is gone.
 
 ```sql
 CREATE TABLE IF NOT EXISTS public_key_server_allocations (

@@ -61,8 +61,9 @@ certificate and the thread record.
 ## Crossing to a peer
 
 One call per peer per thread, `POST /api/federation/relay/thread-removal`,
-carrying the certificate and the thread record. Peer catch-up
-(`peer_author_cursors`) re-sends the same body. The peer:
+carrying the certificate and the thread record. A peer that missed it gets
+the same body from its event queue
+([federation 10](../federation/10_peer_event_queue.md)). The peer:
 
 - rejects a thread ID not owned by the calling peer (400);
 - verifies the thread record (author key, home server countersignature) and

@@ -2,7 +2,9 @@
 
 ## Status
 
-**Implemented** (`federation_delivery.go`, `federation_relay.go`,
+**Superseded** by [10](10_peer_event_queue.md): reeds and removals travel
+through each peer's event queue, not per-(peer, author) cursors.
+Previously **Implemented** (`federation_delivery.go`, `federation_relay.go`,
 `realtime.go`). Supersedes the delivery half of
 [07](07_presence_delivery.md), which was never built. Where the code
 differs from the first draft of this doc, the doc has been updated; the
