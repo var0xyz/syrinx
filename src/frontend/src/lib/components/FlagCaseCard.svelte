@@ -6,7 +6,7 @@
   import ReedAuthorHeader from '$lib/components/ReedAuthorHeader.svelte';
   import MarkdownParser from '$lib/components/MarkdownParser.svelte';
   import type { ReedType } from '$lib/types/reed';
-  import { dismissFlags, syncAdminRecords } from '$lib/services/admin';
+  import { deleteFlagCase, dismissCase, syncAdminRecords } from '$lib/services/admin';
   import type { FlagCase } from '$lib/repositories/flags';
   import { parseCanonicalId } from '$lib/utils/identityRef';
   import { formatRelativeTime, fromUnix } from '$lib/utils/time';
@@ -23,6 +23,8 @@
 
   const MAX_DISMISS_REASON = 140;
   const NOTES_PAGE = 10;
+  // A closed case may be deleted six months after it closed.
+  const RETENTION_SECONDS = 183 * 24 * 60 * 60;
   const dispatch = createEventDispatcher<{ takeAction: string }>();
 
   let dismissing = false;
@@ -30,9 +32,14 @@
   let dismissError = '';
   let dismissSubmitting = false;
   let shownFlags = NOTES_PAGE;
+  let confirmingDelete = false;
+  let deleteError = '';
+  let deleteSubmitting = false;
 
-  // Only open flags can be dismissed; a withdrawn one is closed already.
-  $: open = flagCase.dismissal ? [] : flagCase.flags.filter((f) => !f.withdrawal);
+  // A case is open until dismissed or until every flag in it is withdrawn.
+  $: open = flagCase.dismissal || flagCase.voidedAt ? [] : flagCase.flags.filter((f) => !f.withdrawal);
+  $: closedAt = flagCase.dismissal?.serverSignature?.signedAt ?? flagCase.voidedAt ?? 0;
+  $: deletable = closedAt > 0 && Date.now() / 1000 - closedAt > RETENTION_SECONDS;
 
   function when(signedAt: number | undefined): string {
     return formatRelativeTime(fromUnix(signedAt ?? 0) ?? new Date());
@@ -54,18 +61,31 @@
     dismissSubmitting = true;
     dismissError = '';
     try {
-      await dismissFlags(flagCase.reedId, dismissReason.trim(), open);
+      await dismissCase(flagCase.id, flagCase.reedId, dismissReason.trim());
       dismissing = false;
     } catch (err) {
       const message = err instanceof Error ? err.message : '';
-      if (message === 'flags-changed') {
-        dismissError = 'Someone flagged, withdrew or dismissed meanwhile. Review the flags and try again.';
+      if (message === 'case-closed') {
+        dismissError = 'This case was closed meanwhile.';
         void syncAdminRecords();
+      } else if (message === 'opened-before-recovery') {
+        dismissError = "This case came back with the server's recovery and can't be acted on until recovery is over.";
       } else {
-        dismissError = message || 'Could not dismiss these flags.';
+        dismissError = message || 'Could not dismiss this case.';
       }
     } finally {
       dismissSubmitting = false;
+    }
+  }
+
+  async function submitDelete(): Promise<void> {
+    deleteSubmitting = true;
+    deleteError = '';
+    try {
+      await deleteFlagCase(flagCase.id);
+    } catch (err) {
+      deleteError = err instanceof Error && err.message ? err.message : 'Could not delete this case.';
+      deleteSubmitting = false;
     }
   }
 </script>
@@ -144,7 +164,12 @@
         · {when(flagCase.dismissal.serverSignature?.signedAt)}
       </p>
     </div>
-  {:else if dismissing}
+  {:else if flagCase.voidedAt}
+    <div class="section">
+      <p class="meta">Void: every flag was withdrawn · {when(flagCase.voidedAt)}</p>
+    </div>
+  {/if}
+  {#if !flagCase.dismissal && !flagCase.voidedAt && dismissing}
     <div class="section">
       <label class="dismiss-field">
         <span>What was done about these flags?</span>
@@ -170,6 +195,19 @@
         Take action
       </button>
       <button class="btn secondary" type="button" on:click={openDismiss}>Dismiss</button>
+    </div>
+  {:else if deletable && confirmingDelete}
+    <div class="section">
+      <p class="meta">Delete this case and its flags? This can't be undone.</p>
+      {#if deleteError}<p class="decision-error" role="alert">{deleteError}</p>{/if}
+      <div class="actions">
+        <button class="btn secondary" type="button" on:click={() => (confirmingDelete = false)}>Cancel</button>
+        <button class="btn primary" type="button" disabled={deleteSubmitting} on:click={submitDelete}>Delete</button>
+      </div>
+    </div>
+  {:else if deletable}
+    <div class="section actions">
+      <button class="btn secondary" type="button" on:click={() => (confirmingDelete = true)}>Delete</button>
     </div>
   {/if}
 </li>

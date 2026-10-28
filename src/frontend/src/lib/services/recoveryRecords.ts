@@ -74,14 +74,13 @@ const SOURCES: RecordSource<unknown>[] = [
   // Follows from both ends: the server keeps the newest per pair.
   source<api.FollowCert>({ store: 'followCerts', key: (r) => r.followeeId, record: (r) => ({ case: 'follow', value: r }) }),
   source<api.FollowCert>({ store: 'followers', key: (r) => r.followerId, record: (r) => ({ case: 'follow', value: r }) }),
-  // The viewer's own flags, and an admin's copy of everyone's; then the
-  // dismissals that closed some.
+  // The viewer's own flags, and an admin's copy of everyone's, which
+  // carries its case's dismissal.
   source<StoredFlag>({
     store: 'flaggedReeds',
     key: (r) => [r.reedId, r.reporterId],
     record: (r) => (r.serverSignature ? { case: 'flag', value: r as api.ReedFlag } : null),
   }),
-  source<api.FlagDismissal>({ store: 'flagDismissals', key: (r) => r.id, record: (r) => ({ case: 'flagDismissal', value: r }) }),
 ];
 
 /** Every record this device holds, as refs, in reporting order. */

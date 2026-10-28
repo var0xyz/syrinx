@@ -44,6 +44,9 @@ opened them.
 
 ## Signed dismissals
 
+Superseded by [14](14_flag_cases.md) for dismissals: flags are grouped
+into cases, and a dismissal signs its case, not a list of reporters.
+
 A dismissal gets a client-minted UUIDv7 ID, like a request, and the admin
 signs it:
 

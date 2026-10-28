@@ -131,8 +131,8 @@ func TestReedFlagPayloadCanonicalShape(t *testing.T) {
 
 func TestReedFlagServerPayloadCanonicalShape(t *testing.T) {
 	signedAt := time.Date(2026, 10, 12, 14, 0, 0, 0, time.UTC)
-	got := buildReedFlagServerPayload("a9@home1234/r1", "k3@peer5678", "SERVERKEY01", "USERSIG", signedAt)
-	want := `{"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",` +
+	got := buildReedFlagServerPayload("a9@home1234/r1", "k3@peer5678", "01900000-0000-7000-8000-0000000000c1", "SERVERKEY01", "USERSIG", signedAt)
+	want := `{"caseID":"01900000-0000-7000-8000-0000000000c1","reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",` +
 		`"signedAt":"2026-10-12T14:00:00Z","type":"reed-flag","userSignature":"USERSIG"}`
 	if string(got) != want {
 		t.Errorf("reed flag server payload mismatch:\n got=%q\nwant=%q", got, want)
@@ -140,17 +140,16 @@ func TestReedFlagServerPayloadCanonicalShape(t *testing.T) {
 }
 
 func TestFlagDismissalPayloadCanonicalShape(t *testing.T) {
-	got := buildFlagDismissalPayload("01900000-0000-7000-8000-000000000001", "a9@home1234/r1", "Not a scam",
-		"a2@home1234/K2", []string{"k3@peer5678", "u1@home1234"})
-	want := `{"dismissalID":"01900000-0000-7000-8000-000000000001","keyID":"a2@home1234/K2","reason":"Not a scam",` +
-		`"reedID":"a9@home1234/r1","reporters":["k3@peer5678","u1@home1234"],"type":"flag-dismissal"}`
+	got := buildFlagDismissalPayload("01900000-0000-7000-8000-0000000000c1", "a9@home1234/r1", "Not a scam", "a2@home1234/K2")
+	want := `{"caseID":"01900000-0000-7000-8000-0000000000c1","keyID":"a2@home1234/K2","reason":"Not a scam",` +
+		`"reedID":"a9@home1234/r1","type":"flag-dismissal"}`
 	if string(got) != want {
 		t.Errorf("flag dismissal payload mismatch:\n got=%q\nwant=%q", got, want)
 	}
 
 	signedAt := time.Date(2026, 10, 12, 15, 0, 0, 0, time.UTC)
-	got = buildFlagDismissalServerPayload("01900000-0000-7000-8000-000000000001", "a9@home1234/r1", "SERVERKEY01", "USERSIG", signedAt)
-	want = `{"dismissalID":"01900000-0000-7000-8000-000000000001","reedID":"a9@home1234/r1","serverKeyFingerprint":"SERVERKEY01",` +
+	got = buildFlagDismissalServerPayload("01900000-0000-7000-8000-0000000000c1", "a9@home1234/r1", "SERVERKEY01", "USERSIG", signedAt)
+	want = `{"caseID":"01900000-0000-7000-8000-0000000000c1","reedID":"a9@home1234/r1","serverKeyFingerprint":"SERVERKEY01",` +
 		`"signedAt":"2026-10-12T15:00:00Z","type":"flag-dismissal","userSignature":"USERSIG"}`
 	if string(got) != want {
 		t.Errorf("flag dismissal server payload mismatch:\n got=%q\nwant=%q", got, want)

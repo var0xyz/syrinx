@@ -6301,16 +6301,31 @@ func insertAccountRemovalRowTx(ctx context.Context, tx *sql.Tx, cert accountRemo
 	return settleAccountRemovalTx(ctx, tx, selfIdentity)
 }
 
-// settleAccountRemovalTx drops a removed account's flags, and the
-// dismissals left with none.
+// settleAccountRemovalTx drops a removed account's flags in open cases:
+// nobody is left to answer for them. A case left empty goes; one left with
+// only withdrawn flags is void. Dismissed and void cases stay whole.
 func settleAccountRemovalTx(ctx context.Context, tx *sql.Tx, removed identityID) error {
-	_, err := tx.ExecContext(ctx, `
-		WITH gone AS (DELETE FROM reed_flags WHERE reporter_id = $1 RETURNING dismissal_id)
-		DELETE FROM flag_dismissals d
-		WHERE d.id IN (SELECT dismissal_id FROM gone)
-			AND NOT EXISTS (SELECT 1 FROM reed_flags f WHERE f.dismissal_id = d.id AND f.reporter_id <> $1)
+	caseIDs, err := queryStringsQ(ctx, tx, `
+		WITH gone AS (
+			DELETE FROM reed_flags f WHERE f.reporter_id = $1 AND EXISTS (
+				SELECT 1 FROM flag_cases c WHERE c.id = f.case_id AND `+openCase+`)
+			RETURNING f.case_id)
+		SELECT DISTINCT case_id FROM gone
 	`, removed)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, caseID := range caseIDs {
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM flag_cases c WHERE c.id = $1 AND NOT EXISTS (SELECT 1 FROM reed_flags f WHERE f.case_id = c.id)
+		`, caseID); err != nil {
+			return err
+		}
+		if err := voidCaseIfDoneTx(ctx, tx, caseID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func insertAccountRemovalCertTx(ctx context.Context, tx *sql.Tx, cert accountRemovalCert, selfIdentity identityID) error {

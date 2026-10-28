@@ -3876,6 +3876,7 @@ func (h *Handlers) recoveryRecords() *recoveryRecordEnv {
 		verifier:   h.services.crypto,
 		peerKey:    h.peerKeyLookup,
 		activePeer: h.services.db.IsActivePeer,
+		lockdown:   h.cfg.RecoveryMode == string(recoveryModeLockdown),
 	}
 }
 

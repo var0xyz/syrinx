@@ -37,9 +37,9 @@ import {
 } from '$lib/proto/common_pb';
 import {
   AdminRequestListSchema,
-  DismissFlagsRequestSchema,
+  DismissCaseRequestSchema,
+  FlagCaseListSchema,
   FlagDismissalSchema,
-  FlaggedReedListSchema,
   FlagWithdrawalSchema,
   InviteTreeSchema,
   LedgerPageSchema,
@@ -891,20 +891,23 @@ export const apiService = {
     return request(`/admin/users/${userId}/permissions`, { method: 'GET' }, UserPermissionsSchema);
   },
 
-  async listFlags(state: 'open' | 'dismissed' | 'withdrawn', cursor = ''): Promise<api.FlaggedReedList> {
+  async listFlags(state: 'open' | 'dismissed' | 'void', cursor = ''): Promise<api.FlagCaseList> {
     const query = cursor ? `state=${state}&cursor=${encodeURIComponent(cursor)}` : `state=${state}`;
-    return request(`/admin/flags?${query}`, { method: 'GET' }, FlaggedReedListSchema);
+    return request(`/admin/flags?${query}`, { method: 'GET' }, FlagCaseListSchema);
   },
 
-  async dismissFlags(
-    reedId: string,
-    dismissal: MessageInitShape<typeof DismissFlagsRequestSchema>
-  ): Promise<api.FlagDismissal> {
+  /** A signed dismissal of a case, back countersigned. */
+  async dismissCase(caseId: string, dismissal: MessageInitShape<typeof DismissCaseRequestSchema>): Promise<api.FlagDismissal> {
     return request(
-      `/admin/flags/${reedId}/dismiss`,
-      protoBody('POST', DismissFlagsRequestSchema, dismissal),
+      `/admin/flags/cases/${caseId}/dismiss`,
+      protoBody('POST', DismissCaseRequestSchema, dismissal),
       FlagDismissalSchema
     );
+  },
+
+  /** Deletes a case closed more than six months ago, with its flags. */
+  async deleteFlagCase(caseId: string): Promise<void> {
+    await send(`/admin/flags/cases/${caseId}`, { method: 'DELETE' });
   },
 
   /** A signed flag, back countersigned; the server hands one on a remote

@@ -1063,6 +1063,7 @@ async function verifyReedFlag(flag: api.ReedFlag, label: string): Promise<boolea
   const serverPayload = buildReedFlagServerPayload(
     flag.reedId,
     flag.reporterId,
+    flag.caseId,
     fingerprint,
     flag.signature.armor,
     signedAtHeader(flag.serverSignature.signedAt)
@@ -1137,18 +1138,10 @@ export async function verifyReportedFlag(flag: api.ReedFlag): Promise<boolean> {
   return verifyReedFlag(flag, 'verifyReportedFlag');
 }
 
-/** A dismissal an admin of the viewer's server signed over the sorted
- * reporters whose flags it closed, and the server countersigned. */
+/** A dismissal an admin of the viewer's server signed over a case, and
+ * the server countersigned. */
 export async function verifyFlagDismissal(d: api.FlagDismissal): Promise<boolean> {
-  const sorted = [...(d?.reporters ?? [])].sort();
-  if (
-    !d ||
-    d.$typeName !== 'syrinx.FlagDismissal' ||
-    !d.signature?.armor ||
-    !d.serverSignature ||
-    sorted.length === 0 ||
-    sorted.some((r, i) => r !== d.reporters[i] || r === sorted[i - 1])
-  ) {
+  if (!d || d.$typeName !== 'syrinx.FlagDismissal' || !d.caseId || !d.signature?.armor || !d.serverSignature) {
     console.error('[verifyFlagDismissal] missing fields or wrong type', d?.$typeName);
     return false;
   }
@@ -1160,13 +1153,13 @@ export async function verifyFlagDismissal(d: api.FlagDismissal): Promise<boolean
   }
   const owner = parseKeyId(d.signature.id);
   if (!owner) return false;
-  const payload = buildFlagDismissalPayload(d.id, d.reedId, d.reason, d.signature.id, d.reporters);
+  const payload = buildFlagDismissalPayload(d.caseId, d.reedId, d.reason, d.signature.id);
   if (!(await verifyAdminSignature(`${owner.userId}@${owner.serverId}`, d.signature, payload, false))) {
-    console.error('[verifyFlagDismissal] admin signature failed', d.id);
+    console.error('[verifyFlagDismissal] admin signature failed', d.caseId);
     return false;
   }
   const serverPayload = buildFlagDismissalServerPayload(
-    d.id,
+    d.caseId,
     d.reedId,
     fingerprint,
     d.signature.armor,
@@ -1174,7 +1167,7 @@ export async function verifyFlagDismissal(d: api.FlagDismissal): Promise<boolean
   );
   const result = await verify(d.serverSignature, serverPayload);
   if (result.ok === false) {
-    console.error('[verifyFlagDismissal] server signature failed', d.id, result);
+    console.error('[verifyFlagDismissal] server signature failed', d.caseId, result);
     return false;
   }
   return true;

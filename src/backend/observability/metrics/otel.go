@@ -46,6 +46,7 @@ type OTEL struct {
 	foreignKicks           metric.Int64Counter
 	flagsCreated           metric.Int64Counter
 	flagsDismissed         metric.Int64Counter
+	flagCasesDeleted       metric.Int64Counter
 	flagsWithdrawn         metric.Int64Counter
 	flagsOpen              metric.Int64Gauge
 	ledgerAppended         metric.Int64Counter
@@ -151,6 +152,7 @@ func New(m metric.Meter) *OTEL {
 	r.foreignKicks = counter("syrinx.admin.foreign_kicks")
 	r.flagsCreated = counter("syrinx.flags.created")
 	r.flagsDismissed = counter("syrinx.flags.dismissed")
+	r.flagCasesDeleted = counter("syrinx.flags.cases_deleted")
 	r.flagsWithdrawn = counter("syrinx.flags.withdrawn")
 	r.flagsOpen = gauge("syrinx.flags.open")
 	r.ledgerAppended = counter("syrinx.ledger.appended")
@@ -447,6 +449,10 @@ func (r *OTEL) FlagsDismissed(ctx context.Context, adminID, reedID string, count
 		str("reed.id", reedID),
 		attribute.Int("flags.count", count),
 	)
+}
+
+func (r *OTEL) FlagCaseDeleted(ctx context.Context, adminID, reedID string) {
+	add(ctx, r.flagCasesDeleted, str("admin.id", adminID), str("reed.id", reedID))
 }
 
 func (r *OTEL) FlagWithdrawn(ctx context.Context, reporterID, authorID, reedID string, origin Origin) {

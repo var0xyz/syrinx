@@ -218,15 +218,14 @@ func (s *e2eServer) flag(t *testing.T, u *e2eUser, reedID string) *pb.ReedFlag {
 	return &countersigned
 }
 
-// dismiss has admin dismiss every open flag on reedID.
+// dismiss has admin dismiss reedID's open case.
 func (s *e2eServer) dismiss(t *testing.T, admin *e2eUser, reedID, reason string) {
 	t.Helper()
-	reporters := queryRows(t, s.db, `SELECT reporter_id FROM reed_flags WHERE reed_id = '`+reedID+`' AND dismissal_id IS NULL AND withdrawal_signature_id IS NULL ORDER BY reporter_id`)
-	id := uuid.Must(uuid.NewV7()).String()
-	sig := s.sign(t, admin, buildFlagDismissalPayload(id, reedID, reason, admin.keyID, reporters))
-	msg := &pb.DismissFlagsRequest{Id: id, Reason: reason, Reporters: reporters, Signature: &pb.UserSignature{Id: admin.keyID, Armor: sig}}
-	vars := map[string]string{"reedID": reedID}
-	expectStatus(t, "dismiss", s.authed(t, admin, http.MethodPost, "/api/admin/flags/"+reedID+"/dismiss", msg, vars, s.h.DismissFlags), http.StatusOK)
+	caseID := queryRows(t, s.db, `SELECT id FROM flag_cases WHERE reed_id = '`+reedID+`' AND dismissed_at IS NULL AND voided_at IS NULL`)[0]
+	sig := s.sign(t, admin, buildFlagDismissalPayload(caseID, reedID, reason, admin.keyID))
+	msg := &pb.DismissCaseRequest{Reason: reason, Signature: &pb.UserSignature{Id: admin.keyID, Armor: sig}}
+	vars := map[string]string{"caseID": caseID}
+	expectStatus(t, "dismiss", s.authed(t, admin, http.MethodPost, "/api/admin/flags/cases/"+caseID+"/dismiss", msg, vars, s.h.DismissCase), http.StatusOK)
 }
 
 func (s *e2eServer) pin(t *testing.T, u *e2eUser, reedID string) {
@@ -324,17 +323,16 @@ func (s *e2eServer) heldRecords(t *testing.T, u *e2eUser, flags []*pb.ReedFlag) 
 	if !admin {
 		return out
 	}
-	for _, list := range []func(context.Context, string, string, int) ([]*flaggedReed, string, error){ds.ListOpenFlags, ds.ListDismissedFlags, ds.ListWithdrawnFlags} {
-		reeds, _, err := list(ctx, u.id, "", 1000)
+	// An admin's copy of a flag carries its case's dismissal.
+	for _, state := range []string{flagCasesOpen, flagCasesDismissed, flagCasesVoid} {
+		cases, _, err := ds.ListFlagCases(ctx, u.id, state, "", 1000)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, fr := range reeds {
-			for i := range fr.Flags {
-				add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_Flag{Flag: pbReedFlag(fr.Flags[i])}})
-			}
-			if fr.Dismissal != nil {
-				add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_FlagDismissal{FlagDismissal: pbFlagDismissal(fr.Dismissal)}})
+		for _, c := range cases {
+			for i := range c.Flags {
+				c.Flags[i].Dismissal = c.Dismissal
+				add(&pb.RecoveryRecord{Record: &pb.RecoveryRecord_Flag{Flag: pbReedFlag(c.Flags[i])}})
 			}
 		}
 	}

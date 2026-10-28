@@ -45,6 +45,11 @@ message ReedFlag {
   UserSignature signature = 4;
   ServerSignature server_signature = 5;
   FlagWithdrawal withdrawal = 6;
+  // The case the reed's server put it in, named in its countersignature.
+  string case_id = 7 [json_name = "caseID"];
+  // Admins' copies only, once the case is dismissed. Never sent to the
+  // reporter.
+  FlagDismissal dismissal = 8;
 }
 
 // The reporter taking back their flag, signed over the flag's signature
@@ -55,39 +60,37 @@ message FlagWithdrawal {
   ServerSignature server_signature = 2;
 }
 
-// An admin closing the open flags reporters raised on a reed, signed by
-// them and countersigned by the server. reporters is sorted. dismissed_by
-// is unset once their account is gone.
+// An admin closing a case, signed over it by them and countersigned by
+// this server, whose time is the dismissal's.
 message FlagDismissal {
-  string id = 1;
+  string case_id = 1 [json_name = "caseID"];
   string reed_id = 2 [json_name = "reedID"];
   string dismissed_by = 3;
   string reason = 4;
-  repeated string reporters = 5;
-  UserSignature signature = 6;
-  ServerSignature server_signature = 7;
+  UserSignature signature = 5;
+  ServerSignature server_signature = 6;
 }
 
-// A reed with flags, for admins: its open ones, the ones a dismissal
-// closed, with it, or one withdrawn flag.
-message FlaggedReed {
-  string reed_id = 1 [json_name = "reedID"];
-  string author_id = 2 [json_name = "authorID"];
-  repeated ReedFlag flags = 3;
-  FlagDismissal dismissal = 4;
-}
-
-// POST /admin/flags/{reedID}/dismiss: the admin's signed dismissal of the
-// open flags reporters raised.
-message DismissFlagsRequest {
+// A reed's flags from the first open one until a dismissal closes them or
+// all are withdrawn (void), for admins. Flags newest first.
+message FlagCase {
   string id = 1;
-  string reason = 2;
-  repeated string reporters = 3;
-  UserSignature signature = 4;
+  string reed_id = 2 [json_name = "reedID"];
+  string author_id = 3 [json_name = "authorID"];
+  uint32 opened_at = 4;
+  repeated ReedFlag flags = 5;
+  FlagDismissal dismissal = 6;
+  uint32 voided_at = 7;
 }
 
-message FlaggedReedList {
-  repeated FlaggedReed reeds = 1;
+// POST /admin/flags/cases/{caseID}/dismiss: the admin's signed dismissal.
+message DismissCaseRequest {
+  string reason = 1;
+  UserSignature signature = 2;
+}
+
+message FlagCaseList {
+  repeated FlagCase cases = 1;
   string next_cursor = 2;
 }
 

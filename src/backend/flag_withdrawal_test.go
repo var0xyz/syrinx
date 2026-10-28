@@ -78,12 +78,12 @@ func TestFlagWithdrawal_LeavesTheOpenCase(t *testing.T) {
 	if err := f.h.services.crypto.verifySignature(context.Background(), string(payload), sig.Armor, f.h.signingKey.Armor); err != nil {
 		t.Fatalf("withdrawal countersignature: %v", err)
 	}
-	if open := f.openFlags(t, "a1").Reeds; len(open) != 0 {
-		t.Errorf("open = %+v, want none once withdrawn", open)
+	if open := f.openFlags(t, "a1").Cases; len(open) != 0 {
+		t.Errorf("open = %+v, want none once its only flag is withdrawn", open)
 	}
-	listed := f.listFlags(t, "a1", "/api/admin/flags?state=withdrawn").Reeds
-	if len(listed) != 1 || !proto.Equal(listed[0].Flags[0], withdrawn) {
-		t.Errorf("withdrawn = %+v, want the withdrawn flag", listed)
+	listed := f.listFlags(t, "a1", "/api/admin/flags?state=void").Cases
+	if len(listed) != 1 || listed[0].VoidedAt == 0 || !proto.Equal(listed[0].Flags[0], withdrawn) {
+		t.Errorf("void = %+v, want the case, void, with the withdrawn flag", listed)
 	}
 	if n := len(frames["a1"]); n != 2 || !proto.Equal(frames["a1"][1].GetFlag(), withdrawn) {
 		t.Errorf("a1 got %d records, want the flag then its withdrawn copy", n)
@@ -118,20 +118,32 @@ func TestFlagWithdrawal_RefusedOnceDismissed(t *testing.T) {
 	}
 }
 
-func TestFlagWithdrawal_DismissalCantNameIt(t *testing.T) {
+// A case stays open while one of its flags is; once all are withdrawn it
+// is void, and the next flag opens a new case.
+func TestFlagWithdrawal_LastOneVoidsTheCase(t *testing.T) {
 	f := newAdminFixture(t)
 	reedID := f.localReed(t, "u2")
-	flag := f.flagged(t, "u1", reedID)
-	f.flagged(t, "a3", reedID)
-	if rr := f.withdraw(t, "u1", reedID, flag.GetSignature().GetArmor()); rr.Code != http.StatusOK {
+	first := f.flagged(t, "u1", reedID)
+	second := f.flagged(t, "a3", reedID)
+	caseID := f.openCaseOf(t, reedID)
+	if rr := f.withdraw(t, "u1", reedID, first.GetSignature().GetArmor()); rr.Code != http.StatusOK {
 		t.Fatalf("withdraw: %d %s", rr.Code, rr.Body.String())
 	}
-	rr := f.dismiss(t, "a2", reedID, "Fine", f.ids["a3"], f.ids["u1"])
-	if rr.Code != http.StatusConflict || !strings.Contains(rr.Body.String(), "flags-changed") {
-		t.Errorf("dismissing a withdrawn flag: %d %s, want 409 flags-changed", rr.Code, rr.Body.String())
+	if f.openCaseOf(t, reedID) != caseID {
+		t.Fatal("the case closed with a flag still open")
 	}
-	if rr := f.dismiss(t, "a2", reedID, "Fine"); rr.Code != http.StatusOK {
-		t.Errorf("dismissing the open one: %d %s", rr.Code, rr.Body.String())
+	if rr := f.withdraw(t, "a3", reedID, second.GetSignature().GetArmor()); rr.Code != http.StatusOK {
+		t.Fatalf("withdraw: %d %s", rr.Code, rr.Body.String())
+	}
+	if f.openCaseOf(t, reedID) != "" {
+		t.Fatal("the case is still open with every flag withdrawn")
+	}
+	if rr := f.dismissCase(t, "a2", caseID, reedID, "Fine"); rr.Code != http.StatusConflict {
+		t.Errorf("dismissing a void case: %d %s, want 409", rr.Code, rr.Body.String())
+	}
+	f.flagged(t, "root", reedID)
+	if next := f.openCaseOf(t, reedID); next == "" || next == caseID {
+		t.Errorf("a flag after the void case joined %q, want a new case", next)
 	}
 }
 
@@ -183,11 +195,11 @@ func TestFlagWithdrawal_OpenFlagsGauge(t *testing.T) {
 	if rr := f.withdraw(t, "a3", reedID, flags["a3"].GetSignature().GetArmor()); rr.Code != http.StatusOK {
 		t.Fatalf("withdraw: %d", rr.Code)
 	}
-	if rr := f.dismiss(t, "a2", reedID, "Fine", f.ids["root"]); rr.Code != http.StatusOK {
+	if rr := f.dismiss(t, "a2", reedID, "Fine"); rr.Code != http.StatusOK {
 		t.Fatalf("dismiss: %d %s", rr.Code, rr.Body.String())
 	}
 	f.kick(t, "u1")
-	if got, want := rec.open[f.ids["u2"]], []int{1, 2, 3, 2, 1, 0}; !slices.Equal(got, want) {
+	if got, want := rec.open[f.ids["u2"]], []int{1, 2, 3, 2, 0}; !slices.Equal(got, want) {
 		t.Errorf("u2's open flags went %v, want %v", got, want)
 	}
 }

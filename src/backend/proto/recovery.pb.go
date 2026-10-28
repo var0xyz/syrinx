@@ -835,7 +835,6 @@ type RecoveryRecord struct {
 	//	*RecoveryRecord_AdminRequest
 	//	*RecoveryRecord_Flag
 	//	*RecoveryRecord_Follow
-	//	*RecoveryRecord_FlagDismissal
 	Record        isRecoveryRecord_Record `protobuf_oneof:"record"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -977,15 +976,6 @@ func (x *RecoveryRecord) GetFollow() *FollowCert {
 	return nil
 }
 
-func (x *RecoveryRecord) GetFlagDismissal() *FlagDismissal {
-	if x != nil {
-		if x, ok := x.Record.(*RecoveryRecord_FlagDismissal); ok {
-			return x.FlagDismissal
-		}
-	}
-	return nil
-}
-
 type isRecoveryRecord_Record interface {
 	isRecoveryRecord_Record()
 }
@@ -1034,10 +1024,6 @@ type RecoveryRecord_Follow struct {
 	Follow *FollowCert `protobuf:"bytes,11,opt,name=follow,proto3,oneof"`
 }
 
-type RecoveryRecord_FlagDismissal struct {
-	FlagDismissal *FlagDismissal `protobuf:"bytes,12,opt,name=flag_dismissal,json=flagDismissal,proto3,oneof"`
-}
-
 func (*RecoveryRecord_Like) isRecoveryRecord_Record() {}
 
 func (*RecoveryRecord_Block) isRecoveryRecord_Record() {}
@@ -1059,8 +1045,6 @@ func (*RecoveryRecord_AdminRequest) isRecoveryRecord_Record() {}
 func (*RecoveryRecord_Flag) isRecoveryRecord_Record() {}
 
 func (*RecoveryRecord_Follow) isRecoveryRecord_Record() {}
-
-func (*RecoveryRecord_FlagDismissal) isRecoveryRecord_Record() {}
 
 // POST /recovery/servers: the peer records a device holds, answered with
 // one RecoveryRecordResult each.
@@ -1375,7 +1359,7 @@ const file_recovery_proto_rawDesc = "" +
 	"\vthread_head\x18\a \x01(\tR\n" +
 	"threadHead\x12!\n" +
 	"\fthread_index\x18\b \x01(\rR\vthreadIndex\x12\x1a\n" +
-	"\bmentions\x18\t \x03(\tR\bmentions\"\x96\x05\n" +
+	"\bmentions\x18\t \x03(\tR\bmentions\"\xd6\x04\n" +
 	"\x0eRecoveryRecord\x12&\n" +
 	"\x04like\x18\x01 \x01(\v2\x10.syrinx.LikeCertH\x00R\x04like\x12)\n" +
 	"\x05block\x18\x02 \x01(\v2\x11.syrinx.BlockCertH\x00R\x05block\x12%\n" +
@@ -1388,8 +1372,7 @@ const file_recovery_proto_rawDesc = "" +
 	"\radmin_request\x18\t \x01(\v2\x14.syrinx.AdminRequestH\x00R\fadminRequest\x12&\n" +
 	"\x04flag\x18\n" +
 	" \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flag\x12,\n" +
-	"\x06follow\x18\v \x01(\v2\x12.syrinx.FollowCertH\x00R\x06follow\x12>\n" +
-	"\x0eflag_dismissal\x18\f \x01(\v2\x15.syrinx.FlagDismissalH\x00R\rflagDismissalB\b\n" +
+	"\x06follow\x18\v \x01(\v2\x12.syrinx.FollowCertH\x00R\x06followB\b\n" +
 	"\x06record\"O\n" +
 	"\x16RecoveryServersRequest\x125\n" +
 	"\aservers\x18\x01 \x03(\v2\x1b.syrinx.FederatedServerInfoR\aservers\"J\n" +
@@ -1448,8 +1431,7 @@ var file_recovery_proto_goTypes = []any{
 	(*LedgerEntry)(nil),                      // 28: syrinx.LedgerEntry
 	(*AdminRequest)(nil),                     // 29: syrinx.AdminRequest
 	(*ReedFlag)(nil),                         // 30: syrinx.ReedFlag
-	(*FlagDismissal)(nil),                    // 31: syrinx.FlagDismissal
-	(*FederatedServerInfo)(nil),              // 32: syrinx.FederatedServerInfo
+	(*FederatedServerInfo)(nil),              // 31: syrinx.FederatedServerInfo
 }
 var file_recovery_proto_depIdxs = []int32{
 	16, // 0: syrinx.AccountRecoveryBootstrapResponse.profile:type_name -> syrinx.User
@@ -1480,15 +1462,14 @@ var file_recovery_proto_depIdxs = []int32{
 	29, // 25: syrinx.RecoveryRecord.admin_request:type_name -> syrinx.AdminRequest
 	30, // 26: syrinx.RecoveryRecord.flag:type_name -> syrinx.ReedFlag
 	17, // 27: syrinx.RecoveryRecord.follow:type_name -> syrinx.FollowCert
-	31, // 28: syrinx.RecoveryRecord.flag_dismissal:type_name -> syrinx.FlagDismissal
-	32, // 29: syrinx.RecoveryServersRequest.servers:type_name -> syrinx.FederatedServerInfo
-	10, // 30: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
-	13, // 31: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
-	32, // [32:32] is the sub-list for method output_type
-	32, // [32:32] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	31, // 28: syrinx.RecoveryServersRequest.servers:type_name -> syrinx.FederatedServerInfo
+	10, // 29: syrinx.RecoveryRecordsRequest.records:type_name -> syrinx.RecoveryRecord
+	13, // 30: syrinx.RecoveryRecordsResponse.results:type_name -> syrinx.RecoveryRecordResult
+	31, // [31:31] is the sub-list for method output_type
+	31, // [31:31] is the sub-list for method input_type
+	31, // [31:31] is the sub-list for extension type_name
+	31, // [31:31] is the sub-list for extension extendee
+	0,  // [0:31] is the sub-list for field type_name
 }
 
 func init() { file_recovery_proto_init() }
@@ -1514,7 +1495,6 @@ func file_recovery_proto_init() {
 		(*RecoveryRecord_AdminRequest)(nil),
 		(*RecoveryRecord_Flag)(nil),
 		(*RecoveryRecord_Follow)(nil),
-		(*RecoveryRecord_FlagDismissal)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

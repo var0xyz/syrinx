@@ -89,7 +89,7 @@ export class IndexedDbService implements DbService {
   // undergoing a keyPath change (IndexedDB keyPaths are immutable, so those
   // must be dropped and recreated — see the drop loop below). Pre-launch,
   // so dropped stores' data loss is acceptable rather than migrated.
-  private readonly version = 40;
+  private readonly version = 41;
   private readonly storeNames = [
     ['following',   'userId'     ],
     // The viewer's latest signed follow or unfollow per followee, and the
@@ -156,9 +156,6 @@ export class IndexedDbService implements DbService {
     // A key minted on the lost-device page, waiting for admins to bind it.
     ['pendingRebind',      'userID'],
 
-    // An admin's derived index of reeds with open flags, by latest flag.
-    // Never verified or reported: it's rebuilt from the flags and dismissals.
-    ['flagOpenCases',      'reedId'],
   ];
 
   async init(): Promise<void> {
@@ -230,20 +227,17 @@ export class IndexedDbService implements DbService {
         }
 
         // Flags as countersigned, one per reed and reporter: the viewer's own,
-        // and an admin's copy of everyone's. Dismissals reference the flags
-        // they closed by reporter. Both changed shape in v39.
-        if (event.oldVersion > 0 && event.oldVersion < 39) {
-          for (const storeName of ['flaggedReeds', 'reportedFlags', 'flagDismissals']) {
+        // and an admin's copy of everyone's, each in its case. An admin's
+        // cases are derived from them, by state and time. Flags grouped into
+        // cases in v41.
+        if (event.oldVersion > 0 && event.oldVersion < 41) {
+          for (const storeName of ['flaggedReeds', 'reportedFlags', 'flagDismissals', 'flagOpenCases']) {
             if (db.objectStoreNames.contains(storeName)) db.deleteObjectStore(storeName);
           }
         }
-        ensureStore('flaggedReeds', ['reedId', 'reporterId'], ['reedId', 'reporterId']);
-        ensureStore('flagDismissals', 'id', ['reedId']);
-        const pageIndexes: [string, string, string[]][] = [
-          ['flagDismissals', 'byTime', ['serverSignature.signedAt', 'id']],
-          ['flagOpenCases', 'byTime', ['latestAt', 'reedId']],
-          ['flaggedReeds', 'byWithdrawal', ['withdrawal.serverSignature.signedAt', 'reedId', 'reporterId']],
-        ];
+        ensureStore('flaggedReeds', ['reedId', 'reporterId'], ['reedId', 'reporterId', 'caseId']);
+        ensureStore('flagCases', 'id', ['reedId']);
+        const pageIndexes: [string, string, string[]][] = [['flagCases', 'byState', ['state', 'sortAt', 'id']]];
         for (const [storeName, indexName, keyPath] of pageIndexes) {
           const store = tx.objectStore(storeName);
           if (!store.indexNames.contains(indexName)) store.createIndex(indexName, keyPath, { unique: false });

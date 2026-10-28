@@ -115,8 +115,15 @@ assert.equal(
 );
 
 assert.equal(
-  buildReedFlagServerPayload('a9@home1234/r1', 'k3@peer5678', 'SERVERKEY01', 'USERSIG', '2026-10-12T14:00:00Z'),
-  '{"reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",' +
+  buildReedFlagServerPayload(
+    'a9@home1234/r1',
+    'k3@peer5678',
+    '01900000-0000-7000-8000-0000000000c1',
+    'SERVERKEY01',
+    'USERSIG',
+    '2026-10-12T14:00:00Z'
+  ),
+  '{"caseID":"01900000-0000-7000-8000-0000000000c1","reedID":"a9@home1234/r1","reporterID":"k3@peer5678","serverKeyFingerprint":"SERVERKEY01",' +
     '"signedAt":"2026-10-12T14:00:00Z","type":"reed-flag","userSignature":"USERSIG"}',
   'reed flag server payload'
 );
@@ -126,18 +133,15 @@ const { buildFlagDismissalPayload, buildFlagDismissalServerPayload, buildAdminRe
 );
 
 assert.equal(
-  buildFlagDismissalPayload('01900000-0000-7000-8000-000000000001', 'a9@home1234/r1', 'Not a scam', 'a2@home1234/K2', [
-    'k3@peer5678',
-    'u1@home1234',
-  ]),
-  '{"dismissalID":"01900000-0000-7000-8000-000000000001","keyID":"a2@home1234/K2","reason":"Not a scam",' +
-    '"reedID":"a9@home1234/r1","reporters":["k3@peer5678","u1@home1234"],"type":"flag-dismissal"}',
+  buildFlagDismissalPayload('01900000-0000-7000-8000-0000000000c1', 'a9@home1234/r1', 'Not a scam', 'a2@home1234/K2'),
+  '{"caseID":"01900000-0000-7000-8000-0000000000c1","keyID":"a2@home1234/K2","reason":"Not a scam",' +
+    '"reedID":"a9@home1234/r1","type":"flag-dismissal"}',
   'flag dismissal payload'
 );
 
 assert.equal(
-  buildFlagDismissalServerPayload('01900000-0000-7000-8000-000000000001', 'a9@home1234/r1', 'SERVERKEY01', 'USERSIG', '2026-10-12T15:00:00Z'),
-  '{"dismissalID":"01900000-0000-7000-8000-000000000001","reedID":"a9@home1234/r1","serverKeyFingerprint":"SERVERKEY01",' +
+  buildFlagDismissalServerPayload('01900000-0000-7000-8000-0000000000c1', 'a9@home1234/r1', 'SERVERKEY01', 'USERSIG', '2026-10-12T15:00:00Z'),
+  '{"caseID":"01900000-0000-7000-8000-0000000000c1","reedID":"a9@home1234/r1","serverKeyFingerprint":"SERVERKEY01",' +
     '"signedAt":"2026-10-12T15:00:00Z","type":"flag-dismissal","userSignature":"USERSIG"}',
   'flag dismissal server payload'
 );

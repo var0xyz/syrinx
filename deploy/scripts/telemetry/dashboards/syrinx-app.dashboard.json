@@ -7046,8 +7046,8 @@
         {
           "id": "syrinx_flags",
           "type": "line",
-          "title": "Flags raised, dismissed and withdrawn",
-          "description": "Flags from this server's members and from peers', admin dismissals, and reporters' withdrawals",
+          "title": "Flags raised, dismissed and withdrawn; cases deleted",
+          "description": "Flags from this server's members and from peers', admin dismissals, reporters' withdrawals, and closed cases admins deleted",
           "config": {
             "show_legends": true,
             "legends_position": null,
@@ -7151,6 +7151,29 @@
               },
               "config": {
                 "promql_legend": "withdrawals",
+                "layer_type": "scatter",
+                "weight_fixed": 1.0
+              }
+            },
+            {
+              "query": "sum(sum_over_time(syrinx_flags_cases_deleted[5m]))",
+              "vrlFunctionQuery": null,
+              "customQuery": true,
+              "fields": {
+                "stream": "syrinx_flags_cases_deleted",
+                "stream_type": "metrics",
+                "x": [],
+                "y": [],
+                "z": [],
+                "breakdown": [],
+                "filter": {
+                  "filterType": "group",
+                  "logicalOperator": "AND",
+                  "conditions": []
+                }
+              },
+              "config": {
+                "promql_legend": "cases deleted",
                 "layer_type": "scatter",
                 "weight_fixed": 1.0
               }

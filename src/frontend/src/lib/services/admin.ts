@@ -3,7 +3,6 @@ import { apiService } from './api';
 import { authService } from './auth';
 import { requestSigner } from './request-signer';
 import { buildAdminDecisionPayload, buildAdminRequestPayload, buildFlagDismissalPayload } from './signing';
-import { generateDismissalId } from '$lib/utils/id';
 import { signedAtHeader } from './verify';
 import type * as api from '$lib/types/api';
 import type { AdminRecordMessage } from '$lib/proto/websocket_pb';
@@ -106,9 +105,13 @@ export async function storeAdminRecord(rec: AdminRecordMessage): Promise<void> {
   const r = rec.record;
   if (r.case === 'request') {
     await adminRequestsRepository.put(r.value);
-  } else if (r.case === 'flag' || r.case === 'dismissal') {
-    await (r.case === 'flag' ? flagsRepository.putFlag(r.value) : flagsRepository.putDismissal(r.value));
-    await flagsRepository.settleCase(r.value.reedId);
+  } else if (r.case === 'flag') {
+    await flagsRepository.putFlag(r.value);
+    await flagsRepository.settleCase(r.value.caseId);
+  } else if (r.case === 'dismissal') {
+    await flagsRepository.putDismissal(r.value);
+  } else if (r.case === 'deletedCaseId') {
+    await flagsRepository.deleteCase(r.value);
   } else {
     return;
   }
@@ -185,30 +188,32 @@ async function syncAdminRecordsNow(): Promise<void> {
 
   // A removed reporter's flags go when their account removal arrives.
   const touched = new Set<string>();
-  const flagged = await allPages((c) => apiService.listFlags('open', c).then((p) => ({ items: p.reeds, next: p.nextCursor })));
-  for (const fr of flagged) {
-    touched.add(fr.reedId);
-    for (const f of fr.flags) await stored(() => flagsRepository.putFlag(f), `flag on ${f.reedId}`);
-  }
+  const putCase = async (c: api.FlagCase) => {
+    touched.add(c.id);
+    for (const f of c.flags) {
+      const flag = c.dismissal ? { ...f, dismissal: c.dismissal } : f;
+      await stored(() => flagsRepository.putFlag(flag), `flag on ${f.reedId}`);
+    }
+  };
+  const openCases = await allPages((c) => apiService.listFlags('open', c).then((p) => ({ items: p.cases, next: p.nextCursor })));
+  for (const c of openCases) await putCase(c);
   await pagesUntilKnown(
-    (c) => apiService.listFlags('dismissed', c).then((p) => ({ items: p.reeds, next: p.nextCursor })),
-    async (fr) => {
-      const d = fr.dismissal;
-      if (!d || (await flagsRepository.hasDismissal(d.id))) return false;
-      touched.add(fr.reedId);
-      for (const f of fr.flags) await stored(() => flagsRepository.putFlag(f), `flag on ${f.reedId}`);
-      return stored(() => flagsRepository.putDismissal(d), `dismissal ${d.id}`);
+    (c) => apiService.listFlags('dismissed', c).then((p) => ({ items: p.cases, next: p.nextCursor })),
+    async (c) => {
+      if (await flagsRepository.hasDismissal(c.id)) return false;
+      await putCase(c);
+      return true;
     }
   );
   await pagesUntilKnown(
-    (c) => apiService.listFlags('withdrawn', c).then((p) => ({ items: p.reeds.flatMap((fr) => fr.flags), next: p.nextCursor })),
-    async (f) => {
-      if (await flagsRepository.isWithdrawn(f.reedId, f.reporterId)) return false;
-      touched.add(f.reedId);
-      return stored(() => flagsRepository.putFlag(f), `withdrawn flag on ${f.reedId}`);
+    (c) => apiService.listFlags('void', c).then((p) => ({ items: p.cases, next: p.nextCursor })),
+    async (c) => {
+      if ((await flagsRepository.caseState(c.id)) === 'void') return false;
+      await putCase(c);
+      return true;
     }
   );
-  for (const reedId of touched) await flagsRepository.settleCase(reedId);
+  for (const caseId of touched) await flagsRepository.settleCase(caseId);
   adminRecordsChanged.update((n) => n + 1);
 }
 
@@ -223,22 +228,26 @@ export function syncAdminRecords(): Promise<void> {
   return syncing;
 }
 
-/** Signs and sends a dismissal of the open flags shown on reedID, and
- * keeps the countersigned dismissal. */
-export async function dismissFlags(reedID: string, reason: string, flags: api.ReedFlag[]): Promise<api.FlagDismissal> {
+/** Signs and sends a dismissal of a case, and keeps the countersigned
+ * dismissal on its flags. */
+export async function dismissCase(caseId: string, reedID: string, reason: string): Promise<api.FlagDismissal> {
   const { keyID } = signer();
-  const id = generateDismissalId();
-  const reporters = flags.map((f) => f.reporterId).sort();
-  const armor = await requestSigner.sign(buildFlagDismissalPayload(id, reedID, reason, keyID, reporters));
-  const dismissal = await apiService.dismissFlags(reedID, { id, reason, reporters, signature: { id: keyID, armor } });
+  const armor = await requestSigner.sign(buildFlagDismissalPayload(caseId, reedID, reason, keyID));
+  const dismissal = await apiService.dismissCase(caseId, { reason, signature: { id: keyID, armor } });
   try {
     await flagsRepository.putDismissal(dismissal);
-    await flagsRepository.settleCase(reedID);
   } catch (err) {
     console.error('Failed to store a dismissal:', err);
   }
   adminRecordsChanged.update((n) => n + 1);
   return dismissal;
+}
+
+/** Deletes a case closed more than six months ago, here and on the server. */
+export async function deleteFlagCase(caseId: string): Promise<void> {
+  await apiService.deleteFlagCase(caseId);
+  await flagsRepository.deleteCase(caseId);
+  adminRecordsChanged.update((n) => n + 1);
 }
 
 /** The viewer's role and permissions. */

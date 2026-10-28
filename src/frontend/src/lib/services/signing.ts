@@ -638,38 +638,34 @@ export function buildReedFlagPayload(reedID: string, reporterID: string, keyID: 
   return canonicalJSON({ type: 'reed-flag', reedID, reporterID, keyID, note });
 }
 
-/** Mirror of buildFlagDismissalPayload in identity.go. reporters must
- * already be sorted. */
-export function buildFlagDismissalPayload(
-  dismissalID: string,
-  reedID: string,
-  reason: string,
-  keyID: string,
-  reporters: string[]
-): string {
-  return canonicalJSON({ type: 'flag-dismissal', dismissalID, reedID, reason, keyID, reporters });
+/** Mirror of buildFlagDismissalPayload in identity.go: an admin closing a
+ * case, every flag in it. */
+export function buildFlagDismissalPayload(caseID: string, reedID: string, reason: string, keyID: string): string {
+  return canonicalJSON({ type: 'flag-dismissal', caseID, reedID, reason, keyID });
 }
 
 /** Mirror of buildFlagDismissalServerPayload in identity.go. */
 export function buildFlagDismissalServerPayload(
-  dismissalID: string,
+  caseID: string,
   reedID: string,
   serverKeyFingerprint: string,
   userSignature: string,
   signedAt: string
 ): string {
-  return canonicalJSON({ type: 'flag-dismissal', dismissalID, reedID, signedAt, serverKeyFingerprint, userSignature });
+  return canonicalJSON({ type: 'flag-dismissal', caseID, reedID, signedAt, serverKeyFingerprint, userSignature });
 }
 
-/** Mirror of buildReedFlagServerPayload in identity.go. */
+/** Mirror of buildReedFlagServerPayload in identity.go: names the case the
+ * reed's server put the flag in. */
 export function buildReedFlagServerPayload(
   reedID: string,
   reporterID: string,
+  caseID: string,
   serverKeyFingerprint: string,
   userSignature: string,
   signedAt: string
 ): string {
-  return canonicalJSON({ type: 'reed-flag', reedID, reporterID, signedAt, serverKeyFingerprint, userSignature });
+  return canonicalJSON({ type: 'reed-flag', reedID, reporterID, caseID, signedAt, serverKeyFingerprint, userSignature });
 }
 
 /** Mirror of buildFlagWithdrawalPayload in identity.go. */

@@ -277,8 +277,13 @@ type ReedFlag struct {
 	Signature       *UserSignature         `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
 	ServerSignature *ServerSignature       `protobuf:"bytes,5,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	Withdrawal      *FlagWithdrawal        `protobuf:"bytes,6,opt,name=withdrawal,proto3" json:"withdrawal,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// The case the reed's server put it in, named in its countersignature.
+	CaseId string `protobuf:"bytes,7,opt,name=case_id,json=caseID,proto3" json:"case_id,omitempty"`
+	// Admins' copies only, once the case is dismissed. Never sent to the
+	// reporter.
+	Dismissal     *FlagDismissal `protobuf:"bytes,8,opt,name=dismissal,proto3" json:"dismissal,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ReedFlag) Reset() {
@@ -353,6 +358,20 @@ func (x *ReedFlag) GetWithdrawal() *FlagWithdrawal {
 	return nil
 }
 
+func (x *ReedFlag) GetCaseId() string {
+	if x != nil {
+		return x.CaseId
+	}
+	return ""
+}
+
+func (x *ReedFlag) GetDismissal() *FlagDismissal {
+	if x != nil {
+		return x.Dismissal
+	}
+	return nil
+}
+
 // The reporter taking back their flag, signed over the flag's signature
 // and countersigned by the reed's server, whose time is the withdrawal's.
 // POST /flags/{reedID}/withdraw sends only the signature.
@@ -408,18 +427,16 @@ func (x *FlagWithdrawal) GetServerSignature() *ServerSignature {
 	return nil
 }
 
-// An admin closing the open flags reporters raised on a reed, signed by
-// them and countersigned by the server. reporters is sorted. dismissed_by
-// is unset once their account is gone.
+// An admin closing a case, signed over it by them and countersigned by
+// this server, whose time is the dismissal's.
 type FlagDismissal struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
-	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	CaseId          string                 `protobuf:"bytes,1,opt,name=case_id,json=caseID,proto3" json:"case_id,omitempty"`
 	ReedId          string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
 	DismissedBy     string                 `protobuf:"bytes,3,opt,name=dismissed_by,json=dismissedBy,proto3" json:"dismissed_by,omitempty"`
 	Reason          string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
-	Reporters       []string               `protobuf:"bytes,5,rep,name=reporters,proto3" json:"reporters,omitempty"`
-	Signature       *UserSignature         `protobuf:"bytes,6,opt,name=signature,proto3" json:"signature,omitempty"`
-	ServerSignature *ServerSignature       `protobuf:"bytes,7,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	Signature       *UserSignature         `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	ServerSignature *ServerSignature       `protobuf:"bytes,6,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -454,9 +471,9 @@ func (*FlagDismissal) Descriptor() ([]byte, []int) {
 	return file_admin_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *FlagDismissal) GetId() string {
+func (x *FlagDismissal) GetCaseId() string {
 	if x != nil {
-		return x.Id
+		return x.CaseId
 	}
 	return ""
 }
@@ -482,13 +499,6 @@ func (x *FlagDismissal) GetReason() string {
 	return ""
 }
 
-func (x *FlagDismissal) GetReporters() []string {
-	if x != nil {
-		return x.Reporters
-	}
-	return nil
-}
-
 func (x *FlagDismissal) GetSignature() *UserSignature {
 	if x != nil {
 		return x.Signature
@@ -503,32 +513,35 @@ func (x *FlagDismissal) GetServerSignature() *ServerSignature {
 	return nil
 }
 
-// A reed with flags, for admins: its open ones, the ones a dismissal
-// closed, with it, or one withdrawn flag.
-type FlaggedReed struct {
+// A reed's flags from the first open one until a dismissal closes them or
+// all are withdrawn (void), for admins. Flags newest first.
+type FlagCase struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	ReedId        string                 `protobuf:"bytes,1,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
-	AuthorId      string                 `protobuf:"bytes,2,opt,name=author_id,json=authorID,proto3" json:"author_id,omitempty"`
-	Flags         []*ReedFlag            `protobuf:"bytes,3,rep,name=flags,proto3" json:"flags,omitempty"`
-	Dismissal     *FlagDismissal         `protobuf:"bytes,4,opt,name=dismissal,proto3" json:"dismissal,omitempty"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ReedId        string                 `protobuf:"bytes,2,opt,name=reed_id,json=reedID,proto3" json:"reed_id,omitempty"`
+	AuthorId      string                 `protobuf:"bytes,3,opt,name=author_id,json=authorID,proto3" json:"author_id,omitempty"`
+	OpenedAt      uint32                 `protobuf:"varint,4,opt,name=opened_at,json=openedAt,proto3" json:"opened_at,omitempty"`
+	Flags         []*ReedFlag            `protobuf:"bytes,5,rep,name=flags,proto3" json:"flags,omitempty"`
+	Dismissal     *FlagDismissal         `protobuf:"bytes,6,opt,name=dismissal,proto3" json:"dismissal,omitempty"`
+	VoidedAt      uint32                 `protobuf:"varint,7,opt,name=voided_at,json=voidedAt,proto3" json:"voided_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *FlaggedReed) Reset() {
-	*x = FlaggedReed{}
+func (x *FlagCase) Reset() {
+	*x = FlagCase{}
 	mi := &file_admin_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *FlaggedReed) String() string {
+func (x *FlagCase) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*FlaggedReed) ProtoMessage() {}
+func (*FlagCase) ProtoMessage() {}
 
-func (x *FlaggedReed) ProtoReflect() protoreflect.Message {
+func (x *FlagCase) ProtoReflect() protoreflect.Message {
 	mi := &file_admin_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -540,131 +553,135 @@ func (x *FlaggedReed) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use FlaggedReed.ProtoReflect.Descriptor instead.
-func (*FlaggedReed) Descriptor() ([]byte, []int) {
+// Deprecated: Use FlagCase.ProtoReflect.Descriptor instead.
+func (*FlagCase) Descriptor() ([]byte, []int) {
 	return file_admin_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *FlaggedReed) GetReedId() string {
-	if x != nil {
-		return x.ReedId
-	}
-	return ""
-}
-
-func (x *FlaggedReed) GetAuthorId() string {
-	if x != nil {
-		return x.AuthorId
-	}
-	return ""
-}
-
-func (x *FlaggedReed) GetFlags() []*ReedFlag {
-	if x != nil {
-		return x.Flags
-	}
-	return nil
-}
-
-func (x *FlaggedReed) GetDismissal() *FlagDismissal {
-	if x != nil {
-		return x.Dismissal
-	}
-	return nil
-}
-
-// POST /admin/flags/{reedID}/dismiss: the admin's signed dismissal of the
-// open flags reporters raised.
-type DismissFlagsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Reason        string                 `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
-	Reporters     []string               `protobuf:"bytes,3,rep,name=reporters,proto3" json:"reporters,omitempty"`
-	Signature     *UserSignature         `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DismissFlagsRequest) Reset() {
-	*x = DismissFlagsRequest{}
-	mi := &file_admin_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DismissFlagsRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DismissFlagsRequest) ProtoMessage() {}
-
-func (x *DismissFlagsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_admin_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DismissFlagsRequest.ProtoReflect.Descriptor instead.
-func (*DismissFlagsRequest) Descriptor() ([]byte, []int) {
-	return file_admin_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *DismissFlagsRequest) GetId() string {
+func (x *FlagCase) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *DismissFlagsRequest) GetReason() string {
+func (x *FlagCase) GetReedId() string {
+	if x != nil {
+		return x.ReedId
+	}
+	return ""
+}
+
+func (x *FlagCase) GetAuthorId() string {
+	if x != nil {
+		return x.AuthorId
+	}
+	return ""
+}
+
+func (x *FlagCase) GetOpenedAt() uint32 {
+	if x != nil {
+		return x.OpenedAt
+	}
+	return 0
+}
+
+func (x *FlagCase) GetFlags() []*ReedFlag {
+	if x != nil {
+		return x.Flags
+	}
+	return nil
+}
+
+func (x *FlagCase) GetDismissal() *FlagDismissal {
+	if x != nil {
+		return x.Dismissal
+	}
+	return nil
+}
+
+func (x *FlagCase) GetVoidedAt() uint32 {
+	if x != nil {
+		return x.VoidedAt
+	}
+	return 0
+}
+
+// POST /admin/flags/cases/{caseID}/dismiss: the admin's signed dismissal.
+type DismissCaseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Reason        string                 `protobuf:"bytes,1,opt,name=reason,proto3" json:"reason,omitempty"`
+	Signature     *UserSignature         `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DismissCaseRequest) Reset() {
+	*x = DismissCaseRequest{}
+	mi := &file_admin_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DismissCaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DismissCaseRequest) ProtoMessage() {}
+
+func (x *DismissCaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_admin_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DismissCaseRequest.ProtoReflect.Descriptor instead.
+func (*DismissCaseRequest) Descriptor() ([]byte, []int) {
+	return file_admin_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *DismissCaseRequest) GetReason() string {
 	if x != nil {
 		return x.Reason
 	}
 	return ""
 }
 
-func (x *DismissFlagsRequest) GetReporters() []string {
-	if x != nil {
-		return x.Reporters
-	}
-	return nil
-}
-
-func (x *DismissFlagsRequest) GetSignature() *UserSignature {
+func (x *DismissCaseRequest) GetSignature() *UserSignature {
 	if x != nil {
 		return x.Signature
 	}
 	return nil
 }
 
-type FlaggedReedList struct {
+type FlagCaseList struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Reeds         []*FlaggedReed         `protobuf:"bytes,1,rep,name=reeds,proto3" json:"reeds,omitempty"`
+	Cases         []*FlagCase            `protobuf:"bytes,1,rep,name=cases,proto3" json:"cases,omitempty"`
 	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *FlaggedReedList) Reset() {
-	*x = FlaggedReedList{}
+func (x *FlagCaseList) Reset() {
+	*x = FlagCaseList{}
 	mi := &file_admin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *FlaggedReedList) String() string {
+func (x *FlagCaseList) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*FlaggedReedList) ProtoMessage() {}
+func (*FlagCaseList) ProtoMessage() {}
 
-func (x *FlaggedReedList) ProtoReflect() protoreflect.Message {
+func (x *FlagCaseList) ProtoReflect() protoreflect.Message {
 	mi := &file_admin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -676,19 +693,19 @@ func (x *FlaggedReedList) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use FlaggedReedList.ProtoReflect.Descriptor instead.
-func (*FlaggedReedList) Descriptor() ([]byte, []int) {
+// Deprecated: Use FlagCaseList.ProtoReflect.Descriptor instead.
+func (*FlagCaseList) Descriptor() ([]byte, []int) {
 	return file_admin_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *FlaggedReedList) GetReeds() []*FlaggedReed {
+func (x *FlagCaseList) GetCases() []*FlagCase {
 	if x != nil {
-		return x.Reeds
+		return x.Cases
 	}
 	return nil
 }
 
-func (x *FlaggedReedList) GetNextCursor() string {
+func (x *FlagCaseList) GetNextCursor() string {
 	if x != nil {
 		return x.NextCursor
 	}
@@ -773,7 +790,7 @@ const file_admin_proto_rawDesc = "" +
 	"\aremoved\x18\a \x01(\bR\aremoved\":\n" +
 	"\n" +
 	"InviteTree\x12,\n" +
-	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"\x89\x02\n" +
+	"\x05nodes\x18\x01 \x03(\v2\x16.syrinx.InviteTreeNodeR\x05nodes\"\xd7\x02\n" +
 	"\bReedFlag\x12\x17\n" +
 	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1f\n" +
 	"\vreporter_id\x18\x02 \x01(\tR\n" +
@@ -783,30 +800,32 @@ const file_admin_proto_rawDesc = "" +
 	"\x10server_signature\x18\x05 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x126\n" +
 	"\n" +
 	"withdrawal\x18\x06 \x01(\v2\x16.syrinx.FlagWithdrawalR\n" +
-	"withdrawal\"\x89\x01\n" +
+	"withdrawal\x12\x17\n" +
+	"\acase_id\x18\a \x01(\tR\x06caseID\x123\n" +
+	"\tdismissal\x18\b \x01(\v2\x15.syrinx.FlagDismissalR\tdismissal\"\x89\x01\n" +
 	"\x0eFlagWithdrawal\x123\n" +
 	"\tsignature\x18\x01 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\x12B\n" +
-	"\x10server_signature\x18\x02 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\x8a\x02\n" +
-	"\rFlagDismissal\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\x10server_signature\x18\x02 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xf5\x01\n" +
+	"\rFlagDismissal\x12\x17\n" +
+	"\acase_id\x18\x01 \x01(\tR\x06caseID\x12\x17\n" +
 	"\areed_id\x18\x02 \x01(\tR\x06reedID\x12!\n" +
 	"\fdismissed_by\x18\x03 \x01(\tR\vdismissedBy\x12\x16\n" +
-	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x1c\n" +
-	"\treporters\x18\x05 \x03(\tR\treporters\x123\n" +
-	"\tsignature\x18\x06 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\x12B\n" +
-	"\x10server_signature\x18\a \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xa0\x01\n" +
-	"\vFlaggedReed\x12\x17\n" +
-	"\areed_id\x18\x01 \x01(\tR\x06reedID\x12\x1b\n" +
-	"\tauthor_id\x18\x02 \x01(\tR\bauthorID\x12&\n" +
-	"\x05flags\x18\x03 \x03(\v2\x10.syrinx.ReedFlagR\x05flags\x123\n" +
-	"\tdismissal\x18\x04 \x01(\v2\x15.syrinx.FlagDismissalR\tdismissal\"\x90\x01\n" +
-	"\x13DismissFlagsRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
-	"\x06reason\x18\x02 \x01(\tR\x06reason\x12\x1c\n" +
-	"\treporters\x18\x03 \x03(\tR\treporters\x123\n" +
-	"\tsignature\x18\x04 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"]\n" +
-	"\x0fFlaggedReedList\x12)\n" +
-	"\x05reeds\x18\x01 \x03(\v2\x13.syrinx.FlaggedReedR\x05reeds\x12\x1f\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\x123\n" +
+	"\tsignature\x18\x05 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\x12B\n" +
+	"\x10server_signature\x18\x06 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\"\xe7\x01\n" +
+	"\bFlagCase\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
+	"\areed_id\x18\x02 \x01(\tR\x06reedID\x12\x1b\n" +
+	"\tauthor_id\x18\x03 \x01(\tR\bauthorID\x12\x1b\n" +
+	"\topened_at\x18\x04 \x01(\rR\bopenedAt\x12&\n" +
+	"\x05flags\x18\x05 \x03(\v2\x10.syrinx.ReedFlagR\x05flags\x123\n" +
+	"\tdismissal\x18\x06 \x01(\v2\x15.syrinx.FlagDismissalR\tdismissal\x12\x1b\n" +
+	"\tvoided_at\x18\a \x01(\rR\bvoidedAt\"a\n" +
+	"\x12DismissCaseRequest\x12\x16\n" +
+	"\x06reason\x18\x01 \x01(\tR\x06reason\x123\n" +
+	"\tsignature\x18\x02 \x01(\v2\x15.syrinx.UserSignatureR\tsignature\"W\n" +
+	"\fFlagCaseList\x12&\n" +
+	"\x05cases\x18\x01 \x03(\v2\x10.syrinx.FlagCaseR\x05cases\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
 	"nextCursor\"G\n" +
 	"\x0fUserPermissions\x12\x12\n" +
@@ -827,21 +846,21 @@ func file_admin_proto_rawDescGZIP() []byte {
 
 var file_admin_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_admin_proto_goTypes = []any{
-	(*AdminRequestList)(nil),    // 0: syrinx.AdminRequestList
-	(*LedgerPage)(nil),          // 1: syrinx.LedgerPage
-	(*InviteTreeNode)(nil),      // 2: syrinx.InviteTreeNode
-	(*InviteTree)(nil),          // 3: syrinx.InviteTree
-	(*ReedFlag)(nil),            // 4: syrinx.ReedFlag
-	(*FlagWithdrawal)(nil),      // 5: syrinx.FlagWithdrawal
-	(*FlagDismissal)(nil),       // 6: syrinx.FlagDismissal
-	(*FlaggedReed)(nil),         // 7: syrinx.FlaggedReed
-	(*DismissFlagsRequest)(nil), // 8: syrinx.DismissFlagsRequest
-	(*FlaggedReedList)(nil),     // 9: syrinx.FlaggedReedList
-	(*UserPermissions)(nil),     // 10: syrinx.UserPermissions
-	(*AdminRequest)(nil),        // 11: syrinx.AdminRequest
-	(*LedgerEntry)(nil),         // 12: syrinx.LedgerEntry
-	(*UserSignature)(nil),       // 13: syrinx.UserSignature
-	(*ServerSignature)(nil),     // 14: syrinx.ServerSignature
+	(*AdminRequestList)(nil),   // 0: syrinx.AdminRequestList
+	(*LedgerPage)(nil),         // 1: syrinx.LedgerPage
+	(*InviteTreeNode)(nil),     // 2: syrinx.InviteTreeNode
+	(*InviteTree)(nil),         // 3: syrinx.InviteTree
+	(*ReedFlag)(nil),           // 4: syrinx.ReedFlag
+	(*FlagWithdrawal)(nil),     // 5: syrinx.FlagWithdrawal
+	(*FlagDismissal)(nil),      // 6: syrinx.FlagDismissal
+	(*FlagCase)(nil),           // 7: syrinx.FlagCase
+	(*DismissCaseRequest)(nil), // 8: syrinx.DismissCaseRequest
+	(*FlagCaseList)(nil),       // 9: syrinx.FlagCaseList
+	(*UserPermissions)(nil),    // 10: syrinx.UserPermissions
+	(*AdminRequest)(nil),       // 11: syrinx.AdminRequest
+	(*LedgerEntry)(nil),        // 12: syrinx.LedgerEntry
+	(*UserSignature)(nil),      // 13: syrinx.UserSignature
+	(*ServerSignature)(nil),    // 14: syrinx.ServerSignature
 }
 var file_admin_proto_depIdxs = []int32{
 	11, // 0: syrinx.AdminRequestList.requests:type_name -> syrinx.AdminRequest
@@ -851,19 +870,20 @@ var file_admin_proto_depIdxs = []int32{
 	13, // 4: syrinx.ReedFlag.signature:type_name -> syrinx.UserSignature
 	14, // 5: syrinx.ReedFlag.server_signature:type_name -> syrinx.ServerSignature
 	5,  // 6: syrinx.ReedFlag.withdrawal:type_name -> syrinx.FlagWithdrawal
-	13, // 7: syrinx.FlagWithdrawal.signature:type_name -> syrinx.UserSignature
-	14, // 8: syrinx.FlagWithdrawal.server_signature:type_name -> syrinx.ServerSignature
-	13, // 9: syrinx.FlagDismissal.signature:type_name -> syrinx.UserSignature
-	14, // 10: syrinx.FlagDismissal.server_signature:type_name -> syrinx.ServerSignature
-	4,  // 11: syrinx.FlaggedReed.flags:type_name -> syrinx.ReedFlag
-	6,  // 12: syrinx.FlaggedReed.dismissal:type_name -> syrinx.FlagDismissal
-	13, // 13: syrinx.DismissFlagsRequest.signature:type_name -> syrinx.UserSignature
-	7,  // 14: syrinx.FlaggedReedList.reeds:type_name -> syrinx.FlaggedReed
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	6,  // 7: syrinx.ReedFlag.dismissal:type_name -> syrinx.FlagDismissal
+	13, // 8: syrinx.FlagWithdrawal.signature:type_name -> syrinx.UserSignature
+	14, // 9: syrinx.FlagWithdrawal.server_signature:type_name -> syrinx.ServerSignature
+	13, // 10: syrinx.FlagDismissal.signature:type_name -> syrinx.UserSignature
+	14, // 11: syrinx.FlagDismissal.server_signature:type_name -> syrinx.ServerSignature
+	4,  // 12: syrinx.FlagCase.flags:type_name -> syrinx.ReedFlag
+	6,  // 13: syrinx.FlagCase.dismissal:type_name -> syrinx.FlagDismissal
+	13, // 14: syrinx.DismissCaseRequest.signature:type_name -> syrinx.UserSignature
+	7,  // 15: syrinx.FlagCaseList.cases:type_name -> syrinx.FlagCase
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_admin_proto_init() }

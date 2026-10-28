@@ -23,6 +23,9 @@ action. Acting on an account is always its own request with its own reason.
 
 ## Schema
 
+Superseded by [14](14_flag_cases.md) for dismissals: flags are grouped
+into cases, and a dismissal signs its case, not a list of reporters.
+
 ```sql
 CREATE TABLE IF NOT EXISTS flag_dismissals (
   id           VARCHAR(255) PRIMARY KEY,  -- client-minted UUIDv7

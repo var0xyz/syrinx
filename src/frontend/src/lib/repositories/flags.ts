@@ -3,23 +3,36 @@ import type * as api from '$lib/types/api';
 import { allowUnsigned, verifyFlagDismissal, verifyOwnFlag, verifyReportedFlag } from '$lib/verifiers';
 
 /** A flag as kept: countersigned, or, for one the viewer raised that the
- * server already held, just the reed and the viewer. */
+ * server already held, just the reed and the viewer. An admin's copy
+ * carries its case's dismissal once there is one. */
 export type StoredFlag = Pick<api.ReedFlag, 'reedId' | 'reporterId'> & Partial<api.ReedFlag>;
 
-/** An admin's index row: a reed with open flags, by its latest one. */
-export interface FlagOpenCase {
+type CaseState = 'open' | 'dismissed' | 'void';
+
+/** An admin's index row for a case, derived from its flags: never verified
+ * or reported. sortAt is its latest flag, its dismissal, or when it went
+ * void, by state. */
+interface CaseRow {
+  id: string;
   reedId: string;
-  latestAt: number;
+  authorId: string;
+  state: CaseState;
+  sortAt: number;
+  dismissal?: api.FlagDismissal;
+  voidedAt?: number;
 }
 
-/** A page of cases for the admin flags list: a reed's open flags, or one
- * dismissal and the flags it closed. In an author's history, a case
- * without a dismissal also holds the reed's withdrawn flags. */
+/** A case for the admin flags list: a reed's flags, newest first, until a
+ * dismissal closes them or all are withdrawn. */
 export interface FlagCase {
+  id: string;
   reedId: string;
   authorId: string;
   flags: api.ReedFlag[];
   dismissal?: api.FlagDismissal;
+  voidedAt?: number;
+  /** For paging: where the case sorts within its state. */
+  sortAt: number;
 }
 
 /** Every flag an author's reeds received that this device holds. */
@@ -38,27 +51,28 @@ function authorOf(reedId: string): string {
   return reedId.slice(0, reedId.lastIndexOf('/'));
 }
 
-function verifyStoredFlag(flag: StoredFlag): Promise<boolean> {
-  if (!flag.serverSignature) return flag.reporterId === viewerID() ? allowUnsigned(flag) : Promise.resolve(false);
-  return flag.reporterId === viewerID() ? verifyOwnFlag(flag as api.ReedFlag) : verifyReportedFlag(flag as api.ReedFlag);
+async function verifyStoredFlag(flag: StoredFlag): Promise<boolean> {
+  if (!flag.serverSignature) return flag.reporterId === viewerID() ? allowUnsigned(flag) : false;
+  const valid = flag.reporterId === viewerID() ? verifyOwnFlag(flag as api.ReedFlag) : verifyReportedFlag(flag as api.ReedFlag);
+  if (!(await valid)) return false;
+  return !flag.dismissal || (flag.dismissal.caseId === flag.caseId && verifyFlagDismissal(flag.dismissal));
 }
 
 function countersigned(flags: StoredFlag[]): api.ReedFlag[] {
   return flags.filter((f): f is api.ReedFlag => !!f.serverSignature);
 }
 
+function newestFirst(flags: api.ReedFlag[]): api.ReedFlag[] {
+  return flags.sort((a, b) => (b.serverSignature?.signedAt ?? 0) - (a.serverSignature?.signedAt ?? 0));
+}
+
 /** Every key starting with `${authorId}/`, a reed of theirs. */
 function reedsOf(authorId: string): IDBKeyRange {
-  return IDBKeyRange.bound(`${authorId}/`, `${authorId}/\uffff`);
+  return IDBKeyRange.bound(`${authorId}/`, `${authorId}/￿`);
 }
 
-function latestAt(c: FlagCase): number {
-  if (c.dismissal) return c.dismissal.serverSignature?.signedAt ?? 0;
-  return Math.max(0, ...c.flags.map((f) => f.withdrawal?.serverSignature?.signedAt ?? f.serverSignature?.signedAt ?? 0));
-}
-
-/** Flags, dismissals, and the open cases derived from them. A flag changes
- * only once, when withdrawn; dismissals never do; the cases follow them. */
+/** Flags, and the cases derived from them. A flag changes only when
+ * withdrawn or when its case is dismissed; a dismissal never changes. */
 export const flagsRepository = {
   async isWithdrawn(reedId: string, reporterId: string): Promise<boolean> {
     return !!(await dbService.get<StoredFlag>('flaggedReeds', [reedId, reporterId]))?.withdrawal;
@@ -69,11 +83,15 @@ export const flagsRepository = {
     return dbService.get<StoredFlag>('flaggedReeds', [reedId, viewerID()]);
   },
 
-  /** Stores flag unless it's held: a withdrawn copy replaces an unwithdrawn
-   * one, never the reverse. */
+  /** Stores flag unless it's held: a withdrawn copy, or one carrying its
+   * case's dismissal, replaces one without, never the reverse. */
   async putFlag(flag: StoredFlag): Promise<void> {
     const held = await dbService.get<StoredFlag>('flaggedReeds', [flag.reedId, flag.reporterId]);
-    if (held?.serverSignature && (!flag.serverSignature || held.withdrawal || !flag.withdrawal)) return;
+    if (held?.serverSignature) {
+      const newer = flag.serverSignature && ((flag.withdrawal && !held.withdrawal) || (flag.dismissal && !held.dismissal));
+      if (!newer) return;
+      flag = { ...flag, withdrawal: flag.withdrawal ?? held.withdrawal, dismissal: flag.dismissal ?? held.dismissal };
+    }
     await dbService.put('flaggedReeds', flag, verifyStoredFlag);
   },
 
@@ -81,126 +99,99 @@ export const flagsRepository = {
     return countersigned(await dbService.getAllByIndex<StoredFlag>('flaggedReeds', 'reedId', reedId));
   },
 
+  async flagsInCase(caseId: string): Promise<api.ReedFlag[]> {
+    return newestFirst(countersigned(await dbService.getAllByIndex<StoredFlag>('flaggedReeds', 'caseId', caseId)));
+  },
+
+  async hasDismissal(caseId: string): Promise<boolean> {
+    return !!(await dbService.get<CaseRow>('flagCases', caseId))?.dismissal;
+  },
+
+  async caseState(caseId: string): Promise<CaseState | null> {
+    return (await dbService.get<CaseRow>('flagCases', caseId))?.state ?? null;
+  },
+
+  /** Writes d on every flag held of its case, then settles the case. */
   async putDismissal(d: api.FlagDismissal): Promise<void> {
-    if (await dbService.getMeta('flagDismissals', d.id)) return;
-    await dbService.put('flagDismissals', d, verifyFlagDismissal);
+    if (!(await verifyFlagDismissal(d))) throw new Error(`dismissal of ${d.caseId} does not verify`);
+    for (const f of await this.flagsInCase(d.caseId)) {
+      if (!f.dismissal) await dbService.put('flaggedReeds', { ...f, dismissal: d }, allowUnsigned);
+    }
+    await this.settleCase(d.caseId);
   },
 
-  async hasDismissal(id: string): Promise<boolean> {
-    return (await dbService.getMeta('flagDismissals', id)) !== null;
+  /** Brings caseId's index row in line with the flags held of it. */
+  async settleCase(caseId: string): Promise<void> {
+    const flags = await this.flagsInCase(caseId);
+    if (flags.length === 0) {
+      await dbService.delete('flagCases', caseId);
+      return;
+    }
+    const dismissal = flags.find((f) => f.dismissal)?.dismissal;
+    const withdrawals = flags.map((f) => f.withdrawal?.serverSignature?.signedAt ?? 0);
+    const row: CaseRow = { id: caseId, reedId: flags[0].reedId, authorId: authorOf(flags[0].reedId), state: 'open', sortAt: 0 };
+    if (dismissal) {
+      row.state = 'dismissed';
+      row.dismissal = dismissal;
+      row.sortAt = dismissal.serverSignature?.signedAt ?? 0;
+    } else if (withdrawals.every((at) => at > 0)) {
+      row.state = 'void';
+      row.voidedAt = row.sortAt = Math.max(...withdrawals);
+    } else {
+      row.sortAt = flags[0].serverSignature?.signedAt ?? 0;
+    }
+    await dbService.put<CaseRow>('flagCases', row, allowUnsigned);
   },
 
-  async dismissalsOf(reedId: string): Promise<api.FlagDismissal[]> {
-    return dbService.getAllByIndex<api.FlagDismissal>('flagDismissals', 'reedId', reedId);
-  },
-
-  /** reedId's flags no dismissal closed and nobody withdrew. */
-  async openFlagsOf(reedId: string): Promise<api.ReedFlag[]> {
-    const closed = new Set((await this.dismissalsOf(reedId)).flatMap((d) => d.reporters));
-    return (await this.flagsOf(reedId)).filter((f) => !closed.has(f.reporterId) && !f.withdrawal);
+  /** Cases in state newest first, after the last one shown. */
+  async cases(state: CaseState, limit: number, after?: FlagCase): Promise<FlagCase[]> {
+    const start = after ? [state, after.sortAt, after.id] : [state, Number.MAX_SAFE_INTEGER, '￿'];
+    const rows = await dbService.getLatestFromIndex<CaseRow>('flagCases', 'byState', limit, (r) => r.state === state, start);
+    return Promise.all(rows.map(async (row) => ({ ...row, flags: await this.flagsInCase(row.id) })));
   },
 
   /** Every flag authorId's reeds received, in cases, newest first. */
   async historyOf(authorId: string): Promise<FlagHistory> {
-    const [flags, dismissals] = await Promise.all([
-      dbService.getAllByIndex<StoredFlag>('flaggedReeds', 'reedId', reedsOf(authorId)).then(countersigned),
-      dbService.getAllByIndex<api.FlagDismissal>('flagDismissals', 'reedId', reedsOf(authorId)),
-    ]);
-    const cases: FlagCase[] = [];
-    const named = new Set<string>();
-    for (const d of dismissals) {
-      const reporters = new Set(d.reporters);
-      const closed = flags.filter((f) => f.reedId === d.reedId && reporters.has(f.reporterId));
-      for (const f of closed) named.add(`${f.reedId} ${f.reporterId}`);
-      if (closed.length > 0) cases.push({ reedId: d.reedId, authorId, flags: closed, dismissal: d });
-    }
-    const rest = new Map<string, api.ReedFlag[]>();
-    for (const f of flags) {
-      if (!named.has(`${f.reedId} ${f.reporterId}`)) rest.set(f.reedId, [...(rest.get(f.reedId) ?? []), f]);
-    }
-    for (const [reedId, reedFlags] of rest) cases.push({ reedId, authorId, flags: reedFlags });
-    cases.sort((a, b) => latestAt(b) - latestAt(a));
+    const flags = countersigned(await dbService.getAllByIndex<StoredFlag>('flaggedReeds', 'reedId', reedsOf(authorId)));
+    const byCase = new Map<string, api.ReedFlag[]>();
+    for (const f of flags) byCase.set(f.caseId, [...(byCase.get(f.caseId) ?? []), f]);
+    const cases: FlagCase[] = [...byCase].map(([id, caseFlags]) => {
+      newestFirst(caseFlags);
+      const dismissal = caseFlags.find((f) => f.dismissal)?.dismissal;
+      const sortAt = dismissal?.serverSignature?.signedAt ?? caseFlags[0].serverSignature?.signedAt ?? 0;
+      return { id, reedId: caseFlags[0].reedId, authorId, flags: caseFlags, dismissal, sortAt };
+    });
+    cases.sort((a, b) => b.sortAt - a.sortAt);
     return { count: flags.filter((f) => !f.withdrawal).length, cases };
   },
 
-  /** Brings reedId's open case in line with its flags and dismissals. */
-  async settleCase(reedId: string): Promise<void> {
-    const open = await this.openFlagsOf(reedId);
-    if (open.length === 0) {
-      await dbService.delete('flagOpenCases', reedId);
-      return;
-    }
-    const latestAt = Math.max(...open.map((f) => f.serverSignature?.signedAt ?? 0));
-    await dbService.put<FlagOpenCase>('flagOpenCases', { reedId, latestAt }, allowUnsigned);
+  /** Drops a case an admin deleted, with its flags. */
+  async deleteCase(caseId: string): Promise<void> {
+    for (const f of await this.flagsInCase(caseId)) await dbService.delete('flaggedReeds', [f.reedId, f.reporterId]);
+    await dbService.delete('flagCases', caseId);
   },
 
-  /** Open cases newest first, after the last one shown. */
-  async openCases(limit: number, after?: FlagOpenCase): Promise<FlagCase[]> {
-    const rows = await dbService.getLatestFromIndex<FlagOpenCase>(
-      'flagOpenCases',
-      'byTime',
-      limit,
-      undefined,
-      after ? [after.latestAt, after.reedId] : undefined
-    );
-    return Promise.all(
-      rows.map(async (row) => ({ reedId: row.reedId, authorId: authorOf(row.reedId), flags: await this.openFlagsOf(row.reedId) }))
-    );
-  },
-
-  /** Dismissals newest first, after the last one shown, each with the flags
-   * it closed that are still held. */
-  async dismissedCases(limit: number, after?: api.FlagDismissal): Promise<FlagCase[]> {
-    const rows = await dbService.getLatestFromIndex<api.FlagDismissal>(
-      'flagDismissals',
-      'byTime',
-      limit,
-      undefined,
-      after ? [after.serverSignature?.signedAt ?? 0, after.id] : undefined
-    );
-    return Promise.all(
-      rows.map(async (d) => {
-        const reporters = new Set(d.reporters);
-        const flags = (await this.flagsOf(d.reedId)).filter((f) => reporters.has(f.reporterId));
-        return { reedId: d.reedId, authorId: authorOf(d.reedId), flags, dismissal: d };
-      })
-    );
-  },
-
-  /** Withdrawn flags newest withdrawal first, one per case, after the last
-   * one shown. */
-  async withdrawnCases(limit: number, after?: api.ReedFlag): Promise<FlagCase[]> {
-    const rows = await dbService.getLatestFromIndex<api.ReedFlag>(
-      'flaggedReeds',
-      'byWithdrawal',
-      limit,
-      undefined,
-      after ? [after.withdrawal?.serverSignature?.signedAt ?? 0, after.reedId, after.reporterId] : undefined
-    );
-    return rows.map((f) => ({ reedId: f.reedId, authorId: authorOf(f.reedId), flags: [f] }));
-  },
-
-  /** Drops a removed account's flags, and the dismissals left with none. */
+  /** Drops a removed account's flags in open cases, and settles those. */
   async removeReporter(userId: string): Promise<void> {
     const flags = await dbService.getAllByIndex<StoredFlag>('flaggedReeds', 'reporterId', userId);
-    for (const f of flags) await dbService.delete('flaggedReeds', [f.reedId, f.reporterId]);
-    for (const reedId of new Set(flags.map((f) => f.reedId))) {
-      const held = new Set((await this.flagsOf(reedId)).map((f) => f.reporterId));
-      for (const d of await this.dismissalsOf(reedId)) {
-        if (!d.reporters.some((r) => held.has(r))) await dbService.delete('flagDismissals', d.id);
-      }
-      await this.settleCase(reedId);
+    const touched = new Set<string>();
+    for (const f of flags) {
+      if (!f.caseId || f.dismissal) continue;
+      const row = await dbService.get<CaseRow>('flagCases', f.caseId);
+      if (row && row.state !== 'open') continue;
+      await dbService.delete('flaggedReeds', [f.reedId, f.reporterId]);
+      touched.add(f.caseId);
     }
+    for (const caseId of touched) await this.settleCase(caseId);
   },
 
-  /** Drops what the viewer kept as an admin: everyone else's flags, the
-   * dismissals and the cases. */
+  /** Drops what the viewer kept as an admin: everyone else's flags and the
+   * cases. */
   async clearAdminCopies(): Promise<void> {
     const me = viewerID();
     for (const f of await dbService.getAll<StoredFlag>('flaggedReeds')) {
       if (f.reporterId !== me) await dbService.delete('flaggedReeds', [f.reedId, f.reporterId]);
     }
-    await dbService.clear('flagDismissals');
-    await dbService.clear('flagOpenCases');
+    await dbService.clear('flagCases');
   },
 };

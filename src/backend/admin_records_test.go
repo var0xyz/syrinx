@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"net/http"
 	"slices"
 	"testing"
@@ -82,30 +83,6 @@ func TestAdminRecords_PushedToAdminsWhoMaySee(t *testing.T) {
 		if got := kinds(name); !slices.Equal(got, want) {
 			t.Errorf("%s got %v, want %v", name, got, want)
 		}
-	}
-}
-
-// A dismissal closes the flags it names, and only if they're all open.
-func TestDismissFlags_OnlyNamedOpenFlags(t *testing.T) {
-	f := newAdminFixture(t)
-	reed := f.localReed(t, "u2")
-	for _, reporter := range []string{"u1", "a3"} {
-		if code := f.flag(t, reporter, reed, ""); code != 201 {
-			t.Fatal(code)
-		}
-	}
-	if rr := f.dismiss(t, "a2", reed, "Fine", f.ids["u1"], f.ids["root"]); rr.Code != http.StatusConflict {
-		t.Errorf("dismissing a flag that was never raised: %d, want 409", rr.Code)
-	}
-	if rr := f.dismiss(t, "a2", reed, "Fine", f.ids["u1"]); rr.Code != http.StatusOK {
-		t.Fatalf("dismiss: %d %s", rr.Code, rr.Body.String())
-	}
-	open := f.openFlags(t, "a2").Reeds
-	if len(open) != 1 || len(open[0].Flags) != 1 || open[0].Flags[0].ReporterId != f.ids["a3"] {
-		t.Errorf("open = %+v, want only a3's flag", open)
-	}
-	if rr := f.dismiss(t, "a1", reed, "Again", f.ids["u1"]); rr.Code != http.StatusConflict {
-		t.Errorf("dismissing a closed flag: %d, want 409", rr.Code)
 	}
 }
 
@@ -205,10 +182,10 @@ func TestRecoveryE2E_RemoteReporterFlagWaitsForTheirKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	keyID := string(appendEntity(identityID(reporter), kp.Fingerprint))
-	f := reedFlag{ReedID: reedID, ReporterID: reporter, Note: "spam",
+	f := reedFlag{ReedID: reedID, ReporterID: reporter, Note: "spam", CaseID: uuid.NewString(),
 		Signature: UserSignature{ID: keyID, Armor: b.sign(t, &e2eUser{kp: *kp}, buildReedFlagPayload(reedID, reporter, keyID, "spam"))}}
 	now := time.Now().UTC().Truncate(time.Second)
-	if f.ServerSignature, err = b.h.countersign(ctx, buildReedFlagServerPayload(reedID, reporter, b.h.signingKey.Fingerprint, f.Signature.Armor, now), now); err != nil {
+	if f.ServerSignature, err = b.h.countersign(ctx, buildReedFlagServerPayload(reedID, reporter, f.CaseID, b.h.signingKey.Fingerprint, f.Signature.Armor, now), now); err != nil {
 		t.Fatal(err)
 	}
 	report := func() string {
