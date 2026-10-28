@@ -1702,97 +1702,10 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 		go h.sendOwedKeyRevocations(peerServerID)
 		go h.sendOwedBlockNotices(peerServerID)
 		go h.sendOwedFollowNotices(peerServerID)
-		go h.sendOwedAccountRemovals(peerServerID)
 		h.drainPeers(peerServerID)
 	}
 	h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "realtime-reset", true)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// notifyForeignAccountRemovalToPeers owes every connected peer the
-// removal, so each can store the cert and fan it out to its own users, and
-// sends it. A peer that doesn't accept it gets it again on its boot notice.
-func (h *Handlers) notifyForeignAccountRemovalToPeers(ctx context.Context, removedUserID string, cert accountRemovalCert) {
-	log := h.services.log.GetLogger(ctx)
-	peers, err := h.services.db.ListConnectedPeers(ctx)
-	if err != nil {
-		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to list peers for account removal notify")
-		return
-	}
-	serverIDs := make([]string, len(peers))
-	for i, p := range peers {
-		serverIDs[i] = p.ID
-	}
-	if len(serverIDs) == 0 {
-		return
-	}
-	if err := h.services.db.QueueAccountRemovalNotices(ctx, removedUserID, serverIDs); err != nil {
-		log.Error().Err(err).Str("userID", removedUserID).Msg("Failed to owe peers an account removal")
-		return
-	}
-	for _, serverID := range serverIDs {
-		h.sendOwedAccountRemovals(serverID)
-	}
-}
-
-// sendOwedAccountRemovals sends peerID every account removal it hasn't
-// accepted yet.
-func (h *Handlers) sendOwedAccountRemovals(peerID string) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	log := h.services.log.GetLogger(ctx)
-	userIDs, err := h.services.db.AccountRemovalsOwedTo(ctx, peerID)
-	if err != nil {
-		log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list account removals owed to peer")
-		return
-	}
-	if len(userIDs) == 0 {
-		return
-	}
-	peer, err := h.services.db.GetServerByID(ctx, peerID)
-	if err != nil || peer == nil {
-		return
-	}
-	for _, userID := range userIDs {
-		cert, err := h.services.db.GetAccountRemoval(ctx, userID)
-		if err != nil || cert == nil {
-			log.Error().Err(err).Str("userID", userID).Msg("Failed to load owed account removal")
-			continue
-		}
-		payload := &pb.RelayAccountRemovalNotifyPayload{
-			UserId:            userID,
-			Note:              cert.Note,
-			UserSignature:     cert.UserSignature,
-			UserKeyId:         cert.UserKeyID,
-			ServerSignature:   cert.ServerSignature,
-			ServerFingerprint: cert.ServerFingerprint,
-			ServerSignedAt:    unixOrZero(cert.ServerSignedAt),
-		}
-		if cert.Admin != nil {
-			payload.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(cert.Admin)}
-		}
-		status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, "/api/federation/relay/account-removal-notify", payload, nil)
-		if err != nil || status < 200 || status >= 300 {
-			log.Warn().Err(err).Int("status", status).Str("userID", userID).Str("peerServerID", peerID).Msg("Peer did not accept account removal")
-			continue
-		}
-		if err := h.services.db.DeleteAccountRemovalNotice(ctx, peerID, userID); err != nil {
-			log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to clear account removal notice")
-		}
-	}
-}
-
-// notifyPeersOfOwedAccountRemovals retries, at boot, every account removal
-// a connected peer hasn't accepted yet.
-func (h *Handlers) notifyPeersOfOwedAccountRemovals() {
-	peers, err := h.services.db.ListConnectedPeers(context.Background())
-	if err != nil {
-		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed account removals")
-		return
-	}
-	for _, peer := range peers {
-		h.sendOwedAccountRemovals(peer.ID)
-	}
 }
 
 // AccountRemovalNotifyFromPeer: a peer telling us one of its own users'

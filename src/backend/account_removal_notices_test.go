@@ -38,19 +38,19 @@ func TestOwedAccountRemovalWaitsForAPeerInLockdown(t *testing.T) {
 	peerTestMesh(t, a.db, peerID)
 
 	ctx := context.Background()
-	if err := a.h.services.db.QueueAccountRemovalNotices(ctx, gina.id, []string{peerID}); err != nil {
+	if err := enqueuePeerEventTx(ctx, a.db, peerEventAccountRemoval, gina.id); err != nil {
 		t.Fatal(err)
 	}
 	owed := func() int {
 		t.Helper()
-		ids, err := a.h.services.db.AccountRemovalsOwedTo(ctx, peerID)
+		n, err := a.h.services.db.CountPeerEvents(ctx, peerID)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return len(ids)
+		return n
 	}
 
-	a.h.sendOwedAccountRemovals(peerID)
+	a.h.drainPeerEvents(peerID)
 	var down bool
 	if err := a.db.QueryRow(`SELECT down_at IS NOT NULL FROM server_mesh WHERE server_id = $1`, peerID).Scan(&down); err != nil {
 		t.Fatal(err)
@@ -64,9 +64,32 @@ func TestOwedAccountRemovalWaitsForAPeerInLockdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockdown.Store(false)
-	a.h.sendOwedAccountRemovals(peerID)
+	a.h.drainPeerEvents(peerID)
 	if owed() != 0 {
 		t.Fatalf("still owed %d after the peer accepted", owed())
+	}
+}
+
+// A self-removal and a kick each queue the removal for every peer.
+func TestAccountRemovalQueuedForEveryPeer(t *testing.T) {
+	a := newE2EServer(t, newTestDatabase(t, InitDB), false)
+	for _, peerID := range []string{"peer5678", "peerb999"} {
+		if _, err := a.db.Exec(`INSERT INTO servers (id, name, base_url, frontend_url) VALUES ($1, $1, 'https://p.example', 'https://p.example')`, peerID); err != nil {
+			t.Fatal(err)
+		}
+		peerTestMesh(t, a.db, peerID)
+	}
+	gina := a.signup(t, "gina")
+	a.deleteAccount(t, gina)
+	for _, peerID := range []string{"peer5678", "peerb999"} {
+		var n int
+		if err := a.db.QueryRow(`SELECT COUNT(*) FROM peer_event_queue WHERE server_id = $1 AND kind = $2 AND subject_id = $3`,
+			peerID, peerEventAccountRemoval, gina.id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Fatalf("%s owed %d removals of gina, want 1", peerID, n)
+		}
 	}
 }
 

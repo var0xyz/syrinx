@@ -1336,7 +1336,7 @@ func (h *Handlers) afterAccountRemoval(ctx context.Context, userID string, cert 
 		AccountRemoval: &wire,
 	}
 
-	go h.notifyForeignAccountRemovalToPeers(context.Background(), userID, cert)
+	h.drainPeers("")
 	go h.dropFromAdminRequests(context.Background(), userID)
 }
 

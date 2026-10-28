@@ -768,15 +768,6 @@ func InitDB(db *sql.DB) error {
 		ON block_event_queue (blocked_user_id);
 	`
 
-	// A removal of one of our users each peer holding their content is owed.
-	createAccountRemovalPeerNoticesTable := `
-	CREATE TABLE IF NOT EXISTS account_removal_peer_notices (
-		server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-		user_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-
-		PRIMARY KEY (server_id, user_id)
-	);`
-
 	// Signed like certificates, one row per currently-liked (liker, reed)
 	// pair. reed_id FKs to reed_identities,
 	// not reeds, so a local user's like on a FOREIGN reed is represented here too.
@@ -1838,7 +1829,6 @@ func InitDB(db *sql.DB) error {
 		createUserBlocksIndexes,
 		createBlockEventQueueTable,
 		createBlockEventQueueIndexes,
-		createAccountRemovalPeerNoticesTable,
 
 		createUserVouchesTable,
 		createUserVouchesActiveTable,

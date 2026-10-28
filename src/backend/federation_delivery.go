@@ -119,6 +119,29 @@ func (h *Handlers) peerEventSenderFor(kind string) (peerEventSender, bool) {
 			payload, err := h.buildReedRemovalPayload(ctx, ev.SubjectID)
 			return "/api/federation/relay/reed-removal", payload, err
 		}}, true
+	case peerEventAccountRemoval:
+		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
+			cert, err := h.services.db.GetAccountRemoval(ctx, ev.SubjectID)
+			if err != nil {
+				return "", nil, err
+			}
+			if cert == nil {
+				return "", nil, errPeerEventGone
+			}
+			payload := &pb.RelayAccountRemovalNotifyPayload{
+				UserId:            ev.SubjectID,
+				Note:              cert.Note,
+				UserSignature:     cert.UserSignature,
+				UserKeyId:         cert.UserKeyID,
+				ServerSignature:   cert.ServerSignature,
+				ServerFingerprint: cert.ServerFingerprint,
+				ServerSignedAt:    unixOrZero(cert.ServerSignedAt),
+			}
+			if cert.Admin != nil {
+				payload.Admin = &pb.AdminAuthorization{Request: pbAdminRequest(cert.Admin)}
+			}
+			return "/api/federation/relay/account-removal-notify", payload, nil
+		}}, true
 	case peerEventThreadRemoval:
 		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
 			rm, err := h.services.db.GetThreadRemoval(ctx, ev.SubjectID)
