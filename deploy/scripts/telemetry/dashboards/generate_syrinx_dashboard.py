@@ -642,7 +642,7 @@ federation = [
             (f"sum by (peer_server_id) ({FEDERATION_BACKLOG})", "{peer_server_id}", FEDERATION_BACKLOG),
         ],
         layout=layout(0, 48, 96, 14, 98),
-        description="Author streams still owed to each peer",
+        description="Events still queued for each peer",
     ),
     promql_panel(
         pid="syrinx_fed_lifecycle",

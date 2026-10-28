@@ -1383,9 +1383,6 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 	if h.realtimeRelay != nil {
 		h.realtimeRelay.forgetPeer(r.Context(), peerServerID)
 	}
-	if err := h.services.db.DeletePeerStreams(r.Context(), peerServerID); err != nil {
-		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to drop delivery streams of revoked peer")
-	}
 	if err := h.services.db.DeleteVouchReferencesForServer(r.Context(), peerServerID); err != nil {
 		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to drop vouch references of revoked peer")
 	}
@@ -1702,7 +1699,6 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	}
 	// Back up: send what piled up for it while it was down.
 	if req.Reason == realtimeResetBoot {
-		go h.deliverBehindStreams(peerServerID)
 		go h.sendOwedKeyRevocations(peerServerID)
 		go h.sendOwedBlockNotices(peerServerID)
 		go h.sendOwedFollowNotices(peerServerID)

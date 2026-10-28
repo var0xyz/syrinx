@@ -250,10 +250,7 @@ func main() {
 	rtService.SetForeignHolderNotifyHook(h.notifyHolderToPeer)
 	rtService.SetForeignFallbackRequestHook(h.relayFallbackRequestToPeer)
 	rtService.SetForeignKeyRevocationHook(h.fetchForeignKeyRevocation)
-	rtService.SetPeerDeliveryHooks(h.deliverAuthorToPeers, func() {
-		h.deliverBehindStreams("")
-		h.drainPeers("")
-	})
+	rtService.SetDrainPeersHook(func() { h.drainPeers("") })
 	rtService.SetDeviceCheck(func(userID, deviceID string) error {
 		// userID arrives already in "userID@serverID" form (see
 		// authenticateWebSocket), and CheckActiveDevice expects that same

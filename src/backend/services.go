@@ -5912,6 +5912,9 @@ func insertReedRemovalCert(ctx context.Context, db *sql.DB, cert reedRemovalCert
 		`, cert.ReedID, cert.UserKeyID, userSigID, serverSigID); err != nil {
 			return fmt.Errorf("insert reed removal: %w", err)
 		}
+		if err := enqueuePublishedRemovalTx(ctx, tx, peerEventReedRemoval, cert.ReedID); err != nil {
+			return err
+		}
 	case err != nil:
 		return err
 	default:
@@ -6050,6 +6053,9 @@ func (s *DataService) InsertThreadRemoval(ctx context.Context, rm threadRemoval)
 		VALUES ($1, $2, $3, $4, $5)
 	`, rm.Cert.ThreadID, rm.Cert.UserSignature.ID, userSigID, serverSigID, record); err != nil {
 		return fmt.Errorf("insert thread removal: %w", err)
+	}
+	if err := enqueuePublishedRemovalTx(ctx, tx, peerEventThreadRemoval, rm.Cert.ThreadID); err != nil {
+		return err
 	}
 	for _, reedID := range rm.Record.ReedIDs {
 		if _, err := tx.ExecContext(ctx, `
@@ -9287,11 +9293,14 @@ func (s *DataService) ClaimPendingFanout(ctx context.Context, reedID string) (cl
 	if !claimed {
 		return false, nil, nil
 	}
-	// Publishing is what puts a reed in peers' delivery streams.
+	// Publishing is what announces a reed, its head for a thread, to peers.
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE reeds r SET published_at = CURRENT_TIMESTAMP
 		WHERE `+publishUnitSQL+` AND r.published_at IS NULL
 	`, reedID); err != nil {
+		return false, nil, err
+	}
+	if err := enqueuePeerEventTx(ctx, tx, peerEventNewReed, reedID); err != nil {
 		return false, nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -10212,44 +10221,9 @@ func (s *DataService) DeleteMailboxMessage(ctx context.Context, id, userID strin
 	return err
 }
 
-// ================================= //
-//   peer delivery streams (fed 09)   //
-// ================================= //
-
-const (
-	streamKindCreation = 0
-	streamKindRemoval  = 1
-)
-
-// peerStreamItem is one entry in a local author's stream: a published reed
-// or the removal of one, ordered by (At, Kind, ReedID).
-type peerStreamItem struct {
-	At     time.Time
-	Kind   int
-	ReedID string
-}
-
-// peerStreamSQL defines every local author's stream. Only reeds published
-// here count, a thread and its removal cross once as its head, and a
-// removal is later than its creation by construction.
-const peerStreamSQL = `
-	WITH stream AS (
-		SELECT r.user_id AS author_id, r.published_at AS at, 0 AS kind, r.id AS reed_id
-		FROM reeds r
-		WHERE r.published_at IS NOT NULL AND COALESCE(r.thread_index, 0) = 0
-		UNION ALL
-		SELECT r.user_id, ss.signed_at, 1, rr.reed_id
-		FROM reed_removals rr
-		JOIN reeds r ON r.id = rr.reed_id
-		JOIN server_signatures ss ON ss.id = rr.server_signature_id
-		WHERE r.published_at IS NOT NULL
-		UNION ALL
-		SELECT r.user_id, ss.signed_at, 1, tr.thread_id
-		FROM thread_removals tr
-		JOIN reeds r ON r.id = tr.thread_id
-		JOIN server_signatures ss ON ss.id = tr.server_signature_id
-		WHERE r.published_at IS NOT NULL
-	)`
+// ================= //
+//   peer delivery   //
+// ================= //
 
 // ListFederatedServers lists every peer, revoked ones included, by name,
 // with the record last countersigned for it.
@@ -10340,6 +10314,19 @@ func enqueuePeerEventTx(ctx context.Context, q adminQuerier, kind, subjectID str
 	return err
 }
 
+// enqueuePublishedRemovalTx owes every peer the removal of reedID when it
+// is a reed published here: peers never heard of any other.
+func enqueuePublishedRemovalTx(ctx context.Context, q adminQuerier, kind, reedID string) error {
+	_, err := q.ExecContext(ctx, `
+		INSERT INTO peer_event_queue (server_id, kind, subject_id)
+		SELECT m.server_id, $1, $2::varchar FROM server_mesh m
+		WHERE m.revoked_at IS NULL
+		  AND EXISTS (SELECT 1 FROM reeds r WHERE r.id = $2::varchar AND r.published_at IS NOT NULL)
+		ON CONFLICT DO NOTHING
+	`, kind, reedID)
+	return err
+}
+
 // enqueuePeerEventForTx owes kind about the (subject, object) pair to
 // serverID alone, unless it is revoked or not a peer.
 func enqueuePeerEventForTx(ctx context.Context, q adminQuerier, serverID, kind, subjectID, objectID string) error {
@@ -10421,138 +10408,6 @@ func (s *DataService) CountPeerEvents(ctx context.Context, peerID string) (int, 
 // everyone visits.
 func (s *DataService) ListPeersOwedEvents(ctx context.Context) ([]string, error) {
 	return s.queryStrings(ctx, `SELECT server_id FROM server_mesh WHERE revoked_at IS NULL`)
-}
-
-// ListDeliveryPeers returns connected peers that have not announced a
-// shutdown.
-func (s *DataService) ListDeliveryPeers(ctx context.Context) ([]PeerServer, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.base_url FROM servers s
-		JOIN server_mesh m ON m.server_id = s.id
-		WHERE m.revoked_at IS NULL AND m.connected = TRUE AND m.down_at IS NULL
-		  AND s.base_url IS NOT NULL AND s.base_url != ''
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var peers []PeerServer
-	for rows.Next() {
-		var p PeerServer
-		if err := rows.Scan(&p.ID, &p.BaseURL); err != nil {
-			return nil, err
-		}
-		peers = append(peers, p)
-	}
-	return peers, rows.Err()
-}
-
-// ClaimPeerStream takes the (peer, author) stream for one drain, creating
-// it at the peer's approval time if new. It fails while another claim is
-// under a minute old, or while the peer is down or revoked.
-func (s *DataService) ClaimPeerStream(ctx context.Context, peerServerID, authorID string) (bool, error) {
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO peer_author_cursors (peer_server_id, author_id, cursor_at, cursor_kind, cursor_reed_id)
-		SELECT m.server_id, $2, COALESCE(m.approved_at, CURRENT_TIMESTAMP), -1, ''
-		FROM server_mesh m WHERE m.server_id = $1
-		ON CONFLICT (peer_server_id, author_id) DO NOTHING
-	`, peerServerID, identityID(authorID)); err != nil {
-		return false, err
-	}
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE peer_author_cursors c SET claimed_at = CURRENT_TIMESTAMP
-		FROM server_mesh m
-		WHERE c.peer_server_id = $1 AND c.author_id = $2 AND m.server_id = c.peer_server_id
-		  AND m.down_at IS NULL AND m.revoked_at IS NULL
-		  AND (c.claimed_at IS NULL OR c.claimed_at < CURRENT_TIMESTAMP - INTERVAL '1 minute')
-	`, peerServerID, identityID(authorID))
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
-// NextPeerStreamItem returns the first item past the stream's cursor, or
-// nil when the peer is up to date.
-func (s *DataService) NextPeerStreamItem(ctx context.Context, peerServerID, authorID string) (*peerStreamItem, error) {
-	var item peerStreamItem
-	err := s.db.QueryRowContext(ctx, peerStreamSQL+`
-		SELECT st.at, st.kind, st.reed_id
-		FROM stream st
-		JOIN peer_author_cursors c ON c.peer_server_id = $1 AND c.author_id = $2
-		WHERE st.author_id = $2
-		  AND (st.at, st.kind, st.reed_id) > (c.cursor_at, c.cursor_kind, c.cursor_reed_id)
-		ORDER BY st.at, st.kind, st.reed_id
-		LIMIT 1
-	`, peerServerID, identityID(authorID)).Scan(&item.At, &item.Kind, &item.ReedID)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &item, nil
-}
-
-// AdvancePeerStream moves the cursor past item and refreshes the claim.
-// It reports false once the peer has gone down or been revoked.
-func (s *DataService) AdvancePeerStream(ctx context.Context, peerServerID, authorID string, item peerStreamItem) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE peer_author_cursors c
-		SET cursor_at = $3, cursor_kind = $4, cursor_reed_id = $5, claimed_at = CURRENT_TIMESTAMP
-		FROM server_mesh m
-		WHERE c.peer_server_id = $1 AND c.author_id = $2 AND m.server_id = c.peer_server_id
-		  AND m.down_at IS NULL AND m.revoked_at IS NULL
-	`, peerServerID, identityID(authorID), item.At, item.Kind, item.ReedID)
-	if err != nil {
-		return false, err
-	}
-	n, err := res.RowsAffected()
-	return n > 0, err
-}
-
-// ReleasePeerStream ends a drain's claim.
-func (s *DataService) ReleasePeerStream(ctx context.Context, peerServerID, authorID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE peer_author_cursors SET claimed_at = NULL
-		WHERE peer_server_id = $1 AND author_id = $2
-	`, peerServerID, identityID(authorID))
-	return err
-}
-
-// BehindAuthors lists local authors with anything peerServerID has not
-// received yet.
-func (s *DataService) BehindAuthors(ctx context.Context, peerServerID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, peerStreamSQL+`
-		SELECT DISTINCT st.author_id
-		FROM stream st
-		JOIN server_mesh m ON m.server_id = $1
-		LEFT JOIN peer_author_cursors c ON c.peer_server_id = $1 AND c.author_id = st.author_id
-		WHERE (st.at, st.kind, st.reed_id) >
-		      (COALESCE(c.cursor_at, m.approved_at), COALESCE(c.cursor_kind, -1), COALESCE(c.cursor_reed_id, ''))
-	`, peerServerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var authors []string
-	for rows.Next() {
-		var author identityID
-		if err := rows.Scan(&author); err != nil {
-			return nil, err
-		}
-		authors = append(authors, string(author))
-	}
-	return authors, rows.Err()
-}
-
-// DeletePeerStreams drops every cursor for a peer, e.g. once it is revoked.
-func (s *DataService) DeletePeerStreams(ctx context.Context, peerServerID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM peer_author_cursors WHERE peer_server_id = $1`, peerServerID)
-	return err
 }
 
 // GetReedAuthorAndSignedAt returns a local reed's author and signing time.

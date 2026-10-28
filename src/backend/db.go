@@ -580,20 +580,6 @@ func InitDB(db *sql.DB) error {
 		CHECK ((thread_head IS NULL) = (thread_index IS NULL))
 	);`
 
-	// How far each peer has got through each local author's reeds and
-	// removals. The row holds no event data: what is
-	// still owed is derived from reeds and reed_removals past the cursor.
-	createPeerAuthorCursorsTable := `
-	CREATE TABLE IF NOT EXISTS peer_author_cursors (
-		peer_server_id VARCHAR(16) NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
-		cursor_at TIMESTAMP NOT NULL,
-		cursor_kind SMALLINT NOT NULL,
-		cursor_reed_id VARCHAR(255) NOT NULL,
-		claimed_at TIMESTAMP,
-		PRIMARY KEY (peer_server_id, author_id)
-	);`
-
 	// Reed ids embed a time-ordered uuid after the author prefix, so id DESC
 	// is chronological — but only within a single author, never across them.
 	createReedIndexes := `
@@ -1841,7 +1827,6 @@ func InitDB(db *sql.DB) error {
 		createReedRemovalsTable,
 		createAccountRemovalsTable,
 
-		createPeerAuthorCursorsTable,
 
 		createUserMailboxTable,
 		createUserMailboxIndexes,

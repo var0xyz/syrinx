@@ -2561,7 +2561,7 @@ func (h *Handlers) DeleteThread(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.broadcastChan <- realtimeBroadcastMessage{Type: realtimeThreadRemoved, ThreadRemoval: &rm}
-	go h.deliverAuthorToPeers(userID)
+	h.drainPeers("")
 
 	log.Info().Str("userID", userID).Str("threadID", threadID).Msg("Thread removal accepted")
 	writeResponse(w, http.StatusOK, pbThreadRemoval(&rm))
@@ -2780,7 +2780,7 @@ func (h *Handlers) DeleteReed(w http.ResponseWriter, r *http.Request) {
 		ReedRemoval: &wire,
 	}
 
-	go h.deliverAuthorToPeers(userID)
+	h.drainPeers("")
 
 	log.Info().Str("userID", userID).Str("reedID", reedID).Msg("Reed removal accepted")
 	writeResponse(w, http.StatusOK, pbReedRemoval(h.reedRemovalWire(&cert)))
@@ -5189,9 +5189,6 @@ func (h *Handlers) ConfirmFederationServerDisconnect(w http.ResponseWriter, r *h
 			fmt.Sprintf("Disconnected by %s (confirmed): %s", caller, reason))
 		if h.realtimeRelay != nil {
 			h.realtimeRelay.forgetPeer(r.Context(), serverID)
-		}
-		if err := h.services.db.DeletePeerStreams(r.Context(), serverID); err != nil {
-			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("failed to drop delivery streams of revoked peer")
 		}
 		if err := h.services.db.DeleteVouchReferencesForServer(r.Context(), serverID); err != nil {
 			h.services.log.GetLogger(r.Context()).Error().Err(err).Str("serverId", serverID).Msg("failed to drop vouch references of revoked peer")
