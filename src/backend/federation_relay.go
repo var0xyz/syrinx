@@ -1373,7 +1373,7 @@ func (h *Handlers) DisconnectNotifyFromPeer(w http.ResponseWriter, r *http.Reque
 	if peerReason := strings.TrimSpace(req.Reason); peerReason != "" {
 		reason += ": " + truncateCharacters(peerReason, MaxReedVisibleChars)
 	}
-	err := h.services.db.RevokeFederationServer(r.Context(), peerServerID, nil, reason, time.Now().UTC().Truncate(time.Second))
+	err := h.services.db.RevokeFederationServer(r.Context(), peerServerID, nil, reason, time.Now().UTC().Truncate(time.Second), h.signerFor(r.Context()))
 	if err != nil && !errors.Is(err, errFederationServerAlreadyRevoked) {
 		log.Error().Err(err).Str("peerServerID", peerServerID).Msg("failed to auto-revoke peer on disconnect notify")
 		h.metrics.FederationRelay(r.Context(), metrics.DirectionIn, peerServerID, "disconnect-notify", false)
@@ -1967,7 +1967,7 @@ func (h *Handlers) updatePeerKey(ctx context.Context, peerServerID, fingerprint 
 	switch {
 	case errors.Is(err, errKeyHandoverCompromised):
 		log.Warn().Str("peerServerID", peerServerID).Msg("Peer reports its pinned key compromised; clearing the pin")
-		if err := h.services.db.ClearPeerPin(ctx, peerServerID); err != nil {
+		if err := h.services.db.ClearPeerPin(ctx, peerServerID, h.signerFor(ctx)); err != nil {
 			log.Error().Err(err).Str("peerServerID", peerServerID).Msg("Failed to clear peer pin")
 		}
 		h.logFederationEvent(peerServerID, federationLogError, "Peer key compromised; re-approve the peer with its new key")

@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed. Lands after [10](10_peer_event_queue.md).
+Implemented. The admin Mesh listing keeps its `connected` flag on the wire,
+computed as `revoked_at IS NULL`.
 
 ## Depends on
 

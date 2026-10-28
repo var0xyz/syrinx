@@ -290,14 +290,14 @@ func InitDB(db *sql.DB) error {
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
 
-	// One row per peer, from our approval on. A purge removes the peer's
-	// users and reeds but keeps this row and its revocation (purged_at).
+	// One row per peer, from our approval on: the peering, signed so devices
+	// can bring it back. A purge removes the peer's users and reeds but keeps
+	// this row (purged_at).
 	createServerMeshTable := `
 	CREATE TABLE IF NOT EXISTS server_mesh (
 		server_id VARCHAR(16) PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
 		-- The peer's key, pinned at approval.
 		key_id VARCHAR(255) REFERENCES public_keys(id),
-		connected BOOLEAN NOT NULL DEFAULT TRUE,
 		-- Who invited it and when, when we were the side that sent the invitation.
 		invited_by VARCHAR(255),
 		invited_at TIMESTAMP,
@@ -316,10 +316,9 @@ func InitDB(db *sql.DB) error {
 		purged_at TIMESTAMP,
 		-- Held by the drain sending this peer its queue; free after a minute.
 		delivery_claimed_at TIMESTAMP,
-		-- The record we last countersigned for this peer, and what it covered,
-		-- so it is signed again only when that changes.
-		record_signature_id INT REFERENCES server_signatures(id),
-		record_fields TEXT
+		-- This server's signature over the peering: every field above but
+		-- down_at, signed again whenever one of them changes.
+		server_signature_id INT REFERENCES server_signatures(id)
 	);`
 
 	createServersIndexes := `

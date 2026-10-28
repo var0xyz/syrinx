@@ -193,7 +193,7 @@ func TestFederationHandshake_FullRoundTrip(t *testing.T) {
 	var aConnected bool
 	var aPeerName, aInvitedBy, aApprovedBy string
 	if err := a.ds.db.QueryRowContext(context.Background(), `
-		SELECT m.connected, s.name, m.invited_by, m.approved_by
+		SELECT m.revoked_at IS NULL, s.name, m.invited_by, m.approved_by
 		FROM servers s JOIN server_mesh m ON m.server_id = s.id WHERE s.id = $1
 	`, peerB).Scan(&aConnected, &aPeerName, &aInvitedBy, &aApprovedBy); err != nil {
 		t.Fatal(err)

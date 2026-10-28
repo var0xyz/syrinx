@@ -37,6 +37,7 @@ func peeredWith(t *testing.T, a, b *e2eServer) *pb.FederatedServerInfo {
 	}
 	peerTestMesh(t, a.db, bID)
 	pinTestPeerKey(t, a.db, bID, bKeyID)
+	signTestPeering(t, a.h.services.db, bID, a.h.signerFor(context.Background()))
 
 	viewer := a.signup(t, "viewer")
 	info := a.serverInfo(t, viewer)
@@ -138,7 +139,7 @@ func TestRecoveryRefusesARevokedPeersUsers(t *testing.T) {
 	b := newE2EServer(t, newTestDatabase(t, InitDB), false)
 	bID := b.h.services.db.GetServerID()
 	peeredWith(t, a, b)
-	if err := a.h.services.db.RevokeFederationServer(ctx, bID, nil, "gone", time.Now()); err != nil {
+	if err := a.h.services.db.RevokeFederationServer(ctx, bID, nil, "gone", time.Now(), a.h.signerFor(ctx)); err != nil {
 		t.Fatal(err)
 	}
 	alice := a.signup(t, "alice")

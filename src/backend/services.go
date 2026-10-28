@@ -3675,7 +3675,7 @@ type federationServerListRow struct {
 // ListFederationServers returns all peer servers, revoked or not (self excluded).
 func (s *DataService) ListFederationServers(ctx context.Context) ([]federationServerListRow, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.name, COALESCE(s.base_url, ''), s.frontend_url, m.connected,
+		SELECT s.id, s.name, COALESCE(s.base_url, ''), s.frontend_url, m.revoked_at IS NULL,
 			m.peer_approved_at IS NOT NULL, s.created_at,
 			COALESCE(m.invited_by, ''), m.invited_at, COALESCE(m.approved_by, ''), m.approved_at,
 			m.purged_at IS NOT NULL,
@@ -3759,13 +3759,28 @@ func (s *DataService) VerifyFederationPeer(ctx context.Context, serverID, finger
 }
 
 // MarkPeerApproved records that serverID has approved this server, which
-// any request it authenticates with proves. A no-op once recorded.
-func (s *DataService) MarkPeerApproved(ctx context.Context, serverID string) error {
-	_, err := s.db.ExecContext(ctx, `
+// any request it authenticates with proves, and signs the peering. A no-op
+// once recorded.
+func (s *DataService) MarkPeerApproved(ctx context.Context, serverID string, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE server_mesh SET peer_approved_at = CURRENT_TIMESTAMP
 		WHERE server_id = $1 AND peer_approved_at IS NULL
 	`, serverID)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return err
+	}
+	if err := s.signPeeringTx(ctx, tx, serverID, countersign); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // PeerServer is a known, approved, non-revoked federation peer, resolved
@@ -3824,7 +3839,7 @@ func (s *DataService) ListConnectedPeers(ctx context.Context) ([]PeerServer, err
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.id, s.base_url FROM servers s
 		JOIN server_mesh m ON m.server_id = s.id
-		WHERE m.revoked_at IS NULL AND m.connected = TRUE
+		WHERE m.revoked_at IS NULL
 		  AND s.base_url IS NOT NULL AND s.base_url != ''
 	`)
 	if err != nil {
@@ -3914,15 +3929,28 @@ func (s *DataService) RepinPeerKey(
 	); err != nil {
 		return fmt.Errorf("re-pin peer: %w", err)
 	}
+	if err := s.signPeeringTx(ctx, tx, peerServerID, countersign); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
 // ClearPeerPin stops trusting a peer's pinned key until an admin approves the
 // peer again with its new key.
-func (s *DataService) ClearPeerPin(ctx context.Context, peerServerID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE server_mesh SET key_id = NULL WHERE server_id = $1`, peerServerID)
-	return err
+func (s *DataService) ClearPeerPin(ctx context.Context, peerServerID string, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE server_mesh SET key_id = NULL WHERE server_id = $1`, peerServerID); err != nil {
+		return err
+	}
+	if err := s.signPeeringTx(ctx, tx, peerServerID, countersign); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // HasServerKeyRevocations reports whether this server has ever replaced a key.
@@ -4261,7 +4289,7 @@ func (s *DataService) ApproveFederationAttempt(
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO server_mesh (server_id, key_id, invited_by, invited_at, approved_by, approved_at)
 		VALUES ($1, $6, $2, $3, $4, $5)
-		ON CONFLICT (server_id) DO UPDATE SET connected = TRUE, key_id = EXCLUDED.key_id,
+		ON CONFLICT (server_id) DO UPDATE SET key_id = EXCLUDED.key_id,
 			invited_by = EXCLUDED.invited_by, invited_at = EXCLUDED.invited_at,
 			approved_by = EXCLUDED.approved_by, approved_at = EXCLUDED.approved_at,
 			peer_approved_at = NULL,
@@ -4283,6 +4311,9 @@ func (s *DataService) ApproveFederationAttempt(
 		`, remoteServerID); err != nil {
 			return "", false, err
 		}
+	}
+	if err := s.signPeeringTx(ctx, tx, remoteServerID, countersign); err != nil {
+		return "", false, err
 	}
 
 	if err := deleteFederationHandshakeTx(ctx, tx, attemptID, invitationID); err != nil {
@@ -4325,11 +4356,19 @@ func deleteFederationHandshakeTx(ctx context.Context, tx *sql.Tx, attemptID, inv
 // RevokeFederationServer disconnects a peer and clears any pending
 // disconnect-request staging. revokedBy is nil when the peer notified us
 // first. Called by the peer-notify path and ConfirmFederationServerDisconnect.
-func (s *DataService) RevokeFederationServer(ctx context.Context, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
-	return revokeFederationServerQ(ctx, s.db, serverID, revokedBy, reason, revokedAt)
+func (s *DataService) RevokeFederationServer(ctx context.Context, serverID string, revokedBy *string, reason string, revokedAt time.Time, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.revokeFederationServerTx(ctx, tx, serverID, revokedBy, reason, revokedAt, countersign); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-func revokeFederationServerQ(ctx context.Context, q adminQuerier, serverID string, revokedBy *string, reason string, revokedAt time.Time) error {
+func (s *DataService) revokeFederationServerTx(ctx context.Context, q *sql.Tx, serverID string, revokedBy *string, reason string, revokedAt time.Time, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
 	// A revoked peer is owed nothing: reconnecting starts it empty.
 	var n int
 	err := q.QueryRowContext(ctx, `
@@ -4359,14 +4398,19 @@ func revokeFederationServerQ(ctx context.Context, q adminQuerier, serverID strin
 		}
 		return errFederationServerAlreadyRevoked
 	}
-	return nil
+	return s.signPeeringTx(ctx, q, serverID, countersign)
 }
 
 // RequestFederationServerDisconnect stages a disconnect — the peer stays
 // trusted until a second admin calls ConfirmFederationServerDisconnect.
 // The request itself is the same for every role, root included.
-func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, serverID, requestedBy, reason string, requestedAt time.Time) error {
-	res, err := s.db.ExecContext(ctx, `
+func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, serverID, requestedBy, reason string, requestedAt time.Time, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE server_mesh
 		SET disconnect_requested_at = $2, disconnect_requested_by = $3, disconnect_reason = $4
 		WHERE server_id = $1 AND revoked_at IS NULL AND disconnect_requested_at IS NULL
@@ -4380,7 +4424,7 @@ func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, ser
 	}
 	if n == 0 {
 		var revoked, pending bool
-		if err := s.db.QueryRowContext(ctx, `
+		if err := tx.QueryRowContext(ctx, `
 			SELECT revoked_at IS NOT NULL, disconnect_requested_at IS NOT NULL
 			FROM server_mesh WHERE server_id = $1
 		`, serverID).Scan(&revoked, &pending); err != nil {
@@ -4394,13 +4438,16 @@ func (s *DataService) RequestFederationServerDisconnect(ctx context.Context, ser
 		}
 		return errFederationDisconnectAlreadyRequested
 	}
-	return nil
+	if err := s.signPeeringTx(ctx, tx, serverID, countersign); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ConfirmFederationServerDisconnect finalizes a staged disconnect,
 // requiring confirmedBy to differ from the requester (root exempt). Returns
 // the staged reason so the caller can pass it to the peer notification.
-func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, serverID, confirmedBy string, confirmedAt time.Time, callerIsRoot bool, ledger func(tx *sql.Tx) error) (reason string, err error) {
+func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, serverID, confirmedBy string, confirmedAt time.Time, callerIsRoot bool, countersign func(payload []byte, ts time.Time) (ServerSignature, error), ledger func(tx *sql.Tx) error) (reason string, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -4423,7 +4470,7 @@ func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, ser
 	if !callerIsRoot && requestedBy == confirmedBy {
 		return "", errFederationSameApprover
 	}
-	if err := revokeFederationServerQ(ctx, tx, serverID, &confirmedBy, reason, confirmedAt); err != nil {
+	if err := s.revokeFederationServerTx(ctx, tx, serverID, &confirmedBy, reason, confirmedAt, countersign); err != nil {
 		return "", err
 	}
 	if ledger != nil {
@@ -4437,8 +4484,13 @@ func (s *DataService) ConfirmFederationServerDisconnect(ctx context.Context, ser
 // CancelFederationServerDisconnect clears a staged disconnect request
 // without revoking anything — lets an admin back out before a second admin
 // confirms.
-func (s *DataService) CancelFederationServerDisconnect(ctx context.Context, serverID string) error {
-	res, err := s.db.ExecContext(ctx, `
+func (s *DataService) CancelFederationServerDisconnect(ctx context.Context, serverID string, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		UPDATE server_mesh
 		SET disconnect_requested_at = NULL, disconnect_requested_by = NULL, disconnect_reason = NULL
 		WHERE server_id = $1 AND disconnect_requested_at IS NOT NULL
@@ -4453,37 +4505,38 @@ func (s *DataService) CancelFederationServerDisconnect(ctx context.Context, serv
 	if n == 0 {
 		return errFederationDisconnectNotRequested
 	}
-	return nil
+	if err := s.signPeeringTx(ctx, tx, serverID, countersign); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // PurgeFederationServer deletes everything a revoked peer left here, its
 // users and reeds included, by deleting its servers row and letting every
-// reference cascade, then puts back its record and revocation, marked
-// purged: there is no record of "no peer", so a revocation is never lost.
-func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string) error {
+// reference cascade, then puts back its peering, marked purged, and signs
+// it: there is no record of "no peer", so a revocation is never lost.
+func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	var name, frontendURL string
-	var keyID, baseURL, revokedBy, revokedReason sql.NullString
-	var createdAt, revokedAt sql.NullTime
-	if err := tx.QueryRowContext(ctx, `
-		SELECT s.name, m.key_id, s.base_url, s.frontend_url, s.created_at,
-			m.revoked_at, m.revoked_by, m.revoked_reason
+	var createdAt sql.NullTime
+	p, err := scanPeering(tx.QueryRowContext(ctx, `
+		SELECT `+peeringColumns+`, s.created_at
 		FROM servers s
 		JOIN server_mesh m ON m.server_id = s.id
 		WHERE s.id = $1
 		FOR UPDATE
-	`, serverID).Scan(&name, &keyID, &baseURL, &frontendURL, &createdAt, &revokedAt, &revokedBy, &revokedReason); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return errFederationServerNotFound
-		}
+	`, serverID).Scan, &createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errFederationServerNotFound
+	}
+	if err != nil {
 		return err
 	}
-	if !revokedAt.Valid {
+	if p.RevokedAt == nil {
 		return errFederationServerNotRevoked
 	}
 
@@ -4497,18 +4550,34 @@ func (s *DataService) PurgeFederationServer(ctx context.Context, serverID string
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO servers (id, name, self, base_url, frontend_url, created_at)
-		VALUES ($1, $2, FALSE, $3, $4, $5)
-	`, serverID, name, baseURL, frontendURL, createdAt); err != nil {
+		VALUES ($1, $2, FALSE, NULLIF($3, ''), $4, $5)
+	`, serverID, p.Name, p.BaseURL, p.FrontendURL, createdAt); err != nil {
 		return fmt.Errorf("restore server record: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO server_mesh (server_id, key_id, connected, revoked_at, revoked_by, revoked_reason, purged_at)
-		VALUES ($1, $5, FALSE, $2, $3, $4, CURRENT_TIMESTAMP)
-	`, serverID, revokedAt, revokedBy, revokedReason, keyID); err != nil {
-		return fmt.Errorf("restore revocation: %w", err)
+	now := time.Now().UTC().Truncate(time.Second)
+	p.PurgedAt = &now
+	if err := insertPeeringTx(ctx, tx, *p); err != nil {
+		return fmt.Errorf("restore peering: %w", err)
 	}
-
+	if err := s.signPeeringTx(ctx, tx, serverID, countersign); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+// insertPeeringTx writes p's server_mesh row, every signed field of it.
+func insertPeeringTx(ctx context.Context, tx *sql.Tx, p peering) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO server_mesh (server_id, key_id, invited_by, invited_at, approved_by, approved_at,
+			peer_approved_at, disconnect_requested_by, disconnect_requested_at, disconnect_reason,
+			revoked_by, revoked_at, revoked_reason, purged_at)
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6,
+			$7, NULLIF($8, ''), $9, NULLIF($10, ''),
+			NULLIF($11, ''), $12, NULLIF($13, ''), $14)
+	`, p.PeerID, p.KeyID, p.InvitedBy, p.InvitedAt, p.ApprovedBy, p.ApprovedAt,
+		p.PeerApprovedAt, p.DisconnectRequestedBy, p.DisconnectRequestedAt, p.DisconnectReason,
+		p.RevokedBy, p.RevokedAt, p.RevokedReason, p.PurgedAt)
+	return err
 }
 
 // RejectFederationAttempt sets status=rejected with reason — the attempt
@@ -10126,20 +10195,81 @@ func (s *DataService) DeleteMailboxMessage(ctx context.Context, id, userID strin
 //   peer delivery   //
 // ================= //
 
-// ListFederatedServers lists every peer, revoked ones included, by name,
-// with the record last countersigned for it.
+// peeringColumns selects a peering from servers s and server_mesh m, in
+// scanPeering's order.
+const peeringColumns = `s.id, s.name, COALESCE(s.base_url, ''), s.frontend_url, COALESCE(m.key_id, ''),
+	COALESCE(m.invited_by, ''), m.invited_at, COALESCE(m.approved_by, ''), m.approved_at, m.peer_approved_at,
+	COALESCE(m.disconnect_requested_by, ''), m.disconnect_requested_at, COALESCE(m.disconnect_reason, ''),
+	COALESCE(m.revoked_by, ''), m.revoked_at, COALESCE(m.revoked_reason, ''), m.purged_at`
+
+// scanPeering scans peeringColumns, then extra.
+func scanPeering(scan func(dest ...any) error, extra ...any) (*peering, error) {
+	var p peering
+	var invitedAt, approvedAt, peerApprovedAt, disconnectAt, revokedAt, purgedAt sql.NullTime
+	dest := append([]any{&p.PeerID, &p.Name, &p.BaseURL, &p.FrontendURL, &p.KeyID,
+		&p.InvitedBy, &invitedAt, &p.ApprovedBy, &approvedAt, &peerApprovedAt,
+		&p.DisconnectRequestedBy, &disconnectAt, &p.DisconnectReason,
+		&p.RevokedBy, &revokedAt, &p.RevokedReason, &purgedAt}, extra...)
+	if err := scan(dest...); err != nil {
+		return nil, err
+	}
+	p.InvitedAt, p.ApprovedAt, p.PeerApprovedAt = secondOf(invitedAt), secondOf(approvedAt), secondOf(peerApprovedAt)
+	p.DisconnectRequestedAt, p.RevokedAt, p.PurgedAt = secondOf(disconnectAt), secondOf(revokedAt), secondOf(purgedAt)
+	return &p, nil
+}
+
+// secondOf is t to the second, as a peering record carries it, or nil.
+func secondOf(t sql.NullTime) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	at := t.Time.UTC().Truncate(time.Second)
+	return &at
+}
+
+// signPeeringTx countersigns serverID's peering as it now stands in tx and
+// makes that its signature, dropping the one it replaces. Every write to a
+// field the record covers calls it before committing.
+func (s *DataService) signPeeringTx(ctx context.Context, tx *sql.Tx, serverID string, countersign func(payload []byte, ts time.Time) (ServerSignature, error)) error {
+	var oldSigID sql.NullInt64
+	p, err := scanPeering(tx.QueryRowContext(ctx, `
+		SELECT `+peeringColumns+`, m.server_signature_id
+		FROM servers s JOIN server_mesh m ON m.server_id = s.id
+		WHERE s.id = $1
+		FOR UPDATE OF m
+	`, serverID).Scan, &oldSigID)
+	if err != nil {
+		return fmt.Errorf("load peering: %w", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	sig, err := countersign(buildPeerRecordPayload(s.serverID, *p, now), now)
+	if err != nil {
+		return fmt.Errorf("countersign peering: %w", err)
+	}
+	sigID, err := insertServerSignature(ctx, tx, sig.ID, sig.Armor, sig.SignedAt)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE server_mesh SET server_signature_id = $2 WHERE server_id = $1`, serverID, sigID); err != nil {
+		return err
+	}
+	if oldSigID.Valid {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM server_signatures WHERE id = $1`, oldSigID.Int64); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ListFederatedServers lists every signed peering, revoked ones included,
+// by name, with the peer's key armor.
 func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServerInfo, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.id, s.name, COALESCE(m.key_id, ''), COALESCE(m.approved_at, s.created_at, CURRENT_TIMESTAMP),
-		       COALESCE(s.base_url, ''), s.frontend_url,
-		       m.revoked_at IS NOT NULL, m.purged_at IS NOT NULL,
-		       m.connected AND m.revoked_at IS NULL AND m.peer_approved_at IS NOT NULL,
-		       COALESCE(pk.armor, ''), COALESCE(m.record_fields, ''),
-		       COALESCE(ss.private_key_id, ''), COALESCE(ss.signature, ''), ss.signed_at
+		SELECT `+peeringColumns+`, COALESCE(pk.armor, ''), ss.private_key_id, ss.signature, ss.signed_at
 		FROM servers s
 		JOIN server_mesh m ON m.server_id = s.id
+		JOIN server_signatures ss ON ss.id = m.server_signature_id
 		LEFT JOIN public_keys pk ON pk.id = m.key_id
-		LEFT JOIN server_signatures ss ON ss.id = m.record_signature_id
 		ORDER BY s.name
 	`)
 	if err != nil {
@@ -10150,49 +10280,15 @@ func (s *DataService) ListFederatedServers(ctx context.Context) ([]FederatedServ
 	servers := []FederatedServerInfo{}
 	for rows.Next() {
 		var srv FederatedServerInfo
-		var signedAt sql.NullTime
-		if err := rows.Scan(&srv.ID, &srv.Name, &srv.KeyID, &srv.CreatedAt, &srv.BaseURL, &srv.FrontendURL,
-			&srv.Revoked, &srv.Purged, &srv.Established, &srv.KeyArmor, &srv.RecordFields,
-			&srv.Record.ID, &srv.Record.Armor, &signedAt); err != nil {
+		p, err := scanPeering(rows.Scan, &srv.KeyArmor, &srv.ServerSignature.ID, &srv.ServerSignature.Armor, &srv.ServerSignature.SignedAt)
+		if err != nil {
 			return nil, err
 		}
-		if signedAt.Valid {
-			srv.Record.SignedAt = signedAt.Time.UTC()
-		}
+		srv.peering = *p
+		srv.ServerSignature.SignedAt = srv.ServerSignature.SignedAt.UTC()
 		servers = append(servers, srv)
 	}
 	return servers, rows.Err()
-}
-
-// SetPeerRecord stores the record just countersigned for serverID and what
-// it covers, dropping the one it replaces.
-func (s *DataService) SetPeerRecord(ctx context.Context, serverID, fields string, sig ServerSignature) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	sigID, err := insertServerSignature(ctx, tx, sig.ID, sig.Armor, sig.SignedAt)
-	if err != nil {
-		return err
-	}
-	var old sql.NullInt64
-	if err := tx.QueryRowContext(ctx, `
-		SELECT record_signature_id FROM server_mesh WHERE server_id = $1 FOR UPDATE
-	`, serverID).Scan(&old); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE server_mesh SET record_signature_id = $2, record_fields = $3 WHERE server_id = $1
-	`, serverID, sigID, fields); err != nil {
-		return err
-	}
-	if old.Valid {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM server_signatures WHERE id = $1`, old.Int64); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
 }
 
 // peerEvent is one row of a peer's event queue, with where to send it.

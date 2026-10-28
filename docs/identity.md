@@ -154,7 +154,7 @@ Once everyone has reported in, the rebuilt database matches the old one. Each de
 
 Every signed record is checked as it was when first accepted, and one that names a user not restored yet waits until that user is. A user who never returns is still rebuilt from what peers cached, as an unclaimed account they can claim later.
 
-Federation peers come back too: every device keeps the record the server countersigned for each peer, revoked ones included, and reports it first. The peers' users and reeds a device held then come back with it, checked against those peers' keys, and so do follows of a peer's users and blocks a peer's user made against yours. What nobody on this server held never existed here, and nothing a peer delivered before the wipe is sent again.
+Federation peers come back too: every device keeps the record the server countersigned for each peering, revoked ones included, with who connected or disconnected it, when and why, and reports it first. The peers' users and reeds a device held then come back with it, checked against those peers' keys, and so do follows of a peer's users and blocks a peer's user made against yours. What nobody on this server held never existed here, and nothing a peer delivered before the wipe is sent again.
 
 A few things don't come back, by design: invites (an account still shows who invited it, but pending invites are lost) and ripples. Admin requests, flags and flag dismissals come back from admins' devices; a request still pending can't be decided until another admin's device settles it or the operator ends recovery. Mailbox messages stay on the devices that received them. A removed reed comes back as its removal certificate alone, since no device keeps its content.
 

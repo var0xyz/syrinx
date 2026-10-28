@@ -208,29 +208,31 @@ export function buildUsernameCollisionPayload(
   });
 }
 
+/** A peering as a server signs it. Times are RFC 3339, '' when unset. */
+export interface PeerRecordFields {
+  peerID: string;
+  name: string;
+  baseURL: string;
+  frontendURL: string;
+  keyID: string;
+  invitedBy: string;
+  invitedAt: string;
+  approvedBy: string;
+  approvedAt: string;
+  peerApprovedAt: string;
+  disconnectRequestedBy: string;
+  disconnectRequestedAt: string;
+  disconnectReason: string;
+  revokedBy: string;
+  revokedAt: string;
+  revokedReason: string;
+  purgedAt: string;
+}
+
 /** Mirror of buildPeerRecordPayload in identity.go: what a server countersigns
- * about one of its peers. */
-export function buildPeerRecordPayload(
-  serverID: string,
-  peerID: string,
-  name: string,
-  keyID: string,
-  baseURL: string,
-  frontendURL: string,
-  status: string,
-  signedAt: string
-): string {
-  return canonicalJSON({
-    type: 'peer-record',
-    serverID,
-    peerID,
-    name,
-    keyID,
-    baseURL,
-    frontendURL,
-    status,
-    signedAt,
-  });
+ * about one of its peerings. */
+export function buildPeerRecordPayload(serverID: string, fields: PeerRecordFields, signedAt: string): string {
+  return canonicalJSON({ type: 'peer-record', serverID, ...fields, signedAt });
 }
 
 /** Mirror of buildThreadUserPayload in identity.go. reedIDs[0] is the head. */

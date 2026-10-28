@@ -61,7 +61,7 @@ shipped-vs-designed diff.
 | 06   | **Implemented**, via purpose-built per-operation endpoints (`federation_relay.go`) rather than this doc's generic relay endpoints |
 | 07   | **Out of scope for v1, by design.** Fire-and-forget (signed HTTP, short timeout, swallowed-on-failure) is the accepted permanent v1 behavior, not a gap to close later — no `servers.online`, no ping, no backlog/replay planned. |
 | 10   | **Implemented** |
-| 11   | Proposed |
+| 11   | **Implemented** |
 
 Beyond this doc set, `federation_relay.go` also implements mentions,
 federated user search, and reed-stats/like propagation — none of these

@@ -118,28 +118,33 @@ func (x *ServerInfo) GetFederation() []*FederatedServerInfo {
 }
 
 // One established peer, for picking which server a verification link opens on.
-// A peer, revoked ones included, with the record this server countersigned
-// for it. Devices keep the newest record per peer and report it back when
-// the server is rebuilt.
+// A peering, revoked ones included, as this server signed it: the peer and
+// every decision about the connection. Devices keep the newest record per
+// peer and report it back when the server is rebuilt. Times are unix
+// seconds, 0 when unset.
 type FederatedServerInfo struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	KeyId string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	// When this server approved the peer. Not signed.
-	CreatedAt   uint32 `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	FrontendUrl string `protobuf:"bytes,5,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
-	BaseUrl     string `protobuf:"bytes,6,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
-	// connected or revoked.
-	Status string `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
-	// Approved on both sides. Not signed: a hint for picking where a
-	// verification link opens.
-	Established bool `protobuf:"varint,8,opt,name=established,proto3" json:"established,omitempty"`
-	// Countersignature over the record: id, name, key_id, base_url,
-	// frontend_url, status and its own signed_at.
-	ServerSignature *ServerSignature `protobuf:"bytes,9,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	KeyId                 string                 `protobuf:"bytes,3,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	BaseUrl               string                 `protobuf:"bytes,4,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	FrontendUrl           string                 `protobuf:"bytes,5,opt,name=frontend_url,json=frontendUrl,proto3" json:"frontend_url,omitempty"`
+	InvitedBy             string                 `protobuf:"bytes,6,opt,name=invited_by,json=invitedBy,proto3" json:"invited_by,omitempty"`
+	InvitedAt             uint32                 `protobuf:"varint,7,opt,name=invited_at,json=invitedAt,proto3" json:"invited_at,omitempty"`
+	ApprovedBy            string                 `protobuf:"bytes,8,opt,name=approved_by,json=approvedBy,proto3" json:"approved_by,omitempty"`
+	ApprovedAt            uint32                 `protobuf:"varint,9,opt,name=approved_at,json=approvedAt,proto3" json:"approved_at,omitempty"`
+	PeerApprovedAt        uint32                 `protobuf:"varint,10,opt,name=peer_approved_at,json=peerApprovedAt,proto3" json:"peer_approved_at,omitempty"`
+	DisconnectRequestedBy string                 `protobuf:"bytes,11,opt,name=disconnect_requested_by,json=disconnectRequestedBy,proto3" json:"disconnect_requested_by,omitempty"`
+	DisconnectRequestedAt uint32                 `protobuf:"varint,12,opt,name=disconnect_requested_at,json=disconnectRequestedAt,proto3" json:"disconnect_requested_at,omitempty"`
+	DisconnectReason      string                 `protobuf:"bytes,13,opt,name=disconnect_reason,json=disconnectReason,proto3" json:"disconnect_reason,omitempty"`
+	RevokedBy             string                 `protobuf:"bytes,14,opt,name=revoked_by,json=revokedBy,proto3" json:"revoked_by,omitempty"`
+	RevokedAt             uint32                 `protobuf:"varint,15,opt,name=revoked_at,json=revokedAt,proto3" json:"revoked_at,omitempty"`
+	RevokedReason         string                 `protobuf:"bytes,16,opt,name=revoked_reason,json=revokedReason,proto3" json:"revoked_reason,omitempty"`
+	PurgedAt              uint32                 `protobuf:"varint,17,opt,name=purged_at,json=purgedAt,proto3" json:"purged_at,omitempty"`
+	// Countersignature over all of the above and its own signed_at.
+	ServerSignature *ServerSignature `protobuf:"bytes,18,opt,name=server_signature,json=serverSignature,proto3" json:"server_signature,omitempty"`
 	// The peer's server key, accepted only if its fingerprint is key_id's.
-	KeyArmor      string `protobuf:"bytes,10,opt,name=key_armor,json=keyArmor,proto3" json:"key_armor,omitempty"`
+	KeyArmor      string `protobuf:"bytes,19,opt,name=key_armor,json=keyArmor,proto3" json:"key_armor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -195,11 +200,11 @@ func (x *FederatedServerInfo) GetKeyId() string {
 	return ""
 }
 
-func (x *FederatedServerInfo) GetCreatedAt() uint32 {
+func (x *FederatedServerInfo) GetBaseUrl() string {
 	if x != nil {
-		return x.CreatedAt
+		return x.BaseUrl
 	}
-	return 0
+	return ""
 }
 
 func (x *FederatedServerInfo) GetFrontendUrl() string {
@@ -209,25 +214,88 @@ func (x *FederatedServerInfo) GetFrontendUrl() string {
 	return ""
 }
 
-func (x *FederatedServerInfo) GetBaseUrl() string {
+func (x *FederatedServerInfo) GetInvitedBy() string {
 	if x != nil {
-		return x.BaseUrl
+		return x.InvitedBy
 	}
 	return ""
 }
 
-func (x *FederatedServerInfo) GetStatus() string {
+func (x *FederatedServerInfo) GetInvitedAt() uint32 {
 	if x != nil {
-		return x.Status
+		return x.InvitedAt
+	}
+	return 0
+}
+
+func (x *FederatedServerInfo) GetApprovedBy() string {
+	if x != nil {
+		return x.ApprovedBy
 	}
 	return ""
 }
 
-func (x *FederatedServerInfo) GetEstablished() bool {
+func (x *FederatedServerInfo) GetApprovedAt() uint32 {
 	if x != nil {
-		return x.Established
+		return x.ApprovedAt
 	}
-	return false
+	return 0
+}
+
+func (x *FederatedServerInfo) GetPeerApprovedAt() uint32 {
+	if x != nil {
+		return x.PeerApprovedAt
+	}
+	return 0
+}
+
+func (x *FederatedServerInfo) GetDisconnectRequestedBy() string {
+	if x != nil {
+		return x.DisconnectRequestedBy
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetDisconnectRequestedAt() uint32 {
+	if x != nil {
+		return x.DisconnectRequestedAt
+	}
+	return 0
+}
+
+func (x *FederatedServerInfo) GetDisconnectReason() string {
+	if x != nil {
+		return x.DisconnectReason
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetRevokedBy() string {
+	if x != nil {
+		return x.RevokedBy
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetRevokedAt() uint32 {
+	if x != nil {
+		return x.RevokedAt
+	}
+	return 0
+}
+
+func (x *FederatedServerInfo) GetRevokedReason() string {
+	if x != nil {
+		return x.RevokedReason
+	}
+	return ""
+}
+
+func (x *FederatedServerInfo) GetPurgedAt() uint32 {
+	if x != nil {
+		return x.PurgedAt
+	}
+	return 0
 }
 
 func (x *FederatedServerInfo) GetServerSignature() *ServerSignature {
@@ -2185,20 +2253,34 @@ const file_identity_proto_rawDesc = "" +
 	"\rserver_key_id\x18\x06 \x01(\tR\vserverKeyId\x12;\n" +
 	"\n" +
 	"federation\x18\a \x03(\v2\x1b.syrinx.FederatedServerInfoR\n" +
-	"federation\"\xc8\x02\n" +
+	"federation\"\xb8\x05\n" +
 	"\x13FederatedServerInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x15\n" +
-	"\x06key_id\x18\x03 \x01(\tR\x05keyId\x12\x1d\n" +
+	"\x06key_id\x18\x03 \x01(\tR\x05keyId\x12\x19\n" +
+	"\bbase_url\x18\x04 \x01(\tR\abaseUrl\x12!\n" +
+	"\ffrontend_url\x18\x05 \x01(\tR\vfrontendUrl\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\rR\tcreatedAt\x12!\n" +
-	"\ffrontend_url\x18\x05 \x01(\tR\vfrontendUrl\x12\x19\n" +
-	"\bbase_url\x18\x06 \x01(\tR\abaseUrl\x12\x16\n" +
-	"\x06status\x18\a \x01(\tR\x06status\x12 \n" +
-	"\vestablished\x18\b \x01(\bR\vestablished\x12B\n" +
-	"\x10server_signature\x18\t \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1b\n" +
-	"\tkey_armor\x18\n" +
-	" \x01(\tR\bkeyArmor\"i\n" +
+	"invited_by\x18\x06 \x01(\tR\tinvitedBy\x12\x1d\n" +
+	"\n" +
+	"invited_at\x18\a \x01(\rR\tinvitedAt\x12\x1f\n" +
+	"\vapproved_by\x18\b \x01(\tR\n" +
+	"approvedBy\x12\x1f\n" +
+	"\vapproved_at\x18\t \x01(\rR\n" +
+	"approvedAt\x12(\n" +
+	"\x10peer_approved_at\x18\n" +
+	" \x01(\rR\x0epeerApprovedAt\x126\n" +
+	"\x17disconnect_requested_by\x18\v \x01(\tR\x15disconnectRequestedBy\x126\n" +
+	"\x17disconnect_requested_at\x18\f \x01(\rR\x15disconnectRequestedAt\x12+\n" +
+	"\x11disconnect_reason\x18\r \x01(\tR\x10disconnectReason\x12\x1d\n" +
+	"\n" +
+	"revoked_by\x18\x0e \x01(\tR\trevokedBy\x12\x1d\n" +
+	"\n" +
+	"revoked_at\x18\x0f \x01(\rR\trevokedAt\x12%\n" +
+	"\x0erevoked_reason\x18\x10 \x01(\tR\rrevokedReason\x12\x1b\n" +
+	"\tpurged_at\x18\x11 \x01(\rR\bpurgedAt\x12B\n" +
+	"\x10server_signature\x18\x12 \x01(\v2\x17.syrinx.ServerSignatureR\x0fserverSignature\x12\x1b\n" +
+	"\tkey_armor\x18\x13 \x01(\tR\bkeyArmor\"i\n" +
 	"\x0eUserIDResponse\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userID\x12\x1c\n" +
 	"\tsignature\x18\x02 \x01(\tR\tsignature\x12 \n" +

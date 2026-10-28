@@ -43,7 +43,6 @@ func ensureFederationTestSchema(db *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS server_mesh (
 			server_id VARCHAR(255) PRIMARY KEY REFERENCES servers(id) ON DELETE CASCADE,
 			key_id VARCHAR(255),
-			connected BOOLEAN NOT NULL DEFAULT TRUE,
 			invited_by VARCHAR(255),
 			invited_at TIMESTAMP,
 			approved_by VARCHAR(255),
@@ -57,7 +56,8 @@ func ensureFederationTestSchema(db *sql.DB) error {
 			disconnect_reason TEXT,
 			down_at TIMESTAMP,
 			purged_at TIMESTAMP,
-			delivery_claimed_at TIMESTAMP
+			delivery_claimed_at TIMESTAMP,
+			server_signature_id INT
 		)`,
 		`CREATE TABLE IF NOT EXISTS peer_event_queue (
 			id BIGSERIAL PRIMARY KEY,
