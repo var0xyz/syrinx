@@ -6722,6 +6722,10 @@ func (s *DataService) insertInviteWith(
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "invites:"+creatorID); err != nil {
 		return err
 	}
+	limit, err := inviteLimitQ(ctx, tx, creatorID, s.serverID, maxInvites)
+	if err != nil {
+		return err
+	}
 	userSignatureID, err := insertUserSignature(ctx, tx, userKeyID, userSignatureArmor)
 	if err != nil {
 		return err
@@ -6734,7 +6738,7 @@ func (s *DataService) insertInviteWith(
 		INSERT INTO invites (id, created_by, token_hash, created_at, granted_role, user_signature_id, server_signature_id)
 		SELECT $1, $2::varchar, $3, $4, $5, $6, $7
 		WHERE $8 < 0 OR (SELECT COUNT(*) FROM invites WHERE created_by = $2::varchar) < $8
-	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID, serverSignatureID, maxInvites)
+	`, id, creatorID, tokenHash, createdAt.UTC(), grantedRole, userSignatureID, serverSignatureID, limit)
 	if isUniqueViolation(err) {
 		return errInviteExists
 	}

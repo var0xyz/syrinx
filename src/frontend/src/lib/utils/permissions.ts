@@ -6,6 +6,7 @@ export const ADMIN_PERMISSIONS = [
   'user.kick',
   'user.suspend',
   'user.rebind',
+  'user.invites',
   'message.unicast',
   'message.broadcast',
   'mesh.invite',

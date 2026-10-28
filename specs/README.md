@@ -232,6 +232,7 @@ excepted). No control over individual reeds.
 | 12    | Admin records on admins' devices            | Implemented |
 | 13    | Withdrawing flags, and an author's history  | Implemented |
 | 14    | Flag cases                                  | Implemented |
+| 15    | Invite grants, root's unlimited invites     | Implemented |
 
 ## Bans (users of peer servers)
 

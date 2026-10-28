@@ -17,6 +17,7 @@ export type AdminAction =
   | 'demote'
   | 'permissions'
   | 'rebind'
+  | 'invites'
   | 'broadcast'
   | 'unicast';
 
@@ -29,6 +30,7 @@ export const ACTION_PERMISSION: Record<Exclude<AdminAction, 'permissions'>, stri
   promote: 'admin.create',
   demote: 'admin.demote',
   rebind: 'user.rebind',
+  invites: 'user.invites',
   broadcast: 'message.broadcast',
   unicast: 'message.unicast',
 };

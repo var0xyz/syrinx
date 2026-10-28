@@ -34,6 +34,7 @@
     demote: 'Demote',
     permissions: 'Permissions',
     rebind: 'Key rebind',
+    invites: 'Invites',
     broadcast: 'Broadcast',
     unicast: 'Unicast',
   };
@@ -132,6 +133,8 @@
         return 'Makes this admin a regular user and revokes their unclaimed admin invites.';
       case 'rebind':
         return 'Revokes their current key as lost and binds the uploaded key, restricted to a rotation.';
+      case 'invites':
+        return `Lets them create ${r.body} more invite${r.body === '1' ? '' : 's'} than the server allows.`;
       case 'broadcast':
         return 'Sends this message to every local member’s mailbox.';
       case 'unicast':
@@ -360,7 +363,8 @@
   }
 
   .action-badge[data-action='promote'],
-  .action-badge[data-action='reinstate'] {
+  .action-badge[data-action='reinstate'],
+  .action-badge[data-action='invites'] {
     color: #27ae60;
   }
 

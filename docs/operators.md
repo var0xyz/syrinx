@@ -59,7 +59,7 @@ Copy from [`.env.example`](https://github.com/var0xyz/syrinx/blob/main/.env.exam
 | `ALLOWED_ORIGIN` | Required. SPA origin, also this server's frontend URL: peers send their users here, and `ops import-identity` needs it too |
 | `SERVER_KEY_PASSPHRASE` | Optional; if unset, interactive boot uses OS keychain (auto-generate or prompt) |
 | `SIGNUP_MODE` | `open` \| `invite` \| `closed`; ignored unless `RECOVERY_MODE=off` (signups always blocked while recovering) |
-| `MAX_INVITES_PER_USER` | Cap (`-1` / unset = infinite) |
+| `MAX_INVITES_PER_USER` | Cap (`-1` / unset = infinite). Root is exempt; admins can grant a member more |
 | `RECOVERY_MODE` | `off` (default) \| `lockdown` \| `operational`. While rebuilding after an identity import: `lockdown` allows only recovery and tells peers to wait, `operational` resumes normal use and federation, still without signups |
 | `ROOT_KEY_EXPORT_PASSPHRASE` | First boot only: mints the root operator identity, writes its export and exits; unset it afterwards |
 

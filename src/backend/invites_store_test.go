@@ -74,6 +74,21 @@ func ensureInviteStoreSchema(db *sql.DB) error {
 			server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 			invite_id VARCHAR(255)
 		)`,
+		// The quota reads invite grants from executed admin requests.
+		`CREATE TABLE IF NOT EXISTS admin_requests (
+			id VARCHAR(255) PRIMARY KEY,
+			action VARCHAR(32) NOT NULL,
+			state VARCHAR(16) NOT NULL DEFAULT 'pending'
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_request_targets (
+			request_id VARCHAR(255) NOT NULL REFERENCES admin_requests(id),
+			user_id VARCHAR(255) NOT NULL,
+			PRIMARY KEY (request_id, user_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS admin_request_content (
+			request_id VARCHAR(255) PRIMARY KEY REFERENCES admin_requests(id),
+			body TEXT NOT NULL
+		)`,
 		`CREATE OR REPLACE FUNCTION invite_creator(invite_id TEXT) RETURNS TEXT AS $$
 			SELECT left(invite_id, length(invite_id) - strpos(reverse(invite_id), '/'))
 		$$ LANGUAGE sql IMMUTABLE`,

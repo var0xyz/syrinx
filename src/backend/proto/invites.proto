@@ -38,6 +38,12 @@ message InviteStatus {
   uint32 revoked_at = 6;
 }
 
+// GET /invites/quota: how many invites the caller may create in all,
+// revoked ones included. -1 means no limit.
+message InviteQuota {
+  int32 limit = 1;
+}
+
 // GET /invites/check.
 message InviteCheckResponse {
   bool valid = 1;

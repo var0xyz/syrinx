@@ -94,6 +94,7 @@ import {
 import {
   CreateInviteRequestSchema,
   InviteCheckResponseSchema,
+  InviteQuotaSchema,
   InviteSchema,
   InviteStatusSchema,
   type Invite,
@@ -511,6 +512,11 @@ export const apiService = {
   async checkInvite(id: string, secret: string): Promise<{ valid: boolean }> {
     const q = new URLSearchParams({ id, secret });
     return request(`/invites/check?${q}`, { method: 'GET' }, InviteCheckResponseSchema);
+  },
+
+  /** How many invites the caller may create in all; -1 for no limit. */
+  async getInviteLimit(): Promise<number> {
+    return (await request('/invites/quota', { method: 'GET' }, InviteQuotaSchema)).limit;
   },
 
   async createInvite(body: MessageInitShape<typeof CreateInviteRequestSchema>): Promise<Invite> {

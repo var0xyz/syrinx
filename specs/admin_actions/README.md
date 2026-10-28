@@ -2,7 +2,7 @@
 
 This directory specifies what **admins and root** can do to accounts on their
 own instance: kick, suspend and reinstate, promote and demote, rebind a lost
-key, reserve usernames, review flags, send broadcasts and private messages,
+key, give a member more invites, reserve usernames, review flags, send broadcasts and private messages,
 and connect to other servers. Every action is opened by one admin, approved
 by another, and recorded in a **public ledger** with its reason. The one
 exception is a private message to a single user, which is never logged.
@@ -31,6 +31,7 @@ when schema changes.
 | [12](12_admin_records.md) | Admin records on admins' devices          | 01, 08                      |
 | [13](13_flag_withdrawal.md) | Withdrawing flags, and an author's flag history | 08, 12                |
 | [14](14_flag_cases.md) | Flag cases: dismissals close a case, cleanup after 6 months | 08, 12, 13 |
+| [15](15_invite_grants.md) | Invite grants, and root's unlimited invites | 01, 02 |
 
 ---
 
@@ -45,6 +46,7 @@ when schema changes.
 | 12    | Implemented              |
 | 13    | Implemented              |
 | 14    | Implemented              |
+| 15    | Implemented              |
 
 ## Locked decisions
 
@@ -52,7 +54,7 @@ when schema changes.
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Content control    | **None.** No per-reed removal or hiding by admins; no "hide from discovery"                                                                                                                 |
 | Two-person rule    | Every action except admin invites, mesh and flag review needs a **second admin's approval**                                                                                                  |
-| Permissions        | `admin.create`, `admin.demote`, `user.kick`, `user.suspend`, `user.rebind`, `message.unicast`, `message.broadcast`, `mesh.invite`, `mesh.connect`, `mesh.disconnect`. Requester and approver both need the action's; nobody grants one they lack; root holds all; no stored "all" |
+| Permissions        | `admin.create`, `admin.demote`, `user.kick`, `user.suspend`, `user.rebind`, `user.invites`, `message.unicast`, `message.broadcast`, `mesh.invite`, `mesh.connect`, `mesh.disconnect`. Requester and approver both need the action's; nobody grants one they lack; root holds all; no stored "all" |
 | Approver           | Anyone can try to approve; the server refuses the approval if the approver is the requester, a target, or, on a kick or a permission change, someone the requester **invited directly**. Root may approve its own requests |
 | Acting on admins   | Any admin may request; **root must approve**. Nobody acts on root                                                                                                                           |
 | Expiry             | Requests **never expire**                                                                                                                                                                   |
@@ -70,6 +72,7 @@ when schema changes.
 | Lost device        | User enters their **user ID** (no username lookup) on a **lost-device page**, mints a key, downloads `<userID>.pub.txt`, hands it to an admin out of band                                |
 | Rebound key        | **Restricted**: can sign only a rotation to a freshly minted key; anything else (reeds included) is refused                                                                                 |
 | Rebind trust       | Old key revoked as **lost** (old reeds stay valid), marked **admin-rebound**; vouches for the old key don't carry over                                                                      |
+| Invite grants      | An approved `invites` request adds 1–100 invites to one member's limit, on top of `MAX_INVITES_PER_USER`; grants add up and are never taken back. Refused when the server has no cap. **Root has no invite limit** |
 | Reserved usernames | A fixed list in code plus the server's name, case-insensitive. `root` belongs to the root identity forever, even after root renames                                                       |
 | Flags              | Users flag a **reed ID** only; admins load content from the network. Server never sees content                                                                                              |
 | Flag visibility    | Admins see the reporter. Flags on an admin's reed are visible only to **other** admins. Root's reeds can't be flagged                                                                       |

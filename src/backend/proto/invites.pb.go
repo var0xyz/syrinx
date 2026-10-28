@@ -285,6 +285,52 @@ func (x *InviteStatus) GetRevokedAt() uint32 {
 	return 0
 }
 
+// GET /invites/quota: how many invites the caller may create in all,
+// revoked ones included. -1 means no limit.
+type InviteQuota struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Limit         int32                  `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InviteQuota) Reset() {
+	*x = InviteQuota{}
+	mi := &file_invites_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InviteQuota) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InviteQuota) ProtoMessage() {}
+
+func (x *InviteQuota) ProtoReflect() protoreflect.Message {
+	mi := &file_invites_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InviteQuota.ProtoReflect.Descriptor instead.
+func (*InviteQuota) Descriptor() ([]byte, []int) {
+	return file_invites_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *InviteQuota) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
 // GET /invites/check.
 type InviteCheckResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -295,7 +341,7 @@ type InviteCheckResponse struct {
 
 func (x *InviteCheckResponse) Reset() {
 	*x = InviteCheckResponse{}
-	mi := &file_invites_proto_msgTypes[3]
+	mi := &file_invites_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -307,7 +353,7 @@ func (x *InviteCheckResponse) String() string {
 func (*InviteCheckResponse) ProtoMessage() {}
 
 func (x *InviteCheckResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_invites_proto_msgTypes[3]
+	mi := &file_invites_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -320,7 +366,7 @@ func (x *InviteCheckResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InviteCheckResponse.ProtoReflect.Descriptor instead.
 func (*InviteCheckResponse) Descriptor() ([]byte, []int) {
-	return file_invites_proto_rawDescGZIP(), []int{3}
+	return file_invites_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *InviteCheckResponse) GetValid() bool {
@@ -365,7 +411,9 @@ const file_invites_proto_rawDesc = "" +
 	"claimed_by\x18\x05 \x01(\tH\x00R\tclaimedBy\x88\x01\x01\x12\x1d\n" +
 	"\n" +
 	"revoked_at\x18\x06 \x01(\rR\trevokedAtB\r\n" +
-	"\v_claimed_by\"+\n" +
+	"\v_claimed_by\"#\n" +
+	"\vInviteQuota\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\x05R\x05limit\"+\n" +
 	"\x13InviteCheckResponse\x12\x14\n" +
 	"\x05valid\x18\x01 \x01(\bR\x05validB!Z\x1fgithub.com/var0xyz/syrinx/protob\x06proto3"
 
@@ -381,19 +429,20 @@ func file_invites_proto_rawDescGZIP() []byte {
 	return file_invites_proto_rawDescData
 }
 
-var file_invites_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_invites_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_invites_proto_goTypes = []any{
 	(*CreateInviteRequest)(nil), // 0: syrinx.CreateInviteRequest
 	(*Invite)(nil),              // 1: syrinx.Invite
 	(*InviteStatus)(nil),        // 2: syrinx.InviteStatus
-	(*InviteCheckResponse)(nil), // 3: syrinx.InviteCheckResponse
-	(*UserSignature)(nil),       // 4: syrinx.UserSignature
-	(*ServerSignature)(nil),     // 5: syrinx.ServerSignature
+	(*InviteQuota)(nil),         // 3: syrinx.InviteQuota
+	(*InviteCheckResponse)(nil), // 4: syrinx.InviteCheckResponse
+	(*UserSignature)(nil),       // 5: syrinx.UserSignature
+	(*ServerSignature)(nil),     // 6: syrinx.ServerSignature
 }
 var file_invites_proto_depIdxs = []int32{
-	4, // 0: syrinx.CreateInviteRequest.user_signature:type_name -> syrinx.UserSignature
-	4, // 1: syrinx.Invite.user_signature:type_name -> syrinx.UserSignature
-	5, // 2: syrinx.Invite.server_signature:type_name -> syrinx.ServerSignature
+	5, // 0: syrinx.CreateInviteRequest.user_signature:type_name -> syrinx.UserSignature
+	5, // 1: syrinx.Invite.user_signature:type_name -> syrinx.UserSignature
+	6, // 2: syrinx.Invite.server_signature:type_name -> syrinx.ServerSignature
 	3, // [3:3] is the sub-list for method output_type
 	3, // [3:3] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
@@ -414,7 +463,7 @@ func file_invites_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_invites_proto_rawDesc), len(file_invites_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -49,6 +49,7 @@ wipe is acceptable. The durable social fact that survives is
 |----------|--------|
 | Mode env | `SIGNUP_MODE=open\|invite\|closed` (default `open`) |
 | Quota env | `MAX_INVITES_PER_USER`: `>= 1`, or `-1` / unset = infinite; else fatal. `.env.example` defaults to `3` with disable comment |
+| Quota exceptions | **Root has no limit.** Admins can raise one member's limit with an approved `invites` request ([admin actions 15](../admin_actions/15_invite_grants.md)); `GET /api/invites/quota` answers the caller's own limit |
 | Bootstrap | First account: deploy with `open`, then switch to `invite`/`closed` |
 | Token | Opaque ≥256-bit URL-safe secret; store SHA-256 only |
 | Expiry | None |
@@ -67,6 +68,7 @@ wipe is acceptable. The durable social fact that survives is
 ## Actors
 
 - **Operator** — sets `SIGNUP_MODE` and `MAX_INVITES_PER_USER` at deploy time.
+- **Admin** — with `user.invites`, gives a member invites beyond the cap.
 - **Inviter** — authenticated user who creates / revokes invites, stores them
   locally, refreshes pending status, and sees who claimed them.
 - **Invitee** — person holding an invite link; completes normal PGP signup
