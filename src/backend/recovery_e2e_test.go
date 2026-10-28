@@ -664,14 +664,15 @@ var recoveryRestoredTables = map[string]string{
 	"admin_request_targets": `SELECT request_id, user_id, dropped FROM admin_request_targets`,
 	"admin_request_content": `SELECT request_id, body FROM admin_request_content`,
 	"reed_flags": `SELECT f.reed_id, f.author_id, f.reporter_id, f.note, f.public_key_id, us.signature, ss.signature, f.created_at,
-		COALESCE(f.dismissal_id, '')
+		f.case_id
 		FROM reed_flags f JOIN user_signatures us ON us.id = f.user_signature_id
 		JOIN server_signatures ss ON ss.id = f.server_signature_id`,
-	"flag_dismissal_reporters": `SELECT dismissal_id, reporter_id FROM flag_dismissal_reporters`,
-	"flag_dismissals": `SELECT d.id, d.reed_id, d.author_id, COALESCE(d.dismissed_by, ''), d.reason, d.public_key_id,
-		us.signature, ss.signature, d.dismissed_at
-		FROM flag_dismissals d JOIN user_signatures us ON us.id = d.user_signature_id
-		JOIN server_signatures ss ON ss.id = d.server_signature_id`,
+	// restored is the one thing a rebuilt server knows differently.
+	"flag_cases": `SELECT c.id, c.reed_id, c.opened_at, COALESCE(c.dismissed_by, ''), COALESCE(c.reason, ''),
+		COALESCE(c.public_key_id, ''), COALESCE(us.signature, ''), COALESCE(ss.signature, ''), COALESCE(c.dismissed_at::TEXT, ''),
+		COALESCE(c.voided_at::TEXT, '')
+		FROM flag_cases c LEFT JOIN user_signatures us ON us.id = c.user_signature_id
+		LEFT JOIN server_signatures ss ON ss.id = c.server_signature_id`,
 	"pinned_reeds":   `SELECT user_id, reed_id FROM pinned_reeds`,
 	"user_following": `SELECT user_id, following_user_id FROM user_following`,
 	"user_followers": `SELECT user_id, follower_user_id FROM user_followers`,

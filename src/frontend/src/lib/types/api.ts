@@ -24,9 +24,9 @@ export type {
 } from '$lib/proto/common_pb';
 export type {
   AdminRequestList,
+  FlagCase,
+  FlagCaseList,
   FlagDismissal,
-  FlaggedReed,
-  FlaggedReedList,
   InviteTree,
   InviteTreeNode,
   LedgerPage,

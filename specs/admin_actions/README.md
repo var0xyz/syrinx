@@ -44,7 +44,7 @@ when schema changes.
 | 01–11 | Implemented              |
 | 12    | Implemented              |
 | 13    | Implemented              |
-| 14    | Proposed                 |
+| 14    | Implemented              |
 
 ## Locked decisions
 

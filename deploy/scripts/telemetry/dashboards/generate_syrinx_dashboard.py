@@ -333,6 +333,7 @@ ADMIN_MAIL = metric_stream("syrinx.admin.mail.sent")
 FLAGS_CREATED = metric_stream("syrinx.flags.created")
 FLAGS_DISMISSED = metric_stream("syrinx.flags.dismissed")
 FLAGS_WITHDRAWN = metric_stream("syrinx.flags.withdrawn")
+FLAG_CASES_DELETED = metric_stream("syrinx.flags.cases_deleted")
 FLAGS_OPEN = metric_stream("syrinx.flags.open")
 LEDGER_APPENDED = metric_stream("syrinx.ledger.appended")
 AUTH_REJECTED = metric_stream("syrinx.auth.rejected")
@@ -1416,14 +1417,15 @@ admin = [
     ),
     promql_panel(
         pid="syrinx_flags",
-        title="Flags raised, dismissed and withdrawn",
+        title="Flags raised, dismissed and withdrawn; cases deleted",
         queries=[
             *promql_sum_by_values(FLAGS_CREATED, "origin", ["local", "peer"]),
             (f"sum(sum_over_time({FLAGS_DISMISSED}[{WINDOW}]))", "dismissals", FLAGS_DISMISSED),
             (f"sum(sum_over_time({FLAGS_WITHDRAWN}[{WINDOW}]))", "withdrawals", FLAGS_WITHDRAWN),
+            (f"sum(sum_over_time({FLAG_CASES_DELETED}[{WINDOW}]))", "cases deleted", FLAG_CASES_DELETED),
         ],
         layout=layout(0, 58, 96, 14, 75),
-        description="Flags from this server's members and from peers', admin dismissals, and reporters' withdrawals",
+        description="Flags from this server's members and from peers', admin dismissals, reporters' withdrawals, and closed cases admins deleted",
     ),
     top_table(
         pid="syrinx_flags_by_author",

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented.
 
 ## Depends on
 
@@ -42,7 +42,7 @@ proves it with its countersignature.
 | Reporter privacy | Unchanged from [13](13_flag_withdrawal.md): the reporter never sees their case's state. `GET /api/flags/{reedID}` answers the flag with its case id and nothing about the case; they learn of a dismissal only by trying to withdraw |
 | Removed reporter | Their flags in **open** cases are deleted with their account. Their flags in dismissed and void cases stay, shown as from a removed account |
 | Cleanup | A single admin who can see a case may delete it once it was dismissed, or voided, more than 6 months ago. Its flags go with it. Not a request, not in the ledger |
-| Recovery | A flag comes back from any device that holds it; an admin's copy may carry its case's dismissal. While `RECOVERY_MODE` isn't `off`, a case opened before `first_boot_at` can't be dismissed, and its flags can't be withdrawn |
+| Recovery | A flag comes back from any device that holds it; an admin's copy may carry its case's dismissal. Only while `RECOVERY_MODE` is `lockdown`: the case comes back `restored` and frozen, so it can't be dismissed and its flags can't be withdrawn. Once the server is `operational` (or `off`), what it holds is taken as complete: restored cases can be acted on, and a flag from before the wipe reported after that is dropped |
 | Blank slate | No migration. `flag_dismissals` and `flag_dismissal_reporters` are dropped from `InitDB` |
 
 ## Schema
@@ -233,20 +233,11 @@ A flag record is a `ReedFlag`, optionally with `dismissal` set.
 A flag whose reporter's account was removed is restored only when its case
 is dismissed, or the record carries the dismissal.
 
-**Open question: two cases on one reed, neither known closed.** A case only
-opens once the previous one closed, so of two cases on a reed the older
-one is closed. But recovery may hold the older case's flags without its
-dismissal (only reporters' devices reported them) and without all of them
-withdrawn. `idx_flag_cases_open` then refuses the newer case. Options:
-
-- the newer case's flags wait until the older case is known closed, which
-  may never happen if no admin device reports its dismissal;
-- the older case is marked closed without a dismissal (a third closed
-  state, `superseded_at`, set when a newer case on the reed is restored).
-  It takes no flags, can't be dismissed, and shows under Dismissed with
-  "dismissed, record not recovered".
-
-The second keeps every flag restorable. To decide before step 4.
+**Two cases on one reed.** A case only opens once the previous one closed,
+but recovery may hold an older case's flags without its dismissal. That's
+why a restored case never takes new flags and isn't counted by
+`idx_flag_cases_open`: a live flag opens or joins a case of its own, and
+the restored ones are acted on once the server is operational.
 
 `flag_dismissal_reporters` and the separate dismissal record kind go:
 `RecoveryRecord.flag_dismissal` is removed.

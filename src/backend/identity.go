@@ -874,10 +874,12 @@ func buildReedFlagPayload(reedID, reporterID, keyID, note string) []byte {
 }
 
 // buildReedFlagServerPayload returns the bytes the reed's home server
-// countersigns for a flag. signedAt is when the flag was raised.
+// countersigns for a flag, naming the case it put it in. signedAt is when
+// the flag was raised.
 func buildReedFlagServerPayload(
 	reedID,
 	reporterID,
+	caseID,
 	serverKeyFingerprint,
 	userSignature string,
 	signedAt time.Time,
@@ -886,6 +888,7 @@ func buildReedFlagServerPayload(
 		"type":                 identityTypeReedFlag,
 		"reedID":               reedID,
 		"reporterID":           reporterID,
+		"caseID":               caseID,
 		"signedAt":             signedTime(signedAt),
 		"serverKeyFingerprint": serverKeyFingerprint,
 		"userSignature":        userSignature,
@@ -895,23 +898,22 @@ func buildReedFlagServerPayload(
 // identityTypeFlagDismissal is the `type` of a flag dismissal.
 const identityTypeFlagDismissal = "flag-dismissal"
 
-// buildFlagDismissalPayload returns the bytes an admin signs to close the
-// open flags reporters raised on reedID. reporters must already be sorted.
-func buildFlagDismissalPayload(dismissalID, reedID, reason, keyID string, reporters []string) []byte {
+// buildFlagDismissalPayload returns the bytes an admin signs to close a
+// case: every flag in it, whoever raised them.
+func buildFlagDismissalPayload(caseID, reedID, reason, keyID string) []byte {
 	return canonicalJSON(signedFields{
-		"type":        identityTypeFlagDismissal,
-		"dismissalID": dismissalID,
-		"reedID":      reedID,
-		"reason":      reason,
-		"keyID":       keyID,
-		"reporters":   reporters,
+		"type":   identityTypeFlagDismissal,
+		"caseID": caseID,
+		"reedID": reedID,
+		"reason": reason,
+		"keyID":  keyID,
 	})
 }
 
 // buildFlagDismissalServerPayload returns the bytes the server
 // countersigns for a dismissal. signedAt is when it was made.
 func buildFlagDismissalServerPayload(
-	dismissalID,
+	caseID,
 	reedID,
 	serverKeyFingerprint,
 	userSignature string,
@@ -919,7 +921,7 @@ func buildFlagDismissalServerPayload(
 ) []byte {
 	return canonicalJSON(signedFields{
 		"type":                 identityTypeFlagDismissal,
-		"dismissalID":          dismissalID,
+		"caseID":               caseID,
 		"reedID":               reedID,
 		"signedAt":             signedTime(signedAt),
 		"serverKeyFingerprint": serverKeyFingerprint,

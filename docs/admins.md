@@ -84,6 +84,11 @@ note, but the admins decide whether to do anything about it. If you change your
 mind, you can withdraw your flag as long as the admins haven't acknowledged it,
 but you won't be able to flag that reed again.
 
+Admins see a reed's flags together, as a case. A flag joins the reed's open case,
+and when admins dismiss it, every flag in it closes, with their reason. Flags
+raised after that open a new case. A case whose flags are all withdrawn is void.
+Six months after a case closes, an admin may delete it and its flags.
+
 ## Contacting `@admins`
 
 To talk to the admins you can mention the `@admins` handle in a reed. It reaches

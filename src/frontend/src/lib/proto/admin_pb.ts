@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file admin.proto.
  */
 export const file_admin: GenFile = /*@__PURE__*/
-  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSLbAQoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSKAoJc2lnbmF0dXJlGAQgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSKgoKd2l0aGRyYXdhbBgGIAEoCzIWLnN5cmlueC5GbGFnV2l0aGRyYXdhbCJtCg5GbGFnV2l0aGRyYXdhbBIoCglzaWduYXR1cmUYASABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZRIxChBzZXJ2ZXJfc2lnbmF0dXJlGAIgASgLMhcuc3lyaW54LlNlcnZlclNpZ25hdHVyZSLKAQoNRmxhZ0Rpc21pc3NhbBIKCgJpZBgBIAEoCRIXCgdyZWVkX2lkGAIgASgJUgZyZWVkSUQSFAoMZGlzbWlzc2VkX2J5GAMgASgJEg4KBnJlYXNvbhgEIAEoCRIRCglyZXBvcnRlcnMYBSADKAkSKAoJc2lnbmF0dXJlGAYgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgHIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUijgEKC0ZsYWdnZWRSZWVkEhcKB3JlZWRfaWQYASABKAlSBnJlZWRJRBIbCglhdXRob3JfaWQYAiABKAlSCGF1dGhvcklEEh8KBWZsYWdzGAMgAygLMhAuc3lyaW54LlJlZWRGbGFnEigKCWRpc21pc3NhbBgEIAEoCzIVLnN5cmlueC5GbGFnRGlzbWlzc2FsIm4KE0Rpc21pc3NGbGFnc1JlcXVlc3QSCgoCaWQYASABKAkSDgoGcmVhc29uGAIgASgJEhEKCXJlcG9ydGVycxgDIAMoCRIoCglzaWduYXR1cmUYBCABKAsyFS5zeXJpbnguVXNlclNpZ25hdHVyZSJKCg9GbGFnZ2VkUmVlZExpc3QSIgoFcmVlZHMYASADKAsyEy5zeXJpbnguRmxhZ2dlZFJlZWQSEwoLbmV4dF9jdXJzb3IYAiABKAkiNAoPVXNlclBlcm1pc3Npb25zEgwKBHJvbGUYASABKAkSEwoLcGVybWlzc2lvbnMYAiADKAlCIVofZ2l0aHViLmNvbS92YXIweHl6L3N5cmlueC9wcm90b2IGcHJvdG8z", [file_common]);
+  fileDesc("CgthZG1pbi5wcm90bxIGc3lyaW54Ik8KEEFkbWluUmVxdWVzdExpc3QSJgoIcmVxdWVzdHMYASADKAsyFC5zeXJpbnguQWRtaW5SZXF1ZXN0EhMKC25leHRfY3Vyc29yGAIgASgJImAKCkxlZGdlclBhZ2USJgoEaGVhZBgBIAEoCzITLnN5cmlueC5MZWRnZXJFbnRyeUgAiAEBEiEKBHRhaWwYAiADKAsyEy5zeXJpbnguTGVkZ2VyRW50cnlCBwoFX2hlYWQikAEKDkludml0ZVRyZWVOb2RlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJRBIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJEg0KBWRlcHRoGAQgASgNEhIKCmludml0ZWRfYnkYBSABKAkSEQoJc3VzcGVuZGVkGAYgASgIEg8KB3JlbW92ZWQYByABKAgiMwoKSW52aXRlVHJlZRIlCgVub2RlcxgBIAMoCzIWLnN5cmlueC5JbnZpdGVUcmVlTm9kZSKeAgoIUmVlZEZsYWcSFwoHcmVlZF9pZBgBIAEoCVIGcmVlZElEEh8KC3JlcG9ydGVyX2lkGAIgASgJUgpyZXBvcnRlcklEEgwKBG5vdGUYAyABKAkSKAoJc2lnbmF0dXJlGAQgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgFIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUSKgoKd2l0aGRyYXdhbBgGIAEoCzIWLnN5cmlueC5GbGFnV2l0aGRyYXdhbBIXCgdjYXNlX2lkGAcgASgJUgZjYXNlSUQSKAoJZGlzbWlzc2FsGAggASgLMhUuc3lyaW54LkZsYWdEaXNtaXNzYWwibQoORmxhZ1dpdGhkcmF3YWwSKAoJc2lnbmF0dXJlGAEgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUSMQoQc2VydmVyX3NpZ25hdHVyZRgCIAEoCzIXLnN5cmlueC5TZXJ2ZXJTaWduYXR1cmUixAEKDUZsYWdEaXNtaXNzYWwSFwoHY2FzZV9pZBgBIAEoCVIGY2FzZUlEEhcKB3JlZWRfaWQYAiABKAlSBnJlZWRJRBIUCgxkaXNtaXNzZWRfYnkYAyABKAkSDgoGcmVhc29uGAQgASgJEigKCXNpZ25hdHVyZRgFIAEoCzIVLnN5cmlueC5Vc2VyU2lnbmF0dXJlEjEKEHNlcnZlcl9zaWduYXR1cmUYBiABKAsyFy5zeXJpbnguU2VydmVyU2lnbmF0dXJlIr0BCghGbGFnQ2FzZRIKCgJpZBgBIAEoCRIXCgdyZWVkX2lkGAIgASgJUgZyZWVkSUQSGwoJYXV0aG9yX2lkGAMgASgJUghhdXRob3JJRBIRCglvcGVuZWRfYXQYBCABKA0SHwoFZmxhZ3MYBSADKAsyEC5zeXJpbnguUmVlZEZsYWcSKAoJZGlzbWlzc2FsGAYgASgLMhUuc3lyaW54LkZsYWdEaXNtaXNzYWwSEQoJdm9pZGVkX2F0GAcgASgNIk4KEkRpc21pc3NDYXNlUmVxdWVzdBIOCgZyZWFzb24YASABKAkSKAoJc2lnbmF0dXJlGAIgASgLMhUuc3lyaW54LlVzZXJTaWduYXR1cmUiRAoMRmxhZ0Nhc2VMaXN0Eh8KBWNhc2VzGAEgAygLMhAuc3lyaW54LkZsYWdDYXNlEhMKC25leHRfY3Vyc29yGAIgASgJIjQKD1VzZXJQZXJtaXNzaW9ucxIMCgRyb2xlGAEgASgJEhMKC3Blcm1pc3Npb25zGAIgAygJQiFaH2dpdGh1Yi5jb20vdmFyMHh5ei9zeXJpbngvcHJvdG9iBnByb3RvMw", [file_common]);
 
 /**
  * One page of admin requests, newest first.
@@ -168,6 +168,21 @@ export type ReedFlag = Message<"syrinx.ReedFlag"> & {
    * @generated from field: syrinx.FlagWithdrawal withdrawal = 6;
    */
   withdrawal?: FlagWithdrawal | undefined;
+
+  /**
+   * The case the reed's server put it in, named in its countersignature.
+   *
+   * @generated from field: string case_id = 7 [json_name = "caseID"];
+   */
+  caseId: string;
+
+  /**
+   * Admins' copies only, once the case is dismissed. Never sent to the
+   * reporter.
+   *
+   * @generated from field: syrinx.FlagDismissal dismissal = 8;
+   */
+  dismissal?: FlagDismissal | undefined;
 };
 
 /**
@@ -204,17 +219,16 @@ export const FlagWithdrawalSchema: GenMessage<FlagWithdrawal> = /*@__PURE__*/
   messageDesc(file_admin, 5);
 
 /**
- * An admin closing the open flags reporters raised on a reed, signed by
- * them and countersigned by the server. reporters is sorted. dismissed_by
- * is unset once their account is gone.
+ * An admin closing a case, signed over it by them and countersigned by
+ * this server, whose time is the dismissal's.
  *
  * @generated from message syrinx.FlagDismissal
  */
 export type FlagDismissal = Message<"syrinx.FlagDismissal"> & {
   /**
-   * @generated from field: string id = 1;
+   * @generated from field: string case_id = 1 [json_name = "caseID"];
    */
-  id: string;
+  caseId: string;
 
   /**
    * @generated from field: string reed_id = 2 [json_name = "reedID"];
@@ -232,17 +246,12 @@ export type FlagDismissal = Message<"syrinx.FlagDismissal"> & {
   reason: string;
 
   /**
-   * @generated from field: repeated string reporters = 5;
-   */
-  reporters: string[];
-
-  /**
-   * @generated from field: syrinx.UserSignature signature = 6;
+   * @generated from field: syrinx.UserSignature signature = 5;
    */
   signature?: UserSignature | undefined;
 
   /**
-   * @generated from field: syrinx.ServerSignature server_signature = 7;
+   * @generated from field: syrinx.ServerSignature server_signature = 6;
    */
   serverSignature?: ServerSignature | undefined;
 };
@@ -255,83 +264,87 @@ export const FlagDismissalSchema: GenMessage<FlagDismissal> = /*@__PURE__*/
   messageDesc(file_admin, 6);
 
 /**
- * A reed with flags, for admins: its open ones, the ones a dismissal
- * closed, with it, or one withdrawn flag.
+ * A reed's flags from the first open one until a dismissal closes them or
+ * all are withdrawn (void), for admins. Flags newest first.
  *
- * @generated from message syrinx.FlaggedReed
+ * @generated from message syrinx.FlagCase
  */
-export type FlaggedReed = Message<"syrinx.FlaggedReed"> & {
-  /**
-   * @generated from field: string reed_id = 1 [json_name = "reedID"];
-   */
-  reedId: string;
-
-  /**
-   * @generated from field: string author_id = 2 [json_name = "authorID"];
-   */
-  authorId: string;
-
-  /**
-   * @generated from field: repeated syrinx.ReedFlag flags = 3;
-   */
-  flags: ReedFlag[];
-
-  /**
-   * @generated from field: syrinx.FlagDismissal dismissal = 4;
-   */
-  dismissal?: FlagDismissal | undefined;
-};
-
-/**
- * Describes the message syrinx.FlaggedReed.
- * Use `create(FlaggedReedSchema)` to create a new message.
- */
-export const FlaggedReedSchema: GenMessage<FlaggedReed> = /*@__PURE__*/
-  messageDesc(file_admin, 7);
-
-/**
- * POST /admin/flags/{reedID}/dismiss: the admin's signed dismissal of the
- * open flags reporters raised.
- *
- * @generated from message syrinx.DismissFlagsRequest
- */
-export type DismissFlagsRequest = Message<"syrinx.DismissFlagsRequest"> & {
+export type FlagCase = Message<"syrinx.FlagCase"> & {
   /**
    * @generated from field: string id = 1;
    */
   id: string;
 
   /**
-   * @generated from field: string reason = 2;
+   * @generated from field: string reed_id = 2 [json_name = "reedID"];
+   */
+  reedId: string;
+
+  /**
+   * @generated from field: string author_id = 3 [json_name = "authorID"];
+   */
+  authorId: string;
+
+  /**
+   * @generated from field: uint32 opened_at = 4;
+   */
+  openedAt: number;
+
+  /**
+   * @generated from field: repeated syrinx.ReedFlag flags = 5;
+   */
+  flags: ReedFlag[];
+
+  /**
+   * @generated from field: syrinx.FlagDismissal dismissal = 6;
+   */
+  dismissal?: FlagDismissal | undefined;
+
+  /**
+   * @generated from field: uint32 voided_at = 7;
+   */
+  voidedAt: number;
+};
+
+/**
+ * Describes the message syrinx.FlagCase.
+ * Use `create(FlagCaseSchema)` to create a new message.
+ */
+export const FlagCaseSchema: GenMessage<FlagCase> = /*@__PURE__*/
+  messageDesc(file_admin, 7);
+
+/**
+ * POST /admin/flags/cases/{caseID}/dismiss: the admin's signed dismissal.
+ *
+ * @generated from message syrinx.DismissCaseRequest
+ */
+export type DismissCaseRequest = Message<"syrinx.DismissCaseRequest"> & {
+  /**
+   * @generated from field: string reason = 1;
    */
   reason: string;
 
   /**
-   * @generated from field: repeated string reporters = 3;
-   */
-  reporters: string[];
-
-  /**
-   * @generated from field: syrinx.UserSignature signature = 4;
+   * @generated from field: syrinx.UserSignature signature = 2;
    */
   signature?: UserSignature | undefined;
 };
 
 /**
- * Describes the message syrinx.DismissFlagsRequest.
- * Use `create(DismissFlagsRequestSchema)` to create a new message.
+ * Describes the message syrinx.DismissCaseRequest.
+ * Use `create(DismissCaseRequestSchema)` to create a new message.
  */
-export const DismissFlagsRequestSchema: GenMessage<DismissFlagsRequest> = /*@__PURE__*/
+export const DismissCaseRequestSchema: GenMessage<DismissCaseRequest> = /*@__PURE__*/
   messageDesc(file_admin, 8);
 
 /**
- * @generated from message syrinx.FlaggedReedList
+ * @generated from message syrinx.FlagCaseList
  */
-export type FlaggedReedList = Message<"syrinx.FlaggedReedList"> & {
+export type FlagCaseList = Message<"syrinx.FlagCaseList"> & {
   /**
-   * @generated from field: repeated syrinx.FlaggedReed reeds = 1;
+   * @generated from field: repeated syrinx.FlagCase cases = 1;
    */
-  reeds: FlaggedReed[];
+  cases: FlagCase[];
 
   /**
    * @generated from field: string next_cursor = 2;
@@ -340,10 +353,10 @@ export type FlaggedReedList = Message<"syrinx.FlaggedReedList"> & {
 };
 
 /**
- * Describes the message syrinx.FlaggedReedList.
- * Use `create(FlaggedReedListSchema)` to create a new message.
+ * Describes the message syrinx.FlagCaseList.
+ * Use `create(FlagCaseListSchema)` to create a new message.
  */
-export const FlaggedReedListSchema: GenMessage<FlaggedReedList> = /*@__PURE__*/
+export const FlagCaseListSchema: GenMessage<FlagCaseList> = /*@__PURE__*/
   messageDesc(file_admin, 9);
 
 /**

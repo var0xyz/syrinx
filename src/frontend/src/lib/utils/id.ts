@@ -25,7 +25,3 @@ export function generateUserListId(): string {
   return uuidv7();
 }
 
-/** Time-ordered flag dismissal id (UUID v7). */
-export function generateDismissalId(): string {
-  return uuidv7();
-}

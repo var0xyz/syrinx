@@ -4225,6 +4225,7 @@ type AdminRecordMessage struct {
 	//	*AdminRecordMessage_Request
 	//	*AdminRecordMessage_Flag
 	//	*AdminRecordMessage_Dismissal
+	//	*AdminRecordMessage_DeletedCaseId
 	Record        isAdminRecordMessage_Record `protobuf_oneof:"record"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4294,6 +4295,15 @@ func (x *AdminRecordMessage) GetDismissal() *FlagDismissal {
 	return nil
 }
 
+func (x *AdminRecordMessage) GetDeletedCaseId() string {
+	if x != nil {
+		if x, ok := x.Record.(*AdminRecordMessage_DeletedCaseId); ok {
+			return x.DeletedCaseId
+		}
+	}
+	return ""
+}
+
 type isAdminRecordMessage_Record interface {
 	isAdminRecordMessage_Record()
 }
@@ -4310,11 +4320,18 @@ type AdminRecordMessage_Dismissal struct {
 	Dismissal *FlagDismissal `protobuf:"bytes,3,opt,name=dismissal,proto3,oneof"`
 }
 
+type AdminRecordMessage_DeletedCaseId struct {
+	// A case an admin cleaned up: drop it and its flags.
+	DeletedCaseId string `protobuf:"bytes,4,opt,name=deleted_case_id,json=deletedCaseId,proto3,oneof"`
+}
+
 func (*AdminRecordMessage_Request) isAdminRecordMessage_Record() {}
 
 func (*AdminRecordMessage_Flag) isAdminRecordMessage_Record() {}
 
 func (*AdminRecordMessage_Dismissal) isAdminRecordMessage_Record() {}
+
+func (*AdminRecordMessage_DeletedCaseId) isAdminRecordMessage_Record() {}
 
 // A follow or unfollow of the recipient, acked with FOLLOWED_ACK.
 type FollowedMessage struct {
@@ -4672,11 +4689,12 @@ const file_websocket_proto_rawDesc = "" +
 	"\vserver_name\x18\x02 \x01(\tR\n" +
 	"serverName\"?\n" +
 	"\x12LedgerEntryMessage\x12)\n" +
-	"\x05entry\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryR\x05entry\"\xaf\x01\n" +
+	"\x05entry\x18\x01 \x01(\v2\x13.syrinx.LedgerEntryR\x05entry\"\xd9\x01\n" +
 	"\x12AdminRecordMessage\x120\n" +
 	"\arequest\x18\x01 \x01(\v2\x14.syrinx.AdminRequestH\x00R\arequest\x12&\n" +
 	"\x04flag\x18\x02 \x01(\v2\x10.syrinx.ReedFlagH\x00R\x04flag\x125\n" +
-	"\tdismissal\x18\x03 \x01(\v2\x15.syrinx.FlagDismissalH\x00R\tdismissalB\b\n" +
+	"\tdismissal\x18\x03 \x01(\v2\x15.syrinx.FlagDismissalH\x00R\tdismissal\x12(\n" +
+	"\x0fdeleted_case_id\x18\x04 \x01(\tH\x00R\rdeletedCaseIdB\b\n" +
 	"\x06record\"9\n" +
 	"\x0fFollowedMessage\x12&\n" +
 	"\x04cert\x18\x01 \x01(\v2\x12.syrinx.FollowCertR\x04cert\"M\n" +
@@ -5010,6 +5028,7 @@ func file_websocket_proto_init() {
 		(*AdminRecordMessage_Request)(nil),
 		(*AdminRecordMessage_Flag)(nil),
 		(*AdminRecordMessage_Dismissal)(nil),
+		(*AdminRecordMessage_DeletedCaseId)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

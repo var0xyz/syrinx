@@ -48,7 +48,7 @@ Each table below has a **Status** column per step. Values:
 | Content privacy       | Implemented | —                                                      |
 | Eviction              | Implemented | —                                                      |
 | Blocking              | Implemented | —                                                      |
-| Admin actions         | In progress | 14 (00–13 implemented)                                 |
+| Admin actions         | Implemented | —                                                      |
 | Bans                  | Proposed    | 01–08                                                  |
 | Town halls            | Proposed    | 00–15                                                  |
 | Attestations          | Implemented | —                                                      |
@@ -231,7 +231,7 @@ excepted). No control over individual reeds.
 | 11    | The @admins mention                         | Implemented |
 | 12    | Admin records on admins' devices            | Implemented |
 | 13    | Withdrawing flags, and an author's history  | Implemented |
-| 14    | Flag cases                                  | Proposed |
+| 14    | Flag cases                                  | Implemented |
 
 ## Bans (users of peer servers)
 

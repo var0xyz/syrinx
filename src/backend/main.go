@@ -369,8 +369,10 @@ func main() {
 	api.HandleFunc("/flags/{reedID:.+}", h.noop).Methods("OPTIONS")
 	api.HandleFunc("/admin/flags", h.ListFlags).Methods("GET")
 	api.HandleFunc("/admin/flags", h.noop).Methods("OPTIONS")
-	api.HandleFunc("/admin/flags/{reedID:.+}/dismiss", h.DismissFlags).Methods("POST")
-	api.HandleFunc("/admin/flags/{reedID:.+}/dismiss", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/flags/cases/{caseID}/dismiss", h.DismissCase).Methods("POST")
+	api.HandleFunc("/admin/flags/cases/{caseID}/dismiss", h.noop).Methods("OPTIONS")
+	api.HandleFunc("/admin/flags/cases/{caseID}", h.DeleteFlagCase).Methods("DELETE")
+	api.HandleFunc("/admin/flags/cases/{caseID}", h.noop).Methods("OPTIONS")
 
 	api.HandleFunc("/ledger", h.GetLedger).Methods("GET")
 	api.HandleFunc("/ledger", h.noop).Methods("OPTIONS")

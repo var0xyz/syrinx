@@ -511,6 +511,8 @@ message AdminRecordMessage {
     AdminRequest request = 1;
     ReedFlag flag = 2;
     FlagDismissal dismissal = 3;
+    // A case an admin cleaned up: drop it and its flags.
+    string deleted_case_id = 4;
   }
 }
 

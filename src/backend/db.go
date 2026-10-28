@@ -1571,35 +1571,42 @@ func InitDB(db *sql.DB) error {
 		ON ledger_entries((prev_id IS NULL)) WHERE prev_id IS NULL;
 	`
 
-	// An admin closing a reed's open flags, signed by them, with their
-	// reason. Not in the ledger. id is minted by the admin's client;
-	// dismissed_at is when this server countersigned it.
-	createFlagDismissalsTable := `
-	CREATE TABLE IF NOT EXISTS flag_dismissals (
+	// One reed's flags, from the first open one until a dismissal closes
+	// them or all are withdrawn (voided_at). The dismissal, signed by its
+	// admin and countersigned here, lives on the case. restored marks one
+	// brought back by recovery: it never takes a new flag.
+	createFlagCasesTable := `
+	CREATE TABLE IF NOT EXISTS flag_cases (
 		id VARCHAR(255) PRIMARY KEY,
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
-		author_id VARCHAR(255) NOT NULL REFERENCES identities(id) ON DELETE CASCADE,
+		opened_at TIMESTAMP NOT NULL,
+		restored BOOLEAN NOT NULL DEFAULT FALSE,
 		dismissed_by VARCHAR(255) REFERENCES identities(id) ON DELETE SET NULL,
-		reason TEXT NOT NULL,
-		public_key_id VARCHAR(255) NOT NULL REFERENCES public_keys(id),
-		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
-		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
-		dismissed_at TIMESTAMP NOT NULL
+		reason TEXT,
+		public_key_id VARCHAR(255) REFERENCES public_keys(id),
+		user_signature_id INT REFERENCES user_signatures(id),
+		server_signature_id INT REFERENCES server_signatures(id),
+		dismissed_at TIMESTAMP,
+		voided_at TIMESTAMP,
+		CONSTRAINT flag_cases_dismissal CHECK (
+			(server_signature_id IS NULL) = (user_signature_id IS NULL) AND
+			(server_signature_id IS NULL) = (dismissed_at IS NULL) AND
+			(server_signature_id IS NULL) = (reason IS NULL)),
+		CONSTRAINT flag_cases_closed_once CHECK (dismissed_at IS NULL OR voided_at IS NULL)
 	);`
 
-	// The reporters whose flags a dismissal closed, as its admin signed them.
-	// Not FK'd: a removed reporter's flags go, the signed list stays.
-	createFlagDismissalReportersTable := `
-	CREATE TABLE IF NOT EXISTS flag_dismissal_reporters (
-		dismissal_id VARCHAR(255) NOT NULL REFERENCES flag_dismissals(id) ON DELETE CASCADE,
-		reporter_id VARCHAR(255) NOT NULL,
-		PRIMARY KEY (dismissal_id, reporter_id)
-	);`
+	createFlagCasesIndexes := `
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_flag_cases_open
+		ON flag_cases (reed_id) WHERE dismissed_at IS NULL AND voided_at IS NULL AND NOT restored;
+	CREATE INDEX IF NOT EXISTS idx_flag_cases_dismissed
+		ON flag_cases (dismissed_at DESC, id DESC) WHERE dismissed_at IS NOT NULL;
+	CREATE INDEX IF NOT EXISTS idx_flag_cases_voided
+		ON flag_cases (voided_at DESC, id DESC) WHERE voided_at IS NOT NULL;
+	`
 
 	// Signed flags on reeds authored here; reporter_id may be a remote member.
 	// author_id lets visibility be checked without the reed body. created_at
-	// is when this server countersigned the flag. A flag closes once: by a
-	// dismissal or by its reporter's withdrawal.
+	// is when this server countersigned the flag, naming its case.
 	createReedFlagsTable := `
 	CREATE TABLE IF NOT EXISTS reed_flags (
 		reed_id VARCHAR(255) NOT NULL REFERENCES reed_identities(id) ON DELETE CASCADE,
@@ -1610,23 +1617,19 @@ func InitDB(db *sql.DB) error {
 		user_signature_id INT NOT NULL REFERENCES user_signatures(id),
 		server_signature_id INT NOT NULL REFERENCES server_signatures(id),
 		created_at TIMESTAMP NOT NULL,
-		dismissal_id VARCHAR(255) REFERENCES flag_dismissals(id) ON DELETE CASCADE,
+		case_id VARCHAR(255) NOT NULL REFERENCES flag_cases(id) ON DELETE CASCADE,
 		withdrawal_signature_id INT REFERENCES user_signatures(id),
 		withdrawal_server_signature_id INT REFERENCES server_signatures(id),
 		PRIMARY KEY (reed_id, reporter_id),
 		CONSTRAINT reed_flags_withdrawal CHECK (
-			(withdrawal_signature_id IS NULL) = (withdrawal_server_signature_id IS NULL)),
-		CONSTRAINT reed_flags_closed_once CHECK (
-			withdrawal_signature_id IS NULL OR dismissal_id IS NULL)
+			(withdrawal_signature_id IS NULL) = (withdrawal_server_signature_id IS NULL))
 	);`
 
 	createReedFlagsIndexes := `
-	CREATE INDEX IF NOT EXISTS idx_reed_flags_open
-		ON reed_flags(created_at) WHERE dismissal_id IS NULL AND withdrawal_signature_id IS NULL;
-	CREATE INDEX IF NOT EXISTS idx_reed_flags_dismissal
-		ON reed_flags(dismissal_id) WHERE dismissal_id IS NOT NULL;
-	CREATE INDEX IF NOT EXISTS idx_flag_dismissals_recent
-		ON flag_dismissals(dismissed_at DESC, id DESC);
+	CREATE INDEX IF NOT EXISTS idx_reed_flags_case
+		ON reed_flags (case_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_reed_flags_reporter
+		ON reed_flags (reporter_id);
 	`
 
 	// federation_invitation lives while the handshake runs: new ->
@@ -1948,8 +1951,8 @@ func InitDB(db *sql.DB) error {
 		createLedgerEntriesTable,
 		createLedgerEntriesIndexes,
 		createLedgerEntryTargetsTable,
-		createFlagDismissalsTable,
-		createFlagDismissalReportersTable,
+		createFlagCasesTable,
+		createFlagCasesIndexes,
 		createReedFlagsTable,
 		createReedFlagsIndexes,
 	}

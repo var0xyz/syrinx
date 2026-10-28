@@ -105,6 +105,9 @@ endpoint that tells them without withdrawing.
 
 ## Admin records
 
+Superseded by [14](14_flag_cases.md) for dismissals: flags are grouped
+into cases, and a dismissal signs its case, not a list of reporters.
+
 - `ADMIN_RECORD` carries the withdrawn flag, like any flag. On an admin's
   device a withdrawn copy replaces the unwithdrawn one, never the reverse:
   the same rule as a request's closed copy.

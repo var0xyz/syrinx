@@ -77,7 +77,7 @@
             {history.count} {history.count === 1 ? 'flag' : 'flags'}, open or dismissed, not counting withdrawn ones
           </p>
           <ul class="flag-list">
-            {#each history.cases as c (c.dismissal?.id ?? c.reedId)}
+            {#each history.cases as c (c.id)}
               <FlagCaseCard
                 flagCase={c}
                 reed={reeds[c.reedId]}

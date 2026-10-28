@@ -62,6 +62,9 @@ type recoveryRecordEnv struct {
 	// is a peer held here and not revoked.
 	peerKey    func(peerID string) recoveryServerKeyLookup
 	activePeer func(ctx context.Context, serverID string) (bool, error)
+	// lockdown is RECOVERY_MODE=lockdown: flags from before the wipe are
+	// still restored, frozen; past it they are dropped.
+	lockdown bool
 }
 
 func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
@@ -88,8 +91,6 @@ func recoveredRecordOf(msg *pb.RecoveryRecord) (recoveredRecord, error) {
 		return recoveredFlag{reedFlagFromPB(r.Flag)}, nil
 	case *pb.RecoveryRecord_Follow:
 		return recoveredFollow{followCertFromPB(r.Follow)}, nil
-	case *pb.RecoveryRecord_FlagDismissal:
-		return recoveredFlagDismissal{flagDismissalFromPB(r.FlagDismissal)}, nil
 	}
 	return nil, refuseRecord("unknown record kind")
 }
@@ -890,21 +891,27 @@ func (r recoveredFlag) restore(ctx context.Context, tx *sql.Tx, env *recoveryRec
 }
 
 // restoreFlagTx stores f unless it's held, once it checks out: a flag this
-// server took, signed by its reporter, local or a peer's. A withdrawn copy
-// withdraws a held flag no dismissal names. It returns the reed's author.
+// server took, signed by its reporter, local or a peer's, in the case its
+// countersignature names. An admin's copy may carry the case's dismissal,
+// which closes it for good; a withdrawn copy withdraws a held flag. Only
+// in lockdown: once the server is operational, what it holds is complete
+// and a flag from before the wipe is dropped. It returns the reed's author.
 func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f reedFlag) (string, error) {
 	author, err := env.localEntity(f.ReedID)
 	if err != nil {
 		return "", err
 	}
-	if author == f.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(f.Note) > maxFlagNoteChars {
+	if !env.lockdown {
+		return author, nil
+	}
+	if author == f.ReporterID || isRootIdentity(author, env.serverID) || countCharacters(f.Note) > maxFlagNoteChars || f.CaseID == "" {
 		return "", refuseRecord("flag on %s isn't one this server takes", f.ReedID)
 	}
 	if err := env.signedByReporter(ctx, tx, f, f.Signature, buildReedFlagPayload(f.ReedID, f.ReporterID, f.Signature.ID, f.Note)); err != nil {
 		return "", err
 	}
 	if err := env.countersignedHere(ctx, f.ServerSignature, func(fp string) []byte {
-		return buildReedFlagServerPayload(f.ReedID, f.ReporterID, fp, f.Signature.Armor, f.ServerSignature.SignedAt)
+		return buildReedFlagServerPayload(f.ReedID, f.ReporterID, f.CaseID, fp, f.Signature.Armor, f.ServerSignature.SignedAt)
 	}); err != nil {
 		return "", err
 	}
@@ -917,51 +924,89 @@ func restoreFlagTx(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv, f re
 		}); err != nil {
 			return "", err
 		}
-		if named, err := existsTx(ctx, tx, `
-			SELECT 1 FROM flag_dismissals d JOIN flag_dismissal_reporters dr ON dr.dismissal_id = d.id
-			WHERE d.reed_id = $1 AND dr.reporter_id = $2
-		`, f.ReedID, f.ReporterID); err != nil || named {
-			if err == nil {
-				err = refuseRecord("flag on %s was dismissed, so it can't be withdrawn", f.ReedID)
-			}
+	}
+	d := f.Dismissal
+	if d != nil {
+		if d.CaseID != f.CaseID || d.ReedID != f.ReedID || d.Reason == "" || countCharacters(d.Reason) > maxDismissalReasonChars {
+			return "", refuseRecord("dismissal of %s isn't well formed", f.CaseID)
+		}
+		admin, ok := authorOf(identityID(d.Signature.ID))
+		if !ok || string(admin) == author {
+			return "", refuseRecord("dismissal of %s isn't by an admin other than the reed's author", f.CaseID)
+		}
+		d.DismissedBy = string(admin)
+		if err := env.local(d.DismissedBy); err != nil {
 			return "", err
 		}
+		if err := env.signedBy(ctx, tx, d.DismissedBy, d.Signature, d.payload()); err != nil {
+			return "", err
+		}
+		if err := env.countersignedHere(ctx, d.ServerSignature, func(fp string) []byte {
+			return buildFlagDismissalServerPayload(d.CaseID, d.ReedID, fp, d.Signature.Armor, d.ServerSignature.SignedAt)
+		}); err != nil {
+			return "", err
+		}
+		if f.Withdrawal != nil {
+			return "", refuseRecord("flag on %s was dismissed, so it can't be withdrawn", f.ReedID)
+		}
 	}
-	// A removed reporter's flags are gone for good.
-	if gone, err := existsTx(ctx, tx, `SELECT 1 FROM account_removals WHERE user_id = $1`, f.ReporterID); err != nil || gone {
-		return author, err
+
+	// A removed reporter's flags only come back in a dismissed case.
+	gone, err := existsTx(ctx, tx, `SELECT 1 FROM account_removals WHERE user_id = $1`, f.ReporterID)
+	if err != nil {
+		return "", err
 	}
-	held, _, err := getFlagQ(ctx, tx, f.ReedID, f.ReporterID, " FOR UPDATE")
+	if gone && d == nil {
+		dismissed, err := existsTx(ctx, tx, `SELECT 1 FROM flag_cases WHERE id = $1 AND dismissed_at IS NOT NULL`, f.CaseID)
+		if err != nil || !dismissed {
+			return author, err
+		}
+	}
+
+	if err := insertReedIdentityOf(ctx, tx, f.ReedID, env.serverID, author); err != nil {
+		return "", err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO flag_cases (id, reed_id, opened_at, restored) VALUES ($1, $2, $3, TRUE)
+		ON CONFLICT (id) DO UPDATE SET opened_at = LEAST(flag_cases.opened_at, EXCLUDED.opened_at)
+	`, f.CaseID, f.ReedID, f.ServerSignature.SignedAt.UTC()); err != nil {
+		return "", err
+	}
+	var dismissed bool
+	if err := tx.QueryRowContext(ctx, `SELECT dismissed_at IS NOT NULL FROM flag_cases WHERE id = $1 FOR UPDATE`, f.CaseID).Scan(&dismissed); err != nil {
+		return "", err
+	}
+	if d != nil && !dismissed {
+		if err := setCaseDismissalTx(ctx, tx, d, true); err != nil {
+			return "", err
+		}
+		dismissed = true
+	}
+	if f.Withdrawal != nil && dismissed {
+		return "", refuseRecord("flag on %s was dismissed, so it can't be withdrawn", f.ReedID)
+	}
+
+	held, _, err := getFlagQ(ctx, tx, f.ReedID, f.ReporterID, " FOR UPDATE OF f")
 	if err != nil {
 		return "", err
 	}
 	if held != nil {
 		if held.Withdrawal == nil && f.Withdrawal != nil {
-			err = setFlagWithdrawalTx(ctx, tx, f.ReedID, f.ReporterID, *f.Withdrawal)
+			err = setFlagWithdrawalTx(ctx, tx, held.CaseID, f.ReedID, f.ReporterID, *f.Withdrawal)
 		}
 		return author, err
 	}
 	if err := mintIdentityTx(ctx, tx, f.ReporterID); err != nil {
 		return "", err
 	}
-	if err := insertReedIdentityOf(ctx, tx, f.ReedID, env.serverID, author); err != nil {
-		return "", err
-	}
 	if err := insertReedFlagTx(ctx, tx, f, author); err != nil {
 		return "", err
 	}
 	if f.Withdrawal != nil {
-		return author, setFlagWithdrawalTx(ctx, tx, f.ReedID, f.ReporterID, *f.Withdrawal)
+		return author, setFlagWithdrawalTx(ctx, tx, f.CaseID, f.ReedID, f.ReporterID, *f.Withdrawal)
 	}
-	// A dismissal restored before it closes it now.
-	_, err = tx.ExecContext(ctx, `
-		UPDATE reed_flags SET dismissal_id = (
-			SELECT d.id FROM flag_dismissals d
-			JOIN flag_dismissal_reporters dr ON dr.dismissal_id = d.id
-			WHERE d.reed_id = $1 AND dr.reporter_id = $2
-		)
-		WHERE reed_id = $1 AND reporter_id = $2
-	`, f.ReedID, f.ReporterID)
+	// An open flag reopens a case voided from the withdrawals held so far.
+	_, err = tx.ExecContext(ctx, `UPDATE flag_cases SET voided_at = NULL WHERE id = $1 AND dismissed_at IS NULL`, f.CaseID)
 	return author, err
 }
 
@@ -999,45 +1044,6 @@ func (env *recoveryRecordEnv) signedByHeldKey(ctx context.Context, tx *sql.Tx, o
 		return refuseRecord("bad signature by %s", sig.ID)
 	}
 	return nil
-}
-
-type recoveredFlagDismissal struct{ *flagDismissal }
-
-// restore stores a dismissal an admin signed and this server countersigned,
-// and closes with it whichever of its flags are held; the rest close as
-// they come back.
-func (r recoveredFlagDismissal) restore(ctx context.Context, tx *sql.Tx, env *recoveryRecordEnv) error {
-	d := r.flagDismissal
-	if !isValidUUIDv7(d.ID) || d.Reason == "" || countCharacters(d.Reason) > maxDismissalReasonChars || !validReporters(d.Reporters) {
-		return refuseRecord("dismissal %s isn't well formed", d.ID)
-	}
-	author, err := env.localEntity(d.ReedID)
-	if err != nil {
-		return err
-	}
-	admin, ok := authorOf(identityID(d.Signature.ID))
-	if !ok || string(admin) == author {
-		return refuseRecord("dismissal %s isn't by an admin other than the reed's author", d.ID)
-	}
-	d.DismissedBy = string(admin)
-	if err := env.local(d.DismissedBy); err != nil {
-		return err
-	}
-	if err := env.signedBy(ctx, tx, d.DismissedBy, d.Signature, d.payload()); err != nil {
-		return err
-	}
-	if err := env.countersignedHere(ctx, d.ServerSignature, func(fp string) []byte {
-		return buildFlagDismissalServerPayload(d.ID, d.ReedID, fp, d.Signature.Armor, d.ServerSignature.SignedAt)
-	}); err != nil {
-		return err
-	}
-	if held, err := existsTx(ctx, tx, `SELECT 1 FROM flag_dismissals WHERE id = $1`, d.ID); err != nil || held {
-		return err
-	}
-	if err := insertReedIdentityOf(ctx, tx, d.ReedID, env.serverID, author); err != nil {
-		return err
-	}
-	return insertFlagDismissalTx(ctx, tx, d, author)
 }
 
 // applyRestoredUserStateTx settles what restored records say about userID

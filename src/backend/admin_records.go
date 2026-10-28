@@ -12,11 +12,12 @@ import (
 )
 
 // adminRecord is one record every admin's device keeps: a request, a flag
-// or a dismissal. Exactly one is set.
+// or a dismissal, or a case an admin deleted. Exactly one is set.
 type adminRecord struct {
-	Request   *adminRequest
-	Flag      *reedFlag
-	Dismissal *flagDismissal
+	Request     *adminRequest
+	Flag        *reedFlag
+	Dismissal   *flagDismissal
+	DeletedCase *flagCase
 }
 
 // visibleTo reports whether viewerID, whose permissions hide the actions in
@@ -30,6 +31,8 @@ func (rec adminRecord) visibleTo(viewerID string, hidden []string) bool {
 		reedID = rec.Flag.ReedID
 	case rec.Dismissal != nil:
 		reedID = rec.Dismissal.ReedID
+	case rec.DeletedCase != nil:
+		reedID = rec.DeletedCase.ReedID
 	default:
 		return false
 	}
@@ -46,6 +49,8 @@ func newAdminRecordMsg(rec adminRecord) *pb.WSMessage {
 		out.Record = &pb.AdminRecordMessage_Flag{Flag: pbReedFlag(*rec.Flag)}
 	case rec.Dismissal != nil:
 		out.Record = &pb.AdminRecordMessage_Dismissal{Dismissal: pbFlagDismissal(rec.Dismissal)}
+	case rec.DeletedCase != nil:
+		out.Record = &pb.AdminRecordMessage_DeletedCaseId{DeletedCaseId: rec.DeletedCase.ID}
 	}
 	return &pb.WSMessage{Type: pb.MessageType_ADMIN_RECORD, Payload: &pb.WSMessage_AdminRecord{AdminRecord: out}}
 }

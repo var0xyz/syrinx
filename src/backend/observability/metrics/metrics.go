@@ -134,6 +134,7 @@ type Recorder interface {
 	ForeignKick(ctx context.Context, peerServerID string, ok bool)
 	FlagCreated(ctx context.Context, reporterID, authorID, reedID string, origin Origin, noteHas bool)
 	FlagsDismissed(ctx context.Context, adminID, reedID string, count int)
+	FlagCaseDeleted(ctx context.Context, adminID, reedID string)
 	FlagWithdrawn(ctx context.Context, reporterID, authorID, reedID string, origin Origin)
 	OpenFlags(ctx context.Context, authorID string, open int)
 	LedgerAppended(ctx context.Context, entryKind string)
@@ -211,6 +212,7 @@ func (Noop) ReservedUsernameHit(context.Context, string, string)                
 func (Noop) ForeignKick(context.Context, string, bool)                                 {}
 func (Noop) FlagCreated(context.Context, string, string, string, Origin, bool)         {}
 func (Noop) FlagsDismissed(context.Context, string, string, int)                       {}
+func (Noop) FlagCaseDeleted(context.Context, string, string)                           {}
 func (Noop) FlagWithdrawn(context.Context, string, string, string, Origin)             {}
 func (Noop) OpenFlags(context.Context, string, int)                                    {}
 func (Noop) LedgerAppended(context.Context, string)                                    {}

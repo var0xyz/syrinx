@@ -21,22 +21,19 @@
   const modeOptions = [
     { value: 'pending', label: 'Pending' },
     { value: 'dismissed', label: 'Dismissed' },
-    { value: 'withdrawn', label: 'Withdrawn' },
+    { value: 'void', label: 'Void' },
   ];
 
-  type Mode = 'pending' | 'dismissed' | 'withdrawn';
+  type Mode = 'pending' | 'dismissed' | 'void';
   const hashMode = $page.url.hash.slice(1);
-  let mode: Mode = hashMode === 'dismissed' || hashMode === 'withdrawn' ? hashMode : 'pending';
+  let mode: Mode = hashMode === 'dismissed' || hashMode === 'void' ? hashMode : 'pending';
   $: keepInHash($page.url, mode === 'pending' ? '' : `#${mode}`);
 
   const PAGE = 50;
+  const STATES = { pending: 'open', dismissed: 'dismissed', void: 'void' } as const;
   // Read from this device's copies, newest first; the sync keeps them current.
-  let flags: FlagCase[] = [];
-  let dismissed: FlagCase[] = [];
-  let withdrawn: FlagCase[] = [];
-  let morePending = false;
-  let moreDismissed = false;
-  let moreWithdrawn = false;
+  let cases: Record<Mode, FlagCase[]> = { pending: [], dismissed: [], void: [] };
+  let more: Record<Mode, boolean> = { pending: false, dismissed: false, void: false };
   let reeds: Record<string, ReedType | null> = {};
   let authorCounts: Record<string, number> = {};
   let loadError = '';
@@ -45,6 +42,7 @@
 
   $: isAdmin = $page.data?.user?.role === 'admin' || $page.data?.user?.role === 'root';
   $: serverID = parseCanonicalId($page.data?.user?.id ?? '')?.[1] ?? '';
+  $: shown = cases[mode];
 
   onMount(() => {
     if (!isAdmin) return;
@@ -53,48 +51,30 @@
 
   $: if (isAdmin) void $adminRecordsChanged, loadFlags().catch((err) => (loadError = err instanceof Error ? err.message : 'Could not load flags.'));
 
-  // Reloads as many cases as are shown, at least a page of each.
+  // Reloads as many cases as are shown, at least a page of each state.
   async function loadFlags(): Promise<void> {
-    const [open, done, recalled] = await Promise.all([
-      flagsRepository.openCases(Math.max(flags.length, PAGE) + 1),
-      flagsRepository.dismissedCases(Math.max(dismissed.length, PAGE) + 1),
-      flagsRepository.withdrawnCases(Math.max(withdrawn.length, PAGE) + 1),
-    ]);
-    morePending = open.length > Math.max(flags.length, PAGE);
-    moreDismissed = done.length > Math.max(dismissed.length, PAGE);
-    moreWithdrawn = recalled.length > Math.max(withdrawn.length, PAGE);
-    flags = open.slice(0, Math.max(flags.length, PAGE));
-    dismissed = done.slice(0, Math.max(dismissed.length, PAGE));
-    withdrawn = recalled.slice(0, Math.max(withdrawn.length, PAGE));
+    const modes = Object.keys(STATES) as Mode[];
+    const pages = await Promise.all(modes.map((m) => flagsRepository.cases(STATES[m], Math.max(cases[m].length, PAGE) + 1)));
+    const next = { ...cases };
+    modes.forEach((m, i) => {
+      const keep = Math.max(cases[m].length, PAGE);
+      more = { ...more, [m]: pages[i].length > keep };
+      next[m] = pages[i].slice(0, keep);
+    });
+    cases = next;
     flagsLoaded = true;
-    fetchContents([...flags, ...dismissed, ...withdrawn]);
-    countFlags([...flags, ...dismissed, ...withdrawn]);
+    const all = modes.flatMap((m) => cases[m]);
+    fetchContents(all);
+    countFlags(all);
   }
 
-  async function loadMorePending(): Promise<void> {
-    const last = flags[flags.length - 1];
-    const latestAt = Math.max(...last.flags.map((f) => f.serverSignature?.signedAt ?? 0));
-    const more = await flagsRepository.openCases(PAGE + 1, { reedId: last.reedId, latestAt });
-    morePending = more.length > PAGE;
-    flags = [...flags, ...more.slice(0, PAGE)];
-    fetchContents(more);
-    countFlags(more);
-  }
-
-  async function loadMoreDismissed(): Promise<void> {
-    const more = await flagsRepository.dismissedCases(PAGE + 1, dismissed[dismissed.length - 1].dismissal);
-    moreDismissed = more.length > PAGE;
-    dismissed = [...dismissed, ...more.slice(0, PAGE)];
-    fetchContents(more);
-    countFlags(more);
-  }
-
-  async function loadMoreWithdrawn(): Promise<void> {
-    const more = await flagsRepository.withdrawnCases(PAGE + 1, withdrawn[withdrawn.length - 1].flags[0]);
-    moreWithdrawn = more.length > PAGE;
-    withdrawn = [...withdrawn, ...more.slice(0, PAGE)];
-    fetchContents(more);
-    countFlags(more);
+  async function loadMore(): Promise<void> {
+    const m = mode;
+    const page = await flagsRepository.cases(STATES[m], PAGE + 1, cases[m][cases[m].length - 1]);
+    more = { ...more, [m]: page.length > PAGE };
+    cases = { ...cases, [m]: [...cases[m], ...page.slice(0, PAGE)] };
+    fetchContents(page);
+    countFlags(page);
   }
 
   function fetchContents(cases: FlagCase[]): void {
@@ -135,60 +115,25 @@
           <p class="error" role="alert">{loadError}</p>
         {:else if !flagsLoaded}
           <!-- Nothing to show until this device's copies are read. -->
-        {:else if mode === 'pending'}
-          {#if flags.length === 0}
-            <div class="empty-state">
-              <h3>No pending flags</h3>
-            </div>
-          {:else}
-            <ul class="flag-list">
-              {#each flags as f (f.reedId)}
-                <FlagCaseCard
-                  flagCase={f}
-                  reed={reeds[f.reedId]}
-                  {serverID}
-                  authorFlagCount={authorCounts[f.authorId]}
-                  on:takeAction={(e) => (actingOn = e.detail)}
-                />
-              {/each}
-            </ul>
-            {#if morePending}
-              <button class="btn secondary more" type="button" on:click={loadMorePending}>Load more</button>
-            {/if}
-          {/if}
-        {:else if mode === 'withdrawn'}
-          {#if withdrawn.length === 0}
-            <div class="empty-state">
-              <h3>No withdrawn flags</h3>
-            </div>
-          {:else}
-            <ul class="flag-list">
-              {#each withdrawn as f (`${f.reedId} ${f.flags[0].reporterId}`)}
-                <FlagCaseCard
-                  flagCase={f}
-                  reed={reeds[f.reedId]}
-                  {serverID}
-                  authorFlagCount={authorCounts[f.authorId]}
-                  showStates
-                />
-              {/each}
-            </ul>
-            {#if moreWithdrawn}
-              <button class="btn secondary more" type="button" on:click={loadMoreWithdrawn}>Load more</button>
-            {/if}
-          {/if}
-        {:else if dismissed.length === 0}
+        {:else if shown.length === 0}
           <div class="empty-state">
-            <h3>No dismissed flags</h3>
+            <h3>{mode === 'pending' ? 'No pending flags' : mode === 'dismissed' ? 'No dismissed cases' : 'No void cases'}</h3>
           </div>
         {:else}
           <ul class="flag-list">
-            {#each dismissed as f (f.dismissal?.id)}
-              <FlagCaseCard flagCase={f} reed={reeds[f.reedId]} {serverID} authorFlagCount={authorCounts[f.authorId]} />
+            {#each shown as f (f.id)}
+              <FlagCaseCard
+                flagCase={f}
+                reed={reeds[f.reedId]}
+                {serverID}
+                authorFlagCount={authorCounts[f.authorId]}
+                showStates={mode === 'void'}
+                on:takeAction={(e) => (actingOn = e.detail)}
+              />
             {/each}
           </ul>
-          {#if moreDismissed}
-            <button class="btn secondary more" type="button" on:click={loadMoreDismissed}>Load more</button>
+          {#if more[mode]}
+            <button class="btn secondary more" type="button" on:click={loadMore}>Load more</button>
           {/if}
         {/if}
       {/if}
