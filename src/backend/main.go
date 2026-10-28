@@ -716,7 +716,6 @@ func main() {
 	go h.notifyPeersOfOwedKeyRevocations()
 	go h.notifyPeersOfOwedBlockNotices()
 	go h.notifyPeersOfOwedFollowNotices()
-	go h.notifyPeersOfOwedAccountRemovals()
 	go h.drainPeers("")
 
 	// Wait for shutdown signal

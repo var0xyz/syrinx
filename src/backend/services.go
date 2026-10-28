@@ -3191,16 +3191,6 @@ func (s *DataService) InsertReedRemoval(ctx context.Context, cert reedRemovalCer
 	return insertReedRemovalCert(ctx, s.db, cert, s.serverID)
 }
 
-// QueueAccountRemovalNotices owes userID's removal to each of serverIDs.
-func (s *DataService) QueueAccountRemovalNotices(ctx context.Context, userID string, serverIDs []string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO account_removal_peer_notices (server_id, user_id)
-		SELECT unnest($1::text[]), $2
-		ON CONFLICT DO NOTHING
-	`, pq.Array(serverIDs), userID)
-	return err
-}
-
 // GetOnlineKeyHolders returns the online local users holding a key of
 // userID's.
 func (s *DataService) GetOnlineKeyHolders(ctx context.Context, userID string) ([]string, error) {
@@ -3209,35 +3199,6 @@ func (s *DataService) GetOnlineKeyHolders(ctx context.Context, userID string) ([
 		JOIN public_key_allocations pka ON pka.user_id = ou.user_id
 		WHERE starts_with(pka.key_id, $1 || '/')
 	`, userID)
-}
-
-// AccountRemovalsOwedTo returns the users whose removal serverID hasn't
-// accepted yet.
-func (s *DataService) AccountRemovalsOwedTo(ctx context.Context, serverID string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT user_id FROM account_removal_peer_notices WHERE server_id = $1 ORDER BY user_id
-	`, serverID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var userID string
-		if err := rows.Scan(&userID); err != nil {
-			return nil, err
-		}
-		out = append(out, userID)
-	}
-	return out, rows.Err()
-}
-
-// DeleteAccountRemovalNotice drops a removal serverID accepted.
-func (s *DataService) DeleteAccountRemovalNotice(ctx context.Context, serverID, userID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM account_removal_peer_notices WHERE server_id = $1 AND user_id = $2
-	`, serverID, userID)
-	return err
 }
 
 // GetAccountRemoval returns the stored account-removal cert for userID.
@@ -6252,6 +6213,9 @@ func storeAccountRemovalTx(ctx context.Context, tx *sql.Tx, cert accountRemovalC
 	case err == sql.ErrNoRows:
 		if err := insertAccountRemovalRowTx(ctx, tx, cert, selfIdentity); err != nil {
 			return fmt.Errorf("insert account removal: %w", err)
+		}
+		if err := enqueuePeerEventTx(ctx, tx, peerEventAccountRemoval, string(selfIdentity)); err != nil {
+			return err
 		}
 		// Clear the username so it becomes reclaimable by a future signup.
 		// users.id IS identities.id directly — must bind selfIdentity, not
