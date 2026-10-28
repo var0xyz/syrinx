@@ -142,6 +142,17 @@ func (h *Handlers) peerEventSenderFor(kind string) (peerEventSender, bool) {
 			}
 			return "/api/federation/relay/account-removal-notify", payload, nil
 		}}, true
+	case peerEventBlock:
+		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
+			cert, err := h.services.db.GetBlock(ctx, ev.SubjectID, ev.ObjectID)
+			if err != nil {
+				return "", nil, err
+			}
+			if cert != nil {
+				return "/api/federation/relay/block-notify", pbBlockCert(cert), nil
+			}
+			return "/api/federation/relay/unblock-notify", &pb.RelayUnblockPayload{UserId: ev.SubjectID, BlockedUserId: ev.ObjectID}, nil
+		}}, true
 	case peerEventThreadRemoval:
 		return peerEventSender{build: func(ctx context.Context, ev peerEvent) (string, proto.Message, error) {
 			rm, err := h.services.db.GetThreadRemoval(ctx, ev.SubjectID)

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -147,6 +146,10 @@ const (
 // when they are local, or to their home server when not. Whatever was
 // still owed for the pair is replaced: only the latest state matters.
 func (s *DataService) oweBlockEventTx(ctx context.Context, tx *sql.Tx, userID, blockedUserID, kind string) error {
+	if _, serverID, ok := parseIdentityID(identityID(blockedUserID)); ok && serverID != s.serverID {
+		// The peer gets the pair's state when its event goes out.
+		return enqueuePeerEventForTx(ctx, tx, serverID, peerEventBlock, userID, blockedUserID)
+	}
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO block_event_queue (user_id, blocked_user_id, kind)
 		VALUES ($1, $2, $3)
@@ -194,26 +197,6 @@ func (s *DataService) DeleteBlockEvent(ctx context.Context, e blockEvent) error 
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM block_event_queue WHERE user_id = $1 AND blocked_user_id = $2 AND kind = $3
 	`, e.UserID, e.BlockedUserID, e.Kind)
-	return err
-}
-
-// BlockNoticesOwedTo returns every block and lift serverID hasn't accepted.
-func (s *DataService) BlockNoticesOwedTo(ctx context.Context, serverID string) ([]blockEvent, error) {
-	return scanBlockEvents(s.db.QueryContext(ctx, `
-		SELECT n.user_id, n.blocked_user_id, n.kind FROM block_event_queue n
-		JOIN identities i ON i.id = n.blocked_user_id
-		WHERE i.server_id = $1
-	`, serverID))
-}
-
-// DeleteBlockNotice drops a notice the peer accepted, unless a later one of
-// another kind replaced it meanwhile.
-func (s *DataService) DeleteBlockNotice(ctx context.Context, serverID string, e blockEvent) error {
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM block_event_queue n USING identities i
-		WHERE i.id = n.blocked_user_id AND i.server_id = $1
-			AND n.user_id = $2 AND n.blocked_user_id = $3 AND n.kind = $4
-	`, serverID, e.UserID, e.BlockedUserID, e.Kind)
 	return err
 }
 
@@ -602,11 +585,11 @@ func (h *Handlers) afterUnblock(userID, blockedUserID string) {
 	h.sendBlockNoticesFor(blockedUserID)
 }
 
-// sendBlockNoticesFor delivers what blockedUserID's home server is owed, when
+// sendBlockNoticesFor drains the queue of blockedUserID's home server, when
 // that server is a peer.
 func (h *Handlers) sendBlockNoticesFor(blockedUserID string) {
 	if peerID, foreign := h.foreignServerOf(blockedUserID); foreign {
-		go h.sendOwedBlockNotices(peerID)
+		h.drainPeers(peerID)
 	}
 }
 
@@ -707,70 +690,6 @@ func (rs *realtimeService) ackBlockEvent(ctx context.Context, client *realtimeCl
 	e := blockEvent{UserID: userID, BlockedUserID: client.userID, Kind: kind}
 	if err := rs.db.DeleteBlockEvent(ctx, e); err != nil {
 		log.Error().Err(err).Str("userID", userID).Str("userID", client.userID).Msg("Failed to drop acked block event")
-	}
-}
-
-// blockNoticeLocks serializes sends to each peer, so a block and its lift
-// for the same pair can't cross on the wire.
-var blockNoticeLocks sync.Map
-
-// sendOwedBlockNotices sends peerID every block and lift it hasn't accepted.
-func (h *Handlers) sendOwedBlockNotices(peerID string) {
-	lock, _ := blockNoticeLocks.LoadOrStore(peerID, &sync.Mutex{})
-	lock.(*sync.Mutex).Lock()
-	defer lock.(*sync.Mutex).Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	log := h.services.log.GetLogger(ctx)
-
-	notices, err := h.services.db.BlockNoticesOwedTo(ctx, peerID)
-	if err != nil {
-		log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to list block notices owed to peer")
-		return
-	}
-	if len(notices) == 0 {
-		return
-	}
-	peer, err := h.services.db.GetServerByID(ctx, peerID)
-	if err != nil || peer == nil {
-		return
-	}
-	for _, n := range notices {
-		var path string
-		var body proto.Message
-		if n.Kind == blockEventBlock {
-			cert, err := h.services.db.GetBlock(ctx, n.UserID, n.BlockedUserID)
-			if err != nil || cert == nil {
-				log.Error().Err(err).Str("userID", n.UserID).Str("blockedUserID", n.BlockedUserID).Msg("Failed to load owed block")
-				continue
-			}
-			path, body = "/api/federation/relay/block-notify", pbBlockCert(cert)
-		} else {
-			path, body = "/api/federation/relay/unblock-notify", &pb.RelayUnblockPayload{
-				UserId: n.UserID, BlockedUserId: n.BlockedUserID,
-			}
-		}
-		status, err := h.callPeerRelayEndpoint(ctx, peerID, peer.BaseURL, path, body, nil)
-		if err != nil || status < 200 || status >= 300 {
-			log.Warn().Err(err).Int("status", status).Str("peerServerID", peerID).Str("kind", n.Kind).Msg("Peer did not accept block notice")
-			continue
-		}
-		if err := h.services.db.DeleteBlockNotice(ctx, peerID, n); err != nil {
-			log.Error().Err(err).Str("peerServerID", peerID).Msg("Failed to clear block notice")
-		}
-	}
-}
-
-// notifyPeersOfOwedBlockNotices retries, at boot, every block notice a
-// connected peer hasn't accepted yet.
-func (h *Handlers) notifyPeersOfOwedBlockNotices() {
-	peers, err := h.services.db.ListConnectedPeers(context.Background())
-	if err != nil {
-		h.services.log.GetLogger(context.Background()).Error().Err(err).Msg("Failed to list peers for owed block notices")
-		return
-	}
-	for _, peer := range peers {
-		h.sendOwedBlockNotices(peer.ID)
 	}
 }
 

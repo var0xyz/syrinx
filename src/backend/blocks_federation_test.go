@@ -197,15 +197,25 @@ func TestBlockingARemoteUserOwesItsServerUntilAccepted(t *testing.T) {
 		t.Fatalf("block remote user: status %d %s", rr.Code, rr.Body.String())
 	}
 	owed := func() int {
-		return f.count(t, `SELECT COUNT(*) FROM block_event_queue n JOIN identities i ON i.id = n.blocked_user_id WHERE i.server_id = $1`, peerID)
+		return f.count(t, `SELECT COUNT(*) FROM peer_event_queue WHERE server_id = $1 AND kind = 'block'`, peerID)
 	}
-	f.h.sendOwedBlockNotices(peerID)
+	drain := func() {
+		waitPeerIdle(t, f.db, peerID)
+		f.h.drainPeerEvents(peerID)
+	}
+	drain()
 	if owed() != 1 {
 		t.Fatal("refused notice was dropped")
 	}
 
+	// A drain the handlers started may hold the queue: retry until it's sent.
+	drainUntilSent := func() {
+		for deadline := time.Now().Add(3 * time.Second); owed() != 0 && time.Now().Before(deadline); {
+			drain()
+		}
+	}
 	atomic.StoreInt32(&status, http.StatusNoContent)
-	f.h.sendOwedBlockNotices(peerID)
+	drainUntilSent()
 	if owed() != 0 {
 		t.Fatal("accepted notice still owed")
 	}
@@ -217,7 +227,7 @@ func TestBlockingARemoteUserOwesItsServerUntilAccepted(t *testing.T) {
 	if rr.Code != http.StatusNoContent {
 		t.Fatalf("unblock: status %d", rr.Code)
 	}
-	f.h.sendOwedBlockNotices(peerID)
+	drainUntilSent()
 	if owed() != 0 || !strings.HasSuffix(got[len(got)-1], "/federation/relay/unblock-notify") {
 		t.Fatalf("unblock notice not delivered: owed %d, calls %v", owed(), got)
 	}
@@ -268,3 +278,41 @@ func TestPeerLegsRefuseBlockedRequester(t *testing.T) {
 }
 
 func blockBody(c BlockCert) *pb.BlockCert { return pbBlockCert(&c) }
+
+// A block and its lift made while the peer is down reach it as one lift,
+// and no other peer hears of either.
+func TestBlockWhilePeerDownSendsLatestStateOnlyToItsServer(t *testing.T) {
+	f := newBlockFixture(t)
+	const peerID, otherID = "Pr7mN2qW", "Qx8pL3rT"
+	var got []string
+	fake := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(fake.Close)
+	f.h.federationHTTPClientOverride = fake.Client()
+	f.peerOf(t, peerID, fake.URL)
+	f.peerOf(t, otherID, fake.URL)
+	if err := f.ds.SetPeerDown(context.Background(), peerID, true); err != nil {
+		t.Fatal(err)
+	}
+	remote := string(canonicalID(peerID, "zed"))
+
+	if rr := f.postBlock(t, f.alice, f.aliceKP, remote); rr.Code != http.StatusOK {
+		t.Fatalf("block: status %d", rr.Code)
+	}
+	if rr := f.serve(t, f.h.UnblockUser, http.MethodDelete, "/api/users/"+remote+"/block", f.alice, f.aliceKP, nil, map[string]string{"userID": remote}); rr.Code != http.StatusNoContent {
+		t.Fatalf("unblock: status %d", rr.Code)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM peer_event_queue WHERE server_id = $1`, otherID); n != 0 {
+		t.Fatalf("other peer owed %d", n)
+	}
+	if err := f.ds.SetPeerDown(context.Background(), peerID, false); err != nil {
+		t.Fatal(err)
+	}
+	waitPeerIdle(t, f.db, peerID)
+	f.h.drainPeerEvents(peerID)
+	if len(got) != 1 || !strings.HasSuffix(got[0], "/federation/relay/unblock-notify") {
+		t.Fatalf("calls %v, want one unblock-notify", got)
+	}
+}
