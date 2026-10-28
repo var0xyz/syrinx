@@ -1700,7 +1700,6 @@ func (h *Handlers) RealtimeResetFromPeer(w http.ResponseWriter, r *http.Request)
 	// Back up: send what piled up for it while it was down.
 	if req.Reason == realtimeResetBoot {
 		go h.sendOwedKeyRevocations(peerServerID)
-		go h.sendOwedBlockNotices(peerServerID)
 		go h.sendOwedFollowNotices(peerServerID)
 		h.drainPeers(peerServerID)
 	}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"testing"
@@ -226,4 +227,21 @@ func TestPeerEventQueue_RevokeAndPurgeEmptyIt(t *testing.T) {
 	if n := f.queued(t, queuePeerB); n != 0 {
 		t.Fatalf("purged peer owed %d", n)
 	}
+}
+
+// waitPeerIdle waits for a drain started in the background to release
+// peerID's queue, so a test's own drain isn't skipped by its claim.
+func waitPeerIdle(t *testing.T, db interface {
+	QueryRow(string, ...any) *sql.Row
+}, peerID string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var free bool
+		if err := db.QueryRow(`SELECT delivery_claimed_at IS NULL FROM server_mesh WHERE server_id = $1`, peerID).Scan(&free); err != nil || free {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("peer %s's queue still claimed", peerID)
 }
