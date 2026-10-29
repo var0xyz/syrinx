@@ -257,9 +257,12 @@ if [ "$CMD" != "setup" ]; then
 
     stage_scripts
     REMOTE_CMD="$(remote_script_cmd "$@")"
-    # No terminal for server-key, so only the key reaches stdout.
+    # No terminal for server-key, so only the key reaches stdout; the sudo
+    # password is asked for here and handed over without one.
     if [ "$CMD" = "server-key" ]; then
-        exec ssh "$DEPLOY_HOST" "$REMOTE_CMD"
+        remote_sudo_init
+        remote_sudo "$REMOTE_CMD"
+        exit
     fi
     exec ssh -t "$DEPLOY_HOST" "$REMOTE_CMD"
 fi
