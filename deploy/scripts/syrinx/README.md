@@ -281,12 +281,12 @@ default `cloudflare` mode. The hardening happens in layers:
 
 6. **Everything sensitive is filesystem-restricted.** `setup.env` and the
    scripts root runs (`/root/syrinx/`, 700), `app.env` (640, root + service
-   group only), the deploy log (700 dir / 600 file), the root-identity
-   passphrase file (600, see below), and the tunnel token
-   (`/etc/cloudflared/tunnel.env`, 600, loaded via `EnvironmentFile=` so it
-   never appears in cloudflared's command line, which any local user can
-   read from `/proc`) are all locked down explicitly rather than relying on
-   the umask in effect at the time.
+   group only), the deploy log (700 dir / 600 file), the root and server
+   identity exports and their passphrases (root-only, see below), and the
+   tunnel token (`/etc/cloudflared/tunnel.env`, 600, loaded via
+   `EnvironmentFile=` so it never appears in cloudflared's command line,
+   which any local user can read from `/proc`) are all locked down
+   explicitly rather than relying on the umask in effect at the time.
 
 7. **Atomic, fail-safe deploys.** The Go binary and SPA are built into a
    scratch directory first; only after *both* builds succeed does the
@@ -316,7 +316,8 @@ setup/update log). It's written next to the export file instead:
 /var/lib/$APP_NAME/root-export/syrinx-1-<timestamp>.sxi.gpg.passphrase  # the passphrase
 ```
 
-Both files are mode 600, owned by `$APP_USER`. Fetch them from your
+Both files are mode 600, owned by root: once root is minted the directory
+is handed back to root, so the service itself can't read the exports. Fetch them from your
 Mac/laptop instead of SSHing in and `sudo cat`-ing by hand:
 
 ```

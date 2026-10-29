@@ -36,6 +36,7 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | L5     | Low      | design     | A compromised server key can backdate signatures (proposed)            |
+| L7     | Low      | deploy     | A compromised service process holds the server signing key             |
 | A2     | Arch     | server     | `profile_subscriptions` needs explicit teardown on disconnect          |
 
 ---
@@ -179,6 +180,14 @@ conversation, or add mentions, on the server; clients still verify links
 against the author's signature when they load the reed.
 **Fix:** have the author sign the links apart from the content, so the
 server can check them.
+
+### L7 — A compromised service process holds the server signing key
+**Where:** `deploy/scripts/syrinx/setup.sh` (systemd unit). The service needs
+`SERVER_KEY_PASSPHRASE` and DB access to sign, so code execution inside it
+can decrypt the server key and sign as the server. The sandbox stops it
+writing anywhere, and the root/server identity exports are root-only once
+minted, but the key itself can't be kept from the process that uses it.
+**Fix:** move signing to a separate process or hardware key, if it matters.
 
 ---
 

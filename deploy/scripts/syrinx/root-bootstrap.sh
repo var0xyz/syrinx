@@ -96,6 +96,19 @@ SQL
     rm -f "$(syrinx_root_bootstrap_marker)"
 }
 
+# The service only needs the export dir while minting root; afterwards it's
+# root's, so a compromised service can't read the exports or their passphrases.
+syrinx_lock_root_export() {
+    local export_dir lib_dir
+    export_dir="$(syrinx_root_export_dir)"
+    lib_dir="/var/lib/${APP_NAME}"
+    [ -d "$export_dir" ] || return 0
+    chown -R root:root "$lib_dir"
+    chmod 755 "$lib_dir"
+    chmod 700 "$export_dir"
+    find "$export_dir" -maxdepth 1 -type f -exec chmod 600 {} +
+}
+
 syrinx_root_export_dropin_dir() {
     printf '%s' "/etc/systemd/system/${APP_NAME}.service.d"
 }
@@ -219,6 +232,7 @@ syrinx_ensure_root_bootstrap() {
         if syrinx_root_bootstrap_complete && [ "${FORCE_ROOT_REMINT:-0}" != "1" ]; then
             syrinx_strip_root_export_env
             syrinx_remove_root_export_dropin
+            syrinx_lock_root_export
             echo "🔹 Root user already exists — skipping one-shot mint"
             return 0
         fi
@@ -279,8 +293,6 @@ syrinx_ensure_root_bootstrap() {
         echo "❌ Root export exited 0 but no syrinx-1-*.sxi.gpg in $export_dir" >&2
         return 1
     fi
-    chown "$APP_USER:$APP_USER" "$export_file" 2>/dev/null || true
-    chmod 600 "$export_file" 2>/dev/null || true
 
     syrinx_strip_root_export_env
     syrinx_remove_root_export_dropin
@@ -302,16 +314,13 @@ syrinx_ensure_root_bootstrap() {
     # scrollback, shell history, or the setup/update log.
     passphrase_file="${export_file}.passphrase"
     printf '%s\n' "$passphrase" > "$passphrase_file"
-    chown "$APP_USER:$APP_USER" "$passphrase_file" 2>/dev/null || true
-    chmod 600 "$passphrase_file" 2>/dev/null || true
 
     # Marker is the fast-path signal syrinx_root_bootstrap_complete() trusts
     # without re-checking the passphrase file — must not be written until
     # the passphrase actually exists, or a later run's fast path skips
     # straight past a genuinely incomplete bootstrap.
     touch "$(syrinx_root_bootstrap_marker)"
-    chown "$APP_USER:$APP_USER" "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
-    chmod 600 "$(syrinx_root_bootstrap_marker)" 2>/dev/null || true
+    syrinx_lock_root_export
 
     echo "------------------------------------------------------------------"
     echo "✅ Root identity minted (users.id=1)"
@@ -348,8 +357,6 @@ syrinx_ensure_identity_backup() {
 
     export_dir="$(syrinx_root_export_dir)"
     mkdir -p "$export_dir"
-    chown "$APP_USER:$APP_USER" "/var/lib/${APP_NAME}" "$export_dir"
-    chmod 700 "$export_dir"
     out="$export_dir/syrinx-identity-$(date -u +%Y%m%dT%H%M%SZ).sxi.gpg"
     password="$(syrinx_root_gen_secret)"
 
@@ -360,8 +367,7 @@ syrinx_ensure_identity_backup() {
         return 1
     fi
     printf '%s\n' "$password" > "${out}.passphrase"
-    chown "$APP_USER:$APP_USER" "$out" "${out}.passphrase"
-    chmod 600 "$out" "${out}.passphrase"
+    syrinx_lock_root_export
 
     echo "------------------------------------------------------------------"
     echo "✅ Server identity exported"
