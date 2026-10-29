@@ -131,6 +131,26 @@ the same: run `./syrinx.sh setup` again. It never touches `setup.env`/
 on the host, so redeploying can't clobber settings or secrets already
 saved there.
 
+## Layout on the host
+
+`syrinx.sh` copies the scripts to `~/syrinx/scripts/`; `setup.env` lives
+one level up in `~/syrinx/`. `setup.sh` also puts symlinks there to
+everything it installs elsewhere, so it's all reachable from home:
+
+| Link | Target |
+|---|---|
+| `frontend` | `/var/www/html/$APP_NAME` (`build` → current release) |
+| `backend` | `/usr/local/bin/$APP_NAME` |
+| `ops` | `/usr/local/bin/$APP_NAME-ops` |
+| `app.env` | `/etc/$APP_NAME/app.env` |
+| `config` | `/etc/$APP_NAME` (app.env, mtls/, ddns/) |
+| `logs` | `/var/log/$APP_NAME` |
+| `data` | `/var/lib/$APP_NAME` (root-export/) |
+| `nginx.conf` | `/etc/nginx/sites-available/$APP_NAME` |
+| `$APP_NAME.service` | `/etc/systemd/system/$APP_NAME.service` |
+
+Most targets are root-only; read them with `sudo`.
+
 ## Public edge: Cloudflare Tunnel vs. mTLS
 
 `setup.sh` asks which of two mutually exclusive edge modes to use — pick
