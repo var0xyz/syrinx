@@ -77,7 +77,9 @@ You'll be prompted for:
 
 - **Application name** — used to derive the Linux user, systemd unit name,
   install paths, and database name.
-- **Public domain** — the hostname the app will be served from.
+- **Public hostname** — the full hostname users open, subdomain included,
+  without `https://` (e.g. `syrinx.example.com`). A pasted URL is trimmed
+  to its hostname.
 - **Public edge mode** — `cloudflare` (default) or `mtls`. See "Public edge:
   Cloudflare Tunnel vs. mTLS" below before choosing.
 - **Cloudflare Zero Trust Tunnel token** — required when edge mode is

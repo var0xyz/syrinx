@@ -78,8 +78,12 @@ read -p "🔹 Enter System Identifier/Application Name [${APP_NAME:-syrinx}]: " 
 APP_NAME=$(echo "${APP_NAME_INPUT:-$APP_NAME}" | tr -d ' ' | tr 'A-Z' 'a-z')
 APP_NAME="${APP_NAME:-syrinx}"
 
-read -p "🔹 Enter your Public Registered Domain [${APP_DOMAIN:-}]: " APP_DOMAIN_INPUT
+read -p "🔹 Public hostname, no scheme (e.g. syrinx.example.com) [${APP_DOMAIN:-}]: " APP_DOMAIN_INPUT
 APP_DOMAIN="${APP_DOMAIN_INPUT:-$APP_DOMAIN}"
+# Accept a pasted URL: keep only the hostname.
+APP_DOMAIN="${APP_DOMAIN#http://}"
+APP_DOMAIN="${APP_DOMAIN#https://}"
+APP_DOMAIN="${APP_DOMAIN%%/*}"
 
 # Fixed to Syrinx's own layout — this script deploys Syrinx specifically, not
 # an arbitrary app. The repo is the official one unless --repo names a fork.
