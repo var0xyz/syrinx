@@ -92,6 +92,42 @@ func (h *Handlers) announceProfile(userID string) {
 	}
 }
 
+// mailboxKindNewAdmin tells the other admins someone became an admin.
+const mailboxKindNewAdmin = "new-admin"
+
+// activeLocalAdmins returns every active local admin and root but exclude.
+func (s *DataService) activeLocalAdmins(ctx context.Context, exclude string) ([]string, error) {
+	return s.queryStrings(ctx, `
+		SELECT u.id FROM users u
+		WHERE u.role IN ($1, $2) AND u.id <> $3
+			AND u.suspended_by IS NULL AND u.username IS NOT NULL
+			AND NOT EXISTS (SELECT 1 FROM account_removals ar WHERE ar.user_id = u.id)
+	`, roleRoot, roleAdmin, exclude)
+}
+
+// notifyAdminsOfNewAdmin mails every other admin that newAdminID became
+// one; how completes "@username …". One failure doesn't stop the rest.
+func (h *Handlers) notifyAdminsOfNewAdmin(newAdminID, how string) {
+	ctx := context.Background()
+	log := h.services.log.GetLogger(ctx)
+	var username string
+	if err := h.services.db.db.QueryRowContext(ctx, `SELECT username FROM users WHERE id = $1`, newAdminID).Scan(&username); err != nil {
+		log.Error().Err(err).Str("userID", newAdminID).Msg("Failed to load the new admin's username")
+		return
+	}
+	admins, err := h.services.db.activeLocalAdmins(ctx, newAdminID)
+	if err != nil {
+		log.Error().Err(err).Str("userID", newAdminID).Msg("Failed to list admins to tell about a new admin")
+		return
+	}
+	message := "@" + username + " " + how + "."
+	for _, adminID := range admins {
+		if err := h.SendMailboxMessage(ctx, adminID, mailboxKindNewAdmin, message, "/profile/"+newAdminID, nil); err != nil {
+			log.Error().Err(err).Str("userID", adminID).Msg("Failed to tell an admin about a new admin")
+		}
+	}
+}
+
 // targetRoleIs refuses unless every remaining target has role.
 func targetRoleIs(ctx context.Context, q adminQuerier, req *adminRequest, role string) error {
 	for _, target := range req.remainingTargets() {
@@ -119,7 +155,10 @@ func (h *Handlers) promoteExecutor() adminExecutor {
 			}
 			return h.recountersignProfileTx(ctx, tx, req.Targets[0], roleAdmin, perms)
 		},
-		after: func(req *adminRequest) { h.announceProfile(req.Targets[0]) },
+		after: func(req *adminRequest) {
+			h.announceProfile(req.Targets[0])
+			go h.notifyAdminsOfNewAdmin(req.Targets[0], "is now an admin")
+		},
 	}
 }
 

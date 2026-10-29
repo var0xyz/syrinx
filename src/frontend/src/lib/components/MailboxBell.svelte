@@ -16,10 +16,12 @@
   const kindLabels: Record<string, string> = {
     broadcast: 'Broadcast',
     'admin-message': 'Message from @admins',
+    'new-admin': 'New admin',
   };
   const kindIcons: Record<string, string> = {
     broadcast: '/icons/megaphone-16.svg',
     'admin-message': '/icons/admin-16.svg',
+    'new-admin': '/icons/admin-16.svg',
   };
 
   function toggle() {

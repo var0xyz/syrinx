@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -276,5 +278,83 @@ func TestGetUserPermissions_SelfOrAdmin(t *testing.T) {
 	}
 	if code, out := read("root", "root"); code != http.StatusOK || len(out.Permissions) != len(adminPermissions) {
 		t.Errorf("root's own: %d %+v, want every permission", code, out)
+	}
+}
+
+// newAdminMail waits for want rows of mail and decrypts the one name got.
+func (f *adminFixture) newAdminMail(t *testing.T, want int, name string) ([]string, MailboxPayload) {
+	t.Helper()
+	got := f.mailboxRecipients(t, want)
+	var ciphertext string
+	if err := f.db.QueryRow(`SELECT ciphertext FROM user_mailbox WHERE user_id = $1`, f.ids[name]).Scan(&ciphertext); err != nil {
+		t.Fatal(err)
+	}
+	plaintext, err := f.h.services.crypto.decrypt(ciphertext, f.keys[name].PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload MailboxPayload
+	if err := json.Unmarshal(plaintext, &payload); err != nil {
+		t.Fatal(err)
+	}
+	return got, payload
+}
+
+func (f *adminFixture) otherAdmins() []string {
+	want := []string{f.ids["root"], f.ids["a1"], f.ids["a2"], f.ids["a3"]}
+	sort.Strings(want)
+	return want
+}
+
+func TestPromote_TellsEveryOtherAdmin(t *testing.T) {
+	f := newAdminFixture(t)
+	f.useRealExecutors(adminActionPromote)
+	f.grant(t, "a1", permAdminCreate)
+	f.grant(t, "a2", permAdminCreate)
+
+	msg := f.request(t, "a1", adminActionPromote, "Helps everyone", permUserKick, "u1")
+	f.openAs(t, "a1", msg)
+	if rr := f.decide(t, "a2", msg.Id, adminDecisionApprove); rr.Code != http.StatusOK {
+		t.Fatalf("approve promote: %d %s", rr.Code, rr.Body.String())
+	}
+	got, payload := f.newAdminMail(t, 4, "a3")
+	if !slices.Equal(got, f.otherAdmins()) {
+		t.Fatalf("mail went to %v, want every admin but the new one: %v", got, f.otherAdmins())
+	}
+	if payload.Kind != mailboxKindNewAdmin || payload.Message != "@u1 is now an admin." || payload.Link != "/profile/"+f.ids["u1"] {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestAdminInviteSignup_TellsEveryOtherAdmin(t *testing.T) {
+	f := newAdminFixture(t)
+	f.h.cfg.MaxInvitesPerUser = maxInvitesUnlimited
+	f.grant(t, "a1", permAdminCreate)
+
+	secret, err := newInviteSecret()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := inviteCreateBody(t, f.h, f.ids["a1"], f.keys["a1"], "", encodeHashHex(hashSecret(secret)), time.Now(), roleAdmin)
+	var req pb.CreateInviteRequest
+	if err := proto.Unmarshal(body.Bytes(), &req); err != nil {
+		t.Fatal(err)
+	}
+	req.Permissions = permUserKick
+	b, _ := proto.Marshal(&req)
+	rr := postCreateInvite(f.h, f.ids["a1"], bytes.NewBuffer(b))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("admin invite: %d %s", rr.Code, rr.Body.String())
+	}
+	var created pb.Invite
+	decodeProto(t, rr.Body.Bytes(), &created)
+
+	newAdmin := (&e2eServer{h: f.h, db: f.db}).signupInvited(t, "newbie", created.Id, secret)
+	got, payload := f.newAdminMail(t, 4, "a1")
+	if !slices.Equal(got, f.otherAdmins()) {
+		t.Fatalf("mail went to %v, want every admin but the new one: %v", got, f.otherAdmins())
+	}
+	if payload.Kind != mailboxKindNewAdmin || payload.Message != "@newbie joined as an admin." || payload.Link != "/profile/"+newAdmin.id {
+		t.Fatalf("payload = %+v", payload)
 	}
 }

@@ -639,6 +639,9 @@ func (h *Handlers) Signup(w http.ResponseWriter, r *http.Request) {
 	if hasInvite {
 		h.metrics.InviteClaimed(r.Context(), inviteGrantedRole == roleAdmin)
 	}
+	if hasInvite && signupRole == roleAdmin {
+		go h.notifyAdminsOfNewAdmin(user.ID, "joined as an admin")
+	}
 	h.metrics.UserCreated(r.Context(), h.cfg.SignupMode)
 
 	writeResponse(w, http.StatusCreated, pbUser(user))
@@ -6160,7 +6163,9 @@ func (h *Handlers) SendMailboxMessage(ctx context.Context, userID, kind, message
 		return err
 	}
 	h.metrics.Mailbox(ctx, metrics.OpAdd, kind)
-	h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
+	if h.realtimeRelay != nil {
+		h.realtimeRelay.NotifyMailboxMessage(userID, id, ciphertext)
+	}
 	return nil
 }
 
