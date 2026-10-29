@@ -139,15 +139,19 @@ saved there.
 
 ## Layout on the host
 
-`syrinx.sh` copies the scripts to `~/syrinx/scripts/`; `setup.env` lives
-one level up in `~/syrinx/`. `setup.sh` also puts symlinks there to
-everything it installs elsewhere, so it's all reachable from home:
+Everything that runs as root lives in `/root/syrinx/` (mode 700): the
+scripts in `scripts/` and `setup.env` beside them. `syrinx.sh` copies the
+scripts to a fresh temp dir, then installs them there as root, so the
+login user can't change what root later runs. `setup.sh` puts symlinks in
+the login user's `~/syrinx/` to all of it, so it's reachable from home:
 
 | Link | Target |
 |---|---|
+| `setup.env` | `/root/syrinx/setup.env` |
+| `scripts` | `/root/syrinx/scripts` |
 | `frontend` | `/var/www/html/$APP_NAME` (`build` → current release) |
 | `backend` | `/usr/local/bin/$APP_NAME` |
-| `ops` | `scripts/ops.sh` (runs `$APP_NAME-ops` with `app.env` loaded) |
+| `ops` | `/root/syrinx/scripts/ops.sh` (runs `$APP_NAME-ops` with `app.env` loaded) |
 | `app.env` | `/etc/$APP_NAME/app.env` |
 | `config` | `/etc/$APP_NAME` (app.env, mtls/, ddns/) |
 | `logs` | `/var/log/$APP_NAME` |
@@ -155,7 +159,8 @@ everything it installs elsewhere, so it's all reachable from home:
 | `nginx.conf` | `/etc/nginx/sites-available/$APP_NAME` |
 | `$APP_NAME.service` | `/etc/systemd/system/$APP_NAME.service` |
 
-Most targets are root-only; read them with `sudo`.
+Most targets are root-only; read them with `sudo`. A name that already
+exists in `~/syrinx/` as a real file or directory is left alone.
 
 ## Public edge: Cloudflare Tunnel vs. mTLS
 
@@ -274,13 +279,13 @@ default `cloudflare` mode. The hardening happens in layers:
    rand`, written directly into files, and never appear as command-line
    arguments to anything.
 
-6. **Everything sensitive is filesystem-restricted.** `setup.env` (600),
-   `app.env` (640, root + service group only), the deploy log (700 dir /
-   600 file), the root-identity passphrase file (600, see below), and the
-   `cloudflared.service` unit (600, because it embeds the tunnel token in
-   `ExecStart=` and systemd units are world-readable, 644, by default) are
-   all locked down explicitly rather than relying on the umask in effect at
-   the time.
+6. **Everything sensitive is filesystem-restricted.** `setup.env` and the
+   scripts root runs (`/root/syrinx/`, 700), `app.env` (640, root + service
+   group only), the deploy log (700 dir / 600 file), the root-identity
+   passphrase file (600, see below), and the `cloudflared.service` unit
+   (600, because it embeds the tunnel token in `ExecStart=` and systemd
+   units are world-readable, 644, by default) are all locked down
+   explicitly rather than relying on the umask in effect at the time.
 
 7. **Atomic, fail-safe deploys.** The Go binary and SPA are built into a
    scratch directory first; only after *both* builds succeed does the
@@ -320,7 +325,7 @@ Mac/laptop instead of SSHing in and `sudo cat`-ing by hand:
 
 The directory is required; it's created (mode 700) if missing.
 
-It reads `APP_NAME` from `~/syrinx/setup.env` on the host (so run
+It reads `APP_NAME` from `/root/syrinx/setup.env` on the host (so run
 `./syrinx.sh setup` there at least once first), finds the latest export via
 `sudo find`/`sudo cat` over SSH — nothing is chmod'd or made world-readable
 on the host in the process — writes both files locally at mode 600, then

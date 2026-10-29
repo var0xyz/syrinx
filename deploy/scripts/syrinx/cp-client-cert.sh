@@ -16,18 +16,18 @@
 # deploy.env (next to this script) and reused silently on every later run.
 # Set FORCE_HOST_PROMPT=1 to be asked again (e.g. switching hosts).
 #
-# Reads APP_NAME from ~/syrinx/setup.env on the host (the directory
-# deploy/syrinx.sh copies scripts to and setup.sh saves its answers in), so run
-# ./deploy/syrinx.sh setup at least once on this host before this script. To issue
-# a new client cert first (before fetching it), run on the host:
-#   sudo bash -c 'source mtls.sh; mtls_issue_client_cert <name>'
+# Reads APP_NAME from /root/syrinx/setup.env on the host (where setup.sh
+# saves its answers), so run ./deploy/syrinx.sh setup at least once on this
+# host before this script. To issue a new client cert first (before fetching
+# it), run on the host:
+#   sudo bash -c 'source /root/syrinx/scripts/mtls.sh; mtls_issue_client_cert <name>'
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEPLOY_ENV="${DEPLOY_ENV:-$SCRIPT_DIR/deploy.env}"
 SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
-REMOTE_DIR="${REMOTE_DIR:-syrinx}"
+REMOTE_DIR="${REMOTE_DIR:-/root/syrinx}"
 
 die() { echo "Error: $*" >&2; exit 1; }
 # shellcheck source=../remote-sudo.sh
@@ -114,14 +114,14 @@ fi
 ok "SSH OK"
 remote_sudo_init
 
-info "Reading APP_NAME from ~/${REMOTE_DIR}/setup.env on the host..."
+info "Reading APP_NAME from ${REMOTE_DIR}/setup.env on the host..."
 APP_NAME="$(remote_sudo "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
-[ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run setup first (./deploy/syrinx.sh setup)"
+[ -n "$APP_NAME" ] || die "Could not read APP_NAME from ${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run setup first (./deploy/syrinx.sh setup)"
 ok "APP_NAME=$APP_NAME"
 
 REMOTE_CLIENT_DIR="/etc/${APP_NAME}/mtls/clients/${CLIENT_NAME}"
 if ! remote_sudo "sudo test -f $(printf '%q' "$REMOTE_CLIENT_DIR/client.crt")"; then
-    die "No client cert named '$CLIENT_NAME' found at $REMOTE_CLIENT_DIR on $DEPLOY_HOST — issue one first with: sudo bash -c 'source mtls.sh; mtls_issue_client_cert $CLIENT_NAME'"
+    die "No client cert named '$CLIENT_NAME' found at $REMOTE_CLIENT_DIR on $DEPLOY_HOST — issue one first with: sudo bash -c 'source /root/syrinx/scripts/mtls.sh; mtls_issue_client_cert $CLIENT_NAME'"
 fi
 
 mkdir -p "$OUT_DIR"

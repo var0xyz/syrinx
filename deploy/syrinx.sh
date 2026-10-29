@@ -58,8 +58,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SYRINX_SCRIPTS_DIR="$SCRIPT_DIR/scripts/syrinx"
 DEPLOY_ENV="${DEPLOY_ENV:-$SYRINX_SCRIPTS_DIR/deploy.env}"
 SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
-REMOTE_DIR="${REMOTE_DIR:-syrinx}"
-# Scripts go in a subdirectory; setup.env and the shortcuts stay at the top.
+# Root-only on the host: everything here runs as root, so the login user
+# must not be able to change it. setup.env sits beside scripts/.
+REMOTE_DIR="${REMOTE_DIR:-/root/syrinx}"
 REMOTE_SCRIPTS_DIR="$REMOTE_DIR/scripts"
 
 # sudo runs on the host, so make its prompt say whose password it wants.
@@ -70,6 +71,29 @@ die() { echo "Error: $*" >&2; exit 1; }
 . "$SCRIPT_DIR/scripts/remote-sudo.sh"
 info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
+
+# Copies the scripts into a fresh temp dir the login user owns; root
+# installs them into $REMOTE_SCRIPTS_DIR from there. Sets STAGE_DIR.
+stage_scripts() {
+    STAGE_DIR="$(ssh "$DEPLOY_HOST" "mktemp -d")"
+    [ -n "$STAGE_DIR" ] || die "Could not create a staging dir on $DEPLOY_HOST"
+    scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${STAGE_DIR}/"
+}
+
+# Installs the staged scripts as root, then runs $REMOTE_SCRIPT with the
+# given args from $REMOTE_SCRIPTS_DIR.
+remote_script_cmd() {
+    local stage dir root_cmd
+    stage="$(printf '%q' "$STAGE_DIR")"
+    dir="$(printf '%q' "$REMOTE_SCRIPTS_DIR")"
+    # macOS forwards LC_CTYPE=UTF-8 over ssh, which isn't a Linux locale and
+    # makes apt/dpkg/psql's perl warn; C.UTF-8 exists on every Debian host.
+    root_cmd="install -d -m 700 $(printf '%q' "$REMOTE_DIR") $dir && install -m 700 $stage/*.sh $dir/ && install -m 600 $stage/README.md $dir/ && rm -rf $stage && cd $dir && exec env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
+    for arg in "$@"; do
+        root_cmd="$root_cmd $(printf '%q' "$arg")"
+    done
+    printf 'sudo -p %q sh -c %q' "$SUDO_PROMPT" "$root_cmd"
+}
 
 usage() {
     sed -n '2,53p' "$0" | sed -e 's/^# //' -e 's/^#$//'
@@ -152,7 +176,7 @@ fetch_export() {
 
     # setup.env is root-owned 600 (it holds CF_TOKEN), hence sudo.
     APP_NAME="$(remote_sudo "sudo grep -m1 '^APP_NAME=' $(printf '%q' "$REMOTE_DIR")/setup.env 2>/dev/null | cut -d= -f2-" || true)"
-    [ -n "$APP_NAME" ] || die "Could not read APP_NAME from ~/${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run './syrinx.sh setup' first"
+    [ -n "$APP_NAME" ] || die "Could not read APP_NAME from ${REMOTE_DIR}/setup.env on $DEPLOY_HOST — run './syrinx.sh setup' first"
     export_dir="/var/lib/${APP_NAME}/root-export"
 
     remote="$(remote_sudo "sudo find $(printf '%q' "$export_dir") -maxdepth 1 -type f -name '$pattern' 2>/dev/null | sort | tail -n1" || true)"
@@ -231,14 +255,8 @@ esac
 if [ "$CMD" != "setup" ]; then
     DEPLOY_HOST="$(load_saved_host_or_die)"
 
-    ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_SCRIPTS_DIR")"
-    scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_SCRIPTS_DIR}/"
-    # macOS forwards LC_CTYPE=UTF-8 over ssh, which isn't a Linux locale and
-    # makes apt/dpkg/psql's perl warn; C.UTF-8 exists on every Debian host.
-    REMOTE_CMD="cd $(printf '%q' "$REMOTE_SCRIPTS_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
-    for arg in "$@"; do
-        REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
-    done
+    stage_scripts
+    REMOTE_CMD="$(remote_script_cmd "$@")"
     # No terminal for server-key, so only the key reaches stdout.
     if [ "$CMD" = "server-key" ]; then
         exec ssh "$DEPLOY_HOST" "$REMOTE_CMD"
@@ -264,14 +282,10 @@ fi
 ok "SSH OK"
 
 info "Copying deploy/scripts/syrinx to ${DEPLOY_HOST}:${REMOTE_SCRIPTS_DIR} ..."
-ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_SCRIPTS_DIR")"
-scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_SCRIPTS_DIR}/"
+stage_scripts
 ok "Copied"
 
-REMOTE_CMD="cd $(printf '%q' "$REMOTE_SCRIPTS_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
-for arg in "$@"; do
-    REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
-done
+REMOTE_CMD="$(remote_script_cmd "$@")"
 
 info "Running on ${DEPLOY_HOST}: ./$REMOTE_SCRIPT $*"
 echo ""

@@ -32,6 +32,7 @@ answering with a key of its own choosing (see [H1](#h1--server-is-the-sole-autho
 | M9     | Medium   | SPA        | Server-provided counts/hints consumed for trust decisions unsigned     |
 | M10    | Medium   | design     | Account purge without the author's signature (kick)                    |
 | M11    | Medium   | design     | Admin key rebind is an account takeover by two admins                  |
+| M12    | Medium   | deploy     | The host's login account is root in all but name                       |
 | L2     | Low      | server     | Follow edges carry no user signature                                   |
 | L3     | Low      | SPA        | `verifyInvite` binds to local `userId`, not a signed issuer            |
 | L5     | Low      | design     | A compromised server key can backdate signatures (proposed)            |
@@ -135,6 +136,16 @@ key, the revocation that says admins signed it, and vouches for the old key
 not carrying over (the profile warns whoever held one).
 **Residual:** two colluding admins, or a compromised server, can take over
 any account; members see it in the ledger and in the revocation.
+
+### M12 — The host's login account is root in all but name
+**Where:** `deploy/syrinx.sh`. Every deploy SSHes in as the operator's login
+user and runs `sudo` from that user's shell. Whoever controls that account
+controls `~/.bashrc` and `~/.ssh/rc`, which run first, so a fake `sudo` there
+captures the password on the next deploy. They can also swap the staged
+scripts between `scp` and root's `install`. Root-owned `/root/syrinx` closes
+the passive paths (a replaced `setup.env` or script), not this one.
+**Fix:** deploy as root over key-only SSH (`PermitRootLogin
+prohibit-password`), so no user-writable shell sits in the path.
 
 ## Low
 

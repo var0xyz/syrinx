@@ -890,22 +890,35 @@ echo "📄 Setup env: $SETUP_ENV"
 echo "🗄️  DB shell: sudo $SCRIPT_DIR/psql.sh"
 echo "📦 Root export dir: /var/lib/${APP_NAME}/root-export"
 
-# Shortcuts in ~/syrinx to everything this install put elsewhere on disk.
-HOME_DIR="$(dirname "$SCRIPT_DIR")"
+# Shortcuts in the sudo user's ~/syrinx to everything this install put
+# elsewhere on disk. Links only: what they point at stays root-owned.
+OPERATOR_HOME="$(getent passwd "${SUDO_USER:-root}" | cut -d: -f6)"
+HOME_DIR="${OPERATOR_HOME:-/root}/syrinx"
+# A real file or directory already at a link's name is left alone.
 link_home() {
+    if [ -e "$HOME_DIR/$2" ] && [ ! -L "$HOME_DIR/$2" ]; then
+        echo "⚠️  $HOME_DIR/$2 already exists and isn't a link — not replacing it"
+        return 0
+    fi
     ln -sfn "$1" "$HOME_DIR/$2"
     chown -h --reference="$HOME_DIR" "$HOME_DIR/$2"
 }
-link_home "$WWW_ROOT" frontend
-link_home "/usr/local/bin/$APP_NAME" backend
-link_home "$SCRIPT_DIR/ops.sh" ops
-link_home "$ENV_FILE" app.env
-link_home "$ENV_DIR" config
-link_home "$LOG_DIR" logs
-link_home "/var/lib/$APP_NAME" data
-link_home "/etc/nginx/sites-available/$APP_NAME" nginx.conf
-link_home "/etc/systemd/system/$APP_NAME.service" "$APP_NAME.service"
-echo "🔗 Shortcuts to the frontend, backend, env, logs and data in $HOME_DIR"
+# Run as root directly, the shortcuts would land among the real files.
+if [ "$HOME_DIR" != "$(dirname "$SCRIPT_DIR")" ]; then
+    install -d -o "$SUDO_USER" -g "$(id -gn "$SUDO_USER")" "$HOME_DIR"
+    link_home "$(dirname "$SCRIPT_DIR")/setup.env" setup.env
+    link_home "$SCRIPT_DIR" scripts
+    link_home "$WWW_ROOT" frontend
+    link_home "/usr/local/bin/$APP_NAME" backend
+    link_home "$SCRIPT_DIR/ops.sh" ops
+    link_home "$ENV_FILE" app.env
+    link_home "$ENV_DIR" config
+    link_home "$LOG_DIR" logs
+    link_home "/var/lib/$APP_NAME" data
+    link_home "/etc/nginx/sites-available/$APP_NAME" nginx.conf
+    link_home "/etc/systemd/system/$APP_NAME.service" "$APP_NAME.service"
+    echo "🔗 Shortcuts to the frontend, backend, env, logs and data in $HOME_DIR"
+fi
 
 echo -e "\n🔏 Server public key:"
 "$SCRIPT_DIR/server-key.sh" || echo "⚠️  Could not read the server key — try: sudo $SCRIPT_DIR/server-key.sh"
