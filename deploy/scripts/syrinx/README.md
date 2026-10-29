@@ -282,10 +282,11 @@ default `cloudflare` mode. The hardening happens in layers:
 6. **Everything sensitive is filesystem-restricted.** `setup.env` and the
    scripts root runs (`/root/syrinx/`, 700), `app.env` (640, root + service
    group only), the deploy log (700 dir / 600 file), the root-identity
-   passphrase file (600, see below), and the `cloudflared.service` unit
-   (600, because it embeds the tunnel token in `ExecStart=` and systemd
-   units are world-readable, 644, by default) are all locked down
-   explicitly rather than relying on the umask in effect at the time.
+   passphrase file (600, see below), and the tunnel token
+   (`/etc/cloudflared/tunnel.env`, 600, loaded via `EnvironmentFile=` so it
+   never appears in cloudflared's command line, which any local user can
+   read from `/proc`) are all locked down explicitly rather than relying on
+   the umask in effect at the time.
 
 7. **Atomic, fail-safe deploys.** The Go binary and SPA are built into a
    scratch directory first; only after *both* builds succeed does the

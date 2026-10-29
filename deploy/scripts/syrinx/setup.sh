@@ -682,17 +682,20 @@ if [ "$EDGE_MODE" = "mtls" ]; then
     if systemctl is-active --quiet cloudflared 2>/dev/null || [ -f /etc/systemd/system/cloudflared.service ]; then
         echo -e "\n☁️  EDGE_MODE=mtls — tearing down previously configured cloudflared..."
         systemctl disable --now cloudflared 2>/dev/null || true
-        rm -f /etc/systemd/system/cloudflared.service
+        rm -f /etc/systemd/system/cloudflared.service /etc/cloudflared/tunnel.env
         systemctl daemon-reload
         echo "✅ cloudflared removed (nginx mTLS is now the public edge)"
     fi
 else
 # Token tunnels only need reconfigure when missing, token changed, or unhealthy.
 # Ping cannot validate a Cloudflare tunnel — use HTTPS to the public hostname.
+CF_TOKEN_FILE=/etc/cloudflared/tunnel.env
 cloudflare_tunnel_healthy() {
     systemctl is-active --quiet cloudflared || return 1
     [ -f /etc/systemd/system/cloudflared.service ] || return 1
-    grep -qF -- "$CF_TOKEN" /etc/systemd/system/cloudflared.service || return 1
+    grep -qxF -- "TUNNEL_TOKEN=$CF_TOKEN" "$CF_TOKEN_FILE" 2>/dev/null || return 1
+    # A unit still passing --token predates the env file; rewrite it.
+    ! grep -qF -- "--token" /etc/systemd/system/cloudflared.service || return 1
     local code
     # DoH: the local resolver may cache "no such host" from before the route.
     code="$(curl -sS -m 4 --doh-url https://1.1.1.1/dns-query -o /dev/null -w '%{http_code}' "https://${APP_DOMAIN}/" 2>/dev/null)" || true
@@ -749,6 +752,11 @@ ingress:
   - service: http_status:404
 EOF
 
+    # The token goes in a root-only env file, never on the command line:
+    # any local user can read a process's argv from /proc/<pid>/cmdline.
+    printf 'TUNNEL_TOKEN=%s\n' "$CF_TOKEN" > "$CF_TOKEN_FILE"
+    chmod 600 "$CF_TOKEN_FILE"
+
     cat <<EOF > /etc/systemd/system/cloudflared.service
 [Unit]
 Description=Cloudflare Outbound Tunnel Runtime Engine
@@ -758,17 +766,15 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run --token $CF_TOKEN
+EnvironmentFile=$CF_TOKEN_FILE
+ExecStart=/usr/bin/cloudflared --no-autoupdate tunnel run
 Restart=always
 RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    # Unit files under /etc/systemd/system are world-readable (644) by
-    # default, and this one embeds CF_TOKEN in ExecStart= — restrict it
-    # explicitly rather than relying on the ambient umask.
-    chmod 600 /etc/systemd/system/cloudflared.service
+    chmod 644 /etc/systemd/system/cloudflared.service
 
     systemctl daemon-reload
     systemctl enable cloudflared --now
