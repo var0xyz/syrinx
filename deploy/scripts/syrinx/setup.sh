@@ -359,7 +359,8 @@ EOF
     chown root:$APP_USER "$ENV_FILE"
     chmod 640 "$ENV_FILE"
 
-    echo -e "\n✏️  Opening $ENV_FILE in vi — save and quit (:wq) to continue setup..."
+    echo -e "\n✏️  Next, $ENV_FILE opens in vi — save and quit (:wq) to continue setup."
+    read -r -p "   Press Enter to open it..." _ || true
     vi "$ENV_FILE"
 else
     # Keep DB secrets; repair keys the app actually reads
