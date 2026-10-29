@@ -894,7 +894,7 @@ link_home() {
 }
 link_home "$WWW_ROOT" frontend
 link_home "/usr/local/bin/$APP_NAME" backend
-link_home "/usr/local/bin/$APP_NAME-ops" ops
+link_home "$SCRIPT_DIR/ops.sh" ops
 link_home "$ENV_FILE" app.env
 link_home "$ENV_DIR" config
 link_home "$LOG_DIR" logs

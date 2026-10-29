@@ -20,6 +20,9 @@ permissions and are never committed to git.
   device's mTLS client certificate (issued via `mtls_issue_client_cert`) and
   offers to delete it from the host afterward. Only relevant when
   `EDGE_MODE=mtls`. See "Public edge: Cloudflare Tunnel vs. mTLS" below.
+- **`ops.sh <args>`** — runs the operator CLI (`$APP_NAME-ops`:
+  `export-identity`, `rotate-key`, ...) as root with `app.env` loaded; the
+  binary reads its config only from the environment.
 - **`setup.sh`** — the main installer. Idempotent: safe to re-run any time to
   repair config drift or pick up new settings. See "What setup.sh does" below.
 - **`update.sh [--branch <name>] [--repo <url>]`** — pulls the latest code,
@@ -114,6 +117,7 @@ first:
 ./syrinx.sh signup-mode invite
 ./syrinx.sh psql -c 'select count(*) from users;'
 ./syrinx.sh server-key
+./syrinx.sh ops check-identity-backup
 ./syrinx.sh wipe-db
 ```
 
@@ -141,7 +145,7 @@ everything it installs elsewhere, so it's all reachable from home:
 |---|---|
 | `frontend` | `/var/www/html/$APP_NAME` (`build` → current release) |
 | `backend` | `/usr/local/bin/$APP_NAME` |
-| `ops` | `/usr/local/bin/$APP_NAME-ops` |
+| `ops` | `scripts/ops.sh` (runs `$APP_NAME-ops` with `app.env` loaded) |
 | `app.env` | `/etc/$APP_NAME/app.env` |
 | `config` | `/etc/$APP_NAME` (app.env, mtls/, ddns/) |
 | `logs` | `/var/log/$APP_NAME` |

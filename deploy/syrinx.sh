@@ -15,6 +15,7 @@
 #   signup-mode <mode>          sudo ./set-signup-mode.sh <mode>
 #   psql [args...]              sudo ./psql.sh [args...]
 #   server-key                  sudo ./server-key.sh
+#   ops <args...>               sudo ./ops.sh <args...>
 #   wipe-db [--force]           sudo ./wipe-db.sh [--force]
 #                                (interactive confirmation unless --force)
 #
@@ -32,6 +33,7 @@
 #   ./syrinx.sh signup-mode invite
 #   ./syrinx.sh psql -c 'select count(*) from users;'
 #   ./syrinx.sh server-key
+#   ./syrinx.sh ops check-identity-backup
 #   ./syrinx.sh wipe-db
 #   ./syrinx.sh wipe-db --force
 #   ./syrinx.sh root-creds ~/syrinx-creds
@@ -70,7 +72,7 @@ info() { echo "-> $*"; }
 ok() { echo "OK: $*"; }
 
 usage() {
-    sed -n '2,51p' "$0" | sed -e 's/^# //' -e 's/^#$//'
+    sed -n '2,53p' "$0" | sed -e 's/^# //' -e 's/^#$//'
 }
 
 load_saved_host() {
@@ -204,6 +206,7 @@ case "$CMD" in
     signup-mode)   REMOTE_SCRIPT="set-signup-mode.sh" ;;
     psql)          REMOTE_SCRIPT="psql.sh" ;;
     server-key)    REMOTE_SCRIPT="server-key.sh" ;;
+    ops)           REMOTE_SCRIPT="ops.sh" ;;
     wipe-db)       REMOTE_SCRIPT="wipe-db.sh" ;;
     root-creds)
         [ $# -eq 1 ] && [ -n "$1" ] || die "Usage: $0 root-creds <dir>"
