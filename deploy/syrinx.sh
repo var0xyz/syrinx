@@ -57,6 +57,8 @@ SYRINX_SCRIPTS_DIR="$SCRIPT_DIR/scripts/syrinx"
 DEPLOY_ENV="${DEPLOY_ENV:-$SYRINX_SCRIPTS_DIR/deploy.env}"
 SSH_USER_DEFAULT="${SSH_USER:-$(id -un)}"
 REMOTE_DIR="${REMOTE_DIR:-syrinx}"
+# Scripts go in a subdirectory; setup.env and the shortcuts stay at the top.
+REMOTE_SCRIPTS_DIR="$REMOTE_DIR/scripts"
 
 # sudo runs on the host, so make its prompt say whose password it wants.
 SUDO_PROMPT="[sudo] password for %u on %h (the remote machine, not this computer): "
@@ -226,10 +228,11 @@ esac
 if [ "$CMD" != "setup" ]; then
     DEPLOY_HOST="$(load_saved_host_or_die)"
 
-    scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
+    ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_SCRIPTS_DIR")"
+    scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_SCRIPTS_DIR}/"
     # macOS forwards LC_CTYPE=UTF-8 over ssh, which isn't a Linux locale and
     # makes apt/dpkg/psql's perl warn; C.UTF-8 exists on every Debian host.
-    REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
+    REMOTE_CMD="cd $(printf '%q' "$REMOTE_SCRIPTS_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
     for arg in "$@"; do
         REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
     done
@@ -257,12 +260,12 @@ if ! ssh -o ConnectTimeout=8 "$DEPLOY_HOST" "true"; then
 fi
 ok "SSH OK"
 
-info "Copying deploy/scripts/syrinx to ${DEPLOY_HOST}:${REMOTE_DIR} ..."
-ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_DIR")"
-scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_DIR}/"
+info "Copying deploy/scripts/syrinx to ${DEPLOY_HOST}:${REMOTE_SCRIPTS_DIR} ..."
+ssh "$DEPLOY_HOST" "mkdir -p $(printf '%q' "$REMOTE_SCRIPTS_DIR")"
+scp -q "$SYRINX_SCRIPTS_DIR"/*.sh "$SYRINX_SCRIPTS_DIR/README.md" "${DEPLOY_HOST}:${REMOTE_SCRIPTS_DIR}/"
 ok "Copied"
 
-REMOTE_CMD="cd $(printf '%q' "$REMOTE_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
+REMOTE_CMD="cd $(printf '%q' "$REMOTE_SCRIPTS_DIR") && chmod +x ./*.sh && sudo -p $(printf '%q' "$SUDO_PROMPT") env LC_ALL=C.UTF-8 ./$REMOTE_SCRIPT"
 for arg in "$@"; do
     REMOTE_CMD="$REMOTE_CMD $(printf '%q' "$arg")"
 done

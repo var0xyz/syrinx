@@ -51,7 +51,7 @@ fi
 # INTERACTIVE VARIABLE RECOGNITION (Prompts)
 # ==============================================================================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SETUP_ENV="$SCRIPT_DIR/setup.env"
+SETUP_ENV="$(dirname "$SCRIPT_DIR")/setup.env"
 # shellcheck source=otel-agent.sh
 . "$SCRIPT_DIR/otel-agent.sh"
 # shellcheck source=root-bootstrap.sh
@@ -885,6 +885,23 @@ echo "📄 App env: $ENV_FILE"
 echo "📄 Setup env: $SETUP_ENV"
 echo "🗄️  DB shell: sudo $SCRIPT_DIR/psql.sh"
 echo "📦 Root export dir: /var/lib/${APP_NAME}/root-export"
+
+# Shortcuts in ~/syrinx to everything this install put elsewhere on disk.
+HOME_DIR="$(dirname "$SCRIPT_DIR")"
+link_home() {
+    ln -sfn "$1" "$HOME_DIR/$2"
+    chown -h --reference="$HOME_DIR" "$HOME_DIR/$2"
+}
+link_home "$WWW_ROOT" frontend
+link_home "/usr/local/bin/$APP_NAME" backend
+link_home "/usr/local/bin/$APP_NAME-ops" ops
+link_home "$ENV_FILE" app.env
+link_home "$ENV_DIR" config
+link_home "$LOG_DIR" logs
+link_home "/var/lib/$APP_NAME" data
+link_home "/etc/nginx/sites-available/$APP_NAME" nginx.conf
+link_home "/etc/systemd/system/$APP_NAME.service" "$APP_NAME.service"
+echo "🔗 Shortcuts to the frontend, backend, env, logs and data in $HOME_DIR"
 
 echo -e "\n🔏 Server public key:"
 "$SCRIPT_DIR/server-key.sh" || echo "⚠️  Could not read the server key — try: sudo $SCRIPT_DIR/server-key.sh"

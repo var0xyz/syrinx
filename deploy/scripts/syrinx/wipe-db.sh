@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SETUP_ENV="$SCRIPT_DIR/setup.env"
+SETUP_ENV="$(dirname "$SCRIPT_DIR")/setup.env"
 
 if [ ! -f "$SETUP_ENV" ]; then
     echo "❌ Error: missing $SETUP_ENV — run setup first."
