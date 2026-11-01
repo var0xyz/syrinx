@@ -39,6 +39,9 @@ type AppConfig struct {
 	Port          int
 	AllowedOrigin string `env:"name='ALLOWED_ORIGIN'"`
 
+	// Loopback by default: nginx is the only thing meant to reach us.
+	ListenHost string `env:"optional,default='127.0.0.1',name='LISTEN_HOST'"`
+
 	// This server's own public URL, used for federation.
 	APIBaseURL env.HTTPURL `env:"name='API_BASE_URL'"`
 
@@ -677,19 +680,19 @@ func main() {
 	log.Info().Msg("[OK] Router configured successfully")
 
 	server := &http.Server{
-		Addr:         ":" + strconv.Itoa(cfg.Port),
+		Addr:         net.JoinHostPort(cfg.ListenHost, strconv.Itoa(cfg.Port)),
 		Handler:      router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 	}
 
-	testListener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	testListener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		log.Fatal().Err(err).Msg("[ERR] Failed to create listener")
 	}
 	testListener.Close()
 
-	log.Info().Msg("[OK] Server listening on http://127.0.0.1:" + strconv.Itoa(cfg.Port))
+	log.Info().Msg("[OK] Server listening on http://" + server.Addr)
 	l.Printf(`
     _____            _
    / ____|          (_)
@@ -698,9 +701,9 @@ func main() {
    ____) | |_| | |  | | | | |> _<
   |_____/ \__, |_|  |_|_| |_/_/\_\
            __/ |
-          |___/     127.0.0.1:%d
+          |___/     %s
                     %s (%s)
-	`, cfg.Port, cfg.ServerName, h.services.db.GetServerID())
+	`, server.Addr, cfg.ServerName, h.services.db.GetServerID())
 
 	// Set up graceful shutdown
 	sigChan := make(chan os.Signal, 1)

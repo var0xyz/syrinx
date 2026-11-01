@@ -32,6 +32,7 @@ services:
       DB_PASSWORD: syrinx
       DB_NAME: syrinx
       DB_SSLMODE: disable
+      LISTEN_HOST: "0.0.0.0"
       PORT: "8080"
       ALLOWED_ORIGIN: "http://localhost:5173"
       API_BASE_URL: "http://localhost:8080"

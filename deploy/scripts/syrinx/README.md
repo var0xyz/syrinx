@@ -239,8 +239,9 @@ default `cloudflare` mode. The hardening happens in layers:
 
 1. **Zero inbound ports.** `ufw default deny incoming` blocks everything
    except SSH (`22/tcp`, for administration only). The app itself is never
-   reachable from the internet by IP — nginx binds to `127.0.0.1:8081` only,
-   not `0.0.0.0`. Public traffic reaches the box exclusively through a
+   reachable from the internet by IP — nginx binds to `127.0.0.1:8081` and
+   the Go server to `127.0.0.1:8080` (`LISTEN_HOST`'s default), not
+   `0.0.0.0`. Public traffic reaches the box exclusively through a
    **Cloudflare Zero Trust Tunnel**, which is an *outbound* connection the
    Pi initiates to Cloudflare's edge; Cloudflare terminates TLS and proxies
    requests down the tunnel. There is nothing for a port scanner to find.
