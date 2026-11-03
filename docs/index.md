@@ -10,9 +10,9 @@ Syrinx is a proof of concept, an idea for how we can reclaim it: small, independ
 
 ## Why P2P-_ish_?
 
-NAT makes direct connections between peers very hard to establish, so the server **relays** the traffic between them. That traffic travels encrypted: a reed is encrypted to its reader before it leaves the holder's device, and the server relays ciphertext it can't read. See [Content privacy](/content_privacy).
+NAT makes direct connections between peers very hard to establish, so the server **relays** the traffic between them. That traffic travels encrypted: a post (called _reed_ in Syrinx) is encrypted to its reader before it leaves the holder's device, and the server relays ciphertext it can't read. See [Content privacy](/content_privacy).
 
-The server works like a BitTorrent **tracker**: it knows _who has_ a reed, not _what that reed says_. Reeds live on members' devices. Every reed and sensitive record is **OpenPGP-signed** and checked by the client before it trusts or keeps anything, so trust comes from the cryptography, not the operator.
+The server works like a BitTorrent **tracker**: it knows _who has_ a reed, not _what that reed says_. Reeds live on members' devices. Every piece of content and sensitive record is **OpenPGP-signed** and checked by the client before it trusts or keeps anything, so trust comes from the cryptography, not the operator.
 
 That is the _ish_: distribution and verification like a peer network, with a tracker/relay in the middle because the internet we actually have is full of NATs.
 
